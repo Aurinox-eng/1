@@ -17,6 +17,8 @@ import { gameToPage, launchBrowser, parseArgs, ROOT, sleep, startServer, tap, VI
 const args = parseArgs(process.argv.slice(2));
 const tag = String(args.tag ?? 'latest');
 const shotsDir = path.join(ROOT, 'qa', 'screenshots', tag);
+// Старые скриншоты этого этапа удаляем, чтобы в папке не оставались устаревшие файлы
+fs.rmSync(shotsDir, { recursive: true, force: true });
 fs.mkdirSync(shotsDir, { recursive: true });
 
 const results = []; // { name, ok, details }
