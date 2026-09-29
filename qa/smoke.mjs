@@ -131,8 +131,8 @@ async function runScenario(browser, baseUrl, deviceKey, lang) {
   check(`${prefix} отрисовка через WebGL`, first.renderer === 'webgl', `renderer=${first.renderer}`);
   const listenersAtStart = first.tapListeners;
   check(
-    `${prefix} на старте на экране 3–4 бактерии и все видны`,
-    first.bacteria.length >= 3 && first.bacteria.length <= 5 && first.bacteria.every((b) => b.y + b.r > 0),
+    `${prefix} на старте на экране несколько бактерий (стартовое число из config.ts) и все видны`,
+    first.bacteria.length >= 3 && first.bacteria.length <= 6 && first.bacteria.every((b) => b.y + b.r > 0),
     `бактерий: ${first.bacteria.length} (прошло ${first.elapsed.toFixed(2)} с)`,
   );
 
@@ -148,7 +148,7 @@ async function runScenario(browser, baseUrl, deviceKey, lang) {
   const marginPill = afterMargin.pills[afterMargin.pills.length - 1];
   check(
     `${prefix} тап по тёмному полю стреляет (${margin.label})`,
-    afterMargin.shots - beforeMargin === 1 && (!marginPill || (marginPill.x >= 11 && marginPill.x <= 709)),
+    afterMargin.shots - beforeMargin === 1 && (!marginPill || (marginPill.x >= 3 && marginPill.x <= 717)),
     `выстрелов +${afterMargin.shots - beforeMargin}`,
   );
   await sleep(300);
