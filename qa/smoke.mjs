@@ -456,7 +456,7 @@ async function runMechanicsCheck(browser, baseUrl) {
     return (b.bacteria[0].y - a.bacteria[0].y) / (b.elapsed - a.elapsed);
   };
   const [coccusSpeed, sporeSpeed] = [await speedOf('coccus'), await speedOf('spore')];
-  check(`${prefix} спора падает заметно быстрее кокка`, sporeSpeed > coccusSpeed * 1.8, `кокк ${coccusSpeed.toFixed(0)} px/с, спора ${sporeSpeed.toFixed(0)} px/с`);
+  check(`${prefix} спора падает заметно быстрее кокка (не в разы: при быстром падении споре 2×+ физически не поймать)`, sporeSpeed > coccusSpeed * 1.3, `кокк ${coccusSpeed.toFixed(0)} px/с, спора ${sporeSpeed.toFixed(0)} px/с`);
 
   // ---- Расписание появления: по одному, каждый первый раз в одиночку
   page = await open('bacteria.startSpeed:3,spawn.intervalStartSec:0.6,spawn.intervalEndSec:0.6,spawn.jitter:0', 10);
