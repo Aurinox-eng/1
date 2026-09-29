@@ -57,14 +57,40 @@ export async function launchBrowser() {
   }
 }
 
-/** Запускает сервер с готовой сборкой (папка dist). Возвращает адрес и функцию остановки. */
-export async function startServer() {
-  if (!fs.existsSync(path.join(ROOT, 'dist', 'index.html'))) {
-    throw new Error('Нет папки dist. Сначала выполните: npm run build');
+/** Самое позднее время изменения среди файлов, из которых собирается игра. */
+function newestSourceTime() {
+  let newest = 0;
+  const visit = (target) => {
+    if (!fs.existsSync(target)) return;
+    const stat = fs.statSync(target);
+    if (stat.isDirectory()) {
+      for (const name of fs.readdirSync(target)) visit(path.join(target, name));
+    } else {
+      newest = Math.max(newest, stat.mtimeMs);
+    }
+  };
+  for (const item of ['src', 'index.html', 'vite.config.ts', 'package.json']) visit(path.join(ROOT, item));
+  return newest;
+}
+
+/**
+ * Запускает сервер с готовой сборкой. Возвращает адрес и функцию остановки.
+ * @param dir папка сборки: 'dist-qa' — тестовая (с режимом ?qa), 'dist' — игровая, как на площадке
+ */
+export async function startServer(dir = 'dist-qa') {
+  const index = path.join(ROOT, dir, 'index.html');
+  const build = dir === 'dist' ? 'npm run build' : 'npm run build:qa';
+  if (!fs.existsSync(index)) {
+    throw new Error(`Нет папки ${dir}. Сначала выполните: ${build}`);
+  }
+  // Защита от замера устаревшей игры: если код или config.ts менялись после сборки, останавливаемся
+  if (fs.statSync(index).mtimeMs < newestSourceTime()) {
+    throw new Error(`Сборка в папке ${dir} устарела: код или config.ts изменились после неё. Выполните: ${build}`);
   }
   const server = await preview({
     root: ROOT,
     logLevel: 'error',
+    build: { outDir: dir },
     preview: { port: 0, strictPort: false, open: false, host: '127.0.0.1' },
   });
   const url = server.resolvedUrls?.local?.[0] ?? `http://127.0.0.1:${server.config.preview.port}/`;

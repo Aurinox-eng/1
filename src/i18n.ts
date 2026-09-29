@@ -8,6 +8,7 @@
 import { getLang, type Lang } from './lang';
 
 const ru = {
+  gameTitle: 'Таблетки против бактерий',
   score: 'Счёт: {n}',
   time: 'Время: {n}',
   gameOver: 'Проигрыш',
@@ -19,6 +20,7 @@ const ru = {
 export type TextKey = keyof typeof ru;
 
 const en: Record<TextKey, string> = {
+  gameTitle: 'Pills vs Bacteria',
   score: 'Score: {n}',
   time: 'Time: {n}',
   gameOver: 'Game over',

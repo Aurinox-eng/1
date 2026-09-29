@@ -42,11 +42,22 @@ const device = VIEWPORTS.desktop;
 const context = await browser.newContext({ viewport: device.viewport });
 const page = await context.newPage();
 const problems = [];
+const cfgWarnings = [];
 page.on('pageerror', (err) => problems.push(err.message));
-page.on('console', (msg) => msg.type() === 'error' && problems.push(msg.text()));
+page.on('console', (msg) => {
+  if (msg.type() === 'error') problems.push(msg.text());
+  // Игра пишет «cfg: не понял …», если запись в --cfg не распознана (опечатка в названии)
+  if (msg.type() === 'warning' && msg.text().startsWith('cfg:')) cfgWarnings.push(msg.text());
+});
 
 await page.goto(`${server.url}?qa&speed=${speed}&lang=ru${cfg}`, { waitUntil: 'load' });
 await page.waitForFunction(() => window.__pvb?.getState().state === 'playing');
+if (cfgWarnings.length) {
+  console.error(`ОСТАНОВКА: подмена --cfg не применилась, замер был бы по исходным числам.\n${cfgWarnings.join('\n')}`);
+  await browser.close();
+  await server.close();
+  process.exit(2);
+}
 
 const sessions = [];
 for (let run = 1; run <= runs; run++) {
@@ -74,7 +85,7 @@ for (let run = 1; run <= runs; run++) {
 
   const survived = state.state === 'playing';
   sessions.push({ seconds: state.elapsed, score: state.score, shots: state.shots, survived });
-  const accuracy = state.shots ? Math.round((state.score / 10 / state.shots) * 100) : 0;
+  const accuracy = state.shots ? Math.round((state.kills / state.shots) * 100) : 0;
   console.log(
     `Партия ${run}: ${state.elapsed.toFixed(1)} сек, очков ${state.score}, ` +
       `выстрелов ${state.shots}, меткость ~${accuracy}%${survived ? ' (бот сдался по лимиту времени)' : ''}`,
@@ -106,5 +117,7 @@ console.log(
     `максимум ${Math.max(...seconds).toFixed(1)} сек.`,
 );
 console.log(`В целевые 30–60 сек попало: ${inTarget} из ${sessions.length}`);
+const gaveUp = sessions.filter((s) => s.survived).length;
+if (gaveUp) console.log(`⚠️  ${gaveUp} партий бот не проиграл до лимита ${maxSeconds} сек — они учтены в цифрах выше как есть.`);
 if (problems.length) console.log(`Ошибки консоли: ${[...new Set(problems)].join(' | ')}`);
 process.exit(problems.length ? 1 : 0);

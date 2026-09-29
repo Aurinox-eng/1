@@ -10,11 +10,11 @@ const { width: W, height: H } = CONFIG.screen;
 /** Y красной линии: если бактерия её коснулась — проигрыш. */
 const LOSE_LINE_Y = H - CONFIG.field.loseLineFromBottom;
 /** Откуда вылетают таблетки. */
-const PILL_START_Y = H - 70;
+const PILL_START_Y = H - CONFIG.pill.startFromBottom;
 /** Защита от «прыжков» после сворачивания вкладки: один кадр не длиннее 50 мс. */
 const MAX_FRAME_MS = 50;
-/** После проигрыша тап по экрану не перезапускает игру ещё полсекунды (по реальным часам) — чтобы не нажать случайно. */
-const RESTART_LOCK_MS = 500;
+/** Если кадр очень длинный, за него появится не больше стольких бактерий (защита от лавины). */
+const MAX_SPAWNS_PER_FRAME = 10;
 
 export class GameScene extends Phaser.Scene {
   private bacteria: Bacterium[] = [];
@@ -23,10 +23,15 @@ export class GameScene extends Phaser.Scene {
   private elapsed = 0;
   private level = 0;
   private score = 0;
+  private kills = 0;
   private shots = 0;
   private spawnIn = 0;
-  private lastShotAt = -Infinity;
-  private overAt = 0;
+  /** Когда каждый палец (или мышь) стрелял в последний раз, по реальным часам, мс. */
+  private lastShotAt = new Map<string, number>();
+  /** Раньше этого момента (реальные часы, мс) тап по экрану проигрыша не перезапускает игру. */
+  private restartAllowedAt = 0;
+  /** Сколько обработчиков нажатия навешено (для проверки на утечки при рестарте). */
+  private tapListeners = 0;
 
   private scoreText!: Phaser.GameObjects.Text;
   private timeText!: Phaser.GameObjects.Text;
@@ -43,15 +48,15 @@ export class GameScene extends Phaser.Scene {
     this.elapsed = 0;
     this.level = 0;
     this.score = 0;
+    this.kills = 0;
     this.shots = 0;
-    this.lastShotAt = -Infinity;
+    this.lastShotAt = new Map();
+    this.restartAllowedAt = 0;
     this.spawnIn = CONFIG.bacteria.firstSpawnDelaySec;
 
     this.drawField();
     this.drawHud();
-
-    this.input.mouse?.disableContextMenu();
-    this.input.on('pointerdown', this.onPointerDown, this);
+    this.setUpInput();
 
     exposeDebug(() => this.snapshot());
   }
@@ -63,12 +68,15 @@ export class GameScene extends Phaser.Scene {
     this.elapsed += dt;
     this.updateLevel();
 
-    // Появление бактерий
+    // Появление бактерий (если кадр длинный, может появиться сразу несколько)
     this.spawnIn -= dt;
-    if (this.spawnIn <= 0) {
+    let spawned = 0;
+    while (this.spawnIn <= 0 && spawned < MAX_SPAWNS_PER_FRAME) {
       this.spawnBacterium();
       this.spawnIn += this.nextSpawnInterval();
+      spawned++;
     }
+    this.spawnIn = Math.max(this.spawnIn, 0);
 
     // Движение и попадания
     const levelFactor = CONFIG.difficulty.speedMultiplier ** this.level;
@@ -91,22 +99,54 @@ export class GameScene extends Phaser.Scene {
 
   // ---------------------------------------------------------------- ввод
 
-  private onPointerDown(pointer: Phaser.Input.Pointer): void {
-    if (this.state === 'over') {
-      if (performance.now() - this.overAt >= RESTART_LOCK_MS) this.scene.restart();
-      return;
-    }
-    this.shoot(pointer.x);
+  private setUpInput(): void {
+    this.input.mouse?.disableContextMenu();
+
+    // Тап по самому полю обрабатывает Phaser
+    this.input.on('pointerdown', this.onPhaserPointer, this);
+    this.tapListeners = 1;
+
+    // Тап мимо поля (по тёмным полям вокруг него) тоже стреляет: на высоких телефонах нижняя
+    // тёмная полоса — как раз там, где лежит палец. Горизонталь считаем по положению поля.
+    const onOutsideTap = (event: PointerEvent): void => {
+      if (event.target === this.game.canvas) return; // это уже обработал Phaser
+      if (event.pointerType === 'mouse' && event.button !== 0) return;
+      const rect = this.game.canvas.getBoundingClientRect();
+      this.onTap(`dom${event.pointerId}`, ((event.clientX - rect.left) / rect.width) * W);
+    };
+    window.addEventListener('pointerdown', onOutsideTap);
+    this.tapListeners++;
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      window.removeEventListener('pointerdown', onOutsideTap);
+      this.tapListeners--;
+    });
   }
 
-  private shoot(x: number): void {
-    const nowMs = this.elapsed * 1000;
-    if (nowMs - this.lastShotAt < CONFIG.pill.cooldownMs) return;
-    this.lastShotAt = nowMs;
+  private onPhaserPointer(pointer: Phaser.Input.Pointer): void {
+    if (pointer.button !== 0) return; // только левая кнопка мыши или касание
+    this.onTap(`phaser${pointer.id}`, pointer.x);
+  }
+
+  /** Любое нажатие: во время игры — выстрел, на экране проигрыша — рестарт. */
+  private onTap(fingerId: string, x: number): void {
+    if (this.state === 'over') {
+      if (performance.now() >= this.restartAllowedAt) this.scene.restart();
+      return;
+    }
+    this.shoot(fingerId, x);
+  }
+
+  private shoot(fingerId: string, x: number): void {
+    // У каждого пальца своя пауза между выстрелами, считается по реальным часам: на слабом
+    // телефоне (мало кадров в секунду) пауза не растягивается и тапы не пропадают.
+    const now = performance.now();
+    const cooldown = CONFIG.pill.cooldownMs / TIME_SCALE;
+    if (now - (this.lastShotAt.get(fingerId) ?? -Infinity) < cooldown) return;
+    if (this.lastShotAt.size > 50) this.lastShotAt.clear();
+    this.lastShotAt.set(fingerId, now);
 
     const half = CONFIG.pill.width / 2;
-    const clampedX = Phaser.Math.Clamp(x, half, W - half);
-    this.pills.push(new Pill(this, clampedX, PILL_START_Y));
+    this.pills.push(new Pill(this, Phaser.Math.Clamp(x, half, W - half), PILL_START_Y));
     this.shots++;
   }
 
@@ -141,7 +181,11 @@ export class GameScene extends Phaser.Scene {
     this.bacteria.push(new Bacterium(this, x));
   }
 
-  /** Каждая таблетка попадает не более чем в одну бактерию — в самую нижнюю из тех, что на её пути. */
+  /**
+   * Каждая таблетка попадает не более чем в одну бактерию — в самую нижнюю из тех, что на её пути.
+   * Попадание считаем честно: таблетка (прямоугольник, растянутый на путь за кадр, чтобы быстрая
+   * таблетка не «пролетала сквозь») касается круга бактерии.
+   */
   private resolveHits(): void {
     const halfWidth = CONFIG.pill.width / 2;
     const survivors: Pill[] = [];
@@ -152,15 +196,18 @@ export class GameScene extends Phaser.Scene {
 
       let target: Bacterium | undefined;
       for (const b of this.bacteria) {
-        const closeInX = Math.abs(b.x - pill.x) < b.radius + halfWidth;
-        const onPath = b.y + b.radius >= top && b.y - b.radius <= bottom;
-        if (closeInX && onPath && (!target || b.y > target.y)) target = b;
+        // ближайшая к центру бактерии точка таблетки
+        const nearestX = Phaser.Math.Clamp(b.x, pill.x - halfWidth, pill.x + halfWidth);
+        const nearestY = Phaser.Math.Clamp(b.y, top, bottom);
+        const touches = (b.x - nearestX) ** 2 + (b.y - nearestY) ** 2 <= b.radius ** 2;
+        if (touches && (!target || b.y > target.y)) target = b;
       }
 
       if (target) {
         this.bacteria = this.bacteria.filter((b) => b !== target);
         target.pop();
         pill.destroy();
+        this.kills++;
         this.score += CONFIG.score.perBacteria;
         this.scoreText.setText(t('score', { n: this.score }));
       } else {
@@ -172,7 +219,7 @@ export class GameScene extends Phaser.Scene {
 
   private endGame(): void {
     this.state = 'over';
-    this.overAt = performance.now();
+    this.restartAllowedAt = performance.now() + CONFIG.gameOver.restartLockMs;
 
     this.add.rectangle(W / 2, H / 2, W, H, 0x000000, 0.8).setDepth(10);
     this.add
@@ -240,10 +287,13 @@ export class GameScene extends Phaser.Scene {
     return {
       state: this.state,
       score: this.score,
+      kills: this.kills,
       shots: this.shots,
       elapsed: this.elapsed,
       level: this.level,
       lang: document.documentElement.lang,
+      renderer: this.game.renderer.type === Phaser.WEBGL ? 'webgl' : 'canvas',
+      tapListeners: this.tapListeners,
       width: W,
       height: H,
       loseLineY: LOSE_LINE_Y,

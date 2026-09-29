@@ -52,8 +52,4 @@ export class Bacterium {
       onComplete: () => this.shape.destroy(),
     });
   }
-
-  destroy(): void {
-    this.shape.destroy();
-  }
 }
