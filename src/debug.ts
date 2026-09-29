@@ -6,7 +6,7 @@
  * Включается параметром ?qa в адресе:
  *   http://localhost:5173/?qa            — открывает доступ к состоянию игры для тестов
  *   http://localhost:5173/?qa&speed=4    — то же, но игровое время идёт в 4 раза быстрее
- *   http://localhost:5173/?qa&cfg=bacteria.startSpeed:120,pill.cooldownMs:200
+ *   http://localhost:5173/?qa&cfg=bacteria.startSpeed:120,pill.cooldownMs:200,sizes.large.points:15
  *                                        — временно подменяет числа из config.ts (для подбора баланса)
  *   http://localhost:5173/?lang=en       — принудительно выбирает язык (проверка переводов)
  */
@@ -23,8 +23,13 @@ export const TIME_SCALE: number = QA_MODE ? Math.min(10, Math.max(0.1, Number(pa
 export interface DebugSnapshot {
   state: 'playing' | 'over';
   score: number;
-  /** Сколько бактерий уничтожено за партию. */
+  /** Сколько раз попали по бактериям за партию (любого размера). */
+  hits: number;
+  /** Сколько малых бактерий уничтожено окончательно. */
   kills: number;
+  /** Сколько делений было от попаданий и сколько — самопроизвольных. */
+  splits: number;
+  selfSplits: number;
   /** Сколько таблеток выпущено за партию. */
   shots: number;
   elapsed: number;
@@ -36,8 +41,12 @@ export interface DebugSnapshot {
   width: number;
   height: number;
   loseLineY: number;
-  bacteria: { x: number; y: number; r: number; age: number }[];
+  bacteria: { x: number; y: number; r: number; age: number; size: 'large' | 'medium' | 'small' }[];
   pills: { x: number; y: number }[];
+  /** Сколько раз сработали вспышка с частицами, всплывающее «+очки» и тряска экрана. */
+  effects: { bursts: number; popups: number; shakes: number };
+  /** Звук: состояние аудио («running» — играет) и сколько звуков сыграно с загрузки страницы. */
+  sound: { state: string; played: number };
 }
 
 declare global {
@@ -61,11 +70,14 @@ export function applyConfigOverrides(config: Record<string, unknown>): void {
   if (!QA_MODE || !raw) return;
   for (const item of raw.split(',')) {
     const [path, valueText] = item.split(':');
-    const [section, key] = (path ?? '').split('.');
+    const keys = (path ?? '').split('.');
+    const last = keys.pop();
+    let target: unknown = config;
+    for (const key of keys) target = (target as Record<string, unknown> | undefined)?.[key];
     const value = Number(valueText);
-    const target = section ? (config[section] as Record<string, unknown> | undefined) : undefined;
-    if (target && key && typeof target[key] === 'number' && Number.isFinite(value)) {
-      target[key] = value;
+    const holder = target as Record<string, unknown> | undefined;
+    if (last && holder && typeof holder[last] === 'number' && valueText !== undefined && valueText !== '' && Number.isFinite(value)) {
+      holder[last] = value;
     } else {
       console.warn(`cfg: не понял «${item}» — пропускаю`);
     }
