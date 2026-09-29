@@ -8,12 +8,15 @@
  *  3. тап по самому полю и по тёмным полям вокруг него стреляет ровно одной таблеткой;
  *  4. попадание увеличивает счёт;
  *  5. проигрыш наступает; рестарт по тапу, обработчики нажатия не копятся;
- *  6. только телефон: два пальца одновременно = две таблетки; поворот экрана перестраивает
- *     поле; после «зависания» страницы на 3 секунды бактерии не прыгают.
+ *  6. на старте на экране 3–4 бактерии, а не пустое поле;
+ *  7. только телефон: два пальца одновременно = две таблетки; поворот экрана перестраивает
+ *     поле; после «зависания» страницы на 3 секунды бактерии не прыгают (замедленный мир);
+ *  8. отдельный сценарий «механика деления»: большая → 2 средние → малые → гибель, очки 10/20/40,
+ *     разлёт в стороны, вспышка/«+очки»/тряска, звук; самоделение без очков и тряски.
  * ИГРОВАЯ сборка (dist, та, что уйдёт на Яндекс): режима проверки в ней нет, подмена
  * настроек и языка из адреса не работает, консоль чистая.
  *
- * Дополнительно: --only=phone-ru (или desktop-en, phone-en, desktop-ru, listeners, production)
+ * Дополнительно: --only=phone-ru (или desktop-en, phone-en, desktop-ru, mechanics, listeners, production)
  * запускает только один сценарий — быстро проверить одну вещь.
  *
  * Скриншоты — в qa/screenshots/<tag>/. Итог печатается в консоль; при любой ошибке код выхода 1.
@@ -124,6 +127,11 @@ async function runScenario(browser, baseUrl, deviceKey, lang) {
   check(`${prefix} страница не прокручивается`, !layout.scrolls);
   check(`${prefix} отрисовка через WebGL`, first.renderer === 'webgl', `renderer=${first.renderer}`);
   const listenersAtStart = first.tapListeners;
+  check(
+    `${prefix} на старте на экране 3–4 бактерии и все видны`,
+    first.bacteria.length >= 3 && first.bacteria.length <= 5 && first.bacteria.every((b) => b.y + b.r > 0),
+    `бактерий: ${first.bacteria.length} (прошло ${first.elapsed.toFixed(2)} с)`,
+  );
 
   // 2. Тап по тёмному полю вокруг игрового поля тоже стреляет (на телефоне это полосы сверху и снизу)
   const { rect, win } = layout;
@@ -165,87 +173,28 @@ async function runScenario(browser, baseUrl, deviceKey, lang) {
     try {
       await waitFor(page, (s) => s.score > 0, 3000, 'попадание');
       hit = true;
+      await shot(page, `${name}-2-hit`); // сразу, пока видны вспышка, частицы и «+очки»
     } catch {
       /* промах — пробуем ещё раз */
     }
     await sleep(120);
   }
   check(`${prefix} попадание увеличивает счёт`, hit);
-  await shot(page, `${name}-2-hit`);
 
-  // 4. Только телефон: два пальца, поворот экрана, «зависание» страницы
-  if (isPhone && lang === 'ru') {
-    // Два пальца одновременно (настоящие мультитач-события браузера)
-    const cdp = await context.newCDPSession(page);
-    const left = await gameToPage(page, 200, 900);
-    const right = await gameToPage(page, 520, 900);
-    await sleep(400);
-    const beforeTwo = (await getState(page)).shots;
-    await cdp.send('Input.dispatchTouchEvent', {
-      type: 'touchStart',
-      touchPoints: [
-        { x: left.x, y: left.y, id: 11 },
-        { x: right.x, y: right.y, id: 12 },
-      ],
-    });
-    await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
-    await sleep(150);
-    const firedTwo = (await getState(page)).shots - beforeTwo;
-    check(`${prefix} два пальца одновременно = две таблетки`, firedTwo === 2, `выпущено: ${firedTwo}`);
-
-    // Поворот экрана и возврат
-    for (const [w, h, label] of [
-      [844, 390, 'горизонтально'],
-      [390, 844, 'снова вертикально'],
-    ]) {
-      await page.setViewportSize({ width: w, height: h });
-      await sleep(1500);
-      const m = await measureCanvas(page);
-      check(
-        `${prefix} поворот экрана (${label}): поле перестроилось`,
-        layoutOk(m),
-        `ratio ${m.ratio.toFixed(3)}, помещается ${m.fits}, по центру ${m.centred}, заполнение ${m.fill.toFixed(2)}`,
-      );
-      if (w > h) await shot(page, `${name}-3-landscape`);
-    }
-
-    // «Зависание» страницы (как после сворачивания вкладки): после него бактерии не должны прыгнуть
-    await waitFor(page, (s) => s.state === 'playing' && s.bacteria.length >= 2, WAIT_MS, 'бактерии перед зависанием');
-    const beforeFreeze = await getState(page);
-    await page.evaluate(() => {
-      const t0 = performance.now();
-      while (performance.now() - t0 < 3000) {
-        /* страница занята и не рисует кадры */
-      }
-    });
-    await sleep(300);
-    const afterFreeze = await getState(page);
-    const jumped = afterFreeze.elapsed - beforeFreeze.elapsed;
-    const maxDrop = Math.max(
-      0,
-      ...afterFreeze.bacteria.map((b) => {
-        const old = beforeFreeze.bacteria.find((o) => Math.abs(o.x - b.x) < 90 && o.age < b.age);
-        return old ? b.y - old.y : 0;
-      }),
-    );
-    check(
-      `${prefix} после «зависания» на 3 сек игра не прыгает`,
-      afterFreeze.state === 'over' || (jumped < 1.5 && maxDrop < 200),
-      `прошло игрового времени ${jumped.toFixed(2)} с, бактерии сдвинулись максимум на ${maxDrop.toFixed(0)} px`,
-    );
-  }
-
-  // Кадр «бой»: ждём, пока на поле станет несколько бактерий, и стреляем — таблетка в полёте
+  // Кадр «бой»: ждём, пока на поле станет густо, и стреляем — таблетка в полёте
   try {
-    const cur = await getState(page);
-    if (cur.state === 'playing') {
-      await waitFor(page, (s) => s.bacteria.length >= 4 && s.state === 'playing', WAIT_MS, 'несколько бактерий');
-      const state = await getState(page);
+    try {
+      await waitFor(page, (s) => s.bacteria.length >= 6 && s.state === 'playing', 8000, 'густо на поле');
+    } catch {
+      /* снимем то, что есть */
+    }
+    const state = await getState(page);
+    if (state.state === 'playing' && state.bacteria.length) {
       const target = state.bacteria.reduce((a, b) => (b.y > a.y ? b : a));
       const point = await gameToPage(page, target.x, state.height - 300);
       await tap(page, point.x, point.y, isPhone);
-      await shot(page, `${name}-4-battle`);
     }
+    await shot(page, `${name}-4-battle`);
   } catch (e) {
     check(`${prefix} кадр «бой»`, false, e.message);
   }
@@ -285,6 +234,161 @@ async function runScenario(browser, baseUrl, deviceKey, lang) {
     check(`${prefix} рестарт по тапу`, false, e.message);
   }
 
+  // 7. Только телефон (ru): проверки, которым нужна долгая партия — в замедленном мире
+  if (isPhone && lang === 'ru') await runPhoneLongChecks(context, baseUrl, prefix, name);
+
+  await context.close();
+}
+
+/**
+ * Проверки телефона, которым нужна партия подлиннее: два пальца, поворот экрана, «зависание» страницы.
+ * Обычная партия при бездействии кончается за 6–10 секунд, поэтому здесь бактерии еле ползут
+ * и не делятся сами, а новые не появляются.
+ */
+async function runPhoneLongChecks(context, baseUrl, prefix, name) {
+  const page = await context.newPage();
+  watchConsole(page, `${prefix} [замедленный мир]`);
+  const slow =
+    'bacteria.startSpeed:6,spawn.intervalStartSec:9999,spawn.intervalEndSec:9999,sizes.large.selfSplitSec:0,sizes.medium.selfSplitSec:0';
+  await page.goto(`${baseUrl}?qa&speed=1&cfg=${slow}`, { waitUntil: 'load' });
+  await waitFor(page, (s) => s.state === 'playing', 15000, 'запуск замедленного мира');
+
+  // Два пальца одновременно (настоящие мультитач-события браузера)
+  const cdp = await context.newCDPSession(page);
+  const left = await gameToPage(page, 200, 900);
+  const right = await gameToPage(page, 520, 900);
+  await sleep(400);
+  const beforeTwo = (await getState(page)).shots;
+  await cdp.send('Input.dispatchTouchEvent', {
+    type: 'touchStart',
+    touchPoints: [
+      { x: left.x, y: left.y, id: 11 },
+      { x: right.x, y: right.y, id: 12 },
+    ],
+  });
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  await sleep(150);
+  const firedTwo = (await getState(page)).shots - beforeTwo;
+  check(`${prefix} два пальца одновременно = две таблетки`, firedTwo === 2, `выпущено: ${firedTwo}`);
+
+  // Поворот экрана и возврат
+  for (const [w, h, label] of [
+    [844, 390, 'горизонтально'],
+    [390, 844, 'снова вертикально'],
+  ]) {
+    await page.setViewportSize({ width: w, height: h });
+    await sleep(1500);
+    const m = await measureCanvas(page);
+    check(
+      `${prefix} поворот экрана (${label}): поле перестроилось`,
+      layoutOk(m),
+      `ratio ${m.ratio.toFixed(3)}, помещается ${m.fits}, по центру ${m.centred}, заполнение ${m.fill.toFixed(2)}`,
+    );
+    if (w > h) await shot(page, `${name}-3-landscape`);
+  }
+
+  // «Зависание» страницы (как после сворачивания вкладки): после него игровое время не должно скакнуть
+  const beforeFreeze = await getState(page);
+  await page.evaluate(() => {
+    const t0 = performance.now();
+    while (performance.now() - t0 < 3000) {
+      /* страница занята и не рисует кадры */
+    }
+  });
+  await sleep(300);
+  const afterFreeze = await getState(page);
+  const jumped = afterFreeze.elapsed - beforeFreeze.elapsed;
+  check(
+    `${prefix} после «зависания» на 3 сек игровое время не скачет`,
+    jumped < 1.0,
+    `прошло игрового времени ${jumped.toFixed(2)} с (без защиты было бы ≈3.3 с)`,
+  );
+  await page.close();
+}
+
+/**
+ * Механика деления на предсказуемом поле: одна большая бактерия почти не двигается, других нет.
+ * Проверяем цепочку большая → 2 средние → малые → гибель, очки 10/20/40, разлёт в стороны,
+ * вспышку/«+очки»/тряску, звук; и самоделение (без очков и тряски).
+ */
+async function runMechanicsCheck(browser, baseUrl) {
+  const prefix = '[механика деления]';
+  const context = await browser.newContext({ viewport: VIEWPORTS.desktop.viewport, locale: 'ru-RU' });
+  const page = await context.newPage();
+  watchConsole(page, prefix);
+  const still =
+    'spawn.mix.large:100,spawn.mix.medium:0,spawn.mix.small:0,spawn.startCountMin:1,spawn.startCountMax:1,' +
+    'spawn.intervalStartSec:9999,spawn.intervalEndSec:9999,bacteria.wobbleAmplitude:0,bacteria.startSpeed:20';
+
+  /** Стреляет по бактерии нужного размера (самой нижней), пока не выполнится условие. */
+  async function shootUntil(done, size, label) {
+    for (let i = 0; i < 30; i++) {
+      const s = await getState(page);
+      if (done(s)) return s;
+      const target = s.bacteria.filter((b) => !size || b.size === size).sort((a, b) => b.y - a.y)[0];
+      if (target) {
+        const p = await gameToPage(page, target.x, 900);
+        await page.mouse.click(p.x, p.y);
+      }
+      for (let k = 0; k < 20; k++) {
+        await sleep(30);
+        const now = await getState(page);
+        if (done(now)) return now;
+      }
+    }
+    throw new Error(`не получилось: ${label}`);
+  }
+
+  await page.goto(`${baseUrl}?qa&speed=1&cfg=${still},sizes.large.selfSplitSec:0,sizes.medium.selfSplitSec:0`, {
+    waitUntil: 'load',
+  });
+  await waitFor(page, (s) => s.state === 'playing', 15000, 'запуск игры');
+  const start = await getState(page);
+  check(`${prefix} на поле одна большая бактерия`, start.bacteria.length === 1 && start.bacteria[0].size === 'large');
+
+  // Большая: +10, две средние, отклик, звук
+  let s = await shootUntil((x) => x.hits >= 1, 'large', 'попадание в большую');
+  await shot(page, 'mechanics-1-split');
+  const sizes = (state) => state.bacteria.map((b) => b.size).sort().join('+');
+  check(`${prefix} попадание в большую: +10 очков, две средние`, s.score === 10 && sizes(s) === 'medium+medium', `очки ${s.score}, на поле: ${sizes(s)}`);
+  check(
+    `${prefix} отклик: вспышка с частицами, «+очки», тряска при делении`,
+    s.effects.bursts === 1 && s.effects.popups === 1 && s.effects.shakes === 1,
+    JSON.stringify(s.effects),
+  );
+  check(`${prefix} звук сыгран (аудио запущено по касанию)`, s.sound.state === 'running' && s.sound.played > 0, JSON.stringify(s.sound));
+  const xs = s.bacteria.map((b) => b.x).sort((a, b) => a - b);
+  // Ждём 0.6 секунды ИГРОВОГО времени (в медленной среде оно идёт медленнее реального)
+  const laterState = await waitFor(page, (x) => x.elapsed >= s.elapsed + 0.6, WAIT_MS, 'полсекунды игрового времени');
+  const later = laterState.bacteria.map((b) => b.x).sort((a, b) => a - b);
+  const moved = Math.max(Math.abs(later[0] - xs[0]), Math.abs(later[1] - xs[1]));
+  check(`${prefix} «дети» разлетаются в стороны`, moved > 40, `сдвиг по горизонтали ${moved.toFixed(0)} px за 0.6 с игрового времени`);
+
+  // Средняя: +20, две малые
+  s = await shootUntil((x) => x.hits >= 2, 'medium', 'попадание в среднюю');
+  check(`${prefix} попадание в среднюю: +20 очков, две малые`, s.score === 30 && sizes(s) === 'medium+small+small', `очки ${s.score}, на поле: ${sizes(s)}`);
+
+  // Малая: +40, гибель
+  s = await shootUntil((x) => x.kills >= 1, 'small', 'гибель малой');
+  check(`${prefix} малая гибнет от одного попадания: +40 очков`, s.score === 70 && sizes(s) === 'medium+small', `очки ${s.score}, на поле: ${sizes(s)}`);
+  check(
+    `${prefix} делений от попаданий 2, малых уничтожено 1`,
+    s.splits === 2 && s.kills === 1 && s.selfSplits === 0,
+    `splits ${s.splits}, kills ${s.kills}, selfSplits ${s.selfSplits}`,
+  );
+
+  // Самоделение: большая, до которой не добираются, делится сама — без очков и тряски
+  await page.goto(`${baseUrl}?qa&speed=2&cfg=${still},sizes.large.selfSplitSec:2,sizes.medium.selfSplitSec:0`, {
+    waitUntil: 'load',
+  });
+  await waitFor(page, (x) => x.state === 'playing', 15000, 'запуск игры (самоделение)');
+  const before = await getState(page);
+  const after = await waitFor(page, (x) => x.selfSplits >= 1, WAIT_MS, 'самоделение');
+  check(
+    `${prefix} бактерия, которую не трогали, делится сама (без очков и тряски)`,
+    before.bacteria.length === 1 && sizes(after) === 'medium+medium' && after.score === 0 && after.effects.shakes === 0 && after.splits === 0,
+    `на поле: ${sizes(after)}, очки ${after.score}, тряска ${after.effects.shakes}, вспышек ${after.effects.bursts}`,
+  );
   await context.close();
 }
 
@@ -377,7 +481,7 @@ const scenarios = [
   ['phone-en', 'phone', 'en'],
   ['desktop-en', 'desktop', 'en'],
 ];
-const needQa = scenarios.some(([key]) => wants(key)) || wants('listeners');
+const needQa = scenarios.some(([key]) => wants(key)) || wants('mechanics') || wants('listeners');
 const qaServer = needQa ? await startServer('dist-qa') : null;
 const prodServer = wants('production') ? await startServer('dist') : null;
 const browser = await launchBrowser();
@@ -386,6 +490,7 @@ try {
   for (const [key, device, lang] of scenarios) {
     if (wants(key)) await runScenario(browser, qaServer.url, device, lang);
   }
+  if (wants('mechanics')) await runMechanicsCheck(browser, qaServer.url);
   if (wants('listeners')) await runListenerCheck(browser, qaServer.url);
   if (wants('production')) await runProductionCheck(browser, prodServer.url);
 } catch (error) {

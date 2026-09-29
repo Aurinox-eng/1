@@ -15,6 +15,7 @@ const ru = {
   finalScore: 'Ваш счёт: {n}',
   tapToRestart: 'Тапните, чтобы сыграть снова',
   speedUp: 'Быстрее!',
+  scorePopup: '+{n}',
 };
 
 export type TextKey = keyof typeof ru;
@@ -27,6 +28,7 @@ const en: Record<TextKey, string> = {
   finalScore: 'Your score: {n}',
   tapToRestart: 'Tap to play again',
   speedUp: 'Faster!',
+  scorePopup: '+{n}',
 };
 
 const TEXTS: Record<Lang, Record<TextKey, string>> = { ru, en };

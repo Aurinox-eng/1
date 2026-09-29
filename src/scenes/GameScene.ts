@@ -1,9 +1,11 @@
 import Phaser from 'phaser';
 import { CONFIG } from '../config';
 import { exposeDebug, TIME_SCALE, type DebugSnapshot } from '../debug';
+import { Effects } from '../effects';
 import { t } from '../i18n';
-import { Bacterium } from '../objects/Bacterium';
+import { Bacterium, NEXT_SIZE, type BacteriumSize } from '../objects/Bacterium';
 import { Pill } from '../objects/Pill';
+import { sfx } from '../sound';
 import { COLORS, FONT, TEXT_COLORS } from '../theme';
 
 const { width: W, height: H } = CONFIG.screen;
@@ -23,7 +25,10 @@ export class GameScene extends Phaser.Scene {
   private elapsed = 0;
   private level = 0;
   private score = 0;
+  private hits = 0;
   private kills = 0;
+  private splits = 0;
+  private selfSplits = 0;
   private shots = 0;
   private spawnIn = 0;
   /** Когда каждый палец (или мышь) стрелял в последний раз, по реальным часам, мс. */
@@ -33,6 +38,7 @@ export class GameScene extends Phaser.Scene {
   /** Сколько обработчиков нажатия навешено (для проверки на утечки при рестарте). */
   private tapListeners = 0;
 
+  private effects!: Effects;
   private scoreText!: Phaser.GameObjects.Text;
   private timeText!: Phaser.GameObjects.Text;
 
@@ -48,15 +54,20 @@ export class GameScene extends Phaser.Scene {
     this.elapsed = 0;
     this.level = 0;
     this.score = 0;
+    this.hits = 0;
     this.kills = 0;
+    this.splits = 0;
+    this.selfSplits = 0;
     this.shots = 0;
     this.lastShotAt = new Map();
     this.restartAllowedAt = 0;
-    this.spawnIn = CONFIG.bacteria.firstSpawnDelaySec;
+    this.spawnIn = CONFIG.spawn.intervalStartSec;
 
     this.drawField();
     this.drawHud();
+    this.effects = new Effects(this);
     this.setUpInput();
+    this.spawnStartingBacteria();
 
     exposeDebug(() => this.snapshot());
   }
@@ -68,21 +79,22 @@ export class GameScene extends Phaser.Scene {
     this.elapsed += dt;
     this.updateLevel();
 
-    // Появление бактерий (если кадр длинный, может появиться сразу несколько)
+    // Появление новых бактерий сверху (если кадр длинный, может появиться сразу несколько)
     this.spawnIn -= dt;
     let spawned = 0;
     while (this.spawnIn <= 0 && spawned < MAX_SPAWNS_PER_FRAME) {
-      this.spawnBacterium();
+      if (this.bacteria.length < CONFIG.split.maxOnScreen) this.spawnFromTop();
       this.spawnIn += this.nextSpawnInterval();
       spawned++;
     }
     this.spawnIn = Math.max(this.spawnIn, 0);
 
-    // Движение и попадания
+    // Движение, попадания, самоделение
     const levelFactor = CONFIG.difficulty.speedMultiplier ** this.level;
     for (const bacterium of this.bacteria) bacterium.update(dt, levelFactor);
     for (const pill of this.pills) pill.update(dt);
     this.resolveHits();
+    this.splitNeglected();
     this.pills = this.pills.filter((pill) => {
       if (pill.isOffScreen) pill.destroy();
       return !pill.isOffScreen;
@@ -150,35 +162,71 @@ export class GameScene extends Phaser.Scene {
     this.shots++;
   }
 
+  // ---------------------------------------------------------------- появление бактерий
+
+  /** На старте на экране уже 3–4 бактерии, расставленные по верхней части поля. */
+  private spawnStartingBacteria(): void {
+    const { startCountMin, startCountMax, startZoneTop, startZoneBottom } = CONFIG.spawn;
+    const count = Phaser.Math.Between(startCountMin, startCountMax);
+    const band = (startZoneBottom - startZoneTop) / Math.max(count, 1);
+    for (let i = 0; i < count; i++) {
+      const size = this.pickSize();
+      const y = startZoneTop + band * (i + 0.15 + Math.random() * 0.7);
+      this.bacteria.push(new Bacterium(this, size, this.freeX(CONFIG.sizes[size].radius, y), y));
+    }
+  }
+
+  private spawnFromTop(): void {
+    const size = this.pickSize();
+    const radius = CONFIG.sizes[size].radius;
+    const y = -radius;
+    this.bacteria.push(new Bacterium(this, size, this.freeX(radius, y), y));
+  }
+
+  /** Размер новой бактерии — случайно, по долям из config.spawn.mix. */
+  private pickSize(): BacteriumSize {
+    const { large, medium, small } = CONFIG.spawn.mix;
+    let roll = Math.random() * (large + medium + small);
+    if ((roll -= large) < 0) return 'large';
+    if ((roll -= medium) < 0) return 'medium';
+    return 'small';
+  }
+
+  /** Пауза до следующей бактерии: плавно сокращается от intervalStartSec до intervalEndSec. */
+  private nextSpawnInterval(): number {
+    const { intervalStartSec, intervalEndSec, rampSec, jitter } = CONFIG.spawn;
+    const progress = Math.min(1, this.elapsed / Math.max(rampSec, 0.001));
+    const base = intervalStartSec + (intervalEndSec - intervalStartSec) * progress;
+    return Math.max(0.05, base * (1 + (Math.random() * 2 - 1) * jitter));
+  }
+
+  /** Подбирает место по горизонтали, где новая бактерия не сядет прямо на другую. */
+  private freeX(radius: number, y: number): number {
+    const margin = radius + CONFIG.bacteria.wobbleAmplitude + 8;
+    let best = W / 2;
+    let bestGap = -Infinity;
+    for (let attempt = 0; attempt < 12; attempt++) {
+      const x = Phaser.Math.Between(margin, W - margin);
+      let gap = Infinity;
+      for (const b of this.bacteria) gap = Math.min(gap, Math.hypot(b.x - x, b.y - y) - b.radius - radius);
+      if (gap >= 6) return x;
+      if (gap > bestGap) {
+        bestGap = gap;
+        best = x;
+      }
+    }
+    return best;
+  }
+
   // ---------------------------------------------------------------- правила
 
-  /** Растёт ли сложность: каждые N секунд бактерии становятся быстрее и чаще. */
+  /** Растёт ли сложность: каждые N секунд бактерии становятся быстрее. */
   private updateLevel(): void {
     const level = Math.floor(this.elapsed / CONFIG.difficulty.speedUpEverySec);
     if (level > this.level) {
       this.level = level;
       this.showNotice(t('speedUp'));
     }
-  }
-
-  private nextSpawnInterval(): number {
-    const { spawnIntervalSec, spawnJitter } = CONFIG.bacteria;
-    const { spawnIntervalMultiplier, minSpawnIntervalSec } = CONFIG.difficulty;
-    const base = Math.max(minSpawnIntervalSec, spawnIntervalSec * spawnIntervalMultiplier ** this.level);
-    return base * (1 + (Math.random() * 2 - 1) * spawnJitter);
-  }
-
-  private spawnBacterium(): void {
-    const { radius, wobbleAmplitude } = CONFIG.bacteria;
-    const margin = radius + wobbleAmplitude + 8;
-    let x = Phaser.Math.Between(margin, W - margin);
-    // Несколько попыток не появиться прямо поверх другой бактерии, которая ещё у верхнего края.
-    for (let i = 0; i < 10; i++) {
-      const overlaps = this.bacteria.some((b) => b.y < radius * 3 && Math.abs(b.x - x) < radius * 2.2);
-      if (!overlaps) break;
-      x = Phaser.Math.Between(margin, W - margin);
-    }
-    this.bacteria.push(new Bacterium(this, x));
   }
 
   /**
@@ -204,12 +252,8 @@ export class GameScene extends Phaser.Scene {
       }
 
       if (target) {
-        this.bacteria = this.bacteria.filter((b) => b !== target);
-        target.pop();
+        this.onHit(target);
         pill.destroy();
-        this.kills++;
-        this.score += CONFIG.score.perBacteria;
-        this.scoreText.setText(t('score', { n: this.score }));
       } else {
         survivors.push(pill);
       }
@@ -217,9 +261,57 @@ export class GameScene extends Phaser.Scene {
     this.pills = survivors;
   }
 
+  /** Попадание: очки, вспышка, «+очки»; большая и средняя делятся, малая гибнет. */
+  private onHit(bacterium: Bacterium): void {
+    this.hits++;
+    this.score += bacterium.points;
+    this.scoreText.setText(t('score', { n: this.score }));
+
+    this.effects.burst(bacterium.x, bacterium.y, bacterium.radius, bacterium.size);
+    this.effects.popup(bacterium.x, bacterium.y - bacterium.radius * 0.3, bacterium.points, bacterium.size);
+
+    const next = NEXT_SIZE[bacterium.size];
+    if (next === null) {
+      this.kills++;
+      sfx.kill();
+    } else {
+      this.splits++;
+      this.effects.shake();
+      sfx.split(bacterium.size as 'large' | 'medium');
+    }
+    this.divide(bacterium);
+  }
+
+  /** Бактерии, до которых давно не добрались, делятся сами (без очков и тряски — только «блоп»). */
+  private splitNeglected(): void {
+    for (const bacterium of [...this.bacteria]) {
+      if (!bacterium.readyToSplit || this.bacteria.length >= CONFIG.split.maxOnScreen) continue;
+      this.selfSplits++;
+      this.effects.burst(bacterium.x, bacterium.y, bacterium.radius, bacterium.size);
+      sfx.selfSplit();
+      this.divide(bacterium);
+    }
+  }
+
+  /** Убирает бактерию; если у неё есть следующий размер — на её месте две «дочки», разлетающиеся в стороны. */
+  private divide(parent: Bacterium): void {
+    this.bacteria = this.bacteria.filter((b) => b !== parent);
+    parent.destroy();
+
+    const next = NEXT_SIZE[parent.size];
+    if (next === null) return;
+    const offset = CONFIG.sizes[next].radius * 0.7;
+    const kick = CONFIG.split.kickSpeed;
+    this.bacteria.push(
+      new Bacterium(this, next, Phaser.Math.Clamp(parent.x - offset, 0, W), parent.y, -kick),
+      new Bacterium(this, next, Phaser.Math.Clamp(parent.x + offset, 0, W), parent.y, kick),
+    );
+  }
+
   private endGame(): void {
     this.state = 'over';
     this.restartAllowedAt = performance.now() + CONFIG.gameOver.restartLockMs;
+    sfx.lose();
 
     this.add.rectangle(W / 2, H / 2, W, H, 0x000000, 0.8).setDepth(10);
     this.add
@@ -287,7 +379,10 @@ export class GameScene extends Phaser.Scene {
     return {
       state: this.state,
       score: this.score,
+      hits: this.hits,
       kills: this.kills,
+      splits: this.splits,
+      selfSplits: this.selfSplits,
       shots: this.shots,
       elapsed: this.elapsed,
       level: this.level,
@@ -297,8 +392,10 @@ export class GameScene extends Phaser.Scene {
       width: W,
       height: H,
       loseLineY: LOSE_LINE_Y,
-      bacteria: this.bacteria.map((b) => ({ x: b.x, y: b.y, r: b.radius, age: b.age })),
+      bacteria: this.bacteria.map((b) => ({ x: b.x, y: b.y, r: b.radius, age: b.age, size: b.size })),
       pills: this.pills.map((p) => ({ x: p.x, y: p.y })),
+      effects: { bursts: this.effects.bursts, popups: this.effects.popups, shakes: this.effects.shakes },
+      sound: { state: sfx.state, played: sfx.played },
     };
   }
 }
