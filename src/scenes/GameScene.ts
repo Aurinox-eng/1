@@ -19,6 +19,8 @@ const MAX_FRAME_MS = 50;
 const MAX_SPAWNS_PER_FRAME = 10;
 /** Во что распадается бактерия при уничтожении (правило игры, не число баланса). */
 const SPLITS_INTO: Partial<Record<BacteriumKind, BacteriumKind>> = { splitter: 'coccus' };
+/** Высота тёмной подложки под счётом, сердцами и временем, пикселей. */
+const HUD_PLATE_H = 104;
 /** Типы в порядке появления в партии. */
 const KINDS_BY_INTRO = [...KINDS].sort((a, b) => CONFIG.types[a].introSec - CONFIG.types[b].introSec);
 
@@ -396,6 +398,9 @@ export class GameScene extends Phaser.Scene {
   }
 
   private drawHud(): void {
+    // Тёмная подложка под счёт, сердца и время: бактерии у верхнего края не мешают их читать
+    this.add.rectangle(W / 2, HUD_PLATE_H / 2, W, HUD_PLATE_H, 0x0b1020, 0.9).setDepth(4);
+    this.add.rectangle(W / 2, HUD_PLATE_H, W, 3, 0x2a3a5c, 1).setDepth(4);
     this.scoreText = this.add
       .text(24, 20, t('score', { n: 0 }), this.textStyle(44))
       .setDepth(5);
@@ -470,6 +475,7 @@ export class GameScene extends Phaser.Scene {
       height: H,
       loseLineY: LOSE_LINE_Y,
       bacteria: this.bacteria.map((b) => ({
+        id: b.id,
         x: b.x,
         y: b.y,
         r: b.boundingRadius,
