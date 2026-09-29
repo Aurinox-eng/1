@@ -1,0 +1,70 @@
+# Автоматическая публикация игры на GitHub Pages.
+# Срабатывает при каждом обновлении основной ветки (main), а также вручную: вкладка Actions →
+# «Опубликовать игру» → Run workflow.
+# Ссылка на игру: https://aurinox-eng.github.io/1/
+name: Опубликовать игру
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Права, которые нужны публикации на Pages. Больше ничего не разрешаем.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Если во время публикации пришло новое обновление, старая публикация отменяется — выкладывается последняя версия.
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Собрать игру
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Установить зависимости
+        run: npm ci
+        env:
+          # Браузер для проверок на сервере не нужен, только сборка игры
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+
+      # Проверка типов + игровая сборка (без режима проверки ?qa). Если сборка упала, игра не публикуется.
+      - name: Собрать игровую версию
+        run: npm run build
+
+      # Файл версии: открыв <ссылка>/version.txt, можно убедиться, какая версия сейчас выложена.
+      - name: Записать версию
+        run: |
+          {
+            echo "commit: ${GITHUB_SHA}"
+            echo "branch: ${GITHUB_REF_NAME}"
+            echo "built:  $(date -u '+%Y-%m-%d %H:%M:%S') UTC"
+            echo "run:    ${GITHUB_RUN_NUMBER}"
+          } > dist/version.txt
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    name: Выложить на GitHub Pages
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
