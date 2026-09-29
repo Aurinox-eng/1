@@ -1,0 +1,24 @@
+{
+  "name": "pills-vs-bacteria",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Таблетки против бактерий — казуальная HTML5-игра для Яндекс Игр",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host",
+    "build": "tsc --noEmit && vite build",
+    "build:qa": "tsc --noEmit && vite build --mode qa --outDir dist-qa",
+    "preview": "vite preview --host",
+    "typecheck": "tsc --noEmit",
+    "qa": "npm run build && npm run build:qa && node qa/smoke.mjs",
+    "qa:bot": "npm run build:qa && node qa/bot.mjs"
+  },
+  "dependencies": {
+    "phaser": "3.90.0"
+  },
+  "devDependencies": {
+    "playwright": "^1.63.0",
+    "typescript": "^5.9.3",
+    "vite": "^8.3.1"
+  }
+}
