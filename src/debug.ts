@@ -23,13 +23,18 @@ export const TIME_SCALE: number = QA_MODE ? Math.min(10, Math.max(0.1, Number(pa
 export interface DebugSnapshot {
   state: 'playing' | 'over';
   score: number;
-  /** Сколько раз попали по бактериям за партию (любого размера). */
+  /** Сколько раз попали по бактериям за партию (любого типа). */
   hits: number;
-  /** Сколько малых бактерий уничтожено окончательно. */
+  /** Сколько бактерий уничтожено. */
   kills: number;
-  /** Сколько делений было от попаданий и сколько — самопроизвольных. */
+  /** Сколько делящихся распалось от попаданий и сколько поделилось само. */
   splits: number;
   selfSplits: number;
+  /** Сколько жизней осталось и сколько было в начале. */
+  lives: number;
+  maxLives: number;
+  /** Какие типы бактерий уже появлялись, в порядке появления. */
+  introduced: string[];
   /** Сколько таблеток выпущено за партию. */
   shots: number;
   elapsed: number;
@@ -41,10 +46,11 @@ export interface DebugSnapshot {
   width: number;
   height: number;
   loseLineY: number;
-  bacteria: { x: number; y: number; r: number; age: number; size: 'large' | 'medium' | 'small' }[];
+  /** r — радиус описанного круга, bottom — нижняя точка (касание её красной линии отнимает жизнь). */
+  bacteria: { x: number; y: number; r: number; bottom: number; age: number; kind: string; hp: number; maxHp: number }[];
   pills: { x: number; y: number }[];
-  /** Сколько раз сработали вспышка с частицами, всплывающее «+очки» и тряска экрана. */
-  effects: { bursts: number; popups: number; shakes: number };
+  /** Сколько раз сработали вспышка, частицы, всплывающее «+очки», тряска экрана и красная вспышка потери жизни. */
+  effects: { flashes: number; bursts: number; popups: number; shakes: number; lifeLosses: number };
   /** Звук: состояние аудио («running» — играет) и сколько звуков сыграно с загрузки страницы. */
   sound: { state: string; played: number };
 }
