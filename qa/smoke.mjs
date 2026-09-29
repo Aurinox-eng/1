@@ -11,8 +11,10 @@
  *  6. на старте на экране 3–4 бактерии, а не пустое поле;
  *  7. только телефон: два пальца одновременно = две таблетки; поворот экрана перестраивает
  *     поле; после «зависания» страницы на 3 секунды бактерии не прыгают (замедленный мир);
- *  8. отдельный сценарий «механика деления»: большая → 2 средние → малые → гибель, очки 10/20/40,
- *     разлёт в стороны, вспышка/«+очки»/тряска, звук; самоделение без очков и тряски.
+ *  8. отдельный сценарий «типы бактерий»: у каждого типа свои HP, очки и поведение (зигзаг палочки,
+ *     распад делящейся на два кокка и её самоделение, 6 HP бронированной, быстрая спора), три жизни
+ *     (бронированная отнимает две), отклик на попадание, звук, и расписание появления типов —
+ *     по одному, каждый первый раз в одиночку.
  * ИГРОВАЯ сборка (dist, та, что уйдёт на Яндекс): режима проверки в ней нет, подмена
  * настроек и языка из адреса не работает, консоль чистая.
  *
@@ -248,8 +250,7 @@ async function runScenario(browser, baseUrl, deviceKey, lang) {
 async function runPhoneLongChecks(context, baseUrl, prefix, name) {
   const page = await context.newPage();
   watchConsole(page, `${prefix} [замедленный мир]`);
-  const slow =
-    'bacteria.startSpeed:6,spawn.intervalStartSec:9999,spawn.intervalEndSec:9999,sizes.large.selfSplitSec:0,sizes.medium.selfSplitSec:0';
+  const slow = 'bacteria.startSpeed:6,spawn.intervalStartSec:9999,spawn.intervalEndSec:9999';
   await page.goto(`${baseUrl}?qa&speed=1&cfg=${slow}`, { waitUntil: 'load' });
   await waitFor(page, (s) => s.state === 'playing', 15000, 'запуск замедленного мира');
 
@@ -307,25 +308,33 @@ async function runPhoneLongChecks(context, baseUrl, prefix, name) {
 }
 
 /**
- * Механика деления на предсказуемом поле: одна большая бактерия почти не двигается, других нет.
- * Проверяем цепочку большая → 2 средние → малые → гибель, очки 10/20/40, разлёт в стороны,
- * вспышку/«+очки»/тряску, звук; и самоделение (без очков и тряски).
+ * Типы бактерий и жизни на предсказуемом поле: почти неподвижная бактерия одного типа, других нет.
+ * Проверяем HP и очки, отклик, поведение каждого типа, потерю жизней и расписание появления типов.
  */
 async function runMechanicsCheck(browser, baseUrl) {
-  const prefix = '[механика деления]';
+  const prefix = '[типы бактерий]';
   const context = await browser.newContext({ viewport: VIEWPORTS.desktop.viewport, locale: 'ru-RU' });
-  const page = await context.newPage();
-  watchConsole(page, prefix);
-  const still =
-    'spawn.mix.large:100,spawn.mix.medium:0,spawn.mix.small:0,spawn.startCountMin:1,spawn.startCountMax:1,' +
-    'spawn.intervalStartSec:9999,spawn.intervalEndSec:9999,bacteria.wobbleAmplitude:0,bacteria.startSpeed:20';
 
-  /** Стреляет по бактерии нужного размера (самой нижней), пока не выполнится условие. */
-  async function shootUntil(done, size, label) {
-    for (let i = 0; i < 30; i++) {
-      const s = await getState(page);
-      if (done(s)) return s;
-      const target = s.bacteria.filter((b) => !size || b.size === size).sort((a, b) => b.y - a.y)[0];
+  const STILL =
+    'spawn.startCountMin:1,spawn.startCountMax:1,spawn.intervalStartSec:9999,spawn.intervalEndSec:9999,' +
+    'bacteria.wobbleAmplitude:0,bacteria.startSpeed:20';
+  /** Только тип `kind` (и он есть с самого начала), остальные не появляются. */
+  const only = (kind) => `types.${kind}.introSec:0,types.coccus.weight:${kind === 'coccus' ? 55 : 0}`;
+
+  async function open(cfg, speed = 1) {
+    const page = await context.newPage();
+    watchConsole(page, prefix);
+    await page.goto(`${baseUrl}?qa&speed=${speed}&cfg=${cfg}`, { waitUntil: 'load' });
+    await waitFor(page, (x) => x.state === 'playing', 15000, 'запуск игры');
+    return page;
+  }
+
+  /** Стреляет по бактерии (самой нижней), пока не выполнится условие. */
+  async function shootUntil(page, done, label) {
+    for (let i = 0; i < 40; i++) {
+      const state = await getState(page);
+      if (done(state)) return state;
+      const target = [...state.bacteria].sort((a, b) => b.y - a.y)[0];
       if (target) {
         const p = await gameToPage(page, target.x, 900);
         await page.mouse.click(p.x, p.y);
@@ -338,57 +347,144 @@ async function runMechanicsCheck(browser, baseUrl) {
     }
     throw new Error(`не получилось: ${label}`);
   }
+  const kinds = (state) => state.bacteria.map((b) => b.kind).sort().join('+');
 
-  await page.goto(`${baseUrl}?qa&speed=1&cfg=${still},sizes.large.selfSplitSec:0,sizes.medium.selfSplitSec:0`, {
-    waitUntil: 'load',
-  });
-  await waitFor(page, (s) => s.state === 'playing', 15000, 'запуск игры');
-  const start = await getState(page);
-  check(`${prefix} на поле одна большая бактерия`, start.bacteria.length === 1 && start.bacteria[0].size === 'large');
-
-  // Большая: +10, две средние, отклик, звук
-  let s = await shootUntil((x) => x.hits >= 1, 'large', 'попадание в большую');
-  await shot(page, 'mechanics-1-split');
-  const sizes = (state) => state.bacteria.map((b) => b.size).sort().join('+');
-  check(`${prefix} попадание в большую: +10 очков, две средние`, s.score === 10 && sizes(s) === 'medium+medium', `очки ${s.score}, на поле: ${sizes(s)}`);
+  // ---- Кокк: 1 HP, +10, вспышка + «+очки» + частицы, звук
+  let page = await open(`${STILL},${only('coccus')}`);
+  let s = await shootUntil(page, (x) => x.hits >= 1, 'попадание в кокка');
+  await shot(page, 'types-1-hit');
+  check(`${prefix} кокк гибнет от одного попадания: +10 очков`, s.score === 10 && s.bacteria.length === 0 && s.kills === 1, `очки ${s.score}, на поле ${s.bacteria.length}`);
   check(
-    `${prefix} отклик: вспышка с частицами, «+очки», тряска при делении`,
-    s.effects.bursts === 1 && s.effects.popups === 1 && s.effects.shakes === 1,
+    `${prefix} отклик: вспышка, «+очки», частицы; тряски при обычной гибели нет`,
+    s.effects.flashes === 1 && s.effects.popups === 1 && s.effects.bursts === 1 && s.effects.shakes === 0,
     JSON.stringify(s.effects),
   );
   check(`${prefix} звук сыгран (аудио запущено по касанию)`, s.sound.state === 'running' && s.sound.played > 0, JSON.stringify(s.sound));
-  const xs = s.bacteria.map((b) => b.x).sort((a, b) => a - b);
-  // Ждём 0.6 секунды ИГРОВОГО времени (в медленной среде оно идёт медленнее реального)
-  const laterState = await waitFor(page, (x) => x.elapsed >= s.elapsed + 0.6, WAIT_MS, 'полсекунды игрового времени');
-  const later = laterState.bacteria.map((b) => b.x).sort((a, b) => a - b);
-  const moved = Math.max(Math.abs(later[0] - xs[0]), Math.abs(later[1] - xs[1]));
-  check(`${prefix} «дети» разлетаются в стороны`, moved > 40, `сдвиг по горизонтали ${moved.toFixed(0)} px за 0.6 с игрового времени`);
+  await page.close();
 
-  // Средняя: +20, две малые
-  s = await shootUntil((x) => x.hits >= 2, 'medium', 'попадание в среднюю');
-  check(`${prefix} попадание в среднюю: +20 очков, две малые`, s.score === 30 && sizes(s) === 'medium+small+small', `очки ${s.score}, на поле: ${sizes(s)}`);
-
-  // Малая: +40, гибель
-  s = await shootUntil((x) => x.kills >= 1, 'small', 'гибель малой');
-  check(`${prefix} малая гибнет от одного попадания: +40 очков`, s.score === 70 && sizes(s) === 'medium+small', `очки ${s.score}, на поле: ${sizes(s)}`);
+  // ---- Палочка: 2 HP, +5 за попадание, +20 за уничтожение (зигзаг выключаем, чтобы не промахиваться)
+  page = await open(`${STILL},${only('rod')},types.rod.zigzagPx:0`);
+  const rod = (await getState(page)).bacteria[0];
+  check(`${prefix} палочка: 2 HP`, rod.kind === 'rod' && rod.hp === 2 && rod.maxHp === 2, `hp ${rod.hp}/${rod.maxHp}`);
+  s = await shootUntil(page, (x) => x.hits >= 1, 'первое попадание в палочку');
   check(
-    `${prefix} делений от попаданий 2, малых уничтожено 1`,
-    s.splits === 2 && s.kills === 1 && s.selfSplits === 0,
-    `splits ${s.splits}, kills ${s.kills}, selfSplits ${s.selfSplits}`,
+    `${prefix} палочка после 1-го попадания: 1 HP, +5 очков, вспышка и «+очки», без частиц`,
+    s.bacteria[0]?.hp === 1 && s.score === 5 && s.effects.flashes === 1 && s.effects.popups === 1 && s.effects.bursts === 0,
+    `hp ${s.bacteria[0]?.hp}, очки ${s.score}, ${JSON.stringify(s.effects)}`,
   );
+  await shot(page, 'types-2-rod-damaged');
+  s = await shootUntil(page, (x) => x.hits >= 2, 'второе попадание в палочку');
+  check(`${prefix} палочка уничтожена вторым попаданием: +20 очков, частицы`, s.score === 25 && s.bacteria.length === 0 && s.effects.bursts === 1, `очки ${s.score}`);
+  await page.close();
 
-  // Самоделение: большая, до которой не добираются, делится сама — без очков и тряски
-  await page.goto(`${baseUrl}?qa&speed=2&cfg=${still},sizes.large.selfSplitSec:2,sizes.medium.selfSplitSec:0`, {
-    waitUntil: 'load',
-  });
-  await waitFor(page, (x) => x.state === 'playing', 15000, 'запуск игры (самоделение)');
+  // ---- Палочка идёт зигзагом
+  page = await open(`${STILL},${only('rod')}`);
+  const first = await getState(page);
+  let minX = Infinity;
+  let maxX = -Infinity;
+  const until = first.elapsed + 2.6;
+  for (let cur = first; cur.elapsed < until; cur = await getState(page)) {
+    minX = Math.min(minX, cur.bacteria[0].x);
+    maxX = Math.max(maxX, cur.bacteria[0].x);
+    await sleep(40);
+  }
+  check(`${prefix} палочка движется зигзагом`, maxX - minX > 90, `размах по горизонтали ${(maxX - minX).toFixed(0)} px за 2.6 с игрового времени`);
+  await page.close();
+
+  // ---- Делящаяся: 2 HP, при уничтожении — два кокка, лёгкая тряска
+  page = await open(`${STILL},${only('splitter')},types.splitter.selfSplitSec:0`);
+  s = await shootUntil(page, (x) => x.hits >= 1, 'первое попадание в делящуюся');
+  check(`${prefix} делящаяся после 1-го попадания: 1 HP, +5 очков, ещё цела`, s.bacteria.length === 1 && s.bacteria[0].hp === 1 && s.score === 5, `hp ${s.bacteria[0]?.hp}, очки ${s.score}`);
+  s = await shootUntil(page, (x) => x.hits >= 2, 'второе попадание в делящуюся');
+  await shot(page, 'types-3-splitter-split');
+  check(`${prefix} уничтоженная делящаяся распадается на два кокка (+25 очков)`, kinds(s) === 'coccus+coccus' && s.score === 30, `на поле: ${kinds(s)}, очки ${s.score}`);
+  check(`${prefix} при делении — лёгкая тряска экрана`, s.effects.shakes === 1 && s.splits === 1, `тряска ${s.effects.shakes}, распадов ${s.splits}`);
+  await page.close();
+
+  // ---- Делящаяся сама: без попаданий делится через selfSplitSec, попадание сбрасывает отсчёт
+  page = await open(`${STILL},${only('splitter')},types.splitter.selfSplitSec:2.5`, 2);
   const before = await getState(page);
   const after = await waitFor(page, (x) => x.selfSplits >= 1, WAIT_MS, 'самоделение');
   check(
-    `${prefix} бактерия, которую не трогали, делится сама (без очков и тряски)`,
-    before.bacteria.length === 1 && sizes(after) === 'medium+medium' && after.score === 0 && after.effects.shakes === 0 && after.splits === 0,
-    `на поле: ${sizes(after)}, очки ${after.score}, тряска ${after.effects.shakes}, вспышек ${after.effects.bursts}`,
+    `${prefix} делящаяся, которую не трогали, делится сама на два кокка (без очков)`,
+    before.bacteria.length === 1 && kinds(after) === 'coccus+coccus' && after.score === 0 && after.splits === 0,
+    `на поле: ${kinds(after)}, очки ${after.score}, самоделений ${after.selfSplits}, прошло ${after.elapsed.toFixed(1)} с`,
   );
+  await page.close();
+
+  // ---- Бронированная: 6 HP, толстая оболочка, +5 за попадание, +60 за уничтожение
+  page = await open(`${STILL},${only('armored')}`);
+  const hps = [(await getState(page)).bacteria[0].hp];
+  for (let want = 1; want <= 5; want++) {
+    s = await shootUntil(page, (x) => x.hits >= want, `попадание №${want} в бронированную`);
+    hps.push(s.bacteria[0].hp);
+    if (want === 3) await shot(page, 'types-4-armored-cracked');
+  }
+  check(`${prefix} бронированная: 6 HP, каждое попадание снимает 1`, hps.join(',') === '6,5,4,3,2,1', `HP по ходу: ${hps.join(' → ')}`);
+  s = await shootUntil(page, (x) => x.hits >= 6, 'шестое попадание в бронированную');
+  check(`${prefix} бронированная уничтожена 6-м попаданием: 5×5 + 60 очков`, s.score === 85 && s.bacteria.length === 0, `очки ${s.score}`);
+  await page.close();
+
+  // ---- Жизни: бронированная, дойдя до линии, отнимает 2 из 3
+  page = await open(`${STILL.replace('startSpeed:20', 'startSpeed:900')},${only('armored')}`);
+  s = await waitFor(page, (x) => x.lives < x.maxLives, WAIT_MS, 'потеря жизней');
+  check(`${prefix} бронированная у линии отнимает 2 жизни (из 3)`, s.lives === 1 && s.state === 'playing' && s.bacteria.length === 0, `жизней ${s.lives}, состояние ${s.state}`);
+  // (звука здесь нет: в этой странице никто не касался экрана, а браузер без касания звук не запускает)
+  check(`${prefix} потеря жизни: красная вспышка на линии и тряска`, s.effects.lifeLosses === 1, JSON.stringify(s.effects));
+  await page.close();
+
+  // ---- Жизни: кокки отнимают по одной, на нуле — проигрыш
+  page = await open('spawn.startCountMin:3,spawn.startCountMax:3,spawn.intervalStartSec:9999,spawn.intervalEndSec:9999,bacteria.wobbleAmplitude:0,bacteria.startSpeed:700');
+  const seen = new Set([(await getState(page)).lives]);
+  let last = await getState(page);
+  const deadline = Date.now() + WAIT_MS;
+  while (last.state === 'playing' && Date.now() < deadline) {
+    seen.add(last.lives);
+    await sleep(20);
+    last = await getState(page);
+  }
+  check(`${prefix} три жизни: кокки отнимают по одной, на нуле — проигрыш`, last.lives === 0 && last.state === 'over' && seen.has(3), `жизни по ходу: ${[...seen].sort().reverse().join(' → ')} → 0, состояние ${last.state}`);
+  await page.close();
+
+  // ---- Спора быстрее кокка
+  const speedOf = async (kind) => {
+    const p = await open(`${STILL},${only(kind)}`);
+    const a = await getState(p);
+    const b = await waitFor(p, (x) => x.elapsed >= a.elapsed + 0.8, WAIT_MS, 'сдвиг бактерии');
+    await p.close();
+    return (b.bacteria[0].y - a.bacteria[0].y) / (b.elapsed - a.elapsed);
+  };
+  const [coccusSpeed, sporeSpeed] = [await speedOf('coccus'), await speedOf('spore')];
+  check(`${prefix} спора падает заметно быстрее кокка`, sporeSpeed > coccusSpeed * 1.8, `кокк ${coccusSpeed.toFixed(0)} px/с, спора ${sporeSpeed.toFixed(0)} px/с`);
+
+  // ---- Расписание появления: по одному, каждый первый раз в одиночку
+  page = await open('bacteria.startSpeed:3,spawn.intervalStartSec:0.6,spawn.intervalEndSec:0.6,spawn.jitter:0', 10);
+  const arrivals = [];
+  let known = (await getState(page)).introduced.length;
+  for (let cur = await getState(page); cur.elapsed < 66 && cur.state === 'playing'; cur = await getState(page)) {
+    if (cur.introduced.length > known) {
+      const kind = cur.introduced[cur.introduced.length - 1];
+      arrivals.push({ kind, at: cur.elapsed, onScreen: cur.bacteria.filter((b) => b.kind === kind).length });
+      if (kind === 'armored') await shot(page, 'types-5-armored-arrival');
+      known = cur.introduced.length;
+    }
+    await sleep(25);
+  }
+  const order = arrivals.map((a) => a.kind).join(' → ');
+  check(`${prefix} типы появляются по одному в заданном порядке`, order === 'rod → splitter → armored → spore', `порядок: coccus → ${order}`);
+  check(
+    `${prefix} каждый новый тип впервые появляется один`,
+    arrivals.length === 4 && arrivals.every((a) => a.onScreen === 1),
+    arrivals.map((a) => `${a.kind}: на экране ${a.onScreen}`).join(', '),
+  );
+  const due = { rod: 15, splitter: 30, armored: 45, spore: 60 };
+  check(
+    `${prefix} типы приходят вовремя (примерно каждые 15 секунд), спора — не раньше 45-й`,
+    arrivals.every((a) => a.at >= due[a.kind] && a.at < due[a.kind] + 2) && arrivals.find((a) => a.kind === 'spore')?.at >= 45,
+    arrivals.map((a) => `${a.kind} на ${a.at.toFixed(1)} с`).join(', '),
+  );
+  await page.close();
+
   await context.close();
 }
 

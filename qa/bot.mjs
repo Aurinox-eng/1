@@ -10,13 +10,17 @@
  *   --reaction  через сколько секунд после появления бактерии бот её замечает. По умолчанию 0.3
  *   --speed     ускорение игрового времени (1 = обычное). По умолчанию 2. Большие значения искажают замер
  *   --max       предел длины партии в игровых секундах, потом бот сдаётся (по умолчанию 180)
- *   --mode      aim — целится в самую опасную бактерию (по умолчанию);
+ *   --mode      aim — целится в бактерию, ближайшую к красной линии (по умолчанию);
  *               random — «тыкает куда попало»: контроль, что от прицеливания в игре что-то зависит
+ *   --shots     в какие секунды партии делать скриншот, например --shots=10,30,60 (нужен --tag)
+ *   --tag       папка для скриншотов: qa/screenshots/<tag>/<режим>-t<секунда>.png
  *   --cfg       временная подмена чисел из config.ts, например
  *               --cfg=bacteria.startSpeed:120,sizes.large.points:15 (вложенные — через несколько точек)
  * Все «секунды» здесь — игровые, то есть не зависят от --speed.
  */
-import { gameToPage, launchBrowser, parseArgs, sleep, startServer, VIEWPORTS } from './lib.mjs';
+import fs from 'node:fs';
+import path from 'node:path';
+import { gameToPage, launchBrowser, parseArgs, ROOT, sleep, startServer, VIEWPORTS } from './lib.mjs';
 
 const args = parseArgs(process.argv.slice(2));
 const runs = Number(args.runs ?? 5);
@@ -27,6 +31,15 @@ const speed = Number(args.speed ?? 2);
 const maxSeconds = Number(args.max ?? 180);
 const mode = args.mode === 'random' ? 'random' : 'aim';
 const cfg = args.cfg ? `&cfg=${args.cfg}` : '';
+const shotTimes = args.shots ? String(args.shots).split(',').map(Number).filter((n) => n > 0) : [];
+const tag = args.tag === undefined ? null : args.tag;
+if (shotTimes.length && (typeof tag !== 'string' || !/^[\w-]+$/.test(tag))) {
+  console.error('Для --shots нужен --tag=<название> (только буквы, цифры, «_» и «-»).');
+  process.exit(2);
+}
+const shotsDir = shotTimes.length ? path.join(ROOT, 'qa', 'screenshots', tag) : null;
+if (shotsDir) fs.mkdirSync(shotsDir, { recursive: true });
+const shotsDone = new Set();
 /** В какие моменты партии (игровые секунды) замеряем, сколько бактерий на экране. */
 const CHECKPOINTS = [1, 6, 15, 30];
 
@@ -79,6 +92,14 @@ for (let run = 1; run <= runs; run++) {
   let state = await page.evaluate(() => window.__pvb.getState());
 
   while (state.state === 'playing' && state.elapsed < maxSeconds) {
+    for (const at of shotTimes) {
+      // скриншот делаем один раз на каждую отметку — в первой партии, которая до неё дожила
+      if (state.elapsed >= at && !shotsDone.has(at)) {
+        shotsDone.add(at);
+        await page.screenshot({ path: path.join(shotsDir, `${mode}-t${at}.png`) });
+        console.log(`  скриншот на ${at}-й секунде (партия ${run}, игровое время ${state.elapsed.toFixed(1)} с, жизней ${state.lives}, бактерий ${state.bacteria.length})`);
+      }
+    }
     for (const cp of CHECKPOINTS) {
       if (state.elapsed >= cp && !seen.has(cp)) {
         seen.add(cp);
@@ -92,11 +113,12 @@ for (let run = 1; run <= runs; run++) {
       if (mode === 'random') {
         aimX = 20 + Math.random() * (state.width - 40);
       } else {
-        // Цель: бактерия ближе всего к красной линии из тех, что бот уже заметил и по которым ещё не летит таблетка
+        // Цель: бактерия ближе всего к красной линии из тех, что бот уже заметил. Пока к ней летит
+        // столько таблеток, сколько у неё HP, новую не выпускает (добивает многожизненных подряд).
         const candidates = state.bacteria
-          .filter((b) => b.age >= reaction && b.y + b.r > 0)
-          .filter((b) => !state.pills.some((p) => Math.abs(p.x - b.x) < b.r && p.y > b.y))
-          .sort((a, b) => b.y + b.r - (a.y + a.r));
+          .filter((b) => b.age >= reaction && b.bottom > 0)
+          .filter((b) => state.pills.filter((p) => Math.abs(p.x - b.x) < b.r * 0.6 && p.y > b.y).length < b.hp)
+          .sort((a, b) => b.bottom - a.bottom);
         if (candidates.length) aimX = candidates[0].x + gaussian(aimError);
       }
       if (aimX !== null) {
@@ -114,8 +136,8 @@ for (let run = 1; run <= runs; run++) {
   const accuracy = state.shots ? Math.round((state.hits / state.shots) * 100) : 0;
   console.log(
     `Партия ${run}: ${state.elapsed.toFixed(1)} сек, очков ${state.score}, выстрелов ${state.shots}, ` +
-      `меткость ~${accuracy}%, делений от попаданий ${state.splits}, самоделений ${state.selfSplits}, ` +
-      `малых уничтожено ${state.kills}${survived ? ' (бот сдался по лимиту времени)' : ''}`,
+      `меткость ~${accuracy}%, уничтожено ${state.kills}, жизней осталось ${state.lives}/${state.maxLives}, ` +
+      `типов появилось ${state.introduced.length}${survived ? ' (бот сдался по лимиту времени)' : ''}`,
   );
 
   if (run < runs) {
@@ -142,9 +164,10 @@ console.log(
   `Бот (${mode === 'random' ? 'тыкает куда попало' : 'целится'}): ${tps} тапов/сек, ошибка прицела ±${aimError} px, ` +
     `реакция ${reaction} сек, --speed=${speed}.${args.cfg ? ` Подмена: ${args.cfg}` : ''}`,
 );
+const mean = seconds.reduce((sum, v) => sum + v, 0) / seconds.length;
 console.log(
-  `Длина партии: минимум ${Math.min(...seconds).toFixed(1)}, медиана ${median(seconds).toFixed(1)}, ` +
-    `максимум ${Math.max(...seconds).toFixed(1)} сек.`,
+  `Длина партии: СРЕДНЯЯ ${mean.toFixed(1)}, минимум ${Math.min(...seconds).toFixed(1)}, медиана ${median(seconds).toFixed(1)}, ` +
+    `максимум ${Math.max(...seconds).toFixed(1)} сек (партий: ${seconds.length}).`,
 );
 console.log(`В целевые 30–60 сек попало: ${inTarget} из ${sessions.length}`);
 console.log(`Очки (медиана): ${median(sessions.map((s) => s.score)).toFixed(0)}`);
