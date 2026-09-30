@@ -8,10 +8,11 @@
  * положении (касания), русский и английский (язык — настройкой браузера, как у настоящего игрока).
  * Сценарии (имена — для --only=):
  *   desktop-ru, phone-ru   полный набор: экран и начальное состояние, камера (сдвиг, границы, колесо / щипок, подсказка
- *                          «◀ Организм»), тап и сдвиг, постановка башни (дорожка, занятая клетка, монеты, сильное отдаление),
+ *                          «◀ Организм»), тап и сдвиг, постановка башни (дорожка, занятая клетка, монеты; при любом приближении: 0.7, минимум, максимум),
  *                          бой на этом экране, пауза, «не завис ли»
  *   desktop-en, phone-en   сокращённый набор на английском: экран, начальное состояние, камера-скриншоты, постановка, бой
- *   rules                  правила клеток (компьютер): все видимые клетки — на дорожке нельзя, на свободной можно; нет монет
+ *   rules                  правила клеток (компьютер): все видимые клетки (при обычном и при минимальном приближении) — на дорожке нельзя,
+ *                          на свободной можно; нет монет
  *   combat                 бой на компьютере: выстрелы, убийства, монеты, отклик, движение бактерий по кривым дорожкам
  *   lose-ru, lose-en       потеря жизней, проигрыш (в том числе при работающих башнях: снарядов в полёте не остаётся), блокировка
  *                          перезапуска, перезапуск, утечки (lose-ru — компьютер, lose-en — телефон)
@@ -27,7 +28,7 @@
  * при любой ошибке код выхода 1. Числа баланса проверки берут из src/config.ts и src/level.ts, поэтому от смены баланса не ломаются.
  * Строки «📝» в конце — заметки о рисках (в счёт проверок не входят).
  *
- * Проверка самих проверок: QA_EXTRA_CFG=camera.placeMinZoom:0 node qa/smoke.mjs --tag=mut --only=desktop-ru подмешивает «поломку»
+ * Проверка самих проверок: QA_EXTRA_CFG=camera.tapMaxMovePx:14 node qa/smoke.mjs --tag=mut --only=desktop-ru подмешивает «поломку»
  * в адрес игры — соответствующая проверка обязана покраснеть (так проверяли, что проверки не пустые).
  */
 import fs from 'node:fs';
@@ -104,7 +105,6 @@ const CFG = {
   zoomStart: readConfigNumber('camera', 'zoomStart'),
   zoomMin: readConfigNumber('camera', 'zoomMin'),
   zoomMax: readConfigNumber('camera', 'zoomMax'),
-  placeMinZoom: readConfigNumber('camera', 'placeMinZoom'),
   pillPrice: readConfigNumber('pill', 'price'),
   restartLockMs: readConfigNumber('gameOver', 'restartLockMs'),
   tapMaxMovePx: readConfigNumber('camera', 'tapMaxMovePx'),
@@ -216,7 +216,7 @@ const newDeviceContext = (browser, device, lang) =>
 async function openGame(context, baseUrl, prefix, { speed = 1, cfg = '', isTouch = false, query = '' } = {}) {
   const page = await context.newPage();
   watchConsole(page, prefix);
-  // QA_EXTRA_CFG нужна только для проверки самих проверок: подмешивает «поломку» (например camera.placeMinZoom:0) — соответствующая проверка обязана покраснеть
+  // QA_EXTRA_CFG нужна только для проверки самих проверок: подмешивает «поломку» (например camera.tapMaxMovePx:14) — соответствующая проверка обязана покраснеть
   const allCfg = [cfg, process.env.QA_EXTRA_CFG].filter(Boolean).join(',');
   await page.goto(`${baseUrl}?qa&speed=${speed}${allCfg ? `&cfg=${allCfg}` : ''}${query}`, { waitUntil: 'load' });
   await waitFor(page, (s) => s.state === 'playing', 20000, 'запуск игры');
@@ -545,10 +545,10 @@ async function profileLoadAndCamera(c) {
 /** Тап и сдвиг, постановка башен, ограничения (дорожка, занято, монеты, отдаление), снятие выбора. */
 async function profilePlacement(c) {
   const { prefix: p, isTouch, name } = c;
-  const game = await openGame(c.context, c.baseUrl, p, { speed: 1, isTouch, cfg: `economy.startCoins:${BASE.price * 3 + 20},waves.firstDelaySec:60,${FIXED_BALANCE.join(',')}` });
+  const game = await openGame(c.context, c.baseUrl, p, { speed: 1, isTouch, cfg: `economy.startCoins:${BASE.price * 5 + 20},waves.firstDelaySec:60,${FIXED_BALANCE.join(',')}` });
   const { page, input, screen } = game;
   const price = BASE.price;
-  const coins0 = price * 3 + 20;
+  const coins0 = price * 5 + 20;
   const st = () => game.state();
   const insideMap = (pt) => {
     const gp = screen.c2g(pt.x, pt.y);
@@ -651,36 +651,62 @@ async function profilePlacement(c) {
   check(`${p} вторая башня: башен 2, монет ${coins0 - 2 * price}`, s.towers.length === 2 && s.coins === coins0 - 2 * price && s.effects.placements === 2, `башен ${s.towers.length}, монет ${s.coins}`);
 
   {
-    // сильное отдаление: башни не ставятся; при возврате приближения — ставятся
-    const target = FREE.c;
-    let pt = await game.cell(...target);
+    // Башню можно ставить при ЛЮБОМ приближении: 0.7 (среднее), минимум, максимум. Цель тапа — точно центр клетки (на минимуме клетка ≈56 px игры, на телефоне ≈30 px стекла)
+    const zoomStep = async (pt, dir, times) => {
+      for (let i = 0; i < times; i++) {
+        if (!isTouch) await input.wheel(pt, dir * 500);
+        else if (dir > 0) await input.pinch(pt, 220 * screen.scale, 40 * screen.scale, { steps: 4, stepMs: 0 });
+        else await input.pinch(pt, 40 * screen.scale, 220 * screen.scale, { steps: 4, stepMs: 0 });
+      }
+      await settle();
+    };
+    const placeAt = async (cell, label, wantZoom) => {
+      const before = await st();
+      const pt = await game.cell(...cell);
+      const okView = insideMap(pt);
+      await input.tap(pt);
+      await settle();
+      const after = await st();
+      const tower = after.towers[after.towers.length - 1];
+      check(
+        `${p} при приближении ${label} (zoom ${wantZoom}) тап по свободной клетке ${cell} ставит башню: башен +1, монет −${price}, placements +1`,
+        okView && Math.abs(before.camera.zoom - wantZoom) < 0.02 && after.towers.length === before.towers.length + 1 && tower.col === cell[0] && tower.row === cell[1] && after.coins === before.coins - price && after.effects.placements === before.effects.placements + 1,
+        `zoom ${f2(before.camera.zoom)}, клетка на экране ${okView}, башен ${before.towers.length} → ${after.towers.length}, монет ${before.coins} → ${after.coins}`,
+      );
+    };
+
+    // среднее приближение 0.7 (раньше было «слишком мелко, не ставить»)
+    let pt = await game.cell(...FREE.c);
     if (!isTouch) await input.wheel(pt, 240);
     else await input.pinch(pt, 200 * screen.scale, 140 * screen.scale);
     await settle();
-    s = await st();
-    const zoomOut = s.camera.zoom;
-    pt = await game.cell(...target);
-    check(`${p} карта отдалена (zoom ${f2(zoomOut)} < ${CFG.placeMinZoom}), нужная клетка на экране`, zoomOut < CFG.placeMinZoom && insideMap(pt), `zoom ${f2(zoomOut)}`);
-    await input.tap(pt);
-    await settle();
-    await shot(page, `${name}-14-toast-zoom-in`);
-    s = await st();
-    check(`${p} при сильном отдалении (zoom ${f2(zoomOut)}) башня не ставится, монеты не тратятся`, s.towers.length === 2 && s.coins === coins0 - 2 * price, `башен ${s.towers.length}, монет ${s.coins}`);
-    if (!isTouch) await input.wheel(pt, -240);
-    else await input.pinch(pt, 140 * screen.scale, 200 * screen.scale);
-    await settle();
-    s = await st();
-    pt = await game.cell(...target);
-    check(`${p} приближение возвращено (zoom ${f2(s.camera.zoom)} ≥ ${CFG.placeMinZoom})`, s.camera.zoom >= CFG.placeMinZoom && insideMap(pt), `zoom ${f2(s.camera.zoom)}`);
-    await input.tap(pt);
-    await settle();
-    s = await st();
-    check(`${p} после возврата приближения башня ставится`, s.towers.length === 3 && s.coins === coins0 - 3 * price, `башен ${s.towers.length}, монет ${s.coins}`);
-    // монет не хватает
-    await game.tapCell(...FREE.d);
+    await placeAt(FREE.c, 'среднем', 0.7);
+
+    // минимальное приближение
+    pt = await game.cell(...FREE.d);
+    await zoomStep(pt, 1, isTouch ? 2 : 3);
+    await placeAt(FREE.d, 'минимальном', CFG.zoomMin);
+    const beforeNo = await st();
+    await game.tapCell(...PATH[1]); // клетка дорожки (9;7)
+    await game.tapCell(...FREE.d); // занятая клетка
+    const afterNo = await st();
+    check(`${p} при минимальном приближении клетка дорожки и занятая клетка по-прежнему не ставят башню, монеты не тратятся`, afterNo.towers.length === beforeNo.towers.length && afterNo.coins === beforeNo.coins && afterNo.effects.placements === beforeNo.effects.placements, `башен ${beforeNo.towers.length} → ${afterNo.towers.length}, монет ${beforeNo.coins} → ${afterNo.coins}`);
+    await sleep(400);
+    await shot(page, `${name}-14-towers-min-zoom`);
+
+    // максимальное приближение
+    pt = await game.cell(...FREE.e);
+    await zoomStep(pt, -1, isTouch ? 3 : 4);
+    await placeAt(FREE.e, 'максимальном', CFG.zoomMax);
+    await sleep(400);
+    await shot(page, `${name}-17-towers-max-zoom`);
+
+    // монет не хватает (рядом с только что поставленной башней)
+    const next = [[10, 5], [9, 5], [10, 4], [9, 4], [8, 5]].find(([c, r]) => !GEO.isPathCell(c, r));
+    await game.tapCell(...next);
     await shot(page, `${name}-15-toast-no-coins`);
     s = await st();
-    check(`${p} не хватает монет (${s.coins} < ${price}): башня не ставится, монеты те же`, s.towers.length === 3 && s.coins === 20 && s.coins < price, `башен ${s.towers.length}, монет ${s.coins}`);
+    check(`${p} не хватает монет (${s.coins} < ${price}): башня не ставится, монеты те же`, s.towers.length === 5 && s.coins === 20 && s.coins < price, `башен ${s.towers.length}, монет ${s.coins}`);
   }
   await page.close();
 }
@@ -841,6 +867,35 @@ async function runRules(browser, baseUrl) {
   check(`${p} монеты списаны ровно за поставленные башни`, s.coins === 100000 - BASE.price * s.towers.length, `монет ${s.coins}, башен ${s.towers.length}`);
   await sleep(300);
   await shot(game.page, 'rules-01-all-cells');
+  await game.page.close();
+
+  // ---- то же при минимальном приближении (0.54: клетка ≈56 px игры): башня ставится на любую свободную клетку, на дорожку — нет
+  game = await openGame(context, baseUrl, p, { cfg: `economy.startCoins:100000,waves.firstDelaySec:60,${FIXED_BALANCE.join(',')}` });
+  await game.towerButton();
+  for (let i = 0; i < 3; i++) await game.input.wheel(game.g(540, 360), 500);
+  await settle();
+  s = await game.state();
+  const minCells = [];
+  for (let col = 0; col < LEVEL.cols; col++) {
+    for (let row = 0; row < LEVEL.rows; row++) {
+      const w = GEO.center(col, row);
+      const sx = s.viewW / 2 + (w.x - s.camera.cx) * s.camera.zoom;
+      const sy = s.height / 2 + (w.y - s.camera.cy) * s.camera.zoom;
+      if (sx >= 20 && sx <= s.viewW - 20 && sy >= 20 && sy <= s.height - 20) minCells.push({ col, row, sx, sy, path: GEO.isPathCell(col, row) });
+    }
+  }
+  const atMin = Math.abs(s.camera.zoom - CFG.zoomMin) < 0.002;
+  for (const cell of minCells) await game.input.tap(game.g(cell.sx, cell.sy));
+  await settle();
+  s = await game.state();
+  const placedMin = new Set(s.towers.map((t) => `${t.col},${t.row}`));
+  const badPath = minCells.filter((q) => q.path && placedMin.has(`${q.col},${q.row}`));
+  const missedMin = minCells.filter((q) => !q.path && !placedMin.has(`${q.col},${q.row}`));
+  const freeMin = minCells.filter((q) => !q.path).length;
+  check(`${p} при минимальном приближении (zoom ${f2(s.camera.zoom)}) башня ставится на все ${freeMin} свободных клеток экрана (из ${minCells.length} видимых)`, atMin && missedMin.length === 0 && s.towers.length === freeMin && minCells.length > 200, `zoom ${f2(s.camera.zoom)}, башен ${s.towers.length}, не поставлены: ${missedMin.map((q) => `(${q.col},${q.row})`).join(' ') || 'нет'}`);
+  check(`${p} при минимальном приближении на клетках дорожки башен нет (${minCells.length - freeMin} клеток дорожки на экране), монеты списаны ровно за башни`, badPath.length === 0 && s.coins === 100000 - BASE.price * s.towers.length, badPath.map((q) => `(${q.col},${q.row})`).join(' ') || `монет ${s.coins}`);
+  await sleep(300);
+  await shot(game.page, 'rules-02-all-cells-min-zoom');
   await game.page.close();
 
   // ---- касание, начатое на карте у самой панели и закончившееся на панели (сдвиг в пределах порога тапа)
