@@ -10,8 +10,7 @@
     "build:qa": "tsc --noEmit && vite build --mode qa --outDir dist-qa",
     "preview": "vite preview --host",
     "typecheck": "tsc --noEmit",
-    "qa": "npm run build && npm run build:qa && node qa/smoke.mjs",
-    "qa:bot": "npm run build:qa && node qa/bot.mjs"
+    "qa": "npm run build && npm run build:qa && node qa/smoke.mjs"
   },
   "dependencies": {
     "phaser": "3.90.0"

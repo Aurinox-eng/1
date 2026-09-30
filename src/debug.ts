@@ -6,7 +6,7 @@
  * Включается параметром ?qa в адресе:
  *   http://localhost:5173/?qa            — открывает доступ к состоянию игры для тестов
  *   http://localhost:5173/?qa&speed=4    — то же, но игровое время идёт в 4 раза быстрее
- *   http://localhost:5173/?qa&cfg=bacteria.startSpeed:120,pill.cooldownMs:200,sizes.large.points:15
+ *   http://localhost:5173/?qa&cfg=bacteria.baseSpeed:60,towers.pill.cooldownMs:300,economy.startCoins:500
  *                                        — временно подменяет числа из config.ts (для подбора баланса)
  *   http://localhost:5173/?lang=en       — принудительно выбирает язык (проверка переводов)
  */
@@ -21,48 +21,66 @@ export const QA_MODE: boolean = QA_ENABLED && params.has('qa');
 export const TIME_SCALE: number = QA_MODE ? Math.min(10, Math.max(0.1, Number(params.get('speed')) || 1)) : 1;
 
 export interface DebugSnapshot {
-  state: 'playing' | 'over';
-  score: number;
-  /** Сколько раз попали по бактериям за партию (любого типа). */
-  hits: number;
-  /** Сколько бактерий уничтожено. */
-  kills: number;
-  /** Сколько делящихся распалось от попаданий и сколько поделилось само. */
-  splits: number;
-  selfSplits: number;
-  /** Сколько жизней осталось и сколько было в начале. */
+  state: 'playing' | 'paused' | 'won' | 'lost';
+  coins: number;
   lives: number;
   maxLives: number;
-  /** Какие типы бактерий уже появлялись, в порядке появления. */
-  introduced: string[];
-  /** Сколько таблеток выпущено за партию. */
+  /** Сколько волн уже началось и сколько их всего; сколько бактерий вышло за уровень и сколько уничтожено. */
+  wave: number;
+  waveTotal: number;
+  spawned: number;
+  kills: number;
+  /** Сколько бактерий дошло до организма. */
+  leaked: number;
+  /** Сколько выстрелов сделано башнями. */
   shots: number;
   elapsed: number;
-  level: number;
   lang: string;
   renderer: 'webgl' | 'canvas';
-  /** Сколько обработчиков нажатия навешено (должно быть ровно столько, сколько ждёт игра, — иначе утечка). */
-  tapListeners: number;
+  /** Размер экрана игры и ширина окна карты (без правой панели), пикселей. */
   width: number;
   height: number;
-  loseLineY: number;
-  /** r — радиус описанного круга, bottom — нижняя точка (касание её красной линии отнимает жизнь). */
-  bacteria: { id: number; x: number; y: number; r: number; bottom: number; age: number; kind: string; hp: number; maxHp: number }[];
-  pills: { x: number; y: number }[];
-  /** Сколько раз сработали вспышка, частицы, всплывающее «+очки», тряска экрана и красная вспышка потери жизни. */
-  effects: { flashes: number; bursts: number; popups: number; shakes: number; lifeLosses: number };
+  viewW: number;
+  /** Карта: размер в клетках, сторона клетки, ширина зоны организма, размер мира в пикселях. */
+  map: { cols: number; rows: number; tile: number; orgW: number; worldW: number; worldH: number };
+  /** Камера: приближение, центр (в пикселях мира) и допустимые пределы приближения. */
+  camera: { zoom: number; cx: number; cy: number; zoomMin: number; zoomMax: number };
+  /** Выбрана ли башня на панели (её название) и цена. */
+  selected: string | null;
+  /** Поставленные башни: клетка и центр в пикселях мира. */
+  towers: { id: string; col: number; row: number; x: number; y: number }[];
+  /** Бактерии: центр в пикселях мира, радиус, номер маршрута, пройденный путь. */
+  bacteria: { id: number; x: number; y: number; r: number; kind: string; hp: number; maxHp: number; route: number; s: number }[];
+  projectiles: number;
+  /** Где на экране игры кнопки панели (центры) и сколько жизней нарисовано. */
+  ui: { towerButton: { x: number; y: number; w: number; h: number }; pauseButton: { x: number; y: number }; lives: number };
+  /** Сколько обработчиков нажатия навешено на сцену (при перезапуске не должно расти — иначе утечка). */
+  pointerListeners: number;
+  /** Сколько раз сработали вспышка, частицы, «+монеты», кольцо постановки и красная вспышка потери жизни. */
+  effects: { flashes: number; bursts: number; popups: number; placements: number; lifeLosses: number };
   /** Звук: состояние аудио («running» — играет) и сколько звуков сыграно с загрузки страницы. */
   sound: { state: string; played: number };
 }
 
+/** Что игра отдаёт проверкам через window.__pvb. */
+export interface DebugApi {
+  getState: () => DebugSnapshot;
+  /** Точка мира → координаты на странице (для мыши и касаний Playwright), с учётом камеры и масштаба экрана. */
+  worldToClient: (wx: number, wy: number) => { x: number; y: number };
+  /** Точка экрана игры (1280×720) → координаты на странице. */
+  gameToClient: (gx: number, gy: number) => { x: number; y: number };
+  /** Центр клетки → координаты на странице. */
+  cellToClient: (col: number, row: number) => { x: number; y: number };
+}
+
 declare global {
   interface Window {
-    __pvb?: { getState: () => DebugSnapshot };
+    __pvb?: DebugApi;
   }
 }
 
-export function exposeDebug(getState: () => DebugSnapshot): void {
-  if (QA_MODE) window.__pvb = { getState };
+export function exposeDebug(api: DebugApi): void {
+  if (QA_MODE) window.__pvb = api;
 }
 
 /**
