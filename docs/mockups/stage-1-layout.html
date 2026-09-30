@@ -2,15 +2,17 @@
 <html lang="ru">
 <head>
 <meta charset="utf-8">
-<title>Макет поля: tower defense, этап 1 (версия 2: кривые дорожки)</title>
+<title>Макет поля: tower defense, этап 1 (версия 3: большая карта)</title>
 <!--
   МАКЕТ раскладки поля (это картинка, а не игра: логики нет). Цвета и формы бактерий — те же, что в игре (src/theme.ts).
-  Версия 2: дорожки кривые; два входа справа сливаются в одну и снова расходятся на два выхода к организму.
+  Версия 3: карта большая (18×14 клеток вместо 9×7), на экране виден кусок; приближение — щипком и колесом мыши.
+  Кривые дорожки: два входа справа → слияние → разветвление → два выхода к организму (он слева, красная линия).
   Открыть в браузере: docs/mockups/stage-1-layout.html
-    ?view=desktop   поле 1280×720 (по умолчанию)
+    ?view=overview  вся карта целиком, рамка — что видно на экране обычно
+    ?view=desktop   экран 1280×720 при обычном приближении (по умолчанию)
     ?view=notes     то же с подписями
     ?view=phone     как на телефоне в горизонтальном положении (844×390) с кругом «палец»
-  Числа раскладки — в блоках LAYOUT и NET ниже: поменяйте и обновите страницу.
+  Числа — в блоках LAYOUT, CAM и NET ниже: поменяйте и обновите страницу (например, cols/rows — размер карты).
 -->
 <style>
   html, body { margin: 0; background: #0a1222; }
@@ -21,53 +23,57 @@
 <body>
 <div id="root"></div>
 <script>
-// ------------------------------------------------------------------ LAYOUT (пиксели поля 1280×720)
+// ------------------------------------------------------------------ LAYOUT (пиксели мира; экран игры — 1280×720)
 const LAYOUT = {
-  W: 1280, H: 720,
-  orgW: 150,        // зона «организм» слева; красная линия — на её правом краю
-  panelW: 200,      // правая панель (волна, монеты, башни); бактерии выезжают из-под неё
-  cols: 9,          // клеток по ширине рабочей области
-  rows: 7,          // клеток по высоте
-  pathW: 86,        // ширина дорожки, пикселей (бактерия до 96 px в диаметре у бронированной — чуть выходит за край)
-  curve: 0.7,       // насколько плавные повороты: радиус поворота в клетках (больше — круглее, но короче прямые участки)
+  screenW: 1280, screenH: 720,
+  panelW: 200,      // правая панель — всегда на экране, не двигается вместе с картой
+  orgW: 150,        // зона «организм» в начале карты; красная линия — на её правом краю
+  tile: 103,        // клетка, пикселей (на телефоне 844×390 это ≈56 px — палец 44 px помещается)
+  cols: 18,         // клеток по ширине карты (было 9)
+  rows: 14,         // клеток по высоте карты (было 7)
+  pathW: 86,        // ширина дорожки, пикселей
+  curve: 0.7,       // радиус поворотов в клетках (больше — круглее, но короче прямые участки)
 };
 const L = LAYOUT;
-L.fieldX = L.orgW; L.fieldW = L.W - L.orgW - L.panelW;
-L.tw = L.fieldW / L.cols; L.th = L.H / L.rows;
-L.panelX = L.W - L.panelW;
+L.worldW = L.orgW + L.cols * L.tile; L.worldH = L.rows * L.tile;
+L.viewW = L.screenW - L.panelW;       // ширина окна, через которое видна карта
+// камера при обычном приближении: левый верхний угол видимой части (пиксели мира) и приближение
+const CAM = { x: 665, y: 309, zoom: 1 };
 
-// ------------------------------------------------------------------ NET: сеть дорожек
-// Точки — (колонка, ряд) центра клетки. Колонка 9.6 — за правым краем (под панелью), колонка -1 — уже в организме.
-// Маршрут = путь бактерии от входа до выхода. Общие участки рисуются один раз (слияние и разветвление).
+// ------------------------------------------------------------------ NET: сеть дорожек (клетки: колонка, ряд; колонка cols+0.6 — за правым краем, -1 — в организме)
 const NET = {
   routes: [
-    [[9.6, 1], [6, 1], [6, 3], [3, 3], [3, 1], [-1, 1]],   // верхний вход → верхний выход
-    [[9.6, 1], [6, 1], [6, 3], [3, 3], [3, 5], [-1, 5]],   // верхний вход → нижний выход
-    [[9.6, 5], [6, 5], [6, 3], [3, 3], [3, 1], [-1, 1]],   // нижний вход → верхний выход
-    [[9.6, 5], [6, 5], [6, 3], [3, 3], [3, 5], [-1, 5]],   // нижний вход → нижний выход
+    [[18.6, 2], [14, 2], [14, 5], [11, 5], [11, 7], [6, 7], [6, 4], [3, 4], [3, 2], [-1, 2]],       // вход 1 → выход 1
+    [[18.6, 2], [14, 2], [14, 5], [11, 5], [11, 7], [6, 7], [6, 10], [3, 10], [3, 12], [-1, 12]],   // вход 1 → выход 2
+    [[18.6, 11], [14, 11], [14, 9], [11, 9], [11, 7], [6, 7], [6, 4], [3, 4], [3, 2], [-1, 2]],     // вход 2 → выход 1
+    [[18.6, 11], [14, 11], [14, 9], [11, 9], [11, 7], [6, 7], [6, 10], [3, 10], [3, 12], [-1, 12]], // вход 2 → выход 2
   ],
-  // отрезки для стрелок направления (по ходу бактерий): [от, до]
-  segments: [
-    [[9.6, 1], [6, 1]], [[6, 1], [6, 3]], [[9.6, 5], [6, 5]], [[6, 5], [6, 3]], [[6, 3], [3, 3]],
-    [[3, 3], [3, 1]], [[3, 1], [-1, 1]], [[3, 3], [3, 5]], [[3, 5], [-1, 5]],
+  segments: [   // отрезки для стрелок направления (по ходу бактерий)
+    [[18.6, 2], [14, 2]], [[14, 2], [14, 5]], [[14, 5], [11, 5]], [[11, 5], [11, 7]],
+    [[18.6, 11], [14, 11]], [[14, 11], [14, 9]], [[14, 9], [11, 9]], [[11, 9], [11, 7]],
+    [[11, 7], [6, 7]],
+    [[6, 7], [6, 4]], [[6, 4], [3, 4]], [[3, 4], [3, 2]], [[3, 2], [-1, 2]],
+    [[6, 7], [6, 10]], [[6, 10], [3, 10]], [[3, 10], [3, 12]], [[3, 12], [-1, 12]],
   ],
-  towers: [[5, 2], [5, 4], [2, 3]],   // поставленные башни (клетки)
-  ghost: [4, 2],                       // клетка, куда игрок сейчас ставит башню
-  bacteria: [[7.4, 1], [6, 2.15], [4.7, 3], [7.5, 5], [6, 3.9], [1.5, 1], [3, 4.4], [8.52, 5]],
+  towers: [[9, 6], [8, 8], [12, 6], [5, 5], [4, 9], [15, 3], [2, 11]],
+  ghost: [10, 8],   // клетка, куда игрок сейчас ставит башню
+  bacteria: [[17.2, 2], [14, 3.5], [12.7, 5], [11, 6.2], [10.2, 7], [8.4, 7], [6, 5.6], [3, 3.1], [1.4, 2],
+             [17.4, 11], [13.2, 9], [12.4, 9], [11, 8.1], [3, 11.2], [1.5, 12]],
 };
+const M = [11, 7], S = [6, 7];   // слияние и разветвление (для подписей)
 
-const C = { bg: '#12203a', tissue: '#1d3760', tissueLine: '#33578f', lane: '#0b1528', laneLine: '#2a4a7d', laneOuter: '#24406b',
-  org1: '#3a1a26', org2: '#5c2436', line: '#ff4d5e', heart: '#ff4d6d', gold: '#ffd84d', panel: '#0d162b', panelLine: '#33578f',
+const C = { bg: '#12203a', tissue: '#1d3760', tissueLine: '#33578f', lane: '#0b1528', laneOuter: '#24406b',
+  org1: '#3a1a26', org2: '#5c2436', line: '#ff4d5e', heart: '#ff4d6d', heartLost: '#2b3a5c', gold: '#ffd84d', panel: '#0d162b', panelLine: '#33578f',
   tower: '#2c4a7c', towerEdge: '#8fb0e6', text: '#ffffff' };
 const KIND = { body: '#7bdc7b', shell: '#2f8f3a' };   // кокк, как в игре
 
 const params = new URLSearchParams(location.search);
 const view = params.get('view') || 'desktop';
 
-const tc = (c, r) => [L.fieldX + L.tw * (c + 0.5), L.th * (r + 0.5)];   // центр клетки → пиксели
+const tc = (c, r) => [L.orgW + L.tile * (c + 0.5), L.tile * (r + 0.5)];   // центр клетки → пиксели мира
+const scr = (c, r) => { const [x, y] = tc(c, r); return [(x - CAM.x) * CAM.zoom, (y - CAM.y) * CAM.zoom]; };   // → пиксели экрана
 const key = (c, r) => c + ',' + r;
 
-// клетки, по которым идёт дорожка (там башни ставить нельзя)
 const pathTiles = new Set();
 for (const route of NET.routes) for (let i = 0; i < route.length - 1; i++) {
   const [c0, r0] = route[i], [c1, r1] = route[i + 1];
@@ -79,8 +85,8 @@ const towerSet = new Set(NET.towers.map(([c, r]) => key(c, r)));
 const ghostKey = key(...NET.ghost);
 
 // ------------------------------------------------------------------ помощники SVG
-const parts = [];
-const add = s => parts.push(s);
+const txt = (x, y, s, size, fill = C.text, anchor = 'start', weight = 'bold', extra = '') =>
+  `<text x="${x}" y="${y}" font-size="${size}" font-weight="${weight}" fill="${fill}" text-anchor="${anchor}" ${extra}>${s}</text>`;
 const heart = (x, y, s, fill) => `<path transform="translate(${x} ${y}) scale(${s})" d="M0 12 C-22 -4 -20 -22 -8 -22 C-3 -22 0 -18 0 -14 C0 -18 3 -22 8 -22 C20 -22 22 -4 0 12Z" fill="${fill}" stroke="#0b1020" stroke-width="1.5"/>`;
 const coin = (x, y, r) => `<circle cx="${x}" cy="${y}" r="${r}" fill="${C.gold}" stroke="#b8901a" stroke-width="2.5"/><circle cx="${x}" cy="${y}" r="${r*0.55}" fill="none" stroke="#b8901a" stroke-width="2"/>`;
 const coccus = (x, y, r = 30) => `<g><circle cx="${x}" cy="${y}" r="${r}" fill="${KIND.shell}"/><circle cx="${x}" cy="${y}" r="${r-4}" fill="${KIND.body}"/><circle cx="${x-r*0.35}" cy="${y-r*0.38}" r="${r*0.16}" fill="#fff" opacity=".35"/></g>`;
@@ -91,10 +97,7 @@ const towerIcon = (x, y, k = 1, alpha = 1) => `<g transform="translate(${x} ${y}
   <circle r="9" fill="#12203a" stroke="${C.towerEdge}" stroke-width="2"/></g>`;
 const pill = (x, y, ang) => `<g transform="translate(${x} ${y}) rotate(${ang})"><rect x="-15" y="-5" width="30" height="10" rx="5" fill="#fff" stroke="#d0d6e4" stroke-width="1.5"/><path d="M0 -5 h10 a5 5 0 0 1 0 10 h-10z" fill="#74b8ff"/></g>`;
 const lock = (x, y, col) => `<g transform="translate(${x} ${y})"><rect x="-13" y="-4" width="26" height="20" rx="4" fill="${col}"/><path d="M-8 -4 v-6 a8 8 0 0 1 16 0 v6" fill="none" stroke="${col}" stroke-width="4"/></g>`;
-const txt = (x, y, s, size, fill = C.text, anchor = 'start', weight = 'bold', extra = '') =>
-  `<text x="${x}" y="${y}" font-size="${size}" font-weight="${weight}" fill="${fill}" text-anchor="${anchor}" ${extra}>${s}</text>`;
 
-// путь с плавными поворотами: на каждом углу — квадратичная кривая
 function roundedPath(cells, radius) {
   const p = cells.map(([c, r]) => tc(c, r));
   let d = `M${p[0][0]} ${p[0][1]}`;
@@ -106,130 +109,139 @@ function roundedPath(cells, radius) {
   return d + ` L${p[p.length - 1][0]} ${p[p.length - 1][1]}`;
 }
 
-// ------------------------------------------------------------------ фон
-add(`<defs>
-  <linearGradient id="org" x1="0" x2="1"><stop offset="0" stop-color="${C.org1}"/><stop offset="1" stop-color="${C.org2}"/></linearGradient>
-  <linearGradient id="spawn" x1="0" x2="1"><stop offset="0" stop-color="#e8f0ff" stop-opacity="0"/><stop offset="1" stop-color="#e8f0ff" stop-opacity=".10"/></linearGradient>
-  <filter id="glow" x="-200%" y="-5%" width="500%" height="110%"><feGaussianBlur stdDeviation="6"/></filter>
-</defs>`);
-add(`<rect width="${L.W}" height="${L.H}" fill="${C.bg}"/>`);
+// ------------------------------------------------------------------ МИР (координаты мира: организм слева, дальше сетка клеток)
+function worldSvg() {
+  const w = [];
+  const add = s => w.push(s);
+  add(`<defs>
+    <linearGradient id="org" x1="0" x2="1"><stop offset="0" stop-color="${C.org1}"/><stop offset="1" stop-color="${C.org2}"/></linearGradient>
+    <filter id="glow" x="-200%" y="-5%" width="500%" height="110%"><feGaussianBlur stdDeviation="6"/></filter>
+  </defs>`);
+  add(`<rect width="${L.worldW}" height="${L.worldH}" fill="${C.bg}"/>`);
 
-// клетки для башен — все, кроме дорожки
-for (let c = 0; c < L.cols; c++) for (let r = 0; r < L.rows; r++) {
-  if (pathTiles.has(key(c, r))) continue;
-  add(`<rect x="${L.fieldX + c * L.tw + 3}" y="${r * L.th + 3}" width="${L.tw - 6}" height="${L.th - 6}" rx="10" fill="${C.tissue}" stroke="${C.tissueLine}" stroke-width="1.5" opacity=".9"/>`);
-}
-
-// дорожки: сначала все внешние контуры, потом все внутренности — общие участки сливаются без швов
-const dPaths = NET.routes.map(r => roundedPath(r, L.curve * L.tw));
-for (const d of dPaths) add(`<path d="${d}" fill="none" stroke="${C.laneOuter}" stroke-width="${L.pathW + 12}" stroke-linecap="round" stroke-linejoin="round"/>`);
-for (const d of dPaths) add(`<path d="${d}" fill="none" stroke="${C.lane}" stroke-width="${L.pathW}" stroke-linecap="round" stroke-linejoin="round"/>`);
-for (const d of dPaths) add(`<path d="${d}" fill="none" stroke="#fff" stroke-opacity=".07" stroke-width="3" stroke-dasharray="14 12"/>`);
-
-// стрелки направления вдоль прямых участков
-for (const [a, b] of NET.segments) {
-  const [x0, y0] = tc(...a), [x1, y1] = tc(...b), len = Math.hypot(x1 - x0, y1 - y0), ang = Math.atan2(y1 - y0, x1 - x0) * 180 / Math.PI;
-  const startPad = a[0] > 9 ? 40 : L.curve * L.tw + 8, endPad = b[0] < 0 ? 40 : L.curve * L.tw + 8;   // не рисуем на поворотах
-  for (let s = startPad; s <= len - endPad; s += 66) {
-    const x = x0 + (x1 - x0) * s / len, y = y0 + (y1 - y0) * s / len;
-    add(`<path transform="translate(${x} ${y}) rotate(${ang})" d="M-5 -11 L6 0 L-5 11" fill="none" stroke="#fff" stroke-opacity=".2" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>`);
+  for (let c = 0; c < L.cols; c++) for (let r = 0; r < L.rows; r++) {
+    if (pathTiles.has(key(c, r))) continue;
+    add(`<rect x="${L.orgW + c * L.tile + 3}" y="${r * L.tile + 3}" width="${L.tile - 6}" height="${L.tile - 6}" rx="10" fill="${C.tissue}" stroke="${C.tissueLine}" stroke-width="1.5" opacity=".9"/>`);
   }
-}
-// подсказка «бактерии приходят отсюда»
-add(`<rect x="${L.panelX - 140}" y="0" width="140" height="${L.H}" fill="url(#spawn)"/>`);
+  const dPaths = NET.routes.map(r => roundedPath(r, L.curve * L.tile));
+  for (const d of dPaths) add(`<path d="${d}" fill="none" stroke="${C.laneOuter}" stroke-width="${L.pathW + 12}" stroke-linecap="round" stroke-linejoin="round"/>`);
+  for (const d of dPaths) add(`<path d="${d}" fill="none" stroke="${C.lane}" stroke-width="${L.pathW}" stroke-linecap="round" stroke-linejoin="round"/>`);
+  for (const d of dPaths) add(`<path d="${d}" fill="none" stroke="#fff" stroke-opacity=".07" stroke-width="3" stroke-dasharray="14 12"/>`);
 
-// ------------------------------------------------------------------ призрак башни и радиус (момент постановки)
-{
-  const [gx, gy] = tc(...NET.ghost), [c, r] = NET.ghost;
-  add(`<circle cx="${gx}" cy="${gy}" r="200" fill="#74b8ff" opacity=".10"/><circle cx="${gx}" cy="${gy}" r="200" fill="none" stroke="#9fd0ff" stroke-width="2.5" stroke-dasharray="10 8"/>`);
-  add(`<rect x="${L.fieldX + c * L.tw + 3}" y="${r * L.th + 3}" width="${L.tw - 6}" height="${L.th - 6}" rx="10" fill="#74b8ff" opacity=".25" stroke="#9fd0ff" stroke-width="3"/>`);
-}
-// «+» в свободных клетках (подсказка: здесь можно ставить)
-for (let c = 0; c < L.cols; c++) for (let r = 0; r < L.rows; r++) {
-  const k = key(c, r);
-  if (pathTiles.has(k) || towerSet.has(k) || k === ghostKey) continue;
-  const [x, y] = tc(c, r); add(txt(x, y + 9, '+', 30, '#ffffff', 'middle', 'normal', 'opacity=".16"'));
+  for (const [a, b] of NET.segments) {
+    const [x0, y0] = tc(...a), [x1, y1] = tc(...b), len = Math.hypot(x1 - x0, y1 - y0), ang = Math.atan2(y1 - y0, x1 - x0) * 180 / Math.PI;
+    const startPad = a[0] > L.cols ? 40 : L.curve * L.tile + 8, endPad = b[0] < 0 ? 40 : L.curve * L.tile + 8;
+    for (let s = startPad; s <= len - endPad; s += 66) {
+      const x = x0 + (x1 - x0) * s / len, y = y0 + (y1 - y0) * s / len;
+      add(`<path transform="translate(${x} ${y}) rotate(${ang})" d="M-5 -11 L6 0 L-5 11" fill="none" stroke="#fff" stroke-opacity=".2" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>`);
+    }
+  }
+  // «+» в свободных клетках
+  for (let c = 0; c < L.cols; c++) for (let r = 0; r < L.rows; r++) {
+    const k = key(c, r);
+    if (pathTiles.has(k) || towerSet.has(k) || k === ghostKey) continue;
+    const [x, y] = tc(c, r); add(txt(x, y + 9, '+', 30, '#ffffff', 'middle', 'normal', 'opacity=".16"'));
+  }
+  // призрак башни и радиус (момент постановки)
+  { const [gx, gy] = tc(...NET.ghost), [c, r] = NET.ghost;
+    add(`<circle cx="${gx}" cy="${gy}" r="200" fill="#74b8ff" opacity=".10"/><circle cx="${gx}" cy="${gy}" r="200" fill="none" stroke="#9fd0ff" stroke-width="2.5" stroke-dasharray="10 8"/>`);
+    add(`<rect x="${L.orgW + c * L.tile + 3}" y="${r * L.tile + 3}" width="${L.tile - 6}" height="${L.tile - 6}" rx="10" fill="#74b8ff" opacity=".25" stroke="#9fd0ff" stroke-width="3"/>`); }
+  // организм
+  add(`<rect width="${L.orgW}" height="${L.worldH}" fill="url(#org)"/>`);
+  add(`<rect x="${L.orgW - 4}" y="0" width="14" height="${L.worldH}" fill="${C.line}" opacity=".55" filter="url(#glow)"/>`);
+  add(`<rect x="${L.orgW - 3}" y="0" width="6" height="${L.worldH}" fill="${C.line}"/>`);
+  add(txt(0, 0, 'ОРГАНИЗМ', 30, '#ffb3bd', 'middle', 'bold', `letter-spacing="4" transform="translate(${L.orgW / 2 - 4} ${L.worldH / 2}) rotate(-90)"`));
+  // башни, бактерии, выстрелы
+  for (const [c, r] of NET.towers) { const [x, y] = tc(c, r); add(towerIcon(x, y, 0.98)); }
+  { const [x, y] = tc(...NET.ghost); add(towerIcon(x, y, 0.98, 0.65)); }
+  for (const [c, r] of NET.bacteria) { const [x, y] = tc(c, r); add(coccus(x, y)); }
+  const shot = (tower, target, t = 0.5) => { const [x0, y0] = tc(...tower), [x1, y1] = tc(...target);
+    return pill(x0 + (x1 - x0) * t, y0 + (y1 - y0) * t, Math.atan2(y1 - y0, x1 - x0) * 180 / Math.PI); };
+  add(shot([9, 6], [10.2, 7], 0.55)); add(shot([8, 8], [8.4, 7], 0.55)); add(shot([12, 6], [12.7, 5], 0.55)); add(shot([5, 5], [6, 5.6], 0.5));
+  return w.join('');
 }
 
-// ------------------------------------------------------------------ организм
-add(`<rect width="${L.orgW}" height="${L.H}" fill="url(#org)"/>`);
-add(`<rect x="${L.orgW - 4}" y="0" width="14" height="${L.H}" fill="${C.line}" opacity=".55" filter="url(#glow)"/>`);
-add(`<rect x="${L.orgW - 3}" y="0" width="6" height="${L.H}" fill="${C.line}"/>`);
-add(txt(L.orgW / 2 - 3, 44, 'ОРГАНИЗМ', 17, '#ffb3bd', 'middle', 'bold', 'letter-spacing="1.5"'));
-for (let i = 0; i < 3; i++) add(heart(L.orgW / 2 - 3, 290 + i * 72, 1.15, C.heart));
+// ------------------------------------------------------------------ ПАНЕЛЬ (координаты экрана; всегда на месте)
+function panelSvg() {
+  const p = [], add = s => p.push(s), px = L.viewW, cx = px + L.panelW / 2;
+  add(`<rect x="${px}" y="0" width="${L.panelW}" height="${L.screenH}" fill="${C.panel}" opacity=".97"/>`);
+  add(`<rect x="${px}" y="0" width="3" height="${L.screenH}" fill="${C.panelLine}"/>`);
+  add(txt(cx + 1, 30, 'Волна 3 / 12', 21, C.text, 'middle'));
+  add(`<rect x="${px + 22}" y="40" width="${L.panelW - 44}" height="8" rx="4" fill="#22355a"/><rect x="${px + 22}" y="40" width="${(L.panelW - 44) * 0.25}" height="8" rx="4" fill="#74b8ff"/>`);
+  add(coin(px + 44, 82, 16)); add(txt(px + 72, 94, '120', 32, C.gold));
+  [0, 1, 2].forEach(i => add(heart(px + 46 + i * 54, 130, 1.0, C.heart)));       // жизни — в панели, потому что организм может быть за краем экрана
+  const slots = [{ name: 'Таблетка', price: 50, on: true }, { name: 'Сироп' }, { name: 'Шипучка' }, { name: 'Капсула' }];
+  slots.forEach((s, i) => {
+    const y = 158 + i * 112, x = px + 12, w = L.panelW - 24, h = 104;
+    add(`<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="14" fill="${s.on ? '#1c3a6a' : '#121d36'}" stroke="${s.on ? C.gold : '#26385e'}" stroke-width="${s.on ? 4 : 2}"/>`);
+    if (s.on) { add(towerIcon(x + 38, y + h / 2, 0.68)); add(txt(x + 74, y + 42, s.name, 18, C.text)); add(coin(x + 84, y + 74, 10)); add(txt(x + 100, y + 83, s.price, 25, C.gold)); }
+    else { add(lock(x + 38, y + h / 2 - 8, '#4a5c82')); add(txt(x + 74, y + 42, s.name, 18, '#4a5c82')); add(txt(x + 74, y + 76, 'закрыто', 15, '#4a5c82', 'start', 'normal')); }
+  });
+  add(`<circle cx="${cx}" cy="668" r="24" fill="#1c2c50" stroke="#33578f" stroke-width="2"/><rect x="${cx - 9}" y="657" width="6" height="22" rx="2" fill="#fff"/><rect x="${cx + 3}" y="657" width="6" height="22" rx="2" fill="#fff"/>`);
+  return p.join('');
+}
 
-// ------------------------------------------------------------------ башни, бактерии, выстрелы
-for (const [c, r] of NET.towers) { const [x, y] = tc(c, r); add(towerIcon(x, y, 0.98)); }
-{ const [x, y] = tc(...NET.ghost); add(towerIcon(x, y, 0.98, 0.65)); }
-for (const [c, r] of NET.bacteria) { const [x, y] = tc(c, r); add(coccus(x, y)); }
-const shot = (tower, target, t = 0.5) => {
-  const [x0, y0] = tc(...tower), [x1, y1] = tc(...target);
-  return pill(x0 + (x1 - x0) * t, y0 + (y1 - y0) * t, Math.atan2(y1 - y0, x1 - x0) * 180 / Math.PI);
+// подпись-«таблетка» с необязательным указателем: to = [x, y] в тех же координатах, fromX/fromY — где линия отходит от подписи
+const tag = (x, y, n, s, w, to, size = 16, h = 34) => {
+  const lead = to ? `<line x1="${x + (to[0] > x + w / 2 ? w : 0)}" y1="${y + h / 2}" x2="${to[0]}" y2="${to[1]}" stroke="#ffd84d" stroke-width="${h / 14}"/><circle cx="${to[0]}" cy="${to[1]}" r="${h / 6}" fill="#ffd84d"/>` : '';
+  return `<g>${lead}<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="${h / 2}" fill="#0b1020" fill-opacity=".9" stroke="#ffd84d" stroke-width="${h / 17}"/>` +
+    (n ? `<circle cx="${x + h / 2}" cy="${y + h / 2}" r="${h * 0.38}" fill="#ffd84d"/>${txt(x + h / 2, y + h / 2 + size * 0.36, n, size, '#0b1020', 'middle')}` : '') +
+    txt(x + (n ? h + 6 : 18), y + h / 2 + size * 0.36, s, size, '#fff', 'start', 'bold') + `</g>`;
 };
-add(shot([5, 2], [6, 2.15], 0.55));
-add(shot([2, 3], [3, 4.4], 0.5));
-add(shot([5, 4], [6, 3.9], 0.55));
 
-// ------------------------------------------------------------------ правая панель
-const px = L.panelX;
-add(`<rect x="${px}" y="0" width="${L.panelW}" height="${L.H}" fill="${C.panel}" opacity=".97"/>`);
-add(`<rect x="${px}" y="0" width="3" height="${L.H}" fill="${C.panelLine}"/>`);
-add(txt(px + L.panelW / 2 + 1, 38, 'Волна 3 / 12', 23, C.text, 'middle'));
-add(`<rect x="${px + 22}" y="52" width="${L.panelW - 44}" height="9" rx="4.5" fill="#22355a"/><rect x="${px + 22}" y="52" width="${(L.panelW - 44) * 0.25}" height="9" rx="4.5" fill="#74b8ff"/>`);
-add(coin(px + 46, 104, 18));
-add(txt(px + 76, 116, '120', 36, C.gold));
-const slots = [ { name: 'Таблетка', price: 50, on: true }, { name: 'Сироп' }, { name: 'Шипучка' }, { name: 'Капсула' } ];
-slots.forEach((s, i) => {
-  const y = 142 + i * 126, x = px + 12, w = L.panelW - 24, h = 118;
-  add(`<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="14" fill="${s.on ? '#1c3a6a' : '#121d36'}" stroke="${s.on ? C.gold : '#26385e'}" stroke-width="${s.on ? 4 : 2}"/>`);
-  if (s.on) {
-    add(towerIcon(x + 38, y + h / 2, 0.68));
-    add(txt(x + 74, y + 48, s.name, 18, C.text));
-    add(coin(x + 84, y + 84, 10)); add(txt(x + 100, y + 93, s.price, 25, C.gold));
-  } else {
-    add(lock(x + 38, y + h / 2 - 8, '#4a5c82'));
-    add(txt(x + 74, y + 48, s.name, 18, '#4a5c82'));
-    add(txt(x + 74, y + 84, 'закрыто', 15, '#4a5c82', 'start', 'normal'));
-  }
-});
-add(`<circle cx="${px + L.panelW / 2}" cy="682" r="24" fill="#1c2c50" stroke="#33578f" stroke-width="2"/><rect x="${px + L.panelW / 2 - 9}" y="671" width="6" height="22" rx="2" fill="#fff"/><rect x="${px + L.panelW / 2 + 3}" y="671" width="6" height="22" rx="2" fill="#fff"/>`);
+// ------------------------------------------------------------------ ВЫВОД
+const root = document.getElementById('root');
 
-// ------------------------------------------------------------------ подписи (view=notes)
-if (view === 'notes') {
-  // подпись с необязательным указателем на точку поля: to = [колонка, ряд]
-  const tag = (x, y, n, s, w, to, fromX) => {
-    let lead = '';
-    if (to) { const [tx, ty] = tc(...to); lead = `<line x1="${fromX}" y1="${y + 17}" x2="${tx}" y2="${ty}" stroke="#ffd84d" stroke-width="2.5"/><circle cx="${tx}" cy="${ty}" r="6" fill="#ffd84d"/>`; }
-    return `<g>${lead}<rect x="${x}" y="${y}" width="${w}" height="34" rx="17" fill="#0b1020" fill-opacity=".9" stroke="#ffd84d" stroke-width="2"/>
-    <circle cx="${x + 17}" cy="${y + 17}" r="13" fill="#ffd84d"/>${txt(x + 17, y + 23, n, 17, '#0b1020', 'middle')}${txt(x + 40, y + 23, s, 16, '#fff', 'start', 'bold')}</g>`;
-  };
-  add(tag(632, 10, 1, 'Два входа справа — бактерии идут к организму', 432));
-  add(tag(846, 268, 2, 'Слияние дорожек', 210, [6, 3], 846));
-  add(tag(262, 268, 3, 'Разветвление', 185, [3, 3], 447));
-  add(tag(168, 10, 4, 'Два выхода в организм', 275));
-  add(tag(168, 660, 5, 'Тап по кнопке башни → тап по клетке', 385));
-  add(tag(566, 660, 6, 'Башни — на любую клетку, кроме дорожки', 430));
-}
-
-// ------------------------------------------------------------------ вывод
-const fieldSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="${L.W}" height="${L.H}" viewBox="0 0 ${L.W} ${L.H}">${parts.join('')}</svg>`;
-
-if (view === 'phone') {
-  // как на телефоне 844×390 (CSS-пиксели) в горизонтальном положении: поле вписывается по высоте
-  const VW = 844, VH = 390, k = Math.min(VW / L.W, VH / L.H), ox = (VW - L.W * k) / 2;
-  const cellW = Math.round(L.tw * k), cellH = Math.round(L.th * k), slot = Math.round(118 * k), pathPx = Math.round(L.pathW * k);
-  const [gx, gy] = tc(...NET.ghost);
-  document.getElementById('root').innerHTML = `<div style="width:${VW}px;background:#0a1222">
-    <div style="position:relative;width:${VW}px;height:${VH}px;background:#05090f;overflow:hidden">
-      <div style="position:absolute;left:${ox}px;top:0;width:${L.W}px;height:${L.H}px;transform:scale(${k});transform-origin:0 0">${fieldSvg}</div>
-      <div style="position:absolute;left:${ox + gx * k - 22}px;top:${gy * k - 22}px;width:44px;height:44px;border-radius:50%;background:rgba(255,255,255,.55);border:3px solid #fff;box-sizing:border-box"></div>
-    </div>
-    <div style="padding:10px 14px;color:#dbe6ff;font-size:14px;line-height:1.35">
-      <b style="color:#ffd84d">Телефон в горизонтальном положении (844×390).</b> Белый круг — палец (44 px, минимум для касания).
-      Клетка ≈ <b>${cellW}×${cellH}</b> px, дорожка ≈ <b>${pathPx}</b> px, кнопка башни ≈ <b>${slot}</b> px высотой — палец помещается, но запас небольшой: клетки не стоит делать меньше.
-    </div></div>`;
+if (view === 'overview') {
+  const k = 1280 / L.worldW, H = Math.round(L.worldH * k);
+  const fw = L.viewW / CAM.zoom, fh = L.screenH / CAM.zoom;
+  const [mx, my] = tc(...M), [sx, sy] = tc(...S), [e1x, e1y] = tc(L.cols - 1, 2), [e2x, e2y] = tc(L.cols - 1, 11);
+  const over = [
+    `<rect x="${CAM.x}" y="${CAM.y}" width="${fw}" height="${fh}" fill="#ffd84d" fill-opacity=".07" stroke="#ffd84d" stroke-width="7" stroke-dasharray="28 18"/>`,
+    tag(CAM.x, CAM.y - 62, '', 'Так видно на экране при обычном приближении', 700, null, 32, 52),
+    tag(180, 24, '', 'Вся карта: 18×14 клеток (раньше было 9×7)', 800, null, 34, 58),
+    tag(e1x - 330, e1y - 110, '', 'ВХОД 1 (справа)', 310, null, 32, 52),
+    tag(e2x - 330, e2y + 66, '', 'ВХОД 2 (справа)', 310, null, 32, 52),
+    tag(180, tc(0, 2)[1] - 116, '', 'ВЫХОД 1 в организм', 350, null, 30, 50),
+    tag(180, tc(0, 12)[1] + 66, '', 'ВЫХОД 2 в организм', 350, null, 30, 50),
+    tag(mx + 60, my - 22, '', 'Слияние', 200, [mx, my], 30, 50),
+    tag(sx - 300, sy - 25, '', 'Разветвление', 240, [sx, sy], 30, 50),
+  ];
+  root.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="${H}" viewBox="0 0 ${L.worldW} ${L.worldH}">${worldSvg()}${over.join('')}</svg>`;
 } else {
-  document.getElementById('root').innerHTML = fieldSvg;
+  // экран: карта видна через окно viewW×720, панель поверх и сбоку
+  const notes = [];
+  if (view === 'notes') {
+    const [m1, m2] = scr(...M), [s1, s2] = scr(...S);
+    notes.push(
+      tag(168, 10, 1, 'Показан кусок карты — сдвиг: тянуть пальцем', 440),
+      tag(168, 52, 2, 'Приближение: щипок пальцами / колесо мыши', 440),
+      tag(210, 94, 3, 'Тап по кнопке башни → тап по клетке', 385),
+      tag(770, 10, 4, 'Панель всегда на месте', 290),
+      tag(860, 570, 5, 'Слияние дорожек', 205, [m1, m2]),
+      tag(206, 610, 6, 'Разветвление', 190, [s1, s2]),
+      tag(0, 330, '', '◀ Организм', 122, null, 15),
+    );
+  }
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${L.screenW}" height="${L.screenH}" viewBox="0 0 ${L.screenW} ${L.screenH}">
+    <svg x="0" y="0" width="${L.viewW}" height="${L.screenH}" viewBox="${CAM.x} ${CAM.y} ${L.viewW / CAM.zoom} ${L.screenH / CAM.zoom}">${worldSvg()}</svg>
+    ${panelSvg()}${notes.join('')}</svg>`;
+  if (view === 'phone') {
+    const VW = 844, VH = 390, k = Math.min(VW / L.screenW, VH / L.screenH), ox = (VW - L.screenW * k) / 2;
+    const cell = Math.round(L.tile * CAM.zoom * k), slot = Math.round(104 * k);
+    const [gx, gy] = scr(...NET.ghost);
+    root.innerHTML = `<div style="width:${VW}px;background:#0a1222">
+      <div style="position:relative;width:${VW}px;height:${VH}px;background:#05090f;overflow:hidden">
+        <div style="position:absolute;left:${ox}px;top:0;width:${L.screenW}px;height:${L.screenH}px;transform:scale(${k});transform-origin:0 0">${svg}</div>
+        <div style="position:absolute;left:${ox + gx * k - 22}px;top:${gy * k - 22}px;width:44px;height:44px;border-radius:50%;background:rgba(255,255,255,.55);border:3px solid #fff;box-sizing:border-box"></div>
+      </div>
+      <div style="padding:10px 14px;color:#dbe6ff;font-size:14px;line-height:1.35">
+        <b style="color:#ffd84d">Телефон в горизонтальном положении (844×390), обычное приближение.</b> Белый круг — палец (44 px, минимум для касания).
+        Клетка ≈ <b>${cell}×${cell}</b> px, кнопка башни ≈ <b>${slot}</b> px высотой — палец помещается, но запас небольшой. Поэтому при отдалении карты (щипком) ставить башни неудобно: клетки станут мельче пальца.
+      </div></div>`;
+  } else {
+    root.innerHTML = svg;
+  }
 }
 </script>
 </body>
