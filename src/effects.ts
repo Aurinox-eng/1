@@ -18,6 +18,7 @@ export class Effects {
   popups = 0;
   placements = 0;
   lifeLosses = 0;
+  zaps = 0;
 
   constructor(
     private readonly scene: Phaser.Scene,
@@ -86,6 +87,14 @@ export class Effects {
     const ring = this.scene.add.circle(x, y, 40).setStrokeStyle(5, COLORS.ghostEdge, 1).setFillStyle();
     this.layer.add(ring);
     this.scene.tweens.add({ targets: ring, scale: 2.4, alpha: 0, duration: 380, onComplete: () => ring.destroy() });
+  }
+
+  /** Спора заглушила башню: красное кольцо расходится от башни. */
+  zap(x: number, y: number): void {
+    this.zaps++;
+    const ring = this.scene.add.circle(x, y, 36).setStrokeStyle(6, COLORS.loseLine, 1).setFillStyle();
+    this.layer.add(ring);
+    this.scene.tweens.add({ targets: ring, scale: 3, alpha: 0, duration: 450, onComplete: () => ring.destroy() });
   }
 
   /** Бактерия дошла до организма: красная вспышка на всём экране и тряска. */

@@ -19,7 +19,6 @@ const ru = {
   towerCapsule: 'Капсула',
   locked: 'закрыто',
   hintPlace: 'Выберите башню справа и тапните по свободной клетке',
-  hintZoomIn: 'Приблизьте карту, чтобы ставить башни',
   hintNoCoins: 'Не хватает монет',
   hintCantBuild: 'Здесь нельзя ставить башню',
   victory: 'Победа!',
@@ -28,6 +27,10 @@ const ru = {
   tapToRestart: 'Тапните, чтобы сыграть снова',
   paused: 'Пауза',
   tapToResume: 'Тапните, чтобы продолжить',
+  newTypeRod: 'Новая бактерия! Палочка — делает рывки',
+  newTypeSplitter: 'Новая бактерия! Делящаяся — при гибели распадается на два кокка',
+  newTypeArmored: 'Новая бактерия! Бронированная — очень прочная, отнимает 2 жизни',
+  newTypeSpore: 'Новая бактерия! Спора — быстрая, глушит башни рядом',
   coinsPopup: '+{n}',
 };
 
@@ -45,7 +48,6 @@ const en: Record<TextKey, string> = {
   towerCapsule: 'Capsule',
   locked: 'locked',
   hintPlace: 'Pick a tower on the right, then tap an empty cell',
-  hintZoomIn: 'Zoom in to place towers',
   hintNoCoins: 'Not enough coins',
   hintCantBuild: "You can't build here",
   victory: 'Victory!',
@@ -54,6 +56,10 @@ const en: Record<TextKey, string> = {
   tapToRestart: 'Tap to play again',
   paused: 'Paused',
   tapToResume: 'Tap to resume',
+  newTypeRod: 'New bacterium! Rod — makes dashes',
+  newTypeSplitter: 'New bacterium! Splitter — splits into two cocci when killed',
+  newTypeArmored: 'New bacterium! Armored — very tough, costs 2 lives',
+  newTypeSpore: 'New bacterium! Spore — fast, disables nearby towers',
   coinsPopup: '+{n}',
 };
 

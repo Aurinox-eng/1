@@ -3,12 +3,12 @@ import { CameraRig } from '../cameraRig';
 import { CONFIG } from '../config';
 import { exposeDebug, TIME_SCALE, type DebugSnapshot } from '../debug';
 import { Effects } from '../effects';
-import { t } from '../i18n';
-import { LEVEL, PATH_TILES, ROUTES, WORLD, cellKey, worldToCell } from '../level';
+import { t, type TextKey } from '../i18n';
+import { EDGES, ENTRANCE_EDGES, LEVEL, PATH_TILES, WORLD, cellKey, worldToCell } from '../level';
 import { isPortraitPhone } from '../orientation';
 import { addMap } from '../mapArt';
 import { MapGestures } from '../mapGestures';
-import { Bacterium } from '../objects/Bacterium';
+import { Bacterium, type BacteriumKind } from '../objects/Bacterium';
 import { Projectile } from '../objects/Projectile';
 import { createTowerArt, Tower, type TowerId } from '../objects/Tower';
 import { tileCenter } from '../pathing';
@@ -23,6 +23,19 @@ const MAX_FRAME_MS = 50;
 const MAX_SPAWNS_PER_FRAME = 10;
 /** Какую башню даёт кнопка на панели (пока одна; остальные откроются на следующих этапах). */
 const PANEL_TOWER: TowerId = 'pill';
+/** Все типы бактерий в порядке появления в игре. */
+const KINDS = Object.keys(CONFIG.types) as BacteriumKind[];
+/** Сообщение при первом появлении типа (у кокка нет: он с первой волны). */
+const NEW_TYPE_TEXT: Partial<Record<BacteriumKind, TextKey>> = {
+  rod: 'newTypeRod',
+  splitter: 'newTypeSplitter',
+  armored: 'newTypeArmored',
+  spore: 'newTypeSpore',
+};
+/** Сколько миллисекунд держится сообщение о новом типе. */
+const NEW_TYPE_TOAST_MS = 4200;
+/** Во что распадается делящаяся (правило игры, не число баланса). */
+const SPLITS_INTO: BacteriumKind = 'coccus';
 
 type State = 'playing' | 'paused' | 'won' | 'lost';
 type WavePhase = 'countdown' | 'spawning' | 'pause' | 'done';
@@ -33,6 +46,8 @@ export class GameScene extends Phaser.Scene {
   private coins = 0;
   private lives = 0;
   private kills = 0;
+  private splits = 0;
+  private disables = 0;
   private leaked = 0;
   private shots = 0;
   private spawned = 0;
@@ -52,6 +67,10 @@ export class GameScene extends Phaser.Scene {
   private waveIdx = 0;
   private waveSpawned = 0;
   private waveCount = 0;
+  /** Кто выйдет в текущей волне, по порядку выхода. */
+  private waveQueue: BacteriumKind[] = [];
+  /** Какие типы бактерий уже появлялись (в порядке появления). */
+  private introduced: BacteriumKind[] = [];
   private waveInterval = 1;
   private spawnTimer = 0;
   private plannedTotal = 0;
@@ -87,6 +106,8 @@ export class GameScene extends Phaser.Scene {
     this.coins = CONFIG.economy.startCoins;
     this.lives = CONFIG.lives.start;
     this.kills = 0;
+    this.splits = 0;
+    this.disables = 0;
     this.leaked = 0;
     this.shots = 0;
     this.spawned = 0;
@@ -100,9 +121,11 @@ export class GameScene extends Phaser.Scene {
     this.waveIdx = 0;
     this.waveSpawned = 0;
     this.waveCount = 0;
+    this.waveQueue = [];
+    this.introduced = [];
     this.spawnTimer = 0;
     this.plannedTotal = 0;
-    for (let i = 0; i < CONFIG.waves.total; i++) this.plannedTotal += CONFIG.waves.firstCount + CONFIG.waves.countStep * i;
+    for (let i = 0; i < this.waveTotal(); i++) this.plannedTotal += this.waveKinds(i).length;
     this.panelKey = '';
     this.resumeAllowedAt = 0;
     this.restartAllowedAt = 0;
@@ -145,6 +168,11 @@ export class GameScene extends Phaser.Scene {
 
     exposeDebug({
       getState: () => this.snapshot(),
+      getGraph: () => ({
+        edges: EDGES.map((e) => ({ id: e.id, from: e.from, to: e.to, length: e.length, pts: e.pts.map((p): [number, number] => [p.x, p.y]) })),
+        entrances: ENTRANCE_EDGES.map((e) => e.id),
+        exits: Object.keys(LEVEL.nodes).filter((n) => !EDGES.some((e) => e.from === n)),
+      }),
       gameToClient: (gx, gy) => this.gameToClient(gx, gy),
       worldToClient: (wx, wy) => {
         const s = this.rig.worldToScreen(wx, wy);
@@ -167,6 +195,7 @@ export class GameScene extends Phaser.Scene {
     this.updateWaves(dt);
 
     for (const bacterium of this.bacteria) bacterium.update(dt);
+    this.applySpores();
     for (const tower of this.towers) {
       tower.update(dt, this.bacteria, (target, x, y) => {
         this.projectiles.push(new Projectile(this, this.projectileLayer, x, y, target, tower.cfg.damage, tower.cfg.projectileSpeed));
@@ -201,7 +230,7 @@ export class GameScene extends Phaser.Scene {
       count++;
     }
     if (this.waveSpawned >= this.waveCount) {
-      if (this.waveIdx >= CONFIG.waves.total) {
+      if (this.waveIdx >= this.waveTotal()) {
         this.phase = 'done';
       } else {
         this.phase = 'pause';
@@ -213,8 +242,23 @@ export class GameScene extends Phaser.Scene {
   private startWave(): void {
     const w = CONFIG.waves;
     const i = this.waveIdx;
-    this.waveCount = w.firstCount + w.countStep * i;
-    const k = w.total > 1 ? i / (w.total - 1) : 0;
+    // Новый тип выходит первым и в одном экземпляре (остальные такого же типа — потом, вперемешку с прочими)
+    const all = this.waveKinds(i);
+    const fresh = KINDS.filter((kind) => !this.introduced.includes(kind) && all.includes(kind));
+    const queue: BacteriumKind[] = [];
+    const rest = [...all];
+    for (const kind of fresh) {
+      queue.push(kind);
+      rest.splice(rest.indexOf(kind), 1);
+    }
+    for (let k = rest.length - 1; k > 0; k--) {
+      const j = Math.floor(Math.random() * (k + 1));
+      [rest[k], rest[j]] = [rest[j], rest[k]];
+    }
+    this.waveQueue = [...queue, ...rest];
+    this.waveCount = this.waveQueue.length;
+    const total = this.waveTotal();
+    const k = total > 1 ? i / (total - 1) : 0;
     this.waveInterval = w.intervalStartSec + (w.intervalEndSec - w.intervalStartSec) * k;
     this.waveIdx++;
     this.waveSpawned = 0;
@@ -223,11 +267,33 @@ export class GameScene extends Phaser.Scene {
     sfx.wave();
   }
 
-  /** Бактерия выходит справа; какой из четырёх маршрутов (вход и выход) — случайно. Правила развилки — этап 2. */
+  /** Сколько волн идёт на уровне. */
+  private waveTotal(): number {
+    return Math.min(CONFIG.waves.total, CONFIG.waves.list.length);
+  }
+
+  /** Кто выйдет в волне i (по одному элементу на бактерию, в порядке таблицы типов). */
+  private waveKinds(i: number): BacteriumKind[] {
+    const row = CONFIG.waves.list[i] ?? {};
+    const kinds: BacteriumKind[] = [];
+    for (const kind of KINDS) for (let n = 0; n < (row[kind] ?? 0); n++) kinds.push(kind);
+    return kinds;
+  }
+
+  /** Бактерия выходит справа; на какой из входов — случайно. Дальше на каждой развилке она сама выберет путь. */
   private spawnBacterium(): void {
-    const routeIndex = Math.floor(Math.random() * ROUTES.length);
-    this.bacteria.push(new Bacterium(this, this.bacteriaLayer, 'coccus', ROUTES[routeIndex], routeIndex));
+    const kind = this.waveQueue[this.waveSpawned];
+    const edge = ENTRANCE_EDGES[Math.floor(Math.random() * ENTRANCE_EDGES.length)];
+    this.bacteria.push(new Bacterium(this, this.bacteriaLayer, kind, edge, 0));
     this.spawned++;
+    if (!this.introduced.includes(kind)) {
+      this.introduced.push(kind);
+      const text = NEW_TYPE_TEXT[kind];
+      if (text) {
+        this.panel.toast(t(text), NEW_TYPE_TOAST_MS);
+        sfx.newType();
+      }
+    }
   }
 
   // ---------------------------------------------------------------- бой
@@ -260,12 +326,46 @@ export class GameScene extends Phaser.Scene {
     this.effects.popup(bacterium.x, bacterium.y, t('coinsPopup', { n: bacterium.reward }));
     sfx.destroy();
     this.removeBacterium(bacterium);
+    this.splitIntoChildren(bacterium);
     this.panel.setCoins(this.coins);
     this.panel.setAffordable(this.coins >= CONFIG.towers[PANEL_TOWER].price);
   }
 
+  /** Делящаяся при гибели распадается: первый кокк появляется на её месте, каждый следующий — на splitGapPx дальше вперёд по
+   *  дорожке (если место у конца ребра, кокк переходит на следующее ребро, на развилке выбирая путь случайно). */
+  private splitIntoChildren(parent: Bacterium): void {
+    const { splitCount, splitGapPx } = CONFIG.types[parent.kind];
+    if (splitCount <= 0) return;
+    this.splits++;
+    sfx.split();
+    for (let i = 0; i < splitCount; i++) {
+      const child = new Bacterium(this, this.bacteriaLayer, SPLITS_INTO, parent.edge, parent.s);
+      child.moveForward(i * splitGapPx);
+      this.bacteria.push(child);
+    }
+  }
+
+  /** Спора, проходя близко к башне, «глушит» её на несколько секунд; каждую башню одна спора глушит один раз. */
+  private applySpores(): void {
+    for (const bacterium of this.bacteria) {
+      const { disableSec, disableRadius } = CONFIG.types[bacterium.kind];
+      if (disableSec <= 0) continue;
+      for (const tower of this.towers) {
+        if (tower.isDisabled || bacterium.disabledTowers.has(tower)) continue;
+        if (Math.hypot(tower.x - bacterium.x, tower.y - bacterium.y) > disableRadius) continue;
+        bacterium.disabledTowers.add(tower);
+        tower.disable(disableSec);
+        this.disables++;
+        this.effects.zap(tower.x, tower.y);
+        sfx.disabled();
+      }
+    }
+  }
+
   private removeBacterium(bacterium: Bacterium): void {
     this.bacteria = this.bacteria.filter((b) => b !== bacterium);
+    // Убрана с карты (убита или дошла до организма): снаряды в полёте больше не должны считать её живой целью
+    bacterium.hp = 0;
     bacterium.destroy();
   }
 
@@ -312,10 +412,6 @@ export class GameScene extends Phaser.Scene {
   private tryPlace(id: TowerId, col: number, row: number): void {
     const cfg = CONFIG.towers[id];
     const key = cellKey(col, row);
-    if (this.rig.zoom < CONFIG.camera.placeMinZoom) {
-      this.deny(t('hintZoomIn'));
-      return;
-    }
     if (PATH_TILES.has(key) || this.occupied.has(key)) {
       this.deny(t('hintCantBuild'));
       return;
@@ -438,7 +534,7 @@ export class GameScene extends Phaser.Scene {
     const key = `${Math.max(1, this.waveIdx)}|${next === null ? '-' : Math.ceil(next)}|${Math.round(progress * 200)}`;
     if (key === this.panelKey) return;
     this.panelKey = key;
-    this.panel.setWave(Math.max(1, this.waveIdx), CONFIG.waves.total, progress, next);
+    this.panel.setWave(Math.max(1, this.waveIdx), this.waveTotal(), progress, next);
   }
 
   /** Подсказка «◀ Организм»: показываем, когда организм за краем экрана; мигает, если бактерия близко к нему. */
@@ -463,10 +559,13 @@ export class GameScene extends Phaser.Scene {
       lives: this.lives,
       maxLives: CONFIG.lives.start,
       wave: this.waveIdx,
-      waveTotal: CONFIG.waves.total,
+      waveTotal: this.waveTotal(),
       spawned: this.spawned,
       kills: this.kills,
       leaked: this.leaked,
+      introduced: [...this.introduced],
+      splits: this.splits,
+      disables: this.disables,
       shots: this.shots,
       elapsed: this.elapsed,
       lang: document.documentElement.lang,
@@ -484,7 +583,7 @@ export class GameScene extends Phaser.Scene {
       },
       camera: { zoom: this.rig.zoom, cx: this.rig.cx, cy: this.rig.cy, zoomMin: CONFIG.camera.zoomMin, zoomMax: CONFIG.camera.zoomMax },
       selected: this.selected,
-      towers: this.towers.map((tw) => ({ id: tw.id, col: tw.col, row: tw.row, x: tw.x, y: tw.y })),
+      towers: this.towers.map((tw) => ({ id: tw.id, col: tw.col, row: tw.row, x: tw.x, y: tw.y, disabled: tw.isDisabled })),
       bacteria: this.bacteria.map((b) => ({
         id: b.id,
         x: b.x,
@@ -493,8 +592,9 @@ export class GameScene extends Phaser.Scene {
         kind: b.kind,
         hp: b.hp,
         maxHp: b.maxHp,
-        route: b.routeIndex,
+        edge: b.edge.id,
         s: b.s,
+        dashing: b.dashing,
       })),
       projectiles: this.projectiles.length,
       ui: this.panel.geometry(),
@@ -505,6 +605,7 @@ export class GameScene extends Phaser.Scene {
         popups: this.effects.popups,
         placements: this.effects.placements,
         lifeLosses: this.effects.lifeLosses,
+        zaps: this.effects.zaps,
       },
       sound: { state: sfx.state, played: sfx.played },
     };

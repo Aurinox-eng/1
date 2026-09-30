@@ -107,6 +107,24 @@ class Sfx {
     this.tone({ from: 880, to: 930, ms: 160, gain: 0.7, delayMs: 110 });
   }
 
+  /** Делящаяся распалась на кокков: «поп-поп». */
+  split(): void {
+    this.tone({ from: 330, to: 130, ms: 130, type: 'triangle' });
+    this.tone({ from: 520, to: 220, ms: 90, gain: 0.7, delayMs: 45 });
+  }
+
+  /** Появилась новая бактерия, которой ещё не было: три быстрых восходящих тона — «обрати внимание». */
+  newType(): void {
+    this.tone({ from: 500, to: 560, ms: 90, type: 'square', gain: 0.35 });
+    this.tone({ from: 700, to: 780, ms: 90, type: 'square', gain: 0.35, delayMs: 100 });
+    this.tone({ from: 1000, to: 1100, ms: 180, type: 'square', gain: 0.4, delayMs: 200 });
+  }
+
+  /** Спора заглушила башню: низкий «бззз». */
+  disabled(): void {
+    this.tone({ from: 140, to: 90, ms: 220, type: 'sawtooth', gain: 0.45 });
+  }
+
   /** Победа: три восходящих тона. */
   win(): void {
     this.tone({ from: 520, to: 560, ms: 140, type: 'triangle' });

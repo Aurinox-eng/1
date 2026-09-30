@@ -142,44 +142,113 @@ export function readI18n(key) {
   return found;
 }
 
-/** Уровень из src/level.ts: размер карты в клетках, маршруты (точки в клетках), центр камеры при старте. */
+/** Уровень из src/level.ts: размер карты в клетках и центр камеры при старте (сеть дорожек — из игры, через window.__pvb.getGraph()). */
 export function readLevel() {
   const src = readSource('src/level.ts');
-  const routesText = /routes:\s*\[([\s\S]*?)\]\s*as\s+ReadonlyArray/.exec(src)?.[1];
-  if (!routesText) throw new Error('Не нашёл routes в src/level.ts');
-  const routes = JSON.parse(`[${routesText.replace(/\/\/.*$/gm, '').replace(/,\s*$/, '').trim()}]`);
   return {
     cols: Number(/cols:\s*(\d+)/.exec(src)[1]),
     rows: Number(/rows:\s*(\d+)/.exec(src)[1]),
-    routes,
     startCenter: JSON.parse(/startCenter:\s*(\[[^\]]*\])/.exec(src)[1]),
   };
 }
 
-/** Геометрия карты: центр клетки, расстояние до дорожки, «клетка дорожки ли». Считается независимо от кода игры. */
-export function makeGeometry(level, map) {
+/** Состав волн из src/config.ts (waves.list): массив строк {coccus, rod, splitter, armored, spore}. */
+export function readWaveList() {
+  const src = readSource('src/config.ts');
+  const from = src.indexOf('list: [', src.indexOf('waves:'));
+  const to = src.indexOf(']', from + 7);
+  return [...src.slice(from, to).matchAll(/\{([^}]*)\}/g)].map((m) => {
+    const row = {};
+    for (const [, key, value] of m[1].matchAll(/(\w+):\s*(-?[\d.]+)/g)) row[key] = Number(value);
+    return row;
+  });
+}
+
+/**
+ * Геометрия карты по сети дорожек, которую отдала игра (getGraph): рёбра-кривые, клетки дорожки (центр клетки ближе
+ * pathWidth/2 + 0.45·tile к любой точке любого ребра), расстояние до ребра, вероятности ребер, покрытие башней.
+ * Правила описаны в задании, код игры не используется.
+ */
+export function makeGraphGeometry(graph, map, cols, rows) {
   const center = (col, row) => ({ x: map.orgW + map.tile * (col + 0.5), y: map.tile * (row + 0.5) });
-  const segments = level.routes.map((route) =>
-    route.slice(0, -1).map((a, i) => ({ a: center(a[0], a[1]), b: center(route[i + 1][0], route[i + 1][1]), ca: a, cb: route[i + 1] })),
-  );
-  const distToSegment = (p, s) => {
-    const dx = s.b.x - s.a.x;
-    const dy = s.b.y - s.a.y;
+  const edges = graph.edges;
+  const byId = new Map(edges.map((e) => [e.id, e]));
+  const limit = map.pathWidth / 2 + 0.45 * map.tile; // 89,35 px при tile 103 (запас, чтобы основание башни не заходило на полосу дорожки)
+  const distToSegment = (p, a, b) => {
+    const dx = b[0] - a[0];
+    const dy = b[1] - a[1];
     const len2 = dx * dx + dy * dy;
-    const u = len2 > 0 ? Math.max(0, Math.min(1, ((p.x - s.a.x) * dx + (p.y - s.a.y) * dy) / len2)) : 0;
-    return Math.hypot(p.x - (s.a.x + u * dx), p.y - (s.a.y + u * dy));
+    const u = len2 > 0 ? Math.max(0, Math.min(1, ((p.x - a[0]) * dx + (p.y - a[1]) * dy) / len2)) : 0;
+    return Math.hypot(p.x - (a[0] + u * dx), p.y - (a[1] + u * dy));
   };
+  /** Расстояние от точки мира до ломаной ребра (по отрезкам между его точками), пикселей. */
+  const distToEdge = (p, id) => {
+    const pts = byId.get(id).pts;
+    let best = Infinity;
+    for (let i = 0; i < pts.length - 1; i++) best = Math.min(best, distToSegment(p, pts[i], pts[i + 1]));
+    return best;
+  };
+  const distToAnyPoint = (p) => {
+    let best = Infinity;
+    for (const e of edges) for (const q of e.pts) best = Math.min(best, Math.hypot(p.x - q[0], p.y - q[1]));
+    return best;
+  };
+  const distToAnyCurve = (p) => Math.min(...edges.map((e) => distToEdge(p, e.id)));
+  // клетки дорожки: по правилу «к любой ТОЧКЕ ребра» (как у игры) и по отрезкам между точками (запасной счёт для сравнения)
+  const pathCells = new Set();
+  const pathCellsByCurve = new Set();
+  for (let col = 0; col < cols; col++) {
+    for (let row = 0; row < rows; row++) {
+      const c = center(col, row);
+      if (distToAnyPoint(c) < limit) pathCells.add(`${col},${row}`);
+      if (distToAnyCurve(c) < limit) pathCellsByCurve.add(`${col},${row}`);
+    }
+  }
+  // вероятность пройти по ребру: на входе поровну, на каждой развилке выход поровну
+  const outOf = {};
+  const inTo = {};
+  for (const e of edges) (outOf[e.from] ??= []).push(e.id), (inTo[e.to] ??= []).push(e.id);
+  const prob = new Map();
+  const visit = (id, p) => {
+    prob.set(id, (prob.get(id) ?? 0) + p);
+    const next = outOf[byId.get(id).to] ?? [];
+    for (const n of next) visit(n, p / next.length);
+  };
+  for (const id of graph.entrances) visit(id, 1 / graph.entrances.length);
   return {
     center,
-    /** Расстояние от точки мира до осевой линии маршрута (по прямым между поворотами), пикселей. */
-    distToRoute: (p, routeIndex) => Math.min(...segments[routeIndex].map((s) => distToSegment(p, s))),
-    /** Клетка дорожки: осевая линия какого-нибудь маршрута проходит через её центр. */
-    isPathCell: (col, row) => segments.some((route) => route.some((s) => distToSegment(center(col, row), s) < 1)),
+    limit,
+    edges,
+    byId,
+    outOf,
+    inTo,
+    prob,
+    distToEdge,
+    distToAnyPoint,
+    distToAnyCurve,
+    isPathCell: (col, row) => pathCells.has(`${col},${row}`),
+    pathCellCount: pathCells.size,
+    pathCellCountByCurve: pathCellsByCurve.size,
     /** Клетка под точкой мира или null (вне сетки — например, зона организма). */
     cellAt: (x, y) => {
       const col = Math.floor((x - map.orgW) / map.tile);
       const row = Math.floor(y / map.tile);
-      return col < 0 || col >= level.cols || row < 0 || row >= level.rows ? null : [col, row];
+      return col < 0 || col >= cols || row < 0 || row >= rows ? null : [col, row];
+    },
+    /** Сколько «ожидаемых бактерий на пиксель пути» попадает в радиус reach от центра клетки (чем больше, тем лучше клетка для башни). */
+    coverage: (col, row, reach) => {
+      const c = center(col, row);
+      let total = 0;
+      for (const e of edges) {
+        const w = prob.get(e.id) ?? 0;
+        for (let i = 0; i < e.pts.length - 1; i++) {
+          const a = e.pts[i];
+          const b = e.pts[i + 1];
+          const mid = { x: (a[0] + b[0]) / 2, y: (a[1] + b[1]) / 2 };
+          if (Math.hypot(mid.x - c.x, mid.y - c.y) <= reach) total += w * Math.hypot(b[0] - a[0], b[1] - a[1]);
+        }
+      }
+      return total;
     },
   };
 }

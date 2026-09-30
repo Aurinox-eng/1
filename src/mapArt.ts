@@ -2,12 +2,14 @@ import Phaser from 'phaser';
 import { CONFIG } from './config';
 import { t } from './i18n';
 import { getLang } from './lang';
-import { LEVEL, PATH_TILES, ROUTES, WORLD, cellKey } from './level';
+import { EDGES, LEVEL, PATH_TILES, WORLD, cellKey } from './level';
 import { tileCenter } from './pathing';
 import { FONT, MAP_COLORS } from './theme';
 
 /** Во сколько раз текстура плотнее мира: при самом сильном приближении карта остаётся чёткой. */
 const DENSITY = CONFIG.camera.zoomMax;
+/** Стрелки направления не рисуются ближе этого расстояния к концам ребра: на развилках и слияниях они слипались бы в «скобку», пикселей. */
+const ARROW_PAD = 120;
 /** Соседние куски карты чуть перекрываются, чтобы между ними не мелькали тонкие щели. */
 const OVERLAP = 2;
 
@@ -20,33 +22,6 @@ function roundRectPath(ctx: CanvasRenderingContext2D, x: number, y: number, w: n
   ctx.arcTo(x, y + h, x, y, r);
   ctx.arcTo(x, y, x + w, y, r);
   ctx.closePath();
-}
-
-/** Стрелки направления вдоль прямых участков дорожки: одинаковые участки разных маршрутов рисуем один раз. */
-function chevronSegments(): { x0: number; y0: number; x1: number; y1: number; startPad: number; endPad: number }[] {
-  const { tile } = CONFIG.map;
-  const cornerPad = LEVEL.curve * tile + 8;
-  const seen = new Set<string>();
-  const out: { x0: number; y0: number; x1: number; y1: number; startPad: number; endPad: number }[] = [];
-  for (const route of LEVEL.routes) {
-    for (let i = 0; i < route.length - 1; i++) {
-      const [a, b] = [route[i], route[i + 1]];
-      const key = `${a}>${b}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      const p0 = tileCenter(a[0], a[1]);
-      const p1 = tileCenter(b[0], b[1]);
-      out.push({
-        x0: p0.x,
-        y0: p0.y,
-        x1: p1.x,
-        y1: p1.y,
-        startPad: a[0] > LEVEL.cols ? 40 : cornerPad,
-        endPad: b[0] < 0 ? 40 : cornerPad,
-      });
-    }
-  }
-  return out;
 }
 
 /** Рисует всю карту обычным canvas; ctx уже сдвинут и увеличен так, что рисуем в координатах мира. */
@@ -77,46 +52,54 @@ function paintMap(ctx: CanvasRenderingContext2D): void {
   }
   ctx.globalAlpha = 1;
 
-  // Дорожки: сначала контуры всех маршрутов, потом их внутренность — общие участки сливаются без швов
+  // Дорожки: сначала контуры всех рёбер, потом их внутренность — на стыках и слияниях не остаётся швов
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
   ctx.strokeStyle = MAP_COLORS.laneOuter;
   ctx.lineWidth = pathWidth + 12;
-  for (const route of ROUTES) {
-    path(route.pts);
+  for (const edge of EDGES) {
+    path(edge.pts);
     ctx.stroke();
   }
   ctx.strokeStyle = MAP_COLORS.lane;
   ctx.lineWidth = pathWidth;
-  for (const route of ROUTES) {
-    path(route.pts);
+  for (const edge of EDGES) {
+    path(edge.pts);
     ctx.stroke();
   }
   ctx.strokeStyle = 'rgba(255,255,255,0.07)';
   ctx.lineWidth = 3;
   ctx.setLineDash([14, 12]);
-  for (const route of ROUTES) {
-    path(route.pts);
+  for (const edge of EDGES) {
+    path(edge.pts);
     ctx.stroke();
   }
   ctx.setLineDash([]);
 
-  // Стрелки: куда идут бактерии
+  // Стрелки: куда идут бактерии (через каждые ~66 px вдоль ребра, по касательной)
   ctx.strokeStyle = 'rgba(255,255,255,0.2)';
   ctx.lineWidth = 4;
-  for (const seg of chevronSegments()) {
-    const len = Math.hypot(seg.x1 - seg.x0, seg.y1 - seg.y0);
-    const angle = Math.atan2(seg.y1 - seg.y0, seg.x1 - seg.x0);
-    for (let s = seg.startPad; s <= len - seg.endPad; s += 66) {
-      ctx.save();
-      ctx.translate(seg.x0 + ((seg.x1 - seg.x0) * s) / len, seg.y0 + ((seg.y1 - seg.y0) * s) / len);
-      ctx.rotate(angle);
-      ctx.beginPath();
-      ctx.moveTo(-5, -11);
-      ctx.lineTo(6, 0);
-      ctx.lineTo(-5, 11);
-      ctx.stroke();
-      ctx.restore();
+  for (const edge of EDGES) {
+    let walked = 0;
+    let next = ARROW_PAD;
+    for (let i = 1; i < edge.pts.length; i++) {
+      const a = edge.pts[i - 1];
+      const b = edge.pts[i];
+      const seg = Math.hypot(b.x - a.x, b.y - a.y);
+      while (walked + seg >= next && next <= edge.length - ARROW_PAD) {
+        const u = (next - walked) / seg;
+        ctx.save();
+        ctx.translate(a.x + (b.x - a.x) * u, a.y + (b.y - a.y) * u);
+        ctx.rotate(Math.atan2(b.y - a.y, b.x - a.x));
+        ctx.beginPath();
+        ctx.moveTo(-5, -11);
+        ctx.lineTo(6, 0);
+        ctx.lineTo(-5, 11);
+        ctx.stroke();
+        ctx.restore();
+        next += 66;
+      }
+      walked += seg;
     }
   }
 

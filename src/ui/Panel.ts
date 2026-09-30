@@ -169,13 +169,13 @@ export class Panel {
   }
 
   /** Всплывающее сообщение сверху экрана. */
-  toast(message: string): void {
+  toast(message: string, ms: number = CONFIG.ui.toastMs): void {
     this.toastTween?.stop();
     this.toastText.setText(message).setAlpha(1);
     this.toastTween = this.scene.tweens.add({
       targets: this.toastText,
       alpha: 0,
-      delay: CONFIG.ui.toastMs,
+      delay: ms,
       duration: 400,
     });
   }
