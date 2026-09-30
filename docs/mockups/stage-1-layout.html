@@ -2,14 +2,15 @@
 <html lang="ru">
 <head>
 <meta charset="utf-8">
-<title>Макет поля: tower defense, этап 1</title>
+<title>Макет поля: tower defense, этап 1 (версия 2: кривые дорожки)</title>
 <!--
   МАКЕТ раскладки поля (это картинка, а не игра: логики нет). Цвета и формы бактерий — те же, что в игре (src/theme.ts).
+  Версия 2: дорожки кривые; два входа справа сливаются в одну и снова расходятся на два выхода к организму.
   Открыть в браузере: docs/mockups/stage-1-layout.html
     ?view=desktop   поле 1280×720 (по умолчанию)
     ?view=notes     то же с подписями
     ?view=phone     как на телефоне в горизонтальном положении (844×390) с кругом «палец»
-  Числа раскладки — в блоке LAYOUT ниже: поменяйте и обновите страницу.
+  Числа раскладки — в блоках LAYOUT и NET ниже: поменяйте и обновите страницу.
 -->
 <style>
   html, body { margin: 0; background: #0a1222; }
@@ -25,35 +26,59 @@ const LAYOUT = {
   W: 1280, H: 720,
   orgW: 150,        // зона «организм» слева; красная линия — на её правом краю
   panelW: 200,      // правая панель (волна, монеты, башни); бактерии выезжают из-под неё
-  lanes: 3,         // число дорожек
-  towerRowH: 100,   // высота ряда клеток для башен
-  cols: 9,          // клеток в ряду
+  cols: 9,          // клеток по ширине рабочей области
+  rows: 7,          // клеток по высоте
+  pathW: 86,        // ширина дорожки, пикселей (бактерия до 96 px в диаметре у бронированной — чуть выходит за край)
+  curve: 0.7,       // насколько плавные повороты: радиус поворота в клетках (больше — круглее, но короче прямые участки)
 };
 const L = LAYOUT;
-L.laneH = (L.H - (L.lanes + 1) * L.towerRowH) / L.lanes;      // высота дорожки
-L.fieldX = L.orgW; L.fieldW = L.W - L.orgW - L.panelW;         // рабочая область
-L.cellW = L.fieldW / L.cols;
+L.fieldX = L.orgW; L.fieldW = L.W - L.orgW - L.panelW;
+L.tw = L.fieldW / L.cols; L.th = L.H / L.rows;
 L.panelX = L.W - L.panelW;
 
-const C = { bg: '#12203a', tissue: '#1d3760', tissueLine: '#33578f', lane: '#0b1528', laneLine: '#24406b',
+// ------------------------------------------------------------------ NET: сеть дорожек
+// Точки — (колонка, ряд) центра клетки. Колонка 9.6 — за правым краем (под панелью), колонка -1 — уже в организме.
+// Маршрут = путь бактерии от входа до выхода. Общие участки рисуются один раз (слияние и разветвление).
+const NET = {
+  routes: [
+    [[9.6, 1], [6, 1], [6, 3], [3, 3], [3, 1], [-1, 1]],   // верхний вход → верхний выход
+    [[9.6, 1], [6, 1], [6, 3], [3, 3], [3, 5], [-1, 5]],   // верхний вход → нижний выход
+    [[9.6, 5], [6, 5], [6, 3], [3, 3], [3, 1], [-1, 1]],   // нижний вход → верхний выход
+    [[9.6, 5], [6, 5], [6, 3], [3, 3], [3, 5], [-1, 5]],   // нижний вход → нижний выход
+  ],
+  // отрезки для стрелок направления (по ходу бактерий): [от, до]
+  segments: [
+    [[9.6, 1], [6, 1]], [[6, 1], [6, 3]], [[9.6, 5], [6, 5]], [[6, 5], [6, 3]], [[6, 3], [3, 3]],
+    [[3, 3], [3, 1]], [[3, 1], [-1, 1]], [[3, 3], [3, 5]], [[3, 5], [-1, 5]],
+  ],
+  towers: [[5, 2], [5, 4], [2, 3]],   // поставленные башни (клетки)
+  ghost: [4, 2],                       // клетка, куда игрок сейчас ставит башню
+  bacteria: [[7.4, 1], [6, 2.15], [4.7, 3], [7.5, 5], [6, 3.9], [1.5, 1], [3, 4.4], [8.52, 5]],
+};
+
+const C = { bg: '#12203a', tissue: '#1d3760', tissueLine: '#33578f', lane: '#0b1528', laneLine: '#2a4a7d', laneOuter: '#24406b',
   org1: '#3a1a26', org2: '#5c2436', line: '#ff4d5e', heart: '#ff4d6d', gold: '#ffd84d', panel: '#0d162b', panelLine: '#33578f',
-  tower: '#2c4a7c', towerEdge: '#8fb0e6', text: '#ffffff', dim: '#7f93b8' };
+  tower: '#2c4a7c', towerEdge: '#8fb0e6', text: '#ffffff' };
 const KIND = { body: '#7bdc7b', shell: '#2f8f3a' };   // кокк, как в игре
 
 const params = new URLSearchParams(location.search);
 const view = params.get('view') || 'desktop';
 
-// --- геометрия рядов: башни / дорожка / башни / дорожка / ... / башни
-const rows = [];
-{ let y = 0;
-  for (let i = 0; i <= L.lanes * 2; i++) {
-    const isLane = i % 2 === 1, h = isLane ? L.laneH : L.towerRowH;
-    rows.push({ y, h, isLane, idx: isLane ? (i - 1) / 2 : i / 2 }); y += h; } }
-const laneY = n => rows.filter(r => r.isLane)[n].y + L.laneH / 2;           // центр дорожки n
-const cellX = c => L.fieldX + L.cellW * (c + 0.5);
-const towerRowY = n => rows.filter(r => !r.isLane)[n].y + L.towerRowH / 2;  // центр ряда башен n
+const tc = (c, r) => [L.fieldX + L.tw * (c + 0.5), L.th * (r + 0.5)];   // центр клетки → пиксели
+const key = (c, r) => c + ',' + r;
 
-// --- мелкие помощники SVG
+// клетки, по которым идёт дорожка (там башни ставить нельзя)
+const pathTiles = new Set();
+for (const route of NET.routes) for (let i = 0; i < route.length - 1; i++) {
+  const [c0, r0] = route[i], [c1, r1] = route[i + 1];
+  for (let c = Math.round(Math.min(c0, c1)); c <= Math.round(Math.max(c0, c1)); c++)
+    for (let r = Math.round(Math.min(r0, r1)); r <= Math.round(Math.max(r0, r1)); r++)
+      if (c >= 0 && c < L.cols && r >= 0 && r < L.rows) pathTiles.add(key(c, r));
+}
+const towerSet = new Set(NET.towers.map(([c, r]) => key(c, r)));
+const ghostKey = key(...NET.ghost);
+
+// ------------------------------------------------------------------ помощники SVG
 const parts = [];
 const add = s => parts.push(s);
 const heart = (x, y, s, fill) => `<path transform="translate(${x} ${y}) scale(${s})" d="M0 12 C-22 -4 -20 -22 -8 -22 C-3 -22 0 -18 0 -14 C0 -18 3 -22 8 -22 C20 -22 22 -4 0 12Z" fill="${fill}" stroke="#0b1020" stroke-width="1.5"/>`;
@@ -69,7 +94,19 @@ const lock = (x, y, col) => `<g transform="translate(${x} ${y})"><rect x="-13" y
 const txt = (x, y, s, size, fill = C.text, anchor = 'start', weight = 'bold', extra = '') =>
   `<text x="${x}" y="${y}" font-size="${size}" font-weight="${weight}" fill="${fill}" text-anchor="${anchor}" ${extra}>${s}</text>`;
 
-// ------------------------------------------------------------------ фон и ряды
+// путь с плавными поворотами: на каждом углу — квадратичная кривая
+function roundedPath(cells, radius) {
+  const p = cells.map(([c, r]) => tc(c, r));
+  let d = `M${p[0][0]} ${p[0][1]}`;
+  for (let i = 1; i < p.length - 1; i++) {
+    const [px, py] = p[i - 1], [x, y] = p[i], [nx, ny] = p[i + 1];
+    const l1 = Math.hypot(x - px, y - py), l2 = Math.hypot(nx - x, ny - y), rr = Math.min(radius, l1 / 2, l2 / 2);
+    d += ` L${x + (px - x) / l1 * rr} ${y + (py - y) / l1 * rr} Q${x} ${y} ${x + (nx - x) / l2 * rr} ${y + (ny - y) / l2 * rr}`;
+  }
+  return d + ` L${p[p.length - 1][0]} ${p[p.length - 1][1]}`;
+}
+
+// ------------------------------------------------------------------ фон
 add(`<defs>
   <linearGradient id="org" x1="0" x2="1"><stop offset="0" stop-color="${C.org1}"/><stop offset="1" stop-color="${C.org2}"/></linearGradient>
   <linearGradient id="spawn" x1="0" x2="1"><stop offset="0" stop-color="#e8f0ff" stop-opacity="0"/><stop offset="1" stop-color="#e8f0ff" stop-opacity=".10"/></linearGradient>
@@ -77,20 +114,42 @@ add(`<defs>
 </defs>`);
 add(`<rect width="${L.W}" height="${L.H}" fill="${C.bg}"/>`);
 
-for (const r of rows) {
-  if (r.isLane) {
-    add(`<rect x="${L.fieldX}" y="${r.y}" width="${L.fieldW + L.panelW}" height="${r.h}" fill="${C.lane}"/>`);
-    add(`<line x1="${L.fieldX}" x2="${L.W}" y1="${r.y + 1}" y2="${r.y + 1}" stroke="${C.laneLine}" stroke-width="2"/>`);
-    add(`<line x1="${L.fieldX}" x2="${L.W}" y1="${r.y + r.h - 1}" y2="${r.y + r.h - 1}" stroke="${C.laneLine}" stroke-width="2"/>`);
-    for (let k = 0; k < 14; k++) add(txt(L.fieldX + 40 + k * 70, r.y + r.h / 2 + 14, '‹', 44, '#ffffff', 'middle', 'normal', 'opacity=".06"'));
-  } else {
-    add(`<rect x="${L.fieldX}" y="${r.y}" width="${L.fieldW + L.panelW}" height="${r.h}" fill="${C.bg}"/>`);
-    for (let c = 0; c < L.cols; c++)
-      add(`<rect x="${L.fieldX + c * L.cellW + 3}" y="${r.y + 3}" width="${L.cellW - 6}" height="${r.h - 6}" rx="10" fill="${C.tissue}" stroke="${C.tissueLine}" stroke-width="1.5" opacity=".9"/>`);
+// клетки для башен — все, кроме дорожки
+for (let c = 0; c < L.cols; c++) for (let r = 0; r < L.rows; r++) {
+  if (pathTiles.has(key(c, r))) continue;
+  add(`<rect x="${L.fieldX + c * L.tw + 3}" y="${r * L.th + 3}" width="${L.tw - 6}" height="${L.th - 6}" rx="10" fill="${C.tissue}" stroke="${C.tissueLine}" stroke-width="1.5" opacity=".9"/>`);
+}
+
+// дорожки: сначала все внешние контуры, потом все внутренности — общие участки сливаются без швов
+const dPaths = NET.routes.map(r => roundedPath(r, L.curve * L.tw));
+for (const d of dPaths) add(`<path d="${d}" fill="none" stroke="${C.laneOuter}" stroke-width="${L.pathW + 12}" stroke-linecap="round" stroke-linejoin="round"/>`);
+for (const d of dPaths) add(`<path d="${d}" fill="none" stroke="${C.lane}" stroke-width="${L.pathW}" stroke-linecap="round" stroke-linejoin="round"/>`);
+for (const d of dPaths) add(`<path d="${d}" fill="none" stroke="#fff" stroke-opacity=".07" stroke-width="3" stroke-dasharray="14 12"/>`);
+
+// стрелки направления вдоль прямых участков
+for (const [a, b] of NET.segments) {
+  const [x0, y0] = tc(...a), [x1, y1] = tc(...b), len = Math.hypot(x1 - x0, y1 - y0), ang = Math.atan2(y1 - y0, x1 - x0) * 180 / Math.PI;
+  const startPad = a[0] > 9 ? 40 : L.curve * L.tw + 8, endPad = b[0] < 0 ? 40 : L.curve * L.tw + 8;   // не рисуем на поворотах
+  for (let s = startPad; s <= len - endPad; s += 66) {
+    const x = x0 + (x1 - x0) * s / len, y = y0 + (y1 - y0) * s / len;
+    add(`<path transform="translate(${x} ${y}) rotate(${ang})" d="M-5 -11 L6 0 L-5 11" fill="none" stroke="#fff" stroke-opacity=".2" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>`);
   }
 }
 // подсказка «бактерии приходят отсюда»
 add(`<rect x="${L.panelX - 140}" y="0" width="140" height="${L.H}" fill="url(#spawn)"/>`);
+
+// ------------------------------------------------------------------ призрак башни и радиус (момент постановки)
+{
+  const [gx, gy] = tc(...NET.ghost), [c, r] = NET.ghost;
+  add(`<circle cx="${gx}" cy="${gy}" r="200" fill="#74b8ff" opacity=".10"/><circle cx="${gx}" cy="${gy}" r="200" fill="none" stroke="#9fd0ff" stroke-width="2.5" stroke-dasharray="10 8"/>`);
+  add(`<rect x="${L.fieldX + c * L.tw + 3}" y="${r * L.th + 3}" width="${L.tw - 6}" height="${L.th - 6}" rx="10" fill="#74b8ff" opacity=".25" stroke="#9fd0ff" stroke-width="3"/>`);
+}
+// «+» в свободных клетках (подсказка: здесь можно ставить)
+for (let c = 0; c < L.cols; c++) for (let r = 0; r < L.rows; r++) {
+  const k = key(c, r);
+  if (pathTiles.has(k) || towerSet.has(k) || k === ghostKey) continue;
+  const [x, y] = tc(c, r); add(txt(x, y + 9, '+', 30, '#ffffff', 'middle', 'normal', 'opacity=".16"'));
+}
 
 // ------------------------------------------------------------------ организм
 add(`<rect width="${L.orgW}" height="${L.H}" fill="url(#org)"/>`);
@@ -99,37 +158,17 @@ add(`<rect x="${L.orgW - 3}" y="0" width="6" height="${L.H}" fill="${C.line}"/>`
 add(txt(L.orgW / 2 - 3, 44, 'ОРГАНИЗМ', 17, '#ffb3bd', 'middle', 'bold', 'letter-spacing="1.5"'));
 for (let i = 0; i < 3; i++) add(heart(L.orgW / 2 - 3, 290 + i * 72, 1.15, C.heart));
 
-// ------------------------------------------------------------------ бактерии, башни, выстрелы
-const bacteria = [ [0, 760], [0, 1000], [1, 930], [1, 420], [2, 700], [2, 1010], [2, 1092] ];
-const ROW_T = { top: 0, t2: 1, t3: 2, bottom: 3 };
-const towers = [ [ROW_T.t2, 3], [ROW_T.t2, 6], [ROW_T.t3, 4] ];
-
-for (const [lane, x] of bacteria) add(coccus(x, laneY(lane)));
-for (const [row, col] of towers) add(towerIcon(cellX(col), towerRowY(row), 0.98));
-
-// выстрелы в полёте: от башни к бактерии в соседней дорожке
-const shot = (row, col, lane, bx) => {
-  const x0 = cellX(col), y0 = towerRowY(row), t = 0.45, y1 = laneY(lane);
-  const x = x0 + (bx - x0) * t, y = y0 + (y1 - y0) * t;
-  return pill(x, y, Math.atan2(y1 - y0, bx - x0) * 180 / Math.PI);
+// ------------------------------------------------------------------ башни, бактерии, выстрелы
+for (const [c, r] of NET.towers) { const [x, y] = tc(c, r); add(towerIcon(x, y, 0.98)); }
+{ const [x, y] = tc(...NET.ghost); add(towerIcon(x, y, 0.98, 0.65)); }
+for (const [c, r] of NET.bacteria) { const [x, y] = tc(c, r); add(coccus(x, y)); }
+const shot = (tower, target, t = 0.5) => {
+  const [x0, y0] = tc(...tower), [x1, y1] = tc(...target);
+  return pill(x0 + (x1 - x0) * t, y0 + (y1 - y0) * t, Math.atan2(y1 - y0, x1 - x0) * 180 / Math.PI);
 };
-add(shot(ROW_T.t2, 6, 1, 930));
-add(shot(ROW_T.t2, 3, 0, 760));
-add(shot(ROW_T.t3, 4, 2, 700));
-
-// «призрак» башни в выбранной клетке + радиус (момент постановки)
-const ghost = { row: ROW_T.bottom, col: 2 };
-const gx = cellX(ghost.col), gy = towerRowY(ghost.row);
-add(`<circle cx="${gx}" cy="${gy}" r="190" fill="#74b8ff" opacity=".10"/><circle cx="${gx}" cy="${gy}" r="190" fill="none" stroke="#9fd0ff" stroke-width="2.5" stroke-dasharray="10 8"/>`);
-add(`<rect x="${L.fieldX + ghost.col * L.cellW + 3}" y="${rows[6].y + 3}" width="${L.cellW - 6}" height="${L.towerRowH - 6}" rx="10" fill="#74b8ff" opacity=".25" stroke="#9fd0ff" stroke-width="3"/>`);
-add(towerIcon(gx, gy, 0.98, 0.65));
-
-// «+» в свободных клетках рядом (подсказка, что здесь можно ставить)
-for (const r of rows.filter(r => !r.isLane)) for (let c = 0; c < L.cols; c++) {
-  const occupied = towers.some(([tr, tc]) => rows.filter(q => !q.isLane)[tr] === r && tc === c);
-  const isGhost = r === rows[6] && c === ghost.col;
-  if (!occupied && !isGhost) add(txt(cellX(c), r.y + r.h / 2 + 9, '+', 30, '#ffffff', 'middle', 'normal', 'opacity=".16"'));
-}
+add(shot([5, 2], [6, 2.15], 0.55));
+add(shot([2, 3], [3, 4.4], 0.5));
+add(shot([5, 4], [6, 3.9], 0.55));
 
 // ------------------------------------------------------------------ правая панель
 const px = L.panelX;
@@ -139,7 +178,7 @@ add(txt(px + L.panelW / 2 + 1, 38, 'Волна 3 / 12', 23, C.text, 'middle'));
 add(`<rect x="${px + 22}" y="52" width="${L.panelW - 44}" height="9" rx="4.5" fill="#22355a"/><rect x="${px + 22}" y="52" width="${(L.panelW - 44) * 0.25}" height="9" rx="4.5" fill="#74b8ff"/>`);
 add(coin(px + 46, 104, 18));
 add(txt(px + 76, 116, '120', 36, C.gold));
-const slots = [ { name: 'Таблетка', price: 50, on: true }, { name: 'Сироп', price: 75 }, { name: 'Шипучка', price: 100 }, { name: 'Капсула', price: 90 } ];
+const slots = [ { name: 'Таблетка', price: 50, on: true }, { name: 'Сироп' }, { name: 'Шипучка' }, { name: 'Капсула' } ];
 slots.forEach((s, i) => {
   const y = 142 + i * 126, x = px + 12, w = L.panelW - 24, h = 118;
   add(`<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="14" fill="${s.on ? '#1c3a6a' : '#121d36'}" stroke="${s.on ? C.gold : '#26385e'}" stroke-width="${s.on ? 4 : 2}"/>`);
@@ -153,19 +192,23 @@ slots.forEach((s, i) => {
     add(txt(x + 74, y + 84, 'закрыто', 15, '#4a5c82', 'start', 'normal'));
   }
 });
-// пауза
 add(`<circle cx="${px + L.panelW / 2}" cy="682" r="24" fill="#1c2c50" stroke="#33578f" stroke-width="2"/><rect x="${px + L.panelW / 2 - 9}" y="671" width="6" height="22" rx="2" fill="#fff"/><rect x="${px + L.panelW / 2 + 3}" y="671" width="6" height="22" rx="2" fill="#fff"/>`);
 
 // ------------------------------------------------------------------ подписи (view=notes)
 if (view === 'notes') {
-  const tag = (x, y, n, s, w) => `<g><rect x="${x}" y="${y}" width="${w}" height="34" rx="17" fill="#0b1020" fill-opacity=".88" stroke="#ffd84d" stroke-width="2"/>
+  // подпись с необязательным указателем на точку поля: to = [колонка, ряд]
+  const tag = (x, y, n, s, w, to, fromX) => {
+    let lead = '';
+    if (to) { const [tx, ty] = tc(...to); lead = `<line x1="${fromX}" y1="${y + 17}" x2="${tx}" y2="${ty}" stroke="#ffd84d" stroke-width="2.5"/><circle cx="${tx}" cy="${ty}" r="6" fill="#ffd84d"/>`; }
+    return `<g>${lead}<rect x="${x}" y="${y}" width="${w}" height="34" rx="17" fill="#0b1020" fill-opacity=".9" stroke="#ffd84d" stroke-width="2"/>
     <circle cx="${x + 17}" cy="${y + 17}" r="13" fill="#ffd84d"/>${txt(x + 17, y + 23, n, 17, '#0b1020', 'middle')}${txt(x + 40, y + 23, s, 16, '#fff', 'start', 'bold')}</g>`;
-  add(tag(168, 33, 1, 'Клетки для башен: 4 ряда × 9 (≈103×100 px)', 385));
-  add(tag(168, 122, 2, 'Дорожка (всего 3): бактерии идут справа налево', 440));
-  add(tag(6, 668, 3, 'Красная линия + 3 жизни', 240));
-  add(tag(720, 668, 4, 'Бактерии выезжают из-под панели', 330));
-  add(tag(640, 33, 5, 'Панель: волна, монеты, башни →', 385));
-  add(tag(268, 556, 6, 'Тап по кнопке башни → тап по клетке', 360));
+  };
+  add(tag(632, 10, 1, 'Два входа справа — бактерии идут к организму', 432));
+  add(tag(846, 268, 2, 'Слияние дорожек', 210, [6, 3], 846));
+  add(tag(262, 268, 3, 'Разветвление', 185, [3, 3], 447));
+  add(tag(168, 10, 4, 'Два выхода в организм', 275));
+  add(tag(168, 660, 5, 'Тап по кнопке башни → тап по клетке', 385));
+  add(tag(566, 660, 6, 'Башни — на любую клетку, кроме дорожки', 430));
 }
 
 // ------------------------------------------------------------------ вывод
@@ -174,15 +217,16 @@ const fieldSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="${L.W}" height=
 if (view === 'phone') {
   // как на телефоне 844×390 (CSS-пиксели) в горизонтальном положении: поле вписывается по высоте
   const VW = 844, VH = 390, k = Math.min(VW / L.W, VH / L.H), ox = (VW - L.W * k) / 2;
-  const cell = Math.round(L.cellW * k), row = Math.round(L.towerRowH * k), lane = Math.round(L.laneH * k), slot = Math.round(118 * k);
+  const cellW = Math.round(L.tw * k), cellH = Math.round(L.th * k), slot = Math.round(118 * k), pathPx = Math.round(L.pathW * k);
+  const [gx, gy] = tc(...NET.ghost);
   document.getElementById('root').innerHTML = `<div style="width:${VW}px;background:#0a1222">
     <div style="position:relative;width:${VW}px;height:${VH}px;background:#05090f;overflow:hidden">
       <div style="position:absolute;left:${ox}px;top:0;width:${L.W}px;height:${L.H}px;transform:scale(${k});transform-origin:0 0">${fieldSvg}</div>
-      <div style="position:absolute;left:${ox + (gx) * k - 22}px;top:${(gy) * k - 22}px;width:44px;height:44px;border-radius:50%;background:rgba(255,255,255,.55);border:3px solid #fff;box-sizing:border-box"></div>
+      <div style="position:absolute;left:${ox + gx * k - 22}px;top:${gy * k - 22}px;width:44px;height:44px;border-radius:50%;background:rgba(255,255,255,.55);border:3px solid #fff;box-sizing:border-box"></div>
     </div>
     <div style="padding:10px 14px;color:#dbe6ff;font-size:14px;line-height:1.35">
       <b style="color:#ffd84d">Телефон в горизонтальном положении (844×390).</b> Белый круг — палец (44 px, минимум для касания).
-      Клетка ≈ <b>${cell}×${row}</b> px, дорожка ≈ <b>${lane}</b> px, кнопка башни ≈ <b>${slot}</b> px высотой — палец помещается, но запас небольшой: клетки не стоит делать меньше.
+      Клетка ≈ <b>${cellW}×${cellH}</b> px, дорожка ≈ <b>${pathPx}</b> px, кнопка башни ≈ <b>${slot}</b> px высотой — палец помещается, но запас небольшой: клетки не стоит делать меньше.
     </div></div>`;
 } else {
   document.getElementById('root').innerHTML = fieldSvg;
