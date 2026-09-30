@@ -13,10 +13,12 @@
  *   desktop-en, phone-en   сокращённый набор на английском: экран, начальное состояние, камера-скриншоты, постановка, бой
  *   rules                  правила клеток (компьютер): все видимые клетки — на дорожке нельзя, на свободной можно; нет монет
  *   combat                 бой на компьютере: выстрелы, убийства, монеты, отклик, движение бактерий по кривым дорожкам
- *   lose-ru, lose-en       потеря жизней, проигрыш, блокировка перезапуска, перезапуск, утечки (lose-ru — компьютер, lose-en — телефон)
- *   win-ru, win-en         победа и перезапуск (win-ru — компьютер, win-en — телефон)
+ *   lose-ru, lose-en       потеря жизней, проигрыш (в том числе при работающих башнях: снарядов в полёте не остаётся), блокировка
+ *                          перезапуска, перезапуск, утечки (lose-ru — компьютер, lose-en — телефон)
+ *   win-ru, win-en         победа (снарядов в полёте не остаётся) и перезапуск (win-ru — компьютер, win-en — телефон)
  *   danger                 подсказка «◀ Организм» краснеет, когда бактерия близко к организму (проверка по цвету пикселей)
- *   rotate                 поворот телефона (вертикально ↔ горизонтально) и смена размера окна на компьютере: экран перестраивается, ввод работает
+ *   rotate                 телефон вертикально ↔ горизонтально (на ru и en): вертикально — подсказка «Поверните телефон», время стоит, тапы
+ *                          игре не мешают; обратно — подсказка пропала, время идёт; на компьютере подсказки нет ни в каком окне
  *   production             ИГРОВАЯ сборка (dist, та, что уйдёт на Яндекс): режима проверки, подмены чисел и языка из адреса нет; игра при этом работает (башня ставится тапом)
  * Дополнительно: --only=combat (или любое другое имя из списка) запускает один сценарий; для production нужна свежая
  * `npm run build`, для остальных — `npm run build:qa`.
@@ -39,6 +41,7 @@ import {
   makeGeometry,
   parseArgs,
   readConfigNumber,
+  readI18n,
   readLevel,
   readTitles,
   ROOT,
@@ -104,8 +107,17 @@ const CFG = {
   placeMinZoom: readConfigNumber('camera', 'placeMinZoom'),
   pillPrice: readConfigNumber('pill', 'price'),
   restartLockMs: readConfigNumber('gameOver', 'restartLockMs'),
+  tapMaxMovePx: readConfigNumber('camera', 'tapMaxMovePx'),
 };
 const TITLES = { ru: readTitles()[0], en: readTitles()[1] };
+const ROTATE_TEXT = (() => {
+  try {
+    const [ru, en] = readI18n('rotatePhone');
+    return { ru, en };
+  } catch {
+    return { ru: '(в i18n.ts нет строки rotatePhone)', en: '(в i18n.ts нет строки rotatePhone)' }; // проверки подсказки покраснеют
+  }
+})();
 /** Клетки для проверок: свободные рядом с дорожкой и клетки дорожки. Если карту изменят — первая же проверка скажет. */
 const FREE = { a: [9, 6], b: [9, 8], c: [8, 6], d: [8, 8], e: [10, 6], f: [12, 6], g: [5, 5] };
 const PATH = [[10, 7], [9, 7], [8, 7]];
@@ -252,6 +264,23 @@ async function openGame(context, baseUrl, prefix, { speed = 1, cfg = '', isTouch
   return game;
 }
 
+/** Подсказка «Поверните телефон» (блок #rotate в index.html): показана ли, на весь ли экран, какой текст, влезает ли он. */
+const rotateInfo = (page) =>
+  page.evaluate(() => {
+    const box = document.getElementById('rotate');
+    const text = document.getElementById('rotate-text');
+    if (!box || !text) return { display: 'нет блока #rotate', full: false, text: '', textInside: false, coarse: matchMedia('(pointer: coarse)').matches };
+    const r = box.getBoundingClientRect();
+    const t = text.getBoundingClientRect();
+    return {
+      display: getComputedStyle(box).display,
+      full: r.width >= innerWidth - 1 && r.height >= innerHeight - 1,
+      text: text.textContent,
+      textInside: t.left >= 0 && t.right <= innerWidth && t.top >= 0 && t.bottom <= innerHeight && t.width > 0,
+      coarse: matchMedia('(pointer: coarse)').matches,
+    };
+  });
+
 /** Точка мира под точкой экрана (по состоянию камеры). */
 const worldAt = (s, sx, sy) => ({ x: s.camera.cx + (sx - s.viewW / 2) / s.camera.zoom, y: s.camera.cy + (sy - s.height / 2) / s.camera.zoom });
 /** Карта не выезжает за край: экран всегда внутри мира. */
@@ -365,6 +394,8 @@ async function profileLoadAndCamera(c) {
   check(`${p} старт: волна 0 из ${CFG.waves}, никого нет, башен нет, башня не выбрана`, s0.wave === 0 && s0.waveTotal === CFG.waves && s0.spawned === 0 && s0.bacteria.length === 0 && s0.towers.length === 0 && s0.selected === null && s0.state === 'playing');
   const startCenter = GEO.center(LEVEL.startCenter[0], LEVEL.startCenter[1]);
   check(`${p} старт: приближение ${CFG.zoomStart}, камера у слияния дорожек`, Math.abs(s0.camera.zoom - CFG.zoomStart) < 0.001 && Math.abs(s0.camera.cx - startCenter.x) < 3 && Math.abs(s0.camera.cy - startCenter.y) < 3, `zoom ${f2(s0.camera.zoom)}, центр (${f1(s0.camera.cx)}; ${f1(s0.camera.cy)}), ждали (${f1(startCenter.x)}; ${f1(startCenter.y)})`);
+  const rot0 = await rotateInfo(page);
+  check(`${p} подсказка «Поверните телефон» в горизонтальном положении (и на компьютере) не показана`, rot0.display === 'none', `display=${rot0.display}, pointer:coarse=${rot0.coarse}`);
   const btn = s0.ui.towerButton;
   check(
     `${p} панель внутри экрана: кнопка башни и кнопка паузы справа от окна карты`,
@@ -383,15 +414,16 @@ async function profileLoadAndCamera(c) {
   // ---- сдвиг карты
   const cam = async () => (await game.state()).camera;
   let c0 = await cam();
-  await input.drag(g(650, 300), g(450, 300));
+  // мелкими шагами (8 px): так видно, «съедает» ли порог тапа начало движения
+  await input.drag(g(650, 300), g(450, 300), { steps: 25, stepMs: 0 });
   await settle();
   let c1 = await cam();
-  check(`${p} сдвиг влево на 200: центр камеры уходит вправо на ≈200 (первые ≈14 px — порог тапа)`, Math.abs(c1.cx - c0.cx - 200 / c0.zoom) <= 30 && Math.abs(c1.cy - c0.cy) <= 6, `Δcx=${f1(c1.cx - c0.cx)}, Δcy=${f1(c1.cy - c0.cy)}`);
+  check(`${p} сдвиг влево на 200: центр камеры уходит вправо ровно на 200 (карта догоняет палец сразу, порог тапа не «съедает» путь)`, Math.abs(c1.cx - c0.cx - 200 / c0.zoom) <= 3 && Math.abs(c1.cy - c0.cy) <= 3, `Δcx=${f1(c1.cx - c0.cx)}, Δcy=${f1(c1.cy - c0.cy)}`);
   c0 = c1;
-  await input.drag(g(600, 200), g(600, 400));
+  await input.drag(g(600, 200), g(600, 400), { steps: 25, stepMs: 0 });
   await settle();
   c1 = await cam();
-  check(`${p} сдвиг вниз на 200: центр камеры уходит вверх на ≈200`, Math.abs(c1.cy - c0.cy + 200 / c0.zoom) <= 30 && Math.abs(c1.cx - c0.cx) <= 6, `Δcx=${f1(c1.cx - c0.cx)}, Δcy=${f1(c1.cy - c0.cy)}`);
+  check(`${p} сдвиг вниз на 200: центр камеры уходит вверх ровно на 200`, Math.abs(c1.cy - c0.cy + 200 / c0.zoom) <= 3 && Math.abs(c1.cx - c0.cx) <= 3, `Δcx=${f1(c1.cx - c0.cx)}, Δcy=${f1(c1.cy - c0.cy)}`);
 
   // ---- границы: сильно тянем в каждую сторону
   const pull = async (from, to, times = 1) => {
@@ -470,7 +502,7 @@ async function profileLoadAndCamera(c) {
     await settle();
     const a2 = await game.state();
     const r2 = a2.camera.zoom / b.camera.zoom;
-    check(`${p} колесо «строками» (так шлёт Firefox: щелчок = deltaY 3, deltaMode 1; событие подделано): щелчок приближает заметно, ≥ 5%`, r2 >= 1.05, `zoom ${f2(b.camera.zoom)} → ${f2(a2.camera.zoom)} (×${r2.toFixed(3)}; у Chrome щелчок даёт ×1,16)`);
+    check(`${p} колесо «строками» (так шлёт Firefox: щелчок = deltaY 3, deltaMode 1; событие подделано): щелчок приближает так же, как у Chrome (×${f2(ratio)} ±0,03)`, Math.abs(r2 - ratio) <= 0.03, `zoom ${f2(b.camera.zoom)} → ${f2(a2.camera.zoom)} (×${r2.toFixed(3)}; щелчок Chrome дал ×${f2(ratio)})`);
   }
 
   // пределы: до упора в каждую сторону
@@ -555,7 +587,14 @@ async function profilePlacement(c) {
   await input.drag(cellA, { x: cellA.x + 60 * screen.scale, y: cellA.y }, { steps: 8, stepMs: 20 });
   await settle();
   s = await st();
-  check(`${p} сдвиг, начатый над свободной клеткой при выбранной башне, башню НЕ ставит (а карту двигает)`, s.towers.length === 0 && s.coins === coins0 && Math.abs(s.camera.cx - camA.cx) > 20, `башен ${s.towers.length}, карта сдвинулась на ${f1(camA.cx - s.camera.cx)} px`);
+  check(`${p} сдвиг, начатый над свободной клеткой при выбранной башне, башню НЕ ставит, а карту двигает ровно на 60`, s.towers.length === 0 && s.coins === coins0 && Math.abs(camA.cx - s.camera.cx - 60 / camA.zoom) <= 3, `башен ${s.towers.length}, карта сдвинулась на ${f1(camA.cx - s.camera.cx)} px`);
+  // чуть дальше порога тапа — уже сдвиг: башни нет, а карта сразу догоняет палец на весь пройденный путь
+  const over = CFG.tapMaxMovePx + 8;
+  const camO = (await st()).camera;
+  await input.wobbleTap(await game.cell(...FREE.a), over * screen.scale);
+  await settle();
+  s = await st();
+  check(`${p} сдвиг чуть дальше порога тапа (${CFG.tapMaxMovePx} + 8 = ${over} px экрана игры) — не тап: башни нет, карта сдвинулась на ${over}`, s.towers.length === 0 && s.coins === coins0 && Math.abs(camO.cx - s.camera.cx - over / camO.zoom) <= 3, `башен ${s.towers.length}, карта сдвинулась на ${f1(camO.cx - s.camera.cx)} px`);
   // долгое нажатие
   await input.hold(await game.cell(...FREE.a), 750);
   await settle();
@@ -594,14 +633,14 @@ async function profilePlacement(c) {
     await input.drag(game.g(700, 200), game.g(600, 200));
     await settle();
     const camC = (await st()).camera;
-    check(`${p} отмена касания системой: башню не ставит, следующий сдвиг двигает карту как обычно (≈100 px)`, noTower && Math.abs(camC.cx - camB.cx - 100) <= 30, `башен ${s.towers.length}, сдвиг ${f1(camC.cx - camB.cx)} px`);
+    check(`${p} отмена касания системой: башню не ставит, следующий сдвиг двигает карту как обычно (ровно 100 px)`, noTower && Math.abs(camC.cx - camB.cx - 100) <= 3, `башен ${s.towers.length}, сдвиг ${f1(camC.cx - camB.cx)} px`);
   }
-  // тап с небольшим дрожанием (в пределах порога) — ставит
-  await input.wobbleTap(await game.cell(...FREE.a), 6 * screen.scale);
+  // тап с обычным дрожанием пальца — ставит: 8 px на стекле (порог касания в Android), у нас это 8 px на компьютере и ≈15 px экрана игры на телефоне
+  await input.wobbleTap(await game.cell(...FREE.a), 8);
   await settle();
   s = await st();
   const t0 = s.towers[0];
-  check(`${p} короткий тап (дрожание пальца ≈6 px) ставит башню: башен 1, монет −${price}, кольцо постановки`, s.towers.length === 1 && t0.col === FREE.a[0] && t0.row === FREE.a[1] && s.coins === coins0 - price && s.effects.placements === 1, `башен ${s.towers.length}, монет ${s.coins}, placements ${s.effects.placements}`);
+  check(`${p} короткий тап (дрожание пальца 8 px на стекле) ставит башню: башен 1, монет −${price}, кольцо постановки`, s.towers.length === 1 && t0.col === FREE.a[0] && t0.row === FREE.a[1] && s.coins === coins0 - price && s.effects.placements === 1, `башен ${s.towers.length}, монет ${s.coins}, placements ${s.effects.placements}`);
   // занятая клетка
   await game.tapCell(...FREE.a);
   s = await st();
@@ -819,20 +858,27 @@ async function runRules(browser, baseUrl) {
   await game.page.close();
   await context.close();
 
-  // ---- заметка: порог тапа на телефоне в настоящих пикселях (в счёт проверок не входит)
+  // ---- порог тапа на телефоне в настоящих пикселях стекла: обычное дрожание пальца (до 10 px) — ещё тап, явный сдвиг (≈16+ px) — нет
   const phoneCtx = await newDeviceContext(browser, VIEWPORTS.phone, 'ru');
   const phone = await openGame(phoneCtx, baseUrl, p, { isTouch: true, cfg: `economy.startCoins:500,waves.firstDelaySec:60,${FIXED_BALANCE.join(',')}` });
-  const slop = readConfigNumber('camera', 'tapMaxMovePx');
+  const scale = phone.screen.scale;
+  const slopGlass = CFG.tapMaxMovePx * scale;
   const probe = [];
   await phone.towerButton();
-  for (const [cssPx, cell] of [[4, FREE.a], [8, FREE.b], [10, FREE.c], [12, FREE.d]]) {
+  const results = [];
+  for (const [cssPx, cell, wantTap] of [[4, FREE.a, true], [8, FREE.b, true], [10, FREE.c, true], [16, FREE.d, false]]) {
     const before = (await phone.state()).towers.length;
     await phone.input.wobbleTap(await phone.cell(...cell), cssPx);
     await settle();
-    const after = (await phone.state()).towers.length;
-    probe.push(`${cssPx} px — ${after > before ? 'тап, башня поставлена' : 'НЕ тап (сдвиг), башни нет'}`);
+    const tapped = (await phone.state()).towers.length > before;
+    results.push({ cssPx, tapped, wantTap });
+    probe.push(`${cssPx} px — ${tapped ? 'тап' : 'сдвиг'}`);
   }
-  note(`Порог тапа camera.tapMaxMovePx = ${slop} px экрана игры; на телефоне 844×390 (масштаб ${f2(phone.screen.scale)}) это ≈${f1(slop * phone.screen.scale)} px на стекле. Проба дрожания пальца: ${probe.join('; ')}. Обычное дрожание пальца при тапе — 5–10 px (порог касания в Android — 8 px): проверить на настоящем телефоне.`);
+  check(
+    `${p} телефон 844×390: порог тапа ${CFG.tapMaxMovePx} px экрана игры ≈ ${f1(slopGlass)} px на стекле; дрожание 4, 8, 10 px — тап, 16 px — сдвиг`,
+    results.every((r) => r.tapped === r.wantTap),
+    probe.join('; '),
+  );
   await phoneCtx.close();
 }
 
@@ -930,6 +976,28 @@ async function tapToRestart(game) {
   await game.input.tap(game.g(640, 300));
 }
 
+/** Проигрыш при работающих башнях: снаряды в полёте не должны зависать под экраном «Проигрыш». */
+async function loseWithTowers(context, baseUrl, p, name, device) {
+  // Башни бьют далеко и медленными снарядами, но урон нулевой: бактерии не гибнут, доходят до организма, снарядов в воздухе много
+  const cfg = 'waves.firstDelaySec:1,waves.firstCount:4,lives.start:1,bacteria.baseSpeed:250,towers.pill.damage:0,towers.pill.cooldownMs:400,towers.pill.projectileSpeed:200,towers.pill.range:900,economy.startCoins:200';
+  const game = await openGame(context, baseUrl, p, { speed: 4, cfg, isTouch: device.hasTouch });
+  await game.placeTowers([FREE.f, FREE.e]);
+  let s = await game.state();
+  check(`${p} проигрыш с башнями: обе башни поставлены до появления бактерий у организма`, s.towers.length === 2 && s.state === 'playing', `башен ${s.towers.length}, состояние ${s.state}, монет ${s.coins}, выстрелов ${s.shots}`);
+  let maxShots = 0;
+  const started = Date.now();
+  while (Date.now() - started < WAIT_MS && s.state !== 'lost') {
+    s = await game.state();
+    maxShots = Math.max(maxShots, s.projectiles);
+    await sleep(40);
+  }
+  await sleep(300);
+  const later = await game.state();
+  await shot(game.page, `${name}-16-lost-with-towers`);
+  check(`${p} при проигрыше (башни стреляют, в воздухе до ${maxShots} снарядов) снарядов в полёте не остаётся`, later.state === 'lost' && maxShots > 0 && s.projectiles === 0 && later.projectiles === 0, `состояние ${later.state}, башен ${later.towers.length}, выстрелов ${later.shots}, снарядов в момент проигрыша ${s.projectiles}, через 0,3 с ${later.projectiles}`);
+  await game.page.close();
+}
+
 async function runLose(browser, baseUrl, lang, deviceKey, full) {
   const device = VIEWPORTS[deviceKey];
   const p = `[проигрыш, ${device.label}, ${lang}]`;
@@ -1008,6 +1076,7 @@ async function runLose(browser, baseUrl, lang, deviceKey, full) {
       }
     }
   }
+  if (full) await loseWithTowers(context, baseUrl, p, name, device);
   await context.close();
 }
 
@@ -1023,15 +1092,20 @@ async function runWin(browser, baseUrl, lang, deviceKey, full) {
   await game.placeTowers([FREE.f, FREE.e, FREE.b]);
   let s = await game.state();
   const midWin = [];
+  let sawShots = false;
   const started = Date.now();
   while (Date.now() - started < WAIT_MS) {
     s = await game.state();
+    if (s.projectiles > 0) sawShots = true;
     if (s.state === 'won') break;
     if (s.spawned < 2 || s.bacteria.length > 0) midWin.push(s.state);
     await sleep(40);
   }
   const detectedAt = Date.now();
   check(`${p} победа: все волны вышли и отбиты — состояние «победа»`, s.state === 'won' && s.spawned === 2 && s.kills === 2 && s.leaked === 0 && s.bacteria.length === 0 && s.wave === 1 && s.waveTotal === 1 && s.lives === 3, `состояние ${s.state}, вышло ${s.spawned}, убито ${s.kills}, дошло ${s.leaked}, волна ${s.wave}/${s.waveTotal}`);
+  await sleep(300);
+  const wonLater = await game.state();
+  check(`${p} при победе снарядов в полёте не остаётся (по ходу игры они были: ${sawShots})`, sawShots && s.projectiles === 0 && wonLater.projectiles === 0, `снарядов в момент победы ${s.projectiles}, через 0,3 с ${wonLater.projectiles}`);
   check(`${p} победа не засчитывается раньше времени (пока не вышли все или на карте кто-то есть)`, midWin.every((x) => x === 'playing'), `состояния по ходу: ${[...new Set(midWin)].join(',')}`);
   await sleep(350);
   await shot(page, `${name}-10-won`);
@@ -1050,39 +1124,86 @@ const layoutOk = (m) => Math.abs(m.ratio - W / H) < 0.01 && m.fits && m.centred 
 
 async function runRotate(browser, baseUrl) {
   const p = '[поворот и размер окна]';
-  const shots = { '390×844': 'phone-portrait-ru' };
-  // ---- телефон: горизонтально → вертикально → горизонтально
-  let context = await newDeviceContext(browser, VIEWPORTS.phone, 'ru');
-  let game = await openGame(context, baseUrl, p, { isTouch: true, cfg: 'waves.firstDelaySec:60' });
-  for (const [w, h, label] of [
-    [390, 844, 'вертикально'],
-    [844, 390, 'снова горизонтально'],
-    [667, 375, 'меньший горизонтальный телефон'],
-  ]) {
-    await game.page.setViewportSize({ width: w, height: h });
+  const towerTap = async (game) => {
+    const b = (await getState(game.page)).ui.towerButton;
+    const c = await game.page.evaluate(([x, y]) => window.__pvb.gameToClient(x, y), [b.x, b.y]);
+    await game.page.touchscreen.tap(c.x, c.y);
+    await sleep(250);
+    return (await getState(game.page)).selected;
+  };
+  // ---- телефон: горизонтально → вертикально (подсказка «Поверните телефон», время стоит) → горизонтально; на обоих языках
+  for (const lang of ['ru', 'en']) {
+    const q = `${p} телефон, ${lang}`;
+    const context = await newDeviceContext(browser, VIEWPORTS.phone, lang);
+    const game = await openGame(context, baseUrl, q, { speed: 2, isTouch: true, cfg: `waves.firstDelaySec:1,waves.firstCount:6,${FIXED_BALANCE.join(',')}` });
+    const { page } = game;
+    // горизонтально: подсказки нет, время идёт (ждём, пока на карте появятся бактерии: без них «стоят» было бы пустой проверкой)
+    await waitFor(page, (x) => x.bacteria.length >= 2, WAIT_MS, 'бактерии на карте');
+    let m = await measureCanvas(page);
+    let info = await rotateInfo(page);
+    const e0 = (await getState(page)).elapsed;
+    await sleep(1200);
+    const e1 = (await getState(page)).elapsed;
+    check(`${q}, горизонтально 844×390: подсказки «Поверните телефон» нет, игровое время идёт`, info.display === 'none' && e1 > e0 + 0.3 && layoutOk(m), `display=${info.display}, pointer:coarse=${info.coarse}, время ${f2(e0)} → ${f2(e1)}`);
+    // вертикально: подсказка на весь экран, текст на нужном языке, время и бактерии стоят, касания в игру не попадают
+    await page.setViewportSize({ width: 390, height: 844 });
     await sleep(1500);
-    const m = await measureCanvas(game.page);
-    check(`${p} телефон, ${label} (${w}×${h}): экран 16:9 перестроился, помещается, по центру, без прокрутки`, layoutOk(m), `пропорции ${m.ratio.toFixed(3)}, помещается ${m.fits}, по центру ${m.centred}, заполнение ${m.fill.toFixed(2)}, прокрутка ${m.scrolls}`);
-    if (shots[`${w}×${h}`]) await shot(game.page, shots[`${w}×${h}`]);
-    // ввод после поворота попадает в нужные места: тап по кнопке башни выбирает её, повторный — снимает
-    for (const want of ['pill', null]) {
-      const b = (await getState(game.page)).ui.towerButton;
-      const c = await game.page.evaluate(([x, y]) => window.__pvb.gameToClient(x, y), [b.x, b.y]);
-      await game.page.touchscreen.tap(c.x, c.y);
-      await sleep(200);
-      const sel = (await getState(game.page)).selected;
-      check(`${p} телефон, ${label}: тап по кнопке башни попадает в кнопку (${want ? 'выбор' : 'снятие выбора'})`, sel === want, `selected=${sel}`);
+    info = await rotateInfo(page);
+    check(`${q}, вертикально 390×844: подсказка показана на весь экран, текст «${ROTATE_TEXT[lang]}» влезает в экран`, info.display === 'flex' && info.full && info.text === ROTATE_TEXT[lang] && info.textInside, `display=${info.display}, на весь экран ${info.full}, текст «${info.text}», влезает ${info.textInside}`);
+    await sleep(300);
+    await shot(page, `phone-portrait-${lang}`);
+    const a = await getState(page);
+    const selected = await towerTap(game);
+    const pauseBtn = a.ui.pauseButton;
+    const pc = await page.evaluate(([x, y]) => window.__pvb.gameToClient(x, y), [pauseBtn.x, pauseBtn.y]);
+    await page.touchscreen.tap(pc.x, pc.y);
+    await sleep(300);
+    const afterPause = (await getState(page)).state;
+    await sleep(1200);
+    const b = await getState(page);
+    const same = a.bacteria.length === b.bacteria.length && a.bacteria.every((x, i) => x.id === b.bacteria[i].id && Math.abs(x.x - b.bacteria[i].x) < 0.01 && Math.abs(x.y - b.bacteria[i].y) < 0.01);
+    check(`${q}, вертикально: игровое время и бактерии стоят (за 1,5 с ничего не сдвинулось)`, b.elapsed === a.elapsed && b.spawned === a.spawned && same && b.bacteria.length > 0, `время ${f2(a.elapsed)} → ${f2(b.elapsed)}, вышло ${a.spawned} → ${b.spawned}, бактерий ${b.bacteria.length}`);
+    check(`${q}, вертикально: тапы по месту, где под подсказкой лежат кнопки башни и паузы, ничего не делают (башня не выбрана, паузы нет)`, selected === null && afterPause === 'playing', `башня выбрана: ${selected}, состояние после тапа по паузе: ${afterPause}`);
+    // обратно в горизонталь
+    await page.setViewportSize({ width: 844, height: 390 });
+    await sleep(1500);
+    m = await measureCanvas(page);
+    info = await rotateInfo(page);
+    // если тапы сквозь подсказку что-то включили (пауза, выбор башни), приводим игру в исходное состояние, чтобы следующие проверки не зависели от этого
+    let back = await getState(page);
+    if (back.state === 'paused') {
+      await sleep(300);
+      await page.touchscreen.tap(...Object.values(await page.evaluate(() => window.__pvb.gameToClient(500, 300))));
+      await sleep(300);
+      back = await getState(page);
     }
+    if (back.selected) await towerTap(game);
+    const c0 = (await getState(page)).elapsed;
+    await sleep(1200);
+    const c1 = (await getState(page)).elapsed;
+    check(`${q}, снова горизонтально: подсказка пропала, экран перестроился, игровое время пошло дальше`, info.display === 'none' && layoutOk(m) && c1 > c0 + 0.3, `display=${info.display}, время ${f2(c0)} → ${f2(c1)}`);
+    check(`${q}, снова горизонтально: тап по кнопке башни попадает в кнопку (выбор и снятие выбора)`, (await towerTap(game)) === 'pill' && (await towerTap(game)) === null);
+    if (lang === 'ru') {
+      await page.setViewportSize({ width: 667, height: 375 });
+      await sleep(1200);
+      m = await measureCanvas(page);
+      info = await rotateInfo(page);
+      check(`${q}, меньший горизонтальный телефон 667×375: экран 16:9 перестроился, подсказки нет`, layoutOk(m) && info.display === 'none', `пропорции ${m.ratio.toFixed(3)}, display=${info.display}`);
+    }
+    await context.close();
   }
-  await context.close();
-  // ---- компьютер: окно разных пропорций
-  context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
-  game = await openGame(context, baseUrl, p, { cfg: 'waves.firstDelaySec:60' });
+  // ---- компьютер (мышь): подсказки нет никогда, даже в узком «вертикальном» окне; время идёт
+  const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
+  const game = await openGame(context, baseUrl, p, { speed: 2, cfg: 'waves.firstDelaySec:60' });
   for (const [w, h] of [[1600, 600], [800, 900], [1280, 720]]) {
     await game.page.setViewportSize({ width: w, height: h });
     await sleep(1200);
     const m = await measureCanvas(game.page);
-    check(`${p} компьютер, окно ${w}×${h}: экран 16:9 перестроился, помещается, по центру, без прокрутки`, layoutOk(m), `пропорции ${m.ratio.toFixed(3)}, помещается ${m.fits}, по центру ${m.centred}, заполнение ${m.fill.toFixed(2)}`);
+    const info = await rotateInfo(game.page);
+    const e0 = (await getState(game.page)).elapsed;
+    await sleep(800);
+    const e1 = (await getState(game.page)).elapsed;
+    check(`${p} компьютер, окно ${w}×${h}${h > w ? ' (вертикальное)' : ''}: экран 16:9 перестроился, подсказки «Поверните телефон» нет, время идёт`, layoutOk(m) && info.display === 'none' && !info.coarse && e1 > e0 + 0.2, `пропорции ${m.ratio.toFixed(3)}, помещается ${m.fits}, по центру ${m.centred}, display=${info.display}, pointer:coarse=${info.coarse}`);
     if (w === 1600) {
       await shot(game.page, 'desktop-wide-ru');
       // мышь отпущена за пределами экрана игры (в чёрной полосе сбоку): сдвиг заканчивается и не «залипает»
@@ -1186,6 +1307,17 @@ async function runProduction(browser, prodUrl, qaUrl) {
   check(`${p} игра работает: выбрать башню на панели и тапнуть по клетке — башня появляется (цвет основания вокруг клетки)`, before === 0 && after >= 6, `точек цвета башни: было ${before}, стало ${after} из ${ring.length}`);
   await shot(play, 'production-tower');
   await play.close();
+
+  // Подсказка «Поверните телефон» есть и в игровой сборке
+  const portrait = await context.newPage();
+  watchConsole(portrait, p);
+  await portrait.setViewportSize({ width: 390, height: 844 });
+  await portrait.goto(prodUrl, { waitUntil: 'load' });
+  await sleep(1500);
+  const rot = await rotateInfo(portrait);
+  check(`${p} телефон вертикально: показана подсказка «${ROTATE_TEXT.ru}»`, rot.display === 'flex' && rot.full && rot.text === ROTATE_TEXT.ru && rot.textInside, `display=${rot.display}, текст «${rot.text}»`);
+  await shot(portrait, 'production-portrait');
+  await portrait.close();
 
   const assets = path.join(ROOT, 'dist', 'assets');
   const bundle = fs.readdirSync(assets).filter((f) => f.endsWith('.js')).map((f) => fs.readFileSync(path.join(assets, f), 'utf8')).join('\n');

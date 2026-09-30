@@ -123,10 +123,12 @@ export class MapGestures {
     if (this.fingers.size === 0) this.multi = false;
   }
 
-  private onWheel(pointer: Phaser.Input.Pointer, _over: unknown, _dx: number, dy: number, _dz: number, event?: WheelEvent): void {
+  private onWheel(pointer: Phaser.Input.Pointer, _over: unknown, _dx: number, dy: number): void {
     if (!this.handlers.isActive() || pointer.x >= this.viewW) return;
-    // Chrome шлёт пиксели (один щелчок ≈ 100). Firefox и некоторые мыши — строки (≈ 3 за щелчок) или страницы: приводим к пикселям
-    const unit = event?.deltaMode === 1 ? 33 : event?.deltaMode === 2 ? 300 : 1;
+    // Chrome шлёт пиксели (один щелчок ≈ 100). Firefox и некоторые мыши — строки (≈ 3 за щелчок) или страницы: приводим к пикселям.
+    // Phaser отдаёт в событии только числа, само событие колеса лежит в pointer.event.
+    const mode = (pointer.event as WheelEvent | undefined)?.deltaMode;
+    const unit = mode === 1 ? 33 : mode === 2 ? 300 : 1;
     this.rig.zoomAt(Math.exp(-dy * unit * CONFIG.camera.wheelSpeed), pointer.x, pointer.y);
   }
 

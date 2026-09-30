@@ -135,6 +135,13 @@ export function readTitles() {
   return [...readSource('src/i18n.ts').matchAll(/gameTitle:\s*'([^']*)'/g)].map((m) => m[1]);
 }
 
+/** Строка из src/i18n.ts по ключу: [русский текст, английский] (в одинарных или двойных кавычках). */
+export function readI18n(key) {
+  const found = [...readSource('src/i18n.ts').matchAll(new RegExp(`\\b${key}:\\s*(?:'([^']*)'|"([^"]*)")`, 'g'))].map((m) => m[1] ?? m[2]);
+  if (found.length < 2) throw new Error(`В i18n.ts нет ключа «${key}» на обоих языках`);
+  return found;
+}
+
 /** Уровень из src/level.ts: размер карты в клетках, маршруты (точки в клетках), центр камеры при старте. */
 export function readLevel() {
   const src = readSource('src/level.ts');

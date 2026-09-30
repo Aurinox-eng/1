@@ -290,7 +290,8 @@ export class GameScene extends Phaser.Scene {
 
   /** Кнопка башни на панели: выбрать или снять выбор. */
   private toggleTower(): void {
-    if (this.state !== 'playing') return;
+    // Вертикальный телефон: поверх игры подсказка «Поверните телефон», касания сквозь неё ничего не делают
+    if (this.state !== 'playing' || isPortraitPhone()) return;
     this.selected = this.selected ? null : PANEL_TOWER;
     this.panel.setSelected(this.selected !== null);
     if (!this.selected) this.ghost.setVisible(false);
@@ -372,12 +373,14 @@ export class GameScene extends Phaser.Scene {
 
   /** Любое касание экрана: на паузе — продолжить, после конца уровня — начать заново. */
   private onScreenTap(): void {
+    if (isPortraitPhone()) return;
     const now = performance.now();
     if (this.state === 'paused' && now >= this.resumeAllowedAt) this.togglePause();
     else if ((this.state === 'won' || this.state === 'lost') && now >= this.restartAllowedAt) this.scene.restart();
   }
 
   private togglePause(): void {
+    if (isPortraitPhone()) return;
     if (this.state === 'playing') {
       this.state = 'paused';
       this.resumeAllowedAt = performance.now() + 250;
