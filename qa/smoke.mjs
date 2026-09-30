@@ -376,6 +376,7 @@ function analyzeTraces(traces, { speed, worldW }) {
     leftwards: 0,
     full: 0,
     edgeChain: [],
+    entranceChains: [], // цепочки только тех бактерий, чей путь записан с самого входа (первый замер не опоздал)
     entrances: {},
     transitions: {}, // узел → { ребро-выход: сколько раз выбрано }
     exits: {}, // последнее ребро → сколько раз
@@ -384,7 +385,8 @@ function analyzeTraces(traces, { speed, worldW }) {
   const len = (id) => GEO.byId.get(id).length;
   for (const tr of traces.values()) {
     out.samples += tr.length;
-    if (entr.has(tr[0].edge) && tr[0].s < 250 && tr[0].x > worldW - 400) {
+    const fromEntrance = entr.has(tr[0].edge) && tr[0].s < 250 && tr[0].x > worldW - 400;
+    if (fromEntrance) {
       out.startedAtEntrance++;
       out.entrances[tr[0].edge] = (out.entrances[tr[0].edge] ?? 0) + 1;
     } else out.startedElsewhere++;
@@ -429,6 +431,7 @@ function analyzeTraces(traces, { speed, worldW }) {
     const last = tr[tr.length - 1];
     if (last.x < tr[0].x - 500) out.leftwards++;
     out.edgeChain.push(chain);
+    if (fromEntrance) out.entranceChains.push(chain);
     const lastEdge = GEO.byId.get(last.edge);
     if (!(GEO.outOf[lastEdge.to] ?? []).length && last.s > lastEdge.length - 260) {
       out.full++;
@@ -1229,7 +1232,8 @@ async function runLose(browser, baseUrl, lang, deviceKey, full) {
       await shot(page, `${name}-09-lost`);
       const a = analyzeTraces(traces, { ...speedBounds(base, BASE.speedFactor, BASE.spread), worldW: s.map.worldW });
       const minChain = shortestChain();
-      check(`${p} бактерии проходят весь путь по графу от входа до выхода (дошли до выходного ребра: ${a.full}; цепочки рёбер не короче ${minChain})`, a.full >= 2 && a.edgeChain.filter((c) => GEO.outOf[GEO.byId.get(c[c.length - 1]).to] === undefined).every((c) => c.length >= minChain), `до выхода ${a.full}, выходы: ${JSON.stringify(a.exits)}, цепочки: ${a.edgeChain.map((c) => c.join('→')).join(' | ')}`);
+      const exitChains = a.entranceChains.filter((c) => GEO.outOf[GEO.byId.get(c[c.length - 1]).to] === undefined);
+      check(`${p} бактерии проходят весь путь по графу от входа до выхода (дошли до выходного ребра: ${a.full}; цепочки рёбер не короче ${minChain})`, a.full >= 2 && exitChains.length >= 1 && exitChains.every((c) => c.length >= minChain), `до выхода ${a.full}, выходы: ${JSON.stringify(a.exits)}, цепочки с самого входа: ${a.entranceChains.map((c) => c.join('→')).join(' | ')}, все записанные: ${a.edgeChain.map((c) => c.join('→')).join(' | ')}`);
       check(`${p} на всём пути: на кривой ребра (≤ 0,5 px), вперёд, переходы только на следующие рёбра, скорость в норме`, a.maxDev <= 0.5 && a.outOfEdge === 0 && a.backwards === 0 && a.badTransition === 0 && a.badSpeed === 0, `отклонение ${f2(a.maxDev)} px, вне ребра ${a.outOfEdge}/${a.samples}, назад ${a.backwards}, неверных переходов ${a.badTransition}, скорость ${f1(a.speedSeen[0])}…${f1(a.speedSeen[1])}, вне нормы ${a.badSpeed}`);
     }
     await sleep(Math.max(0, CFG.restartLockMs + 200 - (Date.now() - detectedAt)));
