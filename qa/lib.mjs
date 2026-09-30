@@ -166,14 +166,14 @@ export function readWaveList() {
 
 /**
  * Геометрия карты по сети дорожек, которую отдала игра (getGraph): рёбра-кривые, клетки дорожки (центр клетки ближе
- * pathWidth/2 + 0.3·tile к любой точке любого ребра), расстояние до ребра, вероятности ребер, покрытие башней.
+ * pathWidth/2 + 0.45·tile к любой точке любого ребра), расстояние до ребра, вероятности ребер, покрытие башней.
  * Правила описаны в задании, код игры не используется.
  */
 export function makeGraphGeometry(graph, map, cols, rows) {
   const center = (col, row) => ({ x: map.orgW + map.tile * (col + 0.5), y: map.tile * (row + 0.5) });
   const edges = graph.edges;
   const byId = new Map(edges.map((e) => [e.id, e]));
-  const limit = map.pathWidth / 2 + 0.3 * map.tile;
+  const limit = map.pathWidth / 2 + 0.45 * map.tile; // 89,35 px при tile 103 (запас, чтобы основание башни не заходило на полосу дорожки)
   const distToSegment = (p, a, b) => {
     const dx = b[0] - a[0];
     const dy = b[1] - a[1];
@@ -225,6 +225,7 @@ export function makeGraphGeometry(graph, map, cols, rows) {
     prob,
     distToEdge,
     distToAnyPoint,
+    distToAnyCurve,
     isPathCell: (col, row) => pathCells.has(`${col},${row}`),
     pathCellCount: pathCells.size,
     pathCellCountByCurve: pathCellsByCurve.size,

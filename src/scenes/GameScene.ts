@@ -364,6 +364,8 @@ export class GameScene extends Phaser.Scene {
 
   private removeBacterium(bacterium: Bacterium): void {
     this.bacteria = this.bacteria.filter((b) => b !== bacterium);
+    // Убрана с карты (убита или дошла до организма): снаряды в полёте больше не должны считать её живой целью
+    bacterium.hp = 0;
     bacterium.destroy();
   }
 

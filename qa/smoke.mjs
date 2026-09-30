@@ -9,7 +9,7 @@
  * ТЕСТОВАЯ сборка (dist-qa, с режимом ?qa), компьютер 1280×720 (мышь) и телефон 844×390 в горизонтальном
  * положении (касания), русский и английский (язык — настройкой браузера, как у настоящего игрока).
  * Сценарии (имена — для --only=):
- *   desktop-ru, phone-ru   полный набор: экран и начальное состояние, карта (252 клетки: 84 задеты дорожкой, 168 свободны),
+ *   desktop-ru, phone-ru   полный набор: экран и начальное состояние, карта (252 клетки: 94 задеты дорожкой, 158 свободны),
  *                          камера (сдвиг, границы, колесо / щипок, подсказка «◀ Организм»), тап и сдвиг, постановка башни
  *                          (дорожка, занятая клетка, монеты; при любом приближении: 0.7, минимум, максимум), бой на этом
  *                          экране, пауза, «не завис ли»
@@ -495,10 +495,10 @@ async function profileLoadAndCamera(c) {
     btn.x - btn.w / 2 >= s0.viewW && btn.x + btn.w / 2 <= W && btn.y - btn.h / 2 >= 0 && btn.y + btn.h / 2 <= H && s0.ui.pauseButton.x > s0.viewW && s0.ui.pauseButton.x < W && s0.ui.pauseButton.y > 0 && s0.ui.pauseButton.y < H,
     `кнопка башни (${btn.x}; ${btn.y}) ${btn.w}×${btn.h}, пауза (${s0.ui.pauseButton.x}; ${s0.ui.pauseButton.y})`,
   );
-  // Карта: сколько клеток задето дорожкой (по заданию: 252 всего, 84 задеты, 168 свободны). Если цифры не сойдутся — сигнал об ошибке правила или карты.
+  // Карта: сколько клеток задето дорожкой (по заданию: 252 всего, 94 задеты, 158 свободны; правило — центр клетки ближе pathWidth/2 + 0,45·tile = 88,5 px к точке ребра). Если цифры не сойдутся — сигнал об ошибке правила или карты.
   const totalCells = LEVEL.cols * LEVEL.rows;
   const freeCells = totalCells - GEO.pathCellCount;
-  check(`${p} карта: клеток ${totalCells}, задето дорожкой ${GEO.pathCellCount} (ждали 84), свободных ${freeCells} (ждали 168)`, totalCells === 252 && GEO.pathCellCount === 84 && freeCells === 168, `по точкам рёбер: ${GEO.pathCellCount}; по отрезкам между точками: ${GEO.pathCellCountByCurve}`);
+  check(`${p} карта: клеток ${totalCells}, задето дорожкой ${GEO.pathCellCount} (ждали 94), свободных ${freeCells} (ждали 158)`, totalCells === 252 && GEO.pathCellCount === 94 && freeCells === 158, `по точкам рёбер: ${GEO.pathCellCount}; по отрезкам между точками: ${GEO.pathCellCountByCurve}`);
   check(`${p} клетки для проверок подобраны (свободные ${Object.keys(FREE).length}, дорожные ${PATH.length})`, Object.keys(FREE).length === 7 && PATH.length === 3 && Object.values(FREE).every(([c, r]) => !GEO.isPathCell(c, r)) && PATH.every(([c, r]) => GEO.isPathCell(c, r)), `FREE ${Object.values(FREE).map((q) => `(${q})`).join(' ')}; PATH ${PATH.map((q) => `(${q})`).join(' ')}`);
 
   await sleep(400);
@@ -927,6 +927,18 @@ async function runProfile(browser, baseUrl, deviceKey, lang) {
 
 // ================================================================== правила клеток
 
+/** Запас башен от дорожки: центр башни ≥ 88 px от ближайшей точки ребра; основание (радиус 36) не заходит на полосу с каймой (полуширина 43 + кайма 6). */
+function towerClearance(s, prefix) {
+  const limit = MAP.pathWidth / 2 + 0.45 * MAP.tile;
+  const base = 36;
+  const edgeHalf = MAP.pathWidth / 2 + 6;
+  const pts = s.towers.map((t) => GEO.distToAnyPoint({ x: t.x, y: t.y }));
+  const curves = s.towers.map((t) => GEO.distToAnyCurve({ x: t.x, y: t.y }));
+  const minPt = Math.min(...pts);
+  const minCurve = Math.min(...curves);
+  check(`${prefix}: центр каждой из ${s.towers.length} башен дальше ${f1(limit - 0.5)} px от ближайшей точки ребра (минимум ${f1(minPt)}), основание башни не заходит на полосу дорожки с каймой (до кривой ≥ ${edgeHalf + base} px, минимум ${f1(minCurve)})`, s.towers.length > 20 && minPt >= limit - 0.5 && minCurve >= edgeHalf + base, `точки рёбер: ${f1(minPt)}, кривая: ${f1(minCurve)}`);
+}
+
 async function runRules(browser, baseUrl) {
   const p = '[правила клеток]';
   const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
@@ -961,6 +973,7 @@ async function runRules(browser, baseUrl) {
   check(`${p} на клетках дорожки башен нет (${cells.length - freeCount} клеток дорожки на экране)`, wrongOnPath.length === 0, wrongOnPath.map((q) => `(${q.col},${q.row})`).join(' '));
   check(`${p} на всех свободных клетках экрана башня ставится (${freeCount} клеток)`, missedFree.length === 0 && s.towers.length === freeCount, missedFree.map((q) => `(${q.col},${q.row})`).join(' ') || `башен ${s.towers.length}`);
   check(`${p} монеты списаны ровно за поставленные башни`, s.coins === 100000 - BASE.price * s.towers.length, `монет ${s.coins}, башен ${s.towers.length}`);
+  towerClearance(s, `${p} (обычное приближение)`);
   await sleep(300);
   await shot(game.page, 'rules-01-all-cells');
   await game.page.close();
@@ -990,6 +1003,7 @@ async function runRules(browser, baseUrl) {
   const freeMin = minCells.filter((q) => !q.path).length;
   check(`${p} при минимальном приближении (zoom ${f2(s.camera.zoom)}) башня ставится на все ${freeMin} свободных клеток экрана (из ${minCells.length} видимых)`, atMin && missedMin.length === 0 && s.towers.length === freeMin && minCells.length > 200, `zoom ${f2(s.camera.zoom)}, башен ${s.towers.length}, не поставлены: ${missedMin.map((q) => `(${q.col},${q.row})`).join(' ') || 'нет'}`);
   check(`${p} при минимальном приближении на клетках дорожки башен нет (${minCells.length - freeMin} клеток дорожки на экране), монеты списаны ровно за башни`, badPath.length === 0 && s.coins === 100000 - BASE.price * s.towers.length, badPath.map((q) => `(${q.col},${q.row})`).join(' ') || `монет ${s.coins}`);
+  towerClearance(s, `${p} (минимальное приближение)`);
   await sleep(300);
   await shot(game.page, 'rules-02-all-cells-min-zoom');
   await game.page.close();
@@ -1082,6 +1096,15 @@ async function runCombat(browser, baseUrl) {
   check(`${p} координаты бактерий лежат на кривой своего ребра (отклонение ≤ 0,5 px), s в пределах ребра`, a.maxDev <= 0.5 && a.outOfEdge === 0, `макс. отклонение ${f2(a.maxDev)} px, замеров вне ребра ${a.outOfEdge} из ${a.samples}`);
   const sp = coccusSpeed();
   check(`${p} скорость ${f1(sp[0] + 1.5)}…${f1(sp[1] - 1.5)} px/с (базовая ${BASE.baseSpeed} × ${BASE.speedFactor} ±${BASE.spread * 100}%)`, a.badSpeed === 0, `замерено ${f1(a.speedSeen[0])}…${f1(a.speedSeen[1])} px/с, вне нормы ${a.badSpeed}`);
+  await game.page.close();
+
+  // ---- снаряд, летевший в бактерию, которая уже дошла до организма, не должен засчитываться как убийство (монеты и счётчик убитых)
+  const FAST = 12;
+  const g2 = await openGame(context, baseUrl, p, { speed: 4, cfg: `waves.total:1,waves.list.0.coccus:${FAST},waves.intervalStartSec:1,waves.intervalEndSec:1,waves.firstDelaySec:1,${FIXED_BALANCE.join(',')},bacteria.baseSpeed:330,types.coccus.lifeDamage:0,towers.pill.range:1400,towers.pill.cooldownMs:250,towers.pill.projectileSpeed:120,economy.startCoins:${BASE.price * 4}` });
+  await g2.placeTowers([FREE.a, FREE.b, FREE.c, FREE.d]);
+  const e2 = await pollUntil(g2, (x) => x.state === 'won' || x.state === 'lost', 120000, 30);
+  check(`${p} быстрые бактерии уходят к организму раньше, чем долетают медленные снаряды: убитые + дошедшие = вышедшие (${e2.kills} + ${e2.leaked} = ${e2.spawned}); снаряд по дошедшей бактерии убийством не считается`, e2.spawned === FAST && e2.kills + e2.leaked === e2.spawned && e2.leaked > 0, `убито ${e2.kills}, дошло ${e2.leaked}, вышло ${e2.spawned}, лишних засчитанных убийств ${e2.kills + e2.leaked - e2.spawned}`);
+  check(`${p} монеты = награда только за настоящие убийства (монет ${e2.coins}, ждали ${BASE.reward} × убито ${e2.kills - Math.max(0, e2.kills + e2.leaked - e2.spawned)})`, e2.coins === BASE.reward * Math.min(e2.kills, e2.spawned - e2.leaked), `монет ${e2.coins}, убито ${e2.kills}, дошло ${e2.leaked}`);
   await context.close();
 }
 
@@ -1673,6 +1696,22 @@ async function runDash(browser, baseUrl) {
 
 // ================================================================== делящаяся
 
+/**
+ * Два кокка от одной делящейся: первый — на месте гибели, второй — вперёд по дорожке (может оказаться на следующем ребре).
+ * Возвращает расстояние вдоль дорожки (null, если рёбра не соседние) и прямое расстояние между центрами.
+ */
+function splitPair(a, b) {
+  const [k1, k2] = a.id < b.id ? [a, b] : [b, a];
+  const chord = Math.hypot(k1.x - k2.x, k1.y - k2.y);
+  let along = null;
+  if (k1.edge === k2.edge) along = k2.s - k1.s;
+  else {
+    const e1 = GEO.byId.get(k1.edge);
+    if (e1.to === GEO.byId.get(k2.edge).from) along = e1.length - k1.s + k2.s;
+  }
+  return { k1, k2, chord, along, crossed: k1.edge !== k2.edge };
+}
+
 async function runSplit(browser, baseUrl) {
   const p = '[делящаяся]';
   const count = readConfigNumber('splitter', 'splitCount');
@@ -1722,12 +1761,11 @@ async function runSplit(browser, baseUrl) {
   if (ev) {
     const e0 = ev.parent;
     check(`${p} при гибели делящейся сразу появляются ${count} кокка(ов): сейчас ${ev.kids.length}`, ev.kids.length === count, `появилось ${ev.kids.length}, ждали ${count}`);
-    const sameEdge = e0 && ev.kids.every((k) => k.edge === e0.edge || GEO.byId.get(e0.edge).to === GEO.byId.get(k.edge).from);
-    check(`${p} кокки появляются на том же ребре дорожки, где погибла делящаяся`, Boolean(sameEdge), `ребро делящейся ${e0?.edge}, ребра кокков: ${ev.kids.map((k) => k.edge).join(',')}`);
-    const dist = ev.kids.length >= 2 ? Math.hypot(ev.kids[0].x - ev.kids[1].x, ev.kids[0].y - ev.kids[1].y) : 0;
-    const eAt = e0 ? GEO.byId.get(e0.edge) : null;
-    const interior = e0 && eAt && e0.s > 60 && e0.s < eAt.length - 60;
-    check(`${p} кокки стоят друг от друга на ${gap} px вдоль дорожки (замерено ${f1(dist)} px, допуск ±8; делящаяся не у края ребра: ${Boolean(interior)})`, Boolean(interior) && Math.abs(dist - gap) <= 8, `расстояние ${f1(dist)} px`);
+    const pair = ev.kids.length >= 2 ? splitPair(ev.kids[0], ev.kids[1]) : null;
+    const first = pair?.k1;
+    const onSpot = Boolean(e0 && first && (first.edge === e0.edge ? Math.abs(first.s - e0.s) <= 40 : GEO.byId.get(e0.edge).to === GEO.byId.get(first.edge).from));
+    check(`${p} первый кокк появляется на месте гибели делящейся (ребро ${e0?.edge}, s ${f1(e0?.s)} → ребро ${first?.edge}, s ${f1(first?.s)}; допуск 40 px на ход между замерами)`, onSpot, `ребро делящейся ${e0?.edge}, кокка ${first?.edge}`);
+    check(`${p} второй кокк — на ${gap} px ВПЕРЁД по дорожке (вдоль дорожки ${f1(pair?.along)} px, допуск ±8), прямое расстояние ${f1(pair?.chord)} px ≥ 38`, pair && pair.along !== null && Math.abs(pair.along - gap) <= 8 && pair.along > 0 && pair.chord >= 38, pair ? `ребро первого ${pair.k1.edge}, второго ${pair.k2.edge}` : 'кокков меньше двух');
     check(`${p} награда за делящуюся ${reward} монет, +1 к счётчику распадов (монеты ${ev.coinsDelta}, убито ${ev.killsDelta})`, ev.coinsDelta === reward && ev.killsDelta === 1, `монеты +${ev.coinsDelta}, убито +${ev.killsDelta}`);
   } else {
     check(`${p} распад делящейся наблюдался (есть событие распада)`, false, 'не было ни одного распада');
@@ -1746,6 +1784,40 @@ async function runSplit(browser, baseUrl) {
     return s.state === 'won' || s.state === 'lost';
   }, 240000, 25);
   check(`${p} если делящуюся не убивать, она не делится: кокков не появилось, распадов ${endB.splits}, прошло ${f1(endB.elapsed)} с игры`, !coccusSeen && endB.splits === 0 && endB.leaked === SPL && endB.elapsed > 25, `кокки видели: ${coccusSeen}, дошло ${endB.leaked}/${SPL}`);
+  await game.page.close();
+
+  // ---- C. регрессия: много распадов подряд, ни в одном кокки не слипаются (раньше у конца ребра было 25 и 34 px вместо 44)
+  const MANY = 40;
+  game = await openGame(context, baseUrl, p, { speed: 4, cfg: `waves.total:1,waves.list.0.coccus:0,waves.list.0.splitter:${MANY},waves.intervalStartSec:0.8,waves.intervalEndSec:0.8,waves.firstDelaySec:1,${FIXED_BALANCE.join(',')},${NO_LIFE_LOSS},towers.pill.range:1400,towers.pill.cooldownMs:300,economy.startCoins:${BASE.price * 7}` });
+  await game.placeTowers(Object.values(FREE));
+  const seenC = new Set();
+  const pairs = [];
+  const singles = []; // делящаяся погибла у самого организма: второй кокк «впереди» оказался за красной линией и сразу дошёл до организма
+  let prevC = await game.state();
+  const endC = await pollUntil(game, (x) => {
+    if (x.splits > prevC.splits) {
+      const kids = x.bacteria.filter((b) => !seenC.has(b.id) && b.kind === 'coccus').sort((a, b) => a.id - b.id);
+      for (let i = 0; i < kids.length; i++) {
+        if (kids[i + 1] && kids[i + 1].id === kids[i].id + 1) {
+          pairs.push(splitPair(kids[i], kids[i + 1]));
+          i++;
+        } else singles.push(kids[i]);
+      }
+    }
+    for (const b of x.bacteria) seenC.add(b.id);
+    prevC = x;
+    return x.state === 'won' || x.state === 'lost';
+  }, 300000, 20);
+  const chords = pairs.map((q) => q.chord);
+  const alongs = pairs.map((q) => q.along);
+  const minChord = Math.min(...chords);
+  const crossed = pairs.filter((q) => q.crossed).length;
+  check(`${p} регрессия: ${pairs.length} распадов подряд (башни с дальностью 1400), ни в одном кокки не слипаются: наименьшее прямое расстояние ${f1(minChord)} px ≥ 38 (раньше было 25 и 34)`, pairs.length >= 20 && minChord >= 38, `распадов ${pairs.length}, прямые расстояния: ${chords.map((c) => Math.round(c)).join(',')}`);
+  check(`${p} регрессия: во всех ${pairs.length} распадах второй кокк ровно на ${gap} px вперёд по дорожке (вдоль дорожки ${f1(Math.min(...alongs))}…${f1(Math.max(...alongs))}, допуск ±8); на следующем ребре оказался в ${crossed} распадах`, pairs.length >= 20 && alongs.every((a) => a !== null && Math.abs(a - gap) <= 8), `вдоль дорожки: ${alongs.map((a) => (a === null ? '—' : Math.round(a))).join(',')}`);
+  const orgLimit = MAP.orgW + readConfigNumber('coccus', 'radius') + gap + 20;
+  check(`${p} регрессия: если делящаяся погибла у самого организма (ближе ${gap} px до красной линии), второй кокк сразу доходит до организма — таких распадов ${singles.length}, у всех первый кокк правее линии не дальше x = ${orgLimit}`, singles.every((k) => k.x <= orgLimit), singles.map((k) => Math.round(k.x)).join(','));
+  check(`${p} регрессия: каждый распад виден проверке (${pairs.length} пар + ${singles.length} у организма = ${endC.splits} распадов), партия окончена победой`, endC.state === 'won' && pairs.length + singles.length === endC.splits, `состояние ${endC.state}, распадов ${endC.splits}, убито делящихся не больше ${endC.spawned}`);
+  check(`${p} учёт при распадах у организма: убитые + дошедшие = вышедшие + ${count}·распады (${endC.kills} + ${endC.leaked} = ${endC.spawned} + ${count}·${endC.splits})`, endC.kills + endC.leaked === endC.spawned + count * endC.splits, `убито ${endC.kills}, дошло ${endC.leaked}, вышло ${endC.spawned}, распадов ${endC.splits}, лишних ${endC.kills + endC.leaked - endC.spawned - count * endC.splits}`);
   await context.close();
 }
 

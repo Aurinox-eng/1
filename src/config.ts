@@ -124,7 +124,7 @@ export const CONFIG = {
     /** Палочка — синяя вытянутая капсула. 2 HP, идёт быстрее кокка и делает рывки. */
     rod: { hp: 2, speedFactor: 1, reward: 20, lifeDamage: 1, radius: 22, length: 104, dashEverySec: 3, dashSec: 1, dashFactor: 2.5, splitCount: 0, splitGapPx: 0, disableSec: 0, disableRadius: 0 },
     /** Делящаяся — жёлтая, с перетяжкой посередине. 2 HP. Уничтожена — на этом месте появляются два кокка. */
-    splitter: { hp: 2, speedFactor: 0.9, reward: 25, lifeDamage: 1, radius: 27, length: 0, dashEverySec: 0, dashSec: 0, dashFactor: 1, splitCount: 2, splitGapPx: 44, disableSec: 0, disableRadius: 0 },
+    splitter: { hp: 2, speedFactor: 0.9, reward: 25, lifeDamage: 1, radius: 27, length: 0, dashEverySec: 0, dashSec: 0, dashFactor: 1, splitCount: 2, splitGapPx: 64, disableSec: 0, disableRadius: 0 },
     /** Бронированная — фиолетовая, с толстой оболочкой. 6 HP, медленная, отнимает 2 жизни. */
     armored: { hp: 6, speedFactor: 0.6, reward: 60, lifeDamage: 2, radius: 48, length: 0, dashEverySec: 0, dashSec: 0, dashFactor: 1, splitCount: 0, splitGapPx: 0, disableSec: 0, disableRadius: 0 },
     /** Спора — маленькая красная. 1 HP, быстрая; проходя рядом с башней, глушит её на 3 секунды. */
