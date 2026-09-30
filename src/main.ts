@@ -8,6 +8,8 @@ import { COLORS } from './theme';
 // Язык страницы (для тега <html lang> и заголовка вкладки)
 setLang(getLang());
 document.title = t('gameTitle');
+const rotateText = document.getElementById('rotate-text');
+if (rotateText) rotateText.textContent = t('rotatePhone');
 
 const game = new Phaser.Game({
   type: Phaser.AUTO,
@@ -16,11 +18,11 @@ const game = new Phaser.Game({
   height: CONFIG.screen.height,
   backgroundColor: COLORS.background,
   scale: {
-    // FIT: игровое поле целиком помещается на любом экране, пропорции 9:16 сохраняются
+    // FIT: игровой экран целиком помещается на любом устройстве, пропорции 16:9 сохраняются
     mode: Phaser.Scale.FIT,
     autoCenter: Phaser.Scale.CENTER_BOTH,
   },
-  // Несколько одновременных касаний — чтобы можно было стрелять двумя пальцами
+  // Несколько одновременных касаний — нужны два пальца для приближения карты (щипок)
   input: { activePointers: 3 },
   // Пока в игре нет звуков (этап 3), звуковую систему не запускаем: иначе браузер пишет в консоль
   // предупреждение «AudioContext was not allowed to start». На этапе 3 эту строку уберём.

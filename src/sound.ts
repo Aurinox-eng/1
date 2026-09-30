@@ -69,6 +69,11 @@ class Sfx {
     this.played++;
   }
 
+  /** Выстрел башни: короткий тихий «пуф» (выстрелов много, поэтому тише остальных звуков). */
+  shoot(): void {
+    this.tone({ from: 300, to: 180, ms: 60, type: 'triangle', gain: 0.35 });
+  }
+
   /** Попадание, не добившее бактерию: короткий «тик». Тон зависит от типа (бронированная — глухой «клац»). */
   hit(kind: 'coccus' | 'rod' | 'splitter' | 'armored' | 'spore'): void {
     if (kind === 'armored') {
@@ -85,24 +90,31 @@ class Sfx {
     this.tone({ from: 1400, to: 2100, ms: 90, gain: 0.6, delayMs: 60 });
   }
 
-  /** Деление (делящаяся распалась на два кокка): «поп-поп». */
-  split(): void {
-    this.tone({ from: 330, to: 130, ms: 130, type: 'triangle' });
-    this.tone({ from: 520, to: 220, ms: 90, gain: 0.7, delayMs: 45 });
+  /** Башня поставлена: восходящий «клик». */
+  place(): void {
+    this.tone({ from: 400, to: 700, ms: 90, type: 'triangle', gain: 0.8 });
+    this.tone({ from: 700, to: 1000, ms: 80, gain: 0.5, delayMs: 60 });
   }
 
-  /** Делящаяся поделилась сама: мягкое «блоп». */
-  selfSplit(): void {
-    this.tone({ from: 190, to: 110, ms: 170, gain: 0.6 });
+  /** Нельзя (не хватает монет, клетка занята): глухой короткий звук. */
+  denied(): void {
+    this.tone({ from: 180, to: 130, ms: 120, type: 'square', gain: 0.4 });
   }
 
-  /** Появился новый тип бактерии: два восходящих тона — «обрати внимание». */
-  arrival(): void {
+  /** Началась новая волна: два восходящих тона — «обрати внимание». */
+  wave(): void {
     this.tone({ from: 660, to: 700, ms: 110, gain: 0.7 });
     this.tone({ from: 880, to: 930, ms: 160, gain: 0.7, delayMs: 110 });
   }
 
-  /** Бактерия дошла до линии, потеряна жизнь: низкий удар. */
+  /** Победа: три восходящих тона. */
+  win(): void {
+    this.tone({ from: 520, to: 560, ms: 140, type: 'triangle' });
+    this.tone({ from: 660, to: 700, ms: 140, type: 'triangle', delayMs: 140 });
+    this.tone({ from: 880, to: 940, ms: 260, type: 'triangle', delayMs: 280 });
+  }
+
+  /** Бактерия дошла до организма, потеряна жизнь: низкий удар. */
   lifeLost(): void {
     this.tone({ from: 220, to: 55, ms: 260, type: 'sawtooth', gain: 0.7 });
   }

@@ -5,8 +5,6 @@ type Kind = keyof typeof CONFIG.types;
 /** Цвета и шрифт (внешний вид). Баланс игры здесь не меняется — он в config.ts. */
 export const COLORS = {
   background: 0x12203a,
-  safeZone: 0x162a4a,
-  dangerZone: 0x3a1a26,
   loseLine: 0xff4d5e,
   /**
    * Цвета типов бактерий: тело, оболочка (у бронированной — толстая), трещины.
@@ -22,25 +20,51 @@ export const COLORS = {
   } satisfies Record<Kind, { body: number; shell: number; crack: number }>,
   /** Перегородка «перетяжки» у делящейся. */
   septum: 0x8a6510,
+  /** Таблетка (снаряд и ствол башни): белая половина и голубая. */
   pill: 0xffffff,
   pillEdge: 0xd0d6e4,
+  pillBlue: 0x74b8ff,
   hit: 0xfff3a3,
   heart: 0xff4d6d,
   heartLost: 0x2b3a5c,
+  gold: 0xffd84d,
+  goldEdge: 0xb8901a,
+  /** Правая панель и её кнопки. */
+  panel: 0x0d162b,
+  panelLine: 0x33578f,
+  barBack: 0x22355a,
+  slot: 0x121d36,
+  slotOn: 0x1c3a6a,
+  slotLine: 0x26385e,
+  locked: 0x4a5c82,
+  button: 0x1c2c50,
+  /** Башня. */
+  tower: 0x2c4a7c,
+  towerEdge: 0x8fb0e6,
+  /** «Призрак» башни и её радиус при выборе клетки. */
+  ghost: 0x74b8ff,
+  ghostEdge: 0x9fd0ff,
+} as const;
+
+/** Цвета карты в формате CSS (карта рисуется один раз в текстуры обычным canvas). */
+export const MAP_COLORS = {
+  background: '#12203a',
+  tissue: '#1d3760',
+  tissueLine: '#33578f',
+  lane: '#0b1528',
+  laneOuter: '#24406b',
+  organismFrom: '#3a1a26',
+  organismTo: '#5c2436',
+  loseLine: '#ff4d5e',
+  organismText: '#ffb3bd',
 } as const;
 
 export const TEXT_COLORS = {
   main: '#ffffff',
   accent: '#ffd84d',
   stroke: '#0b1020',
-  /** Цвета всплывающих очков по типам бактерий. */
-  popup: {
-    coccus: '#ffffff',
-    rod: '#bfe0ff',
-    splitter: '#fff0a8',
-    armored: '#e2d2ff',
-    spore: '#ffc2c2',
-  } satisfies Record<Kind, string>,
+  dim: '#4a5c82',
+  bad: '#ff6b7a',
 } as const;
 
 export const FONT = 'Arial, "Segoe UI", Roboto, sans-serif';
