@@ -331,15 +331,17 @@ export class GameScene extends Phaser.Scene {
     this.panel.setAffordable(this.coins >= CONFIG.towers[PANEL_TOWER].price);
   }
 
-  /** Делящаяся при гибели распадается: на этом месте дорожки появляются кокки, растянутые вдоль дорожки на splitGapPx. */
+  /** Делящаяся при гибели распадается: первый кокк появляется на её месте, каждый следующий — на splitGapPx дальше вперёд по
+   *  дорожке (если место у конца ребра, кокк переходит на следующее ребро, на развилке выбирая путь случайно). */
   private splitIntoChildren(parent: Bacterium): void {
     const { splitCount, splitGapPx } = CONFIG.types[parent.kind];
     if (splitCount <= 0) return;
     this.splits++;
     sfx.split();
     for (let i = 0; i < splitCount; i++) {
-      const offset = (i - (splitCount - 1) / 2) * splitGapPx;
-      this.bacteria.push(new Bacterium(this, this.bacteriaLayer, SPLITS_INTO, parent.edge, parent.s + offset));
+      const child = new Bacterium(this, this.bacteriaLayer, SPLITS_INTO, parent.edge, parent.s);
+      child.moveForward(i * splitGapPx);
+      this.bacteria.push(child);
     }
   }
 

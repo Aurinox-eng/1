@@ -122,6 +122,11 @@ export class Bacterium {
     this.container.destroy();
   }
 
+  /** Сдвигает бактерию вперёд по дорожке на distance пикселей (через конец ребра и развилки тоже). */
+  moveForward(distance: number): void {
+    this.advance(distance);
+  }
+
   /** Двигает вперёд на distance пикселей; в конце ребра выбирает следующее случайно (развилка). */
   private advance(distance: number): void {
     this.s += distance;

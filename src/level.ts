@@ -66,10 +66,11 @@ for (const edge of EDGES) edge.remainingAtEnd = nodeRemaining(edge.to);
 
 export const cellKey = (col: number, row: number): string => `${col},${row}`;
 
-/** Клетки, задетые дорожкой (центр клетки ближе к дорожке, чем полширины дорожки + треть клетки): башни там ставить нельзя. */
+/** Клетки, задетые дорожкой (центр клетки ближе к дорожке, чем полширины дорожки + 0,45 клетки): башни там ставить нельзя.
+ *  Запас 0,45 клетки = полкаймы дорожки + радиус основания башни + зазор, поэтому башня не заходит на полосу. */
 export const PATH_TILES: ReadonlySet<string> = (() => {
   const { pathWidth, tile } = CONFIG.map;
-  const limit = pathWidth / 2 + 0.3 * tile;
+  const limit = pathWidth / 2 + 0.45 * tile;
   const tiles = new Set<string>();
   for (let col = 0; col < LEVEL.cols; col++) {
     for (let row = 0; row < LEVEL.rows; row++) {

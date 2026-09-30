@@ -8,6 +8,8 @@ import { FONT, MAP_COLORS } from './theme';
 
 /** Во сколько раз текстура плотнее мира: при самом сильном приближении карта остаётся чёткой. */
 const DENSITY = CONFIG.camera.zoomMax;
+/** Стрелки направления не рисуются ближе этого расстояния к концам ребра: на развилках и слияниях они слипались бы, пикселей. */
+const ARROW_PAD = 90;
 /** Соседние куски карты чуть перекрываются, чтобы между ними не мелькали тонкие щели. */
 const OVERLAP = 2;
 
@@ -79,12 +81,12 @@ function paintMap(ctx: CanvasRenderingContext2D): void {
   ctx.lineWidth = 4;
   for (const edge of EDGES) {
     let walked = 0;
-    let next = 50;
+    let next = ARROW_PAD;
     for (let i = 1; i < edge.pts.length; i++) {
       const a = edge.pts[i - 1];
       const b = edge.pts[i];
       const seg = Math.hypot(b.x - a.x, b.y - a.y);
-      while (walked + seg >= next) {
+      while (walked + seg >= next && next <= edge.length - ARROW_PAD) {
         const u = (next - walked) / seg;
         ctx.save();
         ctx.translate(a.x + (b.x - a.x) * u, a.y + (b.y - a.y) * u);
