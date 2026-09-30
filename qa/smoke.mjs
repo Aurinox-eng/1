@@ -15,6 +15,7 @@
  *   combat                 бой на компьютере: выстрелы, убийства, монеты, отклик, движение бактерий по кривым дорожкам
  *   lose-ru, lose-en       потеря жизней, проигрыш, блокировка перезапуска, перезапуск, утечки (lose-ru — компьютер, lose-en — телефон)
  *   win-ru, win-en         победа и перезапуск (win-ru — компьютер, win-en — телефон)
+ *   danger                 подсказка «◀ Организм» краснеет, когда бактерия близко к организму (проверка по цвету пикселей)
  *   rotate                 поворот телефона (вертикально ↔ горизонтально) и смена размера окна на компьютере: экран перестраивается, ввод работает
  *   production             ИГРОВАЯ сборка (dist, та, что уйдёт на Яндекс): режима проверки, подмены чисел и языка из адреса нет; игра при этом работает (башня ставится тапом)
  * Дополнительно: --only=combat (или любое другое имя из списка) запускает один сценарий; для production нужна свежая
@@ -22,6 +23,10 @@
  *
  * Скриншоты — в qa/screenshots/<tag>/ (папка тега очищается только при запуске всех сценариев). Итог печатается в консоль;
  * при любой ошибке код выхода 1. Числа баланса проверки берут из src/config.ts и src/level.ts, поэтому от смены баланса не ломаются.
+ * Строки «📝» в конце — заметки о рисках (в счёт проверок не входят).
+ *
+ * Проверка самих проверок: QA_EXTRA_CFG=camera.placeMinZoom:0 node qa/smoke.mjs --tag=mut --only=desktop-ru подмешивает «поломку»
+ * в адрес игры — соответствующая проверка обязана покраснеть (так проверяли, что проверки не пустые).
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -55,7 +60,7 @@ if (['stage-1', 'stage-1b', 'stage-1b-qa', 'td-1-mockup', 'tmp'].includes(tag)) 
   process.exit(2);
 }
 
-const SCENARIOS = ['desktop-ru', 'phone-ru', 'desktop-en', 'phone-en', 'rules', 'combat', 'lose-ru', 'lose-en', 'win-ru', 'win-en', 'rotate', 'production'];
+const SCENARIOS = ['desktop-ru', 'phone-ru', 'desktop-en', 'phone-en', 'rules', 'combat', 'lose-ru', 'lose-en', 'win-ru', 'win-en', 'danger', 'rotate', 'production'];
 const only = args.only === undefined ? null : String(args.only);
 if (only !== null && !SCENARIOS.includes(only)) {
   console.error(`Неизвестный сценарий --only=${only}. Есть: ${SCENARIOS.join(', ')}`);
@@ -71,6 +76,13 @@ const results = []; // { name, ok, details }
 const consoleProblems = []; // ошибки и предупреждения браузера
 const envNoise = []; // предупреждения самой среды (видеодрайвер без видеокарты), к игре не относятся
 const screenshots = [];
+
+/** Заметки для отчёта: печатаются в конце, в счёт проверок не входят (риски и наблюдения, а не «прошло/не прошло»). */
+const notes = [];
+const note = (text) => {
+  notes.push(text);
+  console.log(`📝 ${text}`);
+};
 
 const check = (name, ok, details = '') => {
   results.push({ name, ok: Boolean(ok), details });
@@ -143,11 +155,19 @@ async function shot(page, name) {
  */
 const ENV_NOISE = /GL Driver Message|GPU stall|swiftshader|SwiftShader|Automatic fallback to software WebGL/i;
 
+/**
+ * Единственное известное безобидное сообщение самой связки Phaser + Chrome: при системной отмене касания (проверка «отмена касания
+ * системой») Phaser зовёт preventDefault() у события touchcancel, а Chrome пишет об этом в консоль. Игре это не вредит.
+ */
+const KNOWN_HARMLESS = /Ignored attempt to cancel a touchcancel event/;
+const harmless = [];
+
 function watchConsole(page, prefix) {
   page.on('console', (msg) => {
     if (msg.type() !== 'error' && msg.type() !== 'warning') return;
     const line = `${prefix} console.${msg.type()}: ${msg.text()}`;
-    (ENV_NOISE.test(msg.text()) ? envNoise : consoleProblems).push(line);
+    if (KNOWN_HARMLESS.test(msg.text())) harmless.push(line);
+    else (ENV_NOISE.test(msg.text()) ? envNoise : consoleProblems).push(line);
   });
   page.on('pageerror', (err) => consoleProblems.push(`${prefix} ОШИБКА СТРАНИЦЫ: ${err.message}`));
   page.on('requestfailed', (req) => consoleProblems.push(`${prefix} не загрузилось: ${req.url()} (${req.failure()?.errorText})`));
@@ -358,7 +378,7 @@ async function profileLoadAndCamera(c) {
   await sleep(400);
   const startPng = await shot(page, `${name}-01-start`);
   const chipStart = await chipWhitePixels(game, startPng);
-  check(`${p} подсказка «◀ Организм» видна на старте (организм за краем экрана)`, chipStart >= 40, `белых точек надписи: ${chipStart}`);
+  check(`${p} подсказка «◀ Организм» видна на старте (организм за краем экрана)`, chipStart >= 25, `белых точек надписи: ${chipStart}`);
 
   // ---- сдвиг карты
   const cam = async () => (await game.state()).camera;
@@ -401,7 +421,7 @@ async function profileLoadAndCamera(c) {
   check(`${p} границы: тянем влево до упора — виден правый край мира`, cameraInBounds(s) && Math.abs(s.camera.cx - lim.maxX) < 0.6, `cx=${f1(s.camera.cx)}, край ${f1(lim.maxX)}`);
   const png2 = await shot(page, `${name}-03-right-edge`);
   const chipBack = await chipWhitePixels(game, png2);
-  check(`${p} подсказка «◀ Организм» возвращается, когда организм снова за краем`, chipBack >= 40, `белых точек надписи: ${chipBack}`);
+  check(`${p} подсказка «◀ Организм» возвращается, когда организм снова за краем`, chipBack >= 25, `белых точек надписи: ${chipBack}`);
   s = await pull([600, 20], [600, 700], 2);
   lim = cameraLimits(s);
   check(`${p} границы: тянем вниз до упора — виден верх мира`, cameraInBounds(s) && Math.abs(s.camera.cy - lim.minY) < 0.6, `cy=${f1(s.camera.cy)}, край ${f1(lim.minY)}`);
@@ -438,6 +458,20 @@ async function profileLoadAndCamera(c) {
   await settle();
   after = await game.state();
   check(`${p} обратное движение отдаляет (${isTouch ? 'щипок к центру' : 'колесо вниз'})`, after.camera.zoom < before.camera.zoom - 0.05 && Math.abs(after.camera.zoom - before.camera.zoom / ratio) < 0.05, `zoom ${f2(before.camera.zoom)} → ${f2(after.camera.zoom)}`);
+
+  if (!isTouch) {
+    // Firefox шлёт колесо «строками»: один щелчок = deltaY 3 при deltaMode 1 (Chrome — 100 пикселей). Настоящего Firefox в проверке нет — событие подделано
+    const notch = { mode: 1, dy: -3 };
+    const b = await game.state();
+    await page.evaluate(([n, x, y]) => {
+      const canvas = document.querySelector('canvas');
+      canvas.dispatchEvent(new WheelEvent('wheel', { deltaY: n.dy, deltaMode: n.mode, clientX: x, clientY: y, bubbles: true, cancelable: true }));
+    }, [notch, anchorC.x, anchorC.y]);
+    await settle();
+    const a2 = await game.state();
+    const r2 = a2.camera.zoom / b.camera.zoom;
+    check(`${p} колесо «строками» (так шлёт Firefox: щелчок = deltaY 3, deltaMode 1; событие подделано): щелчок приближает заметно, ≥ 5%`, r2 >= 1.05, `zoom ${f2(b.camera.zoom)} → ${f2(a2.camera.zoom)} (×${r2.toFixed(3)}; у Chrome щелчок даёт ×1,16)`);
+  }
 
   // пределы: до упора в каждую сторону
   const zoomTo = async (dir, times) => {
@@ -537,7 +571,7 @@ async function profilePlacement(c) {
   }
   // клетки дорожки
   for (const [col, row] of PATH) await game.tapCell(col, row);
-  await shot(page, `${name}-09-toast-cant-build`);
+  await shot(page, `${name}-13-toast-cant-build`);
   s = await st();
   check(`${p} тап по клеткам дорожки ${PATH.map((q) => `(${q})`).join(' ')} башню не ставит, монеты не тратятся`, s.towers.length === 0 && s.coins === coins0 && s.effects.placements === 0, `башен ${s.towers.length}, монет ${s.coins}`);
   // два пальца (щипок-касание) башню не ставят
@@ -546,6 +580,21 @@ async function profilePlacement(c) {
     await settle();
     s = await st();
     check(`${p} касание двумя пальцами башню не ставит`, s.towers.length === 0 && s.coins === coins0, `башен ${s.towers.length}`);
+  }
+  // система отменила касание (входящий звонок, жест ОС): башни нет, а следующий сдвиг работает как обычно
+  if (isTouch) {
+    const cellPt = await game.cell(...FREE.a);
+    await game.cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: cellPt.x, y: cellPt.y, id: 1 }] });
+    await sleep(80);
+    await game.cdp.send('Input.dispatchTouchEvent', { type: 'touchCancel', touchPoints: [] });
+    await settle();
+    s = await st();
+    const camB = s.camera;
+    const noTower = s.towers.length === 0 && s.coins === coins0;
+    await input.drag(game.g(700, 200), game.g(600, 200));
+    await settle();
+    const camC = (await st()).camera;
+    check(`${p} отмена касания системой: башню не ставит, следующий сдвиг двигает карту как обычно (≈100 px)`, noTower && Math.abs(camC.cx - camB.cx - 100) <= 30, `башен ${s.towers.length}, сдвиг ${f1(camC.cx - camB.cx)} px`);
   }
   // тап с небольшим дрожанием (в пределах порога) — ставит
   await input.wobbleTap(await game.cell(...FREE.a), 6 * screen.scale);
@@ -575,7 +624,7 @@ async function profilePlacement(c) {
     check(`${p} карта отдалена (zoom ${f2(zoomOut)} < ${CFG.placeMinZoom}), нужная клетка на экране`, zoomOut < CFG.placeMinZoom && insideMap(pt), `zoom ${f2(zoomOut)}`);
     await input.tap(pt);
     await settle();
-    await shot(page, `${name}-10-toast-zoom-in`);
+    await shot(page, `${name}-14-toast-zoom-in`);
     s = await st();
     check(`${p} при сильном отдалении (zoom ${f2(zoomOut)}) башня не ставится, монеты не тратятся`, s.towers.length === 2 && s.coins === coins0 - 2 * price, `башен ${s.towers.length}, монет ${s.coins}`);
     if (!isTouch) await input.wheel(pt, -240);
@@ -590,7 +639,7 @@ async function profilePlacement(c) {
     check(`${p} после возврата приближения башня ставится`, s.towers.length === 3 && s.coins === coins0 - 3 * price, `башен ${s.towers.length}, монет ${s.coins}`);
     // монет не хватает
     await game.tapCell(...FREE.d);
-    await shot(page, `${name}-11-toast-no-coins`);
+    await shot(page, `${name}-15-toast-no-coins`);
     s = await st();
     check(`${p} не хватает монет (${s.coins} < ${price}): башня не ставится, монеты те же`, s.towers.length === 3 && s.coins === 20 && s.coins < price, `башен ${s.towers.length}, монет ${s.coins}`);
   }
@@ -676,6 +725,19 @@ async function profileBattle(c) {
       }),
   );
   const e1 = (await game.state()).elapsed;
+  if (c.full) {
+    // «Зависание» страницы на 3 секунды (как после сворачивания вкладки): игровое время не должно скакнуть вперёд
+    const before = await game.state();
+    await page.evaluate(() => {
+      const t0 = performance.now();
+      while (performance.now() - t0 < 3000) {
+        /* страница занята и не рисует кадры */
+      }
+    });
+    await sleep(300);
+    const jumped = (await game.state()).elapsed - before.elapsed;
+    check(`${p} после «зависания» страницы на 3 с игровое время не скачет (скорость игры ×4: без защиты было бы ≈13 с)`, jumped < 3, `прошло игрового времени ${f2(jumped)} с`);
+  }
   check(`${p} игра не зависла: за 2 секунды страница отвечает, игровое время растёт`, e1 > e0 + 0.5 && fps >= 3, `игрового времени +${f2(e1 - e0)} с, кадров в секунду ≈${f1(fps)} (программный WebGL в контейнере)`);
   await page.close();
 }
@@ -741,7 +803,37 @@ async function runRules(browser, baseUrl) {
   await sleep(300);
   await shot(game.page, 'rules-01-all-cells');
   await game.page.close();
+
+  // ---- касание, начатое на карте у самой панели и закончившееся на панели (сдвиг в пределах порога тапа)
+  game = await openGame(context, baseUrl, p, { cfg: `economy.startCoins:500,waves.firstDelaySec:60,${FIXED_BALANCE.join(',')}` });
+  await game.towerButton();
+  const edge = game.g(1076, 300);
+  const over = game.g(1086, 300);
+  await game.page.mouse.move(edge.x, edge.y);
+  await game.page.mouse.down();
+  await game.page.mouse.move(over.x, over.y);
+  await game.page.mouse.up();
+  await settle();
+  s = await game.state();
+  check(`${p} касание, начатое на карте и закончившееся на панели (сдвиг 10 px), башню не ставит: на панели карты не видно`, s.towers.length === 0 && s.coins === 500, `башен ${s.towers.length}${s.towers[0] ? `, поставлена в клетку (${s.towers[0].col};${s.towers[0].row}), скрытую под панелью` : ''}`);
+  await game.page.close();
   await context.close();
+
+  // ---- заметка: порог тапа на телефоне в настоящих пикселях (в счёт проверок не входит)
+  const phoneCtx = await newDeviceContext(browser, VIEWPORTS.phone, 'ru');
+  const phone = await openGame(phoneCtx, baseUrl, p, { isTouch: true, cfg: `economy.startCoins:500,waves.firstDelaySec:60,${FIXED_BALANCE.join(',')}` });
+  const slop = readConfigNumber('camera', 'tapMaxMovePx');
+  const probe = [];
+  await phone.towerButton();
+  for (const [cssPx, cell] of [[4, FREE.a], [8, FREE.b], [10, FREE.c], [12, FREE.d]]) {
+    const before = (await phone.state()).towers.length;
+    await phone.input.wobbleTap(await phone.cell(...cell), cssPx);
+    await settle();
+    const after = (await phone.state()).towers.length;
+    probe.push(`${cssPx} px — ${after > before ? 'тап, башня поставлена' : 'НЕ тап (сдвиг), башни нет'}`);
+  }
+  note(`Порог тапа camera.tapMaxMovePx = ${slop} px экрана игры; на телефоне 844×390 (масштаб ${f2(phone.screen.scale)}) это ≈${f1(slop * phone.screen.scale)} px на стекле. Проба дрожания пальца: ${probe.join('; ')}. Обычное дрожание пальца при тапе — 5–10 px (порог касания в Android — 8 px): проверить на настоящем телефоне.`);
+  await phoneCtx.close();
 }
 
 // ================================================================== бой на компьютере
@@ -790,6 +882,45 @@ async function runCombat(browser, baseUrl) {
   const sp = speedBounds();
   check(`${p} скорость ${f1(sp.speedMin + 1.5)}…${f1(sp.speedMax - 1.5)} px/с (базовая ${BASE.baseSpeed} × ${BASE.speedFactor} ±${BASE.spread * 100}%)`, a.badSpeed === 0, `замерено ${f1(a.speedSeen[0])}…${f1(a.speedSeen[1])} px/с, вне нормы ${a.badSpeed}`);
   check(`${p} путь кривой: не меньше 2 поворотов у бактерий, прошедших ≥900 px (первые два поворота — на ≈470 и ≈780 px пути)`, a.partialCount > 0 && a.minTurnsPartial >= 2, `бактерий ${a.partialCount}, минимум поворотов ${a.minTurnsPartial}`);
+  await context.close();
+}
+
+
+// ================================================================== подсказка «◀ Организм» мигает красным, когда бактерия близко
+
+async function runDanger(browser, baseUrl) {
+  const p = '[тревога у организма]';
+  const danger = readConfigNumber('ui', 'dangerDistancePx');
+  const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
+  const game = await openGame(context, baseUrl, p, { speed: 6, cfg: `waves.firstDelaySec:1,waves.firstCount:1,${FIXED_BALANCE.join(',')},ui.dangerDistancePx:${danger}` });
+  const { page } = game;
+  const chipRed = async () => {
+    const png = await page.screenshot();
+    const c = game.g(132, 345);
+    const [[r]] = await samplePixels(page, png, [[c.x, c.y]]);
+    return { r, png };
+  };
+  let calm = null;
+  const alarm = [];
+  let s = await game.state();
+  const started = Date.now();
+  let shotTaken = false;
+  while (Date.now() - started < WAIT_MS && s.state === 'playing' && s.leaked === 0) {
+    s = await game.state();
+    const nearest = Math.min(...s.bacteria.map((b) => b.x - MAP.orgW), 1e9);
+    if (calm === null && s.bacteria.length > 0 && nearest > danger + 500) calm = (await chipRed()).r;
+    else if (nearest < danger - 100 && nearest > 60 && alarm.length < 8) {
+      const { r } = await chipRed();
+      alarm.push(r);
+      if (!shotTaken) {
+        await shot(page, 'desktop-ru-12-danger-chip');
+        shotTaken = true;
+      }
+    } else await sleep(40);
+  }
+  const maxAlarm = Math.max(0, ...alarm);
+  check(`${p} подсказка «◀ Организм» спокойная, пока бактерия далеко (красная составляющая цвета ${calm} ≤ 120)`, calm !== null && calm <= 120, `R=${calm}`);
+  check(`${p} подсказка «◀ Организм» краснеет и мигает, когда бактерия ближе ${danger} px к организму (замеров ${alarm.length}, наибольшая красная составляющая ${maxAlarm} ≥ 150)`, alarm.length >= 2 && maxAlarm >= 150, `R по замерам: ${alarm.join(', ')}`);
   await context.close();
 }
 
@@ -952,7 +1083,28 @@ async function runRotate(browser, baseUrl) {
     await sleep(1200);
     const m = await measureCanvas(game.page);
     check(`${p} компьютер, окно ${w}×${h}: экран 16:9 перестроился, помещается, по центру, без прокрутки`, layoutOk(m), `пропорции ${m.ratio.toFixed(3)}, помещается ${m.fits}, по центру ${m.centred}, заполнение ${m.fill.toFixed(2)}`);
-    if (w === 1600) await shot(game.page, 'desktop-wide-ru');
+    if (w === 1600) {
+      await shot(game.page, 'desktop-wide-ru');
+      // мышь отпущена за пределами экрана игры (в чёрной полосе сбоку): сдвиг заканчивается и не «залипает»
+      const r = await game.page.evaluate(() => {
+        const box = document.querySelector('canvas').getBoundingClientRect();
+        return { left: box.left, width: box.width };
+      });
+      const cam = async () => (await getState(game.page)).camera;
+      const c0 = await cam();
+      await game.page.mouse.move(r.left + 200, 300);
+      await game.page.mouse.down();
+      await game.page.mouse.move(r.left + 100, 300, { steps: 3 });
+      await game.page.mouse.move(100, 300, { steps: 3 });
+      await game.page.mouse.up();
+      await sleep(200);
+      const c1 = await cam();
+      await game.page.mouse.move(r.left + 300, 300, { steps: 3 });
+      await game.page.mouse.move(r.left + 500, 320, { steps: 5 });
+      await sleep(200);
+      const c2 = await cam();
+      check(`${p} компьютер: мышь, отпущенная за пределами экрана игры, не оставляет «залипший» сдвиг`, Math.abs(c1.cx - c0.cx) > 50 && Math.abs(c2.cx - c1.cx) < 0.01 && Math.abs(c2.cy - c1.cy) < 0.01, `при перетаскивании сдвиг ${f1(c1.cx - c0.cx)} px, после отпускания камера ${f1(c2.cx - c1.cx)} px`);
+    }
   }
   await context.close();
 }
@@ -1074,6 +1226,7 @@ try {
   if (wants('lose-en')) await safe('[проигрыш en]', () => runLose(browser, qaServer.url, 'en', 'phone', false));
   if (wants('win-ru')) await safe('[победа ru]', () => runWin(browser, qaServer.url, 'ru', 'desktop', true));
   if (wants('win-en')) await safe('[победа en]', () => runWin(browser, qaServer.url, 'en', 'phone', false));
+  if (wants('danger')) await safe('[тревога]', () => runDanger(browser, qaServer.url));
   if (wants('rotate')) await safe('[поворот]', () => runRotate(browser, qaServer.url));
   if (wants('production')) await safe('[игровая сборка]', () => runProduction(browser, prodServer.url, qaServer.url));
 } catch (error) {
@@ -1089,12 +1242,19 @@ try {
 // Ошибки и предупреждения консоли: любая строка — провал (кроме шума среды, он показан отдельно)
 check('Консоль браузера без ошибок и предупреждений', consoleProblems.length === 0, consoleProblems.length ? `${consoleProblems.length} шт.` : '');
 for (const line of [...new Set(consoleProblems)].slice(0, 20)) console.log(`   ✗ ${line}`);
+if (harmless.length) {
+  console.log(`ℹ️  Безобидное сообщение Phaser+Chrome при системной отмене касания (${harmless.length} раз, в счёт не идёт): «Ignored attempt to cancel a touchcancel event…»`);
+}
 if (envNoise.length) {
   console.log(`ℹ️  Сообщения видеодрайвера среды (${envNoise.length}, к игре не относятся):`);
   for (const line of [...new Set(envNoise)].slice(0, 5)) console.log(`   ! ${line}`);
 }
 
 const failed = results.filter((r) => !r.ok);
+if (notes.length) {
+  console.log('\nЗаметки (в счёт проверок не входят):');
+  for (const line of notes) console.log(`  📝 ${line}`);
+}
 console.log('\nСкриншоты:');
 for (const file of screenshots) console.log(`  ${file}`);
 console.log(`\nИтог: ${results.length - failed.length} из ${results.length} проверок пройдено.`);

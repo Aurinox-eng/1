@@ -10,8 +10,9 @@ import { getLang, type Lang } from './lang';
 const ru = {
   gameTitle: 'Таблетки против бактерий',
   wave: 'Волна {n} / {total}',
-  nextWave: 'Следующая через {n} с',
+  nextWave: 'Волна через {n} с',
   organism: 'Организм',
+  rotatePhone: 'Поверните телефон горизонтально',
   towerPill: 'Таблетка',
   towerSyrup: 'Сироп',
   towerFizz: 'Шипучка',
@@ -37,6 +38,7 @@ const en: Record<TextKey, string> = {
   wave: 'Wave {n} / {total}',
   nextWave: 'Next in {n} s',
   organism: 'Organism',
+  rotatePhone: 'Rotate your phone to landscape',
   towerPill: 'Pill',
   towerSyrup: 'Syrup',
   towerFizz: 'Fizz',

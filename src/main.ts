@@ -8,6 +8,8 @@ import { COLORS } from './theme';
 // Язык страницы (для тега <html lang> и заголовка вкладки)
 setLang(getLang());
 document.title = t('gameTitle');
+const rotateText = document.getElementById('rotate-text');
+if (rotateText) rotateText.textContent = t('rotatePhone');
 
 const game = new Phaser.Game({
   type: Phaser.AUTO,

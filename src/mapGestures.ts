@@ -87,7 +87,10 @@ export class MapGestures {
     }
 
     if (!finger.moved && Math.hypot(pointer.x - finger.startX, pointer.y - finger.startY) > CONFIG.camera.tapMaxMovePx) {
+      // Это уже сдвиг, а не тап: карта сразу догоняет палец на всё пройденное с момента касания
       finger.moved = true;
+      finger.x = finger.startX;
+      finger.y = finger.startY;
     }
     if (finger.moved) this.rig.panBy(pointer.x - finger.x, pointer.y - finger.y);
     finger.x = pointer.x;
@@ -98,7 +101,13 @@ export class MapGestures {
     const finger = this.fingers.get(pointer.id);
     if (!finger) return;
     this.fingers.delete(pointer.id);
-    const isTap = !finger.moved && !this.multi && performance.now() - finger.downAt <= CONFIG.camera.tapMaxMs;
+    // Не тап: касание отменила система (жест ОС, звонок) или палец ушёл на правую панель (там кнопки, карта под ней не нужна)
+    const isTap =
+      !finger.moved &&
+      !this.multi &&
+      !pointer.wasCanceled &&
+      pointer.x < this.viewW &&
+      performance.now() - finger.downAt <= CONFIG.camera.tapMaxMs;
     if (this.fingers.size === 0) this.multi = false;
     else if (this.fingers.size === 1) {
       // Один палец остался после щипка: дальше он просто двигает карту
@@ -114,9 +123,11 @@ export class MapGestures {
     if (this.fingers.size === 0) this.multi = false;
   }
 
-  private onWheel(pointer: Phaser.Input.Pointer, _over: unknown, _dx: number, dy: number): void {
+  private onWheel(pointer: Phaser.Input.Pointer, _over: unknown, _dx: number, dy: number, _dz: number, event?: WheelEvent): void {
     if (!this.handlers.isActive() || pointer.x >= this.viewW) return;
-    this.rig.zoomAt(Math.exp(-dy * CONFIG.camera.wheelSpeed), pointer.x, pointer.y);
+    // Chrome шлёт пиксели (один щелчок ≈ 100). Firefox и некоторые мыши — строки (≈ 3 за щелчок) или страницы: приводим к пикселям
+    const unit = event?.deltaMode === 1 ? 33 : event?.deltaMode === 2 ? 300 : 1;
+    this.rig.zoomAt(Math.exp(-dy * unit * CONFIG.camera.wheelSpeed), pointer.x, pointer.y);
   }
 
   private onOut(): void {

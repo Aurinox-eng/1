@@ -5,6 +5,7 @@ import { exposeDebug, TIME_SCALE, type DebugSnapshot } from '../debug';
 import { Effects } from '../effects';
 import { t } from '../i18n';
 import { LEVEL, PATH_TILES, ROUTES, WORLD, cellKey, worldToCell } from '../level';
+import { isPortraitPhone } from '../orientation';
 import { addMap } from '../mapArt';
 import { MapGestures } from '../mapGestures';
 import { Bacterium } from '../objects/Bacterium';
@@ -135,7 +136,7 @@ export class GameScene extends Phaser.Scene {
     this.refreshPanel();
 
     new MapGestures(this, this.rig, VIEW_W, {
-      isActive: () => this.state === 'playing',
+      isActive: () => this.state === 'playing' && !isPortraitPhone(),
       onTap: (sx, sy) => this.onTap(sx, sy),
       onHover: (sx, sy) => this.onHover(sx, sy),
       onHoverEnd: () => this.ghost.setVisible(false),
@@ -159,7 +160,7 @@ export class GameScene extends Phaser.Scene {
 
   update(time: number, deltaMs: number): void {
     this.updateChip(time / 1000);
-    if (this.state !== 'playing') return;
+    if (this.state !== 'playing' || isPortraitPhone()) return;
 
     const dt = (Math.min(deltaMs, MAX_FRAME_MS) / 1000) * TIME_SCALE;
     this.elapsed += dt;
@@ -395,6 +396,9 @@ export class GameScene extends Phaser.Scene {
     this.state = won ? 'won' : 'lost';
     this.restartAllowedAt = performance.now() + CONFIG.gameOver.restartLockMs;
     this.ghost.setVisible(false);
+    // Снаряды в полёте не должны «зависать» под экраном конца уровня
+    for (const projectile of this.projectiles) projectile.destroy();
+    this.projectiles = [];
     if (won) sfx.win();
     else sfx.lose();
     this.showOverlay(won ? t('victory') : t('gameOver'), TEXT_COLORS.accent, t('killed', { n: this.kills }), t('tapToRestart'));

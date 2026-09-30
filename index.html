@@ -37,10 +37,40 @@
       canvas {
         display: block;
       }
+      /* Телефон вертикально: игра горизонтальная, просим повернуть (текст подставляет main.ts; на компьютере не показывается) */
+      #rotate {
+        position: fixed;
+        inset: 0;
+        z-index: 10;
+        display: none;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 20px;
+        padding: 24px;
+        box-sizing: border-box;
+        text-align: center;
+        background: #0b1020;
+        color: #fff;
+        font: bold 22px Arial, 'Segoe UI', Roboto, sans-serif;
+      }
+      @media (orientation: portrait) and (pointer: coarse) {
+        #rotate {
+          display: flex;
+        }
+      }
     </style>
   </head>
   <body>
     <div id="game"></div>
+    <div id="rotate">
+      <svg width="84" height="84" viewBox="0 0 84 84" fill="none" stroke="#ffd84d" stroke-width="5" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="26" y="8" width="32" height="56" rx="6" />
+        <path d="M14 70 q28 16 56 0" />
+        <path d="M62 62 l8 8 l-10 4" />
+      </svg>
+      <div id="rotate-text"></div>
+    </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

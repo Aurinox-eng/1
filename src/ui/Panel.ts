@@ -68,7 +68,7 @@ export class Panel {
     // Волна и полоска прогресса
     this.waveText = this.text(CX, 22, '', 21);
     this.bar = scene.add.graphics().setDepth(D.item);
-    this.nextWaveText = this.text(CX, 60, '', 13, TEXT_COLORS.dim);
+    this.nextWaveText = this.text(CX, 60, '', 17, TEXT_COLORS.dim);
 
     // Монеты
     this.coin(PX + 44, 90, 16);
@@ -82,14 +82,14 @@ export class Panel {
     const first = this.slotRect(0);
     const icon = scene.add.container(first.x + 38, first.y + first.h / 2).setDepth(D.item).setScale(0.68);
     createTowerArt(scene, icon);
-    this.text(first.x + 74, first.y + 28, t('towerPill'), 18, TEXT_COLORS.main, 0, 0.5);
+    this.text(first.x + 74, first.y + 28, t('towerPill'), 20, TEXT_COLORS.main, 0, 0.5);
     this.coin(first.x + 84, first.y + 74, 10);
     this.priceText = this.text(first.x + 100, first.y + 74, String(CONFIG.towers.pill.price), 25, TEXT_COLORS.accent, 0, 0.5);
     LOCKED_SLOTS.forEach((key, i) => {
       const r = this.slotRect(i + 1);
       this.lock(r.x + 38, r.y + 40);
-      this.text(r.x + 74, r.y + 28, t(key), 18, TEXT_COLORS.dim, 0, 0.5);
-      this.text(r.x + 74, r.y + 66, t('locked'), 15, TEXT_COLORS.dim, 0, 0.5).setFontStyle('normal');
+      this.text(r.x + 74, r.y + 28, t(key), 20, TEXT_COLORS.dim, 0, 0.5);
+      this.text(r.x + 74, r.y + 68, t('locked'), 18, TEXT_COLORS.dim, 0, 0.5).setFontStyle('normal');
     });
     scene.add
       .zone(first.x + first.w / 2, first.y + first.h / 2, first.w, first.h)
