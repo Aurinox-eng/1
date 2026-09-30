@@ -6,16 +6,24 @@ export interface Vec {
   y: number;
 }
 
-/** Готовый маршрут: ломаная с плавными поворотами и накопленной длиной — по ней ходят бактерии и по ней рисуется дорожка. */
-export interface Route {
+/**
+ * Ребро графа дорожек: плавная кривая от одного узла к другому (по ней ходят бактерии и по ней рисуется дорожка).
+ * Узел — место, где дорожки расходятся (развилка) или сходятся (слияние).
+ */
+export interface Edge {
+  id: number;
+  from: string;
+  to: string;
   pts: Vec[];
-  /** cum[i] — длина пути от начала до точки i, пикселей. */
+  /** cum[i] — длина от начала ребра до точки i, пикселей. */
   cum: number[];
   length: number;
+  /** Сколько пикселей от конца этого ребра до организма по самому короткому пути (считается при сборке уровня). */
+  remainingAtEnd: number;
 }
 
-/** На сколько отрезков разбивается каждый поворот (больше — глаже). */
-const CURVE_STEPS = 10;
+/** На сколько отрезков разбивается каждое ребро (больше — глаже). */
+const SAMPLES = 28;
 
 /** Центр клетки (колонка, ряд) в пикселях мира. Числа могут быть дробными и выходить за карту (вход — за правым краем). */
 export function tileCenter(col: number, row: number): Vec {
@@ -23,45 +31,33 @@ export function tileCenter(col: number, row: number): Vec {
   return { x: orgW + tile * (col + 0.5), y: tile * (row + 0.5) };
 }
 
-const dist = (a: Vec, b: Vec): number => Math.hypot(b.x - a.x, b.y - a.y);
-
 /**
- * Строит маршрут по точкам-поворотам (в клетках). На каждом повороте прямые скругляются кривой Безье;
- * curveTiles — радиус скругления в клетках (0.7 — плавно, но прямые участки остаются).
+ * Строит ребро между двумя узлами (их координаты — в клетках). Кривая — кубическая Безье с горизонтальными касательными на
+ * концах: поэтому в узле все рёбра стыкуются гладко, а между разными рядами получается плавная S-образная дорожка.
  */
-export function buildRoute(cells: readonly (readonly [number, number])[], curveTiles: number): Route {
-  const p = cells.map(([c, r]) => tileCenter(c, r));
-  const radius = curveTiles * CONFIG.map.tile;
-  const pts: Vec[] = [p[0]];
-  for (let i = 1; i < p.length - 1; i++) {
-    const prev = p[i - 1];
-    const cur = p[i];
-    const next = p[i + 1];
-    const l1 = dist(prev, cur);
-    const l2 = dist(cur, next);
-    const r = Math.min(radius, l1 / 2, l2 / 2);
-    const a = { x: cur.x + ((prev.x - cur.x) / l1) * r, y: cur.y + ((prev.y - cur.y) / l1) * r };
-    const b = { x: cur.x + ((next.x - cur.x) / l2) * r, y: cur.y + ((next.y - cur.y) / l2) * r };
-    pts.push(a);
-    for (let k = 1; k <= CURVE_STEPS; k++) {
-      const u = k / CURVE_STEPS;
-      pts.push({
-        x: (1 - u) * (1 - u) * a.x + 2 * (1 - u) * u * cur.x + u * u * b.x,
-        y: (1 - u) * (1 - u) * a.y + 2 * (1 - u) * u * cur.y + u * u * b.y,
-      });
-    }
+export function buildEdge(id: number, from: string, to: string, a: readonly [number, number], b: readonly [number, number]): Edge {
+  const [x1, y1] = a;
+  const [x2, y2] = b;
+  const dx = x1 - x2;
+  const c1 = [x1 - dx * 0.5, y1];
+  const c2 = [x2 + dx * 0.5, y2];
+  const pts: Vec[] = [];
+  for (let i = 0; i <= SAMPLES; i++) {
+    const u = i / SAMPLES;
+    const v = 1 - u;
+    const col = v * v * v * x1 + 3 * v * v * u * c1[0] + 3 * v * u * u * c2[0] + u * u * u * x2;
+    const row = v * v * v * y1 + 3 * v * v * u * c1[1] + 3 * v * u * u * c2[1] + u * u * u * y2;
+    pts.push(tileCenter(col, row));
   }
-  pts.push(p[p.length - 1]);
-
   const cum = [0];
-  for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + dist(pts[i - 1], pts[i]));
-  return { pts, cum, length: cum[cum.length - 1] };
+  for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y));
+  return { id, from, to, pts, cum, length: cum[cum.length - 1], remainingAtEnd: 0 };
 }
 
-/** Точка маршрута на расстоянии s от начала (за пределами — концы маршрута) и направление движения, радианы. */
-export function pointAt(route: Route, s: number): Vec & { angle: number } {
-  const { pts, cum } = route;
-  const d = Math.max(0, Math.min(route.length, s));
+/** Точка ребра на расстоянии s от его начала (за пределами — концы ребра) и направление движения, радианы. */
+export function pointAt(edge: Edge, s: number): Vec & { angle: number } {
+  const { pts, cum } = edge;
+  const d = Math.max(0, Math.min(edge.length, s));
   let lo = 0;
   let hi = cum.length - 1;
   while (hi - lo > 1) {

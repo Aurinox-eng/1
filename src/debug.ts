@@ -32,6 +32,10 @@ export interface DebugSnapshot {
   kills: number;
   /** Сколько бактерий дошло до организма. */
   leaked: number;
+  /** Какие типы бактерий уже появлялись (в порядке появления); сколько делящихся распалось; сколько раз спора заглушила башню. */
+  introduced: string[];
+  splits: number;
+  disables: number;
   /** Сколько выстрелов сделано башнями. */
   shots: number;
   elapsed: number;
@@ -47,24 +51,32 @@ export interface DebugSnapshot {
   camera: { zoom: number; cx: number; cy: number; zoomMin: number; zoomMax: number };
   /** Выбрана ли башня на панели (её название) и цена. */
   selected: string | null;
-  /** Поставленные башни: клетка и центр в пикселях мира. */
-  towers: { id: string; col: number; row: number; x: number; y: number }[];
-  /** Бактерии: центр в пикселях мира, радиус, номер маршрута, пройденный путь. */
-  bacteria: { id: number; x: number; y: number; r: number; kind: string; hp: number; maxHp: number; route: number; s: number }[];
+  /** Поставленные башни: клетка и центр в пикселях мира; заглушена ли (спорой). */
+  towers: { id: string; col: number; row: number; x: number; y: number; disabled: boolean }[];
+  /** Бактерии: центр в пикселях мира, радиус, номер ребра дорожки и пройденный по нему путь, идёт ли рывок. */
+  bacteria: { id: number; x: number; y: number; r: number; kind: string; hp: number; maxHp: number; edge: number; s: number; dashing: boolean }[];
   projectiles: number;
   /** Где на экране игры кнопки панели (центры) и сколько жизней нарисовано. */
   ui: { towerButton: { x: number; y: number; w: number; h: number }; pauseButton: { x: number; y: number }; lives: number };
   /** Сколько обработчиков нажатия навешено на сцену (при перезапуске не должно расти — иначе утечка). */
   pointerListeners: number;
-  /** Сколько раз сработали вспышка, частицы, «+монеты», кольцо постановки и красная вспышка потери жизни. */
-  effects: { flashes: number; bursts: number; popups: number; placements: number; lifeLosses: number };
+  /** Сколько раз сработали вспышка, частицы, «+монеты», кольцо постановки, красная вспышка потери жизни и кольцо глушения башни. */
+  effects: { flashes: number; bursts: number; popups: number; placements: number; lifeLosses: number; zaps: number };
   /** Звук: состояние аудио («running» — играет) и сколько звуков сыграно с загрузки страницы. */
   sound: { state: string; played: number };
+}
+
+/** Сеть дорожек для проверок: рёбра-кривые (точки в пикселях мира), входы (номера рёбер) и выходы (узлы). */
+export interface DebugGraph {
+  edges: { id: number; from: string; to: string; length: number; pts: [number, number][] }[];
+  entrances: number[];
+  exits: string[];
 }
 
 /** Что игра отдаёт проверкам через window.__pvb. */
 export interface DebugApi {
   getState: () => DebugSnapshot;
+  getGraph: () => DebugGraph;
   /** Точка мира → координаты на странице (для мыши и касаний Playwright), с учётом камеры и масштаба экрана. */
   worldToClient: (wx: number, wy: number) => { x: number; y: number };
   /** Точка экрана игры (1280×720) → координаты на странице. */

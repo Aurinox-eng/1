@@ -28,13 +28,16 @@ export function createTowerArt(scene: Phaser.Scene, parent: Phaser.GameObjects.C
 
 /**
  * Башня: стоит в клетке и сама стреляет. Способ стрельбы задан в таблице `towers` (config.ts, `targeting`).
- * Сейчас есть только «по радиусу»: из бактерий в радиусе выбирается та, что дальше всех прошла по дорожке
- * (ближе всех к организму). Остальные способы — этап 3.
+ * Сейчас есть только «по радиусу»: из бактерий в радиусе выбирается та, которой до организма ближе всего по дорожкам.
+ * Остальные способы — этап 3. Спора может «заглушить» башню: она на несколько секунд темнеет и не стреляет.
  */
 export class Tower {
   readonly cfg: (typeof CONFIG.towers)[TowerId];
   /** Пауза до следующего выстрела, секунды игрового времени. */
   private cooldown = 0;
+  /** Сколько секунд башня ещё заглушена (0 — работает). */
+  private disabledFor = 0;
+  private readonly ring: Phaser.GameObjects.Arc;
   private readonly barrel: Phaser.GameObjects.Container;
   private readonly container: Phaser.GameObjects.Container;
 
@@ -50,15 +53,38 @@ export class Tower {
     this.cfg = CONFIG.towers[id];
     this.container = scene.add.container(x, y);
     this.barrel = createTowerArt(scene, this.container);
+    // Красное кольцо — башня заглушена
+    this.ring = scene.add.circle(0, 0, 44).setStrokeStyle(5, COLORS.loseLine, 1).setFillStyle().setVisible(false);
+    this.container.add(this.ring);
     layer.add(this.container);
     // Появление: башня «вырастает» из клетки
     this.container.setScale(0.6);
     scene.tweens.add({ targets: this.container, scale: 1, duration: 180, ease: 'Back.easeOut' });
   }
 
+  get isDisabled(): boolean {
+    return this.disabledFor > 0;
+  }
+
+  /** Заглушить башню на seconds секунд (если уже заглушена дольше — не сокращаем). */
+  disable(seconds: number): void {
+    this.disabledFor = Math.max(this.disabledFor, seconds);
+    this.container.setAlpha(0.4);
+    this.ring.setVisible(true);
+  }
+
   /** Выбирает цель и стреляет, когда прошла пауза. `fire` создаёт снаряд. */
   update(dt: number, bacteria: readonly Bacterium[], fire: (target: Bacterium, muzzleX: number, muzzleY: number) => void): void {
     this.cooldown = Math.max(0, this.cooldown - dt);
+    if (this.disabledFor > 0) {
+      this.disabledFor -= dt;
+      if (this.disabledFor <= 0) {
+        this.disabledFor = 0;
+        this.container.setAlpha(1);
+        this.ring.setVisible(false);
+      }
+      return;
+    }
     const target = this.pickTarget(bacteria);
     if (!target) return;
     const angle = Math.atan2(target.y - this.y, target.x - this.x);
@@ -74,7 +100,7 @@ export class Tower {
     for (const b of bacteria) {
       if (b.hp <= 0) continue;
       if (Math.hypot(b.x - this.x, b.y - this.y) > this.cfg.range + b.radius) continue;
-      if (!best || b.s > best.s) best = b;
+      if (!best || b.remaining < best.remaining) best = b;
     }
     return best;
   }

@@ -27,6 +27,10 @@ const ru = {
   tapToRestart: 'Тапните, чтобы сыграть снова',
   paused: 'Пауза',
   tapToResume: 'Тапните, чтобы продолжить',
+  newTypeRod: 'Новая бактерия! Палочка — делает рывки',
+  newTypeSplitter: 'Новая бактерия! Делящаяся — при гибели распадается на два кокка',
+  newTypeArmored: 'Новая бактерия! Бронированная — очень прочная, отнимает 2 жизни',
+  newTypeSpore: 'Новая бактерия! Спора — быстрая, глушит башни рядом',
   coinsPopup: '+{n}',
 };
 
@@ -52,6 +56,10 @@ const en: Record<TextKey, string> = {
   tapToRestart: 'Tap to play again',
   paused: 'Paused',
   tapToResume: 'Tap to resume',
+  newTypeRod: 'New bacterium! Rod — makes dashes',
+  newTypeSplitter: 'New bacterium! Splitter — splits into two cocci when killed',
+  newTypeArmored: 'New bacterium! Armored — very tough, costs 2 lives',
+  newTypeSpore: 'New bacterium! Spore — fast, disables nearby towers',
   coinsPopup: '+{n}',
 };
 
