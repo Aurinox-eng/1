@@ -19,6 +19,8 @@ const MAX_FRAME_MS = 50;
 const MAX_SPAWNS_PER_FRAME = 10;
 /** Во что распадается бактерия при уничтожении (правило игры, не число баланса). */
 const SPLITS_INTO: Partial<Record<BacteriumKind, BacteriumKind>> = { splitter: 'coccus' };
+/** Высота тёмной подложки под счётом, сердцами и временем, пикселей. */
+const HUD_PLATE_H = 104;
 /** Типы в порядке появления в партии. */
 const KINDS_BY_INTRO = [...KINDS].sort((a, b) => CONFIG.types[a].introSec - CONFIG.types[b].introSec);
 
@@ -396,11 +398,15 @@ export class GameScene extends Phaser.Scene {
   }
 
   private drawHud(): void {
+    // Тёмная подложка под счёт, сердца и время: бактерии у верхнего края не мешают их читать
+    this.add.rectangle(W / 2, HUD_PLATE_H / 2, W, HUD_PLATE_H, 0x0b1020, 0.9).setDepth(4);
+    this.add.rectangle(W / 2, HUD_PLATE_H, W, 3, 0x2a3a5c, 1).setDepth(4);
+    // Шрифт 38: «Score: 12000» и «Время: 150» помещаются по бокам от сердец
     this.scoreText = this.add
-      .text(24, 20, t('score', { n: 0 }), this.textStyle(44))
+      .text(20, 26, t('score', { n: 0 }), this.textStyle(38))
       .setDepth(5);
     this.timeText = this.add
-      .text(W - 24, 20, t('time', { n: 0 }), this.textStyle(44))
+      .text(W - 20, 26, t('time', { n: 0 }), this.textStyle(38))
       .setOrigin(1, 0)
       .setDepth(5);
     this.hearts = this.add.graphics().setDepth(5);
@@ -410,15 +416,15 @@ export class GameScene extends Phaser.Scene {
   /** Жизни: сердечки по центру сверху; потерянные — тёмные. */
   private drawHearts(): void {
     const total = CONFIG.lives.start;
-    const gap = 66;
+    const gap = 58;
     this.hearts.clear();
     for (let i = 0; i < total; i++) {
       const cx = W / 2 + (i - (total - 1) / 2) * gap;
-      const cy = 58;
+      const cy = 56;
       this.hearts.fillStyle(i < this.lives ? COLORS.heart : COLORS.heartLost, 1);
-      this.hearts.fillCircle(cx - 12, cy - 6, 14);
-      this.hearts.fillCircle(cx + 12, cy - 6, 14);
-      this.hearts.fillTriangle(cx - 25, cy - 1, cx + 25, cy - 1, cx, cy + 28);
+      this.hearts.fillCircle(cx - 10, cy - 6, 13);
+      this.hearts.fillCircle(cx + 10, cy - 6, 13);
+      this.hearts.fillTriangle(cx - 22, cy - 2, cx + 22, cy - 2, cx, cy + 25);
     }
   }
 
@@ -470,6 +476,7 @@ export class GameScene extends Phaser.Scene {
       height: H,
       loseLineY: LOSE_LINE_Y,
       bacteria: this.bacteria.map((b) => ({
+        id: b.id,
         x: b.x,
         y: b.y,
         r: b.boundingRadius,

@@ -47,7 +47,7 @@ export interface DebugSnapshot {
   height: number;
   loseLineY: number;
   /** r — радиус описанного круга, bottom — нижняя точка (касание её красной линии отнимает жизнь). */
-  bacteria: { x: number; y: number; r: number; bottom: number; age: number; kind: string; hp: number; maxHp: number }[];
+  bacteria: { id: number; x: number; y: number; r: number; bottom: number; age: number; kind: string; hp: number; maxHp: number }[];
   pills: { x: number; y: number }[];
   /** Сколько раз сработали вспышка, частицы, всплывающее «+очки», тряска экрана и красная вспышка потери жизни. */
   effects: { flashes: number; bursts: number; popups: number; shakes: number; lifeLosses: number };

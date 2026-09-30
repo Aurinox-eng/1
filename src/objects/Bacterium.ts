@@ -31,6 +31,9 @@ const MAX_TILT = 0.55;
  * спора быстрая. HP видно на самой бактерии: оболочка истончается и появляются трещины.
  */
 export class Bacterium {
+  private static nextId = 1;
+  /** Уникальный номер (нужен проверкам: отличать одну бактерию от другой). */
+  readonly id = Bacterium.nextId++;
   readonly kind: BacteriumKind;
   readonly maxHp: number;
   hp: number;

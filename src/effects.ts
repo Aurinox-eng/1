@@ -65,6 +65,8 @@ export class Effects {
   /** Всплывающая надпись «+очки». */
   popup(x: number, y: number, points: number, kind: BacteriumKind): void {
     this.popups++;
+    // Не выше 170 px от верха поля: иначе надпись наедет на подложку со счётом, сердцами и временем
+    y = Math.max(y, 170);
     const text = this.scene.add
       .text(x, y, t('scorePopup', { n: points }), {
         fontFamily: FONT,
@@ -78,7 +80,7 @@ export class Effects {
       .setDepth(9);
     this.scene.tweens.add({
       targets: text,
-      y: y - 90,
+      y: y - 70,
       alpha: 0,
       duration: CONFIG.feedback.popupMs,
       ease: 'Cubic.easeOut',
