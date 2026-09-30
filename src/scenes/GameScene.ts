@@ -312,10 +312,6 @@ export class GameScene extends Phaser.Scene {
   private tryPlace(id: TowerId, col: number, row: number): void {
     const cfg = CONFIG.towers[id];
     const key = cellKey(col, row);
-    if (this.rig.zoom < CONFIG.camera.placeMinZoom) {
-      this.deny(t('hintZoomIn'));
-      return;
-    }
     if (PATH_TILES.has(key) || this.occupied.has(key)) {
       this.deny(t('hintCantBuild'));
       return;
