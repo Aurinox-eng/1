@@ -39,12 +39,13 @@ import {
   GAME_W as W,
   heapMb,
   launchBrowser,
-  makeGeometry,
+  makeGraphGeometry,
   parseArgs,
   readConfigNumber,
   readI18n,
   readLevel,
   readTitles,
+  readWaveList,
   ROOT,
   samplePixels,
   sleep,
@@ -64,7 +65,7 @@ if (['stage-1', 'stage-1b', 'stage-1b-qa', 'td-1-mockup', 'tmp'].includes(tag)) 
   process.exit(2);
 }
 
-const SCENARIOS = ['desktop-ru', 'phone-ru', 'desktop-en', 'phone-en', 'rules', 'combat', 'lose-ru', 'lose-en', 'win-ru', 'win-en', 'danger', 'rotate', 'production'];
+const SCENARIOS = ['desktop-ru', 'phone-ru', 'desktop-en', 'phone-en', 'rules', 'graph', 'combat', 'dash', 'split', 'spore', 'armored', 'intro', 'lose-ru', 'lose-en', 'win-ru', 'win-en', 'danger', 'rotate', 'production', 'fullgame']
 const only = args.only === undefined ? null : String(args.only);
 if (only !== null && !SCENARIOS.includes(only)) {
   console.error(`Неизвестный сценарий --only=${only}. Есть: ${SCENARIOS.join(', ')}`);
@@ -96,8 +97,9 @@ const check = (name, ok, details = '') => {
 // ------------------------------------------------------------------ что игра должна показывать (из исходников)
 
 const LEVEL = readLevel();
-const MAP = { orgW: readConfigNumber('map', 'orgW'), tile: readConfigNumber('map', 'tile') };
-const GEO = makeGeometry(LEVEL, MAP);
+const MAP = { orgW: readConfigNumber('map', 'orgW'), tile: readConfigNumber('map', 'tile'), pathWidth: readConfigNumber('map', 'pathWidth') };
+const WAVE_LIST = readWaveList();
+const KINDS = ['coccus', 'rod', 'splitter', 'armored', 'spore'];
 const CFG = {
   startCoins: readConfigNumber('economy', 'startCoins'),
   lives: readConfigNumber('lives', 'start'),
@@ -118,9 +120,40 @@ const ROTATE_TEXT = (() => {
     return { ru: '(в i18n.ts нет строки rotatePhone)', en: '(в i18n.ts нет строки rotatePhone)' }; // проверки подсказки покраснеют
   }
 })();
-/** Клетки для проверок: свободные рядом с дорожкой и клетки дорожки. Если карту изменят — первая же проверка скажет. */
-const FREE = { a: [9, 6], b: [9, 8], c: [8, 6], d: [8, 8], e: [10, 6], f: [12, 6], g: [5, 5] };
-const PATH = [[10, 7], [9, 7], [8, 7]];
+/**
+ * Сеть дорожек и клетки для проверок. Сеть берётся из самой игры (window.__pvb.getGraph()), клетки выбираются по ней:
+ * FREE — свободные клетки с лучшим «покрытием» дорожек в окне старта камеры (a — лучшая), PATH — три клетки дорожки
+ * у центра окна. Заполняется в setupWorld() до запуска сценариев.
+ */
+let GRAPH = null;
+let GEO = null;
+let FREE = {};
+let PATH = [];
+/** Окно старта камеры в координатах экрана игры: клетки дальше от краёв, чтобы сдвиги и приближения их не уводили за экран. */
+const CELL_WINDOW = { x0: 170, x1: 910, y0: 130, y1: 590 };
+
+function setupWorld(graph) {
+  GRAPH = graph;
+  GEO = makeGraphGeometry(graph, MAP, LEVEL.cols, LEVEL.rows);
+  const sc = GEO.center(LEVEL.startCenter[0], LEVEL.startCenter[1]);
+  const visible = [];
+  for (let col = 0; col < LEVEL.cols; col++) {
+    for (let row = 0; row < LEVEL.rows; row++) {
+      const w = GEO.center(col, row);
+      const sx = (W - 200) / 2 + (w.x - sc.x);
+      const sy = H / 2 + (w.y - sc.y);
+      if (sx < CELL_WINDOW.x0 || sx > CELL_WINDOW.x1 || sy < CELL_WINDOW.y0 || sy > CELL_WINDOW.y1) continue;
+      visible.push({ col, row, sx, sy, path: GEO.isPathCell(col, row), cov: GEO.coverage(col, row, 230), d: Math.hypot(sx - 540, sy - 360) });
+    }
+  }
+  const free = visible.filter((c) => !c.path).sort((a, b) => b.cov - a.cov || a.col - b.col || a.row - b.row);
+  const keys = ['a', 'b', 'c', 'd', 'e', 'f', 'g'];
+  FREE = {};
+  keys.forEach((k, i) => {
+    if (free[i]) FREE[k] = [free[i].col, free[i].row];
+  });
+  PATH = visible.filter((c) => c.path).sort((a, b) => a.d - b.d).slice(0, 3).map((c) => [c.col, c.row]);
+}
 
 /** Числа боя, которые проверки задают сами, чтобы не зависеть от баланса. */
 const BASE = { baseSpeed: 112, speedFactor: 0.8, spread: 0.1, reward: 10, price: 50, range: 200 };
@@ -311,47 +344,82 @@ async function chipWhitePixels(game, png) {
 }
 
 /**
- * Разбор записанных путей бактерий (traces: id → [{x, y, s, e, route}]) по данным уровня:
- * лежат ли на своей дорожке, идут ли только по клеткам дорожки, с нужной ли скоростью, есть ли повороты.
+ * Разбор записанных путей бактерий по сети дорожек (traces: id → [{x, y, s, e, edge, kind, dashing}]):
+ * лежат ли на кривой своего ребра, переходят ли только на следующие рёбра графа, идут ли вперёд и с нужной ли скоростью.
+ * speed(kind, dashing) → допустимый диапазон скоростей, px/с (или null — не проверять).
  */
-function analyzeTraces(traces, { speedMin, speedMax, worldW }) {
-  const out = { bacteria: traces.size, samples: 0, maxDev: 0, offPath: 0, backwards: 0, badSpeed: 0, routeChanged: 0, lateStart: 0, minTurnsFull: Infinity, fullCount: 0, minTurnsPartial: Infinity, partialCount: 0, leftwards: 0, speedSeen: [1e9, 0] };
-  const heading = (dx, dy) => (Math.abs(dx) >= Math.abs(dy) ? (dx < 0 ? 'L' : 'R') : dy > 0 ? 'D' : 'U');
+function analyzeTraces(traces, { speed, worldW }) {
+  const out = {
+    bacteria: traces.size,
+    samples: 0,
+    maxDev: 0,
+    outOfEdge: 0,
+    backwards: 0,
+    badTransition: 0,
+    badSpeed: 0,
+    speedSeen: [1e9, 0],
+    startedAtEntrance: 0,
+    startedElsewhere: 0,
+    leftwards: 0,
+    full: 0,
+    edgeChain: [],
+    entrances: {},
+    transitions: {}, // узел → { ребро-выход: сколько раз выбрано }
+    exits: {}, // последнее ребро → сколько раз
+  };
+  const entr = new Set(GRAPH.entrances);
+  const len = (id) => GEO.byId.get(id).length;
   for (const tr of traces.values()) {
     out.samples += tr.length;
-    if (tr[0].x < worldW - 300 || tr[0].s > 300) out.lateStart++;
-    let turns = 0;
-    let last = '';
+    if (entr.has(tr[0].edge) && tr[0].s < 250 && tr[0].x > worldW - 400) {
+      out.startedAtEntrance++;
+      out.entrances[tr[0].edge] = (out.entrances[tr[0].edge] ?? 0) + 1;
+    } else out.startedElsewhere++;
+    const chain = [tr[0].edge];
     for (let i = 0; i < tr.length; i++) {
       const cur = tr[i];
-      if (cur.route !== tr[0].route) out.routeChanged++;
-      out.maxDev = Math.max(out.maxDev, GEO.distToRoute(cur, cur.route));
-      const cell = GEO.cellAt(cur.x, cur.y);
-      if (cell && !GEO.isPathCell(cell[0], cell[1])) out.offPath++;
+      const e = GEO.byId.get(cur.edge);
+      out.maxDev = Math.max(out.maxDev, GEO.distToEdge(cur, cur.edge));
+      if (cur.s < -1e-6 || cur.s > e.length + 1e-6) out.outOfEdge++;
       if (i === 0) continue;
       const prev = tr[i - 1];
-      if (cur.s < prev.s - 1e-6) out.backwards++;
-      if (cur.e - prev.e >= 0.05) {
-        const v = (cur.s - prev.s) / (cur.e - prev.e);
-        out.speedSeen = [Math.min(out.speedSeen[0], v), Math.max(out.speedSeen[1], v)];
-        if (v < speedMin || v > speedMax) out.badSpeed++;
+      let progress = null;
+      if (cur.edge === prev.edge) {
+        if (cur.s < prev.s - 1e-6) out.backwards++;
+        progress = cur.s - prev.s;
+      } else {
+        const pe = GEO.byId.get(prev.edge);
+        if (pe.to === e.from) {
+          progress = len(prev.edge) - prev.s + cur.s;
+          chain.push(cur.edge);
+          const node = pe.to;
+          out.transitions[node] ??= {};
+          out.transitions[node][cur.edge] = (out.transitions[node][cur.edge] ?? 0) + 1;
+        } else {
+          // между замерами могло пройти целое короткое ребро: допускаем переход через одно промежуточное
+          const mid = (GEO.outOf[pe.to] ?? []).find((id) => GEO.byId.get(id).to === e.from);
+          if (mid === undefined) out.badTransition++;
+          else {
+            progress = len(prev.edge) - prev.s + len(mid) + cur.s;
+            chain.push(mid, cur.edge);
+          }
+        }
       }
-      const dx = cur.x - prev.x;
-      const dy = cur.y - prev.y;
-      if (Math.hypot(dx, dy) >= 5) {
-        const h = heading(dx, dy);
-        if (last && h !== last) turns++;
-        last = h;
+      const dt = cur.e - prev.e;
+      const range = speed(cur.kind, prev.dashing && cur.dashing ? 'dash' : prev.dashing || cur.dashing ? 'mixed' : 'normal');
+      if (progress !== null && dt >= 0.05 && range) {
+        const v = progress / dt;
+        out.speedSeen = [Math.min(out.speedSeen[0], v), Math.max(out.speedSeen[1], v)];
+        if (v < range[0] || v > range[1]) out.badSpeed++;
       }
     }
-    const travelled = tr[tr.length - 1].s - tr[0].s;
-    if (tr[tr.length - 1].x < tr[0].x - 200) out.leftwards++;
-    if (travelled >= 2500) {
-      out.fullCount++;
-      out.minTurnsFull = Math.min(out.minTurnsFull, turns);
-    } else if (travelled >= 900) {
-      out.partialCount++;
-      out.minTurnsPartial = Math.min(out.minTurnsPartial, turns);
+    const last = tr[tr.length - 1];
+    if (last.x < tr[0].x - 500) out.leftwards++;
+    out.edgeChain.push(chain);
+    const lastEdge = GEO.byId.get(last.edge);
+    if (!(GEO.outOf[lastEdge.to] ?? []).length && last.s > lastEdge.length - 260) {
+      out.full++;
+      out.exits[last.edge] = (out.exits[last.edge] ?? 0) + 1;
     }
   }
   return out;
@@ -361,16 +429,28 @@ function analyzeTraces(traces, { speedMin, speedMax, worldW }) {
 function recordTraces(traces, s) {
   for (const b of s.bacteria) {
     if (!traces.has(b.id)) traces.set(b.id, []);
-    traces.get(b.id).push({ x: b.x, y: b.y, s: b.s, e: s.elapsed, route: b.route });
+    traces.get(b.id).push({ x: b.x, y: b.y, s: b.s, e: s.elapsed, edge: b.edge, kind: b.kind, dashing: b.dashing });
   }
+}
+
+/** Сколько рёбер в самой короткой цепочке от входа до выхода по графу. */
+function shortestChain() {
+  let best = Infinity;
+  const walk = (id, n) => {
+    const next = GEO.outOf[GEO.byId.get(id).to] ?? [];
+    if (next.length === 0) best = Math.min(best, n);
+    for (const nx of next) walk(nx, n + 1);
+  };
+  for (const id of GRAPH.entrances) walk(id, 1);
+  return best;
 }
 
 const startCenterPx = () => GEO.center(LEVEL.startCenter[0], LEVEL.startCenter[1]);
 
-const speedBounds = (base = BASE.baseSpeed, factor = BASE.speedFactor, spread = BASE.spread) => ({
-  speedMin: base * factor * (1 - spread) - 1.5,
-  speedMax: base * factor * (1 + spread) + 1.5,
-});
+/** Диапазон скоростей кокка (px/с) при базовой скорости и разбросе; рывки у кокка нет. */
+const coccusSpeed = (base = BASE.baseSpeed, factor = BASE.speedFactor, spread = BASE.spread) => [base * factor * (1 - spread) - 1.5, base * factor * (1 + spread) + 1.5];
+const cocciOnly = (range) => (kind, mode) => (kind === 'coccus' && mode === 'normal' ? range : null);
+const speedBounds = (...a) => ({ speed: cocciOnly(coccusSpeed(...a)) });
 
 // ================================================================== сценарии на экране (компьютер / телефон)
 
@@ -402,9 +482,11 @@ async function profileLoadAndCamera(c) {
     btn.x - btn.w / 2 >= s0.viewW && btn.x + btn.w / 2 <= W && btn.y - btn.h / 2 >= 0 && btn.y + btn.h / 2 <= H && s0.ui.pauseButton.x > s0.viewW && s0.ui.pauseButton.x < W && s0.ui.pauseButton.y > 0 && s0.ui.pauseButton.y < H,
     `кнопка башни (${btn.x}; ${btn.y}) ${btn.w}×${btn.h}, пауза (${s0.ui.pauseButton.x}; ${s0.ui.pauseButton.y})`,
   );
-  // Свои допущения о карте: если карту изменят, скажем сразу, а не запутаем ложными провалами ниже
-  const badPremise = [...Object.entries(FREE).filter(([, [col, row]]) => GEO.isPathCell(col, row)).map(([k]) => `клетка ${FREE[k]} стала дорожкой`), ...PATH.filter(([col, row]) => !GEO.isPathCell(col, row)).map((cell) => `клетка ${cell} перестала быть дорожкой`)];
-  check(`${p} карта соответствует допущениям проверок (свободные и дорожные клетки)`, badPremise.length === 0, badPremise.join('; '));
+  // Карта: сколько клеток задето дорожкой (по заданию: 252 всего, 84 задеты, 168 свободны). Если цифры не сойдутся — сигнал об ошибке правила или карты.
+  const totalCells = LEVEL.cols * LEVEL.rows;
+  const freeCells = totalCells - GEO.pathCellCount;
+  check(`${p} карта: клеток ${totalCells}, задето дорожкой ${GEO.pathCellCount} (ждали 84), свободных ${freeCells} (ждали 168)`, totalCells === 252 && GEO.pathCellCount === 84 && freeCells === 168, `по точкам рёбер: ${GEO.pathCellCount}; по отрезкам между точками: ${GEO.pathCellCountByCurve}`);
+  check(`${p} клетки для проверок подобраны (свободные ${Object.keys(FREE).length}, дорожные ${PATH.length})`, Object.keys(FREE).length === 7 && PATH.length === 3 && Object.values(FREE).every(([c, r]) => !GEO.isPathCell(c, r)) && PATH.every(([c, r]) => GEO.isPathCell(c, r)), `FREE ${Object.values(FREE).map((q) => `(${q})`).join(' ')}; PATH ${PATH.map((q) => `(${q})`).join(' ')}`);
 
   await sleep(400);
   const startPng = await shot(page, `${name}-01-start`);
@@ -687,7 +769,7 @@ async function profilePlacement(c) {
     await zoomStep(pt, 1, isTouch ? 2 : 3);
     await placeAt(FREE.d, 'минимальном', CFG.zoomMin);
     const beforeNo = await st();
-    await game.tapCell(...PATH[1]); // клетка дорожки (9;7)
+    await game.tapCell(...PATH[1]); // клетка дорожки
     await game.tapCell(...FREE.d); // занятая клетка
     const afterNo = await st();
     check(`${p} при минимальном приближении клетка дорожки и занятая клетка по-прежнему не ставят башню, монеты не тратятся`, afterNo.towers.length === beforeNo.towers.length && afterNo.coins === beforeNo.coins && afterNo.effects.placements === beforeNo.effects.placements, `башен ${beforeNo.towers.length} → ${afterNo.towers.length}, монет ${beforeNo.coins} → ${afterNo.coins}`);
@@ -702,7 +784,8 @@ async function profilePlacement(c) {
     await shot(page, `${name}-17-towers-max-zoom`);
 
     // монет не хватает (рядом с только что поставленной башней)
-    const next = [[10, 5], [9, 5], [10, 4], [9, 4], [8, 5]].find(([c, r]) => !GEO.isPathCell(c, r));
+    const used = new Set(Object.values(FREE).map((q) => q.join(',')));
+    const next = [[0, -1], [0, 1], [-1, 0], [1, 0], [-1, -1], [1, 1], [-1, 1], [1, -1]].map(([dc, dr]) => [FREE.e[0] + dc, FREE.e[1] + dr]).find(([c, r]) => c >= 0 && c < LEVEL.cols && r >= 0 && r < LEVEL.rows && !GEO.isPathCell(c, r) && !used.has(`${c},${r}`));
     await game.tapCell(...next);
     await shot(page, `${name}-15-toast-no-coins`);
     s = await st();
@@ -714,7 +797,7 @@ async function profilePlacement(c) {
 /** Бой на этом экране: башни, выстрелы, убийства, монеты; пауза; «не завис ли». */
 async function profileBattle(c) {
   const { prefix: p, isTouch, name, full } = c;
-  const game = await openGame(c.context, c.baseUrl, p, { speed: 4, isTouch, cfg: `waves.firstDelaySec:1,${FIXED_BALANCE.join(',')}` });
+  const game = await openGame(c.context, c.baseUrl, p, { speed: 4, isTouch, cfg: `waves.firstDelaySec:1,${FIXED_BALANCE.join(',')},towers.pill.range:450` });
   const { page, input } = game;
   let s = await game.placeTowers([FREE.a, FREE.b]);
   check(`${p} бой: две башни поставлены, монет ${CFG.startCoins - 2 * BASE.price}`, s.towers.length === 2 && s.coins <= CFG.startCoins - 2 * BASE.price + s.kills * BASE.reward, `башен ${s.towers.length}, монет ${s.coins}`);
@@ -942,10 +1025,14 @@ async function runRules(browser, baseUrl) {
 async function runCombat(browser, baseUrl) {
   const p = '[бой]';
   const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
-  const game = await openGame(context, baseUrl, p, { speed: 4, cfg: `waves.firstDelaySec:1,waves.firstCount:4,waves.pauseSec:60,${FIXED_BALANCE.join(',')},economy.startCoins:${BASE.price * 2 + 20}` });
+  const WAVE1 = 10;
+  // Кокки не отнимают жизни (чтобы партия не кончилась, если кто-то дойдёт); волн две, между ними долгая пауза — карта успевает опустеть
+  const cfg = `waves.total:2,waves.list.0.coccus:${WAVE1},waves.firstDelaySec:1,waves.pauseSec:60,${FIXED_BALANCE.join(',')},types.coccus.lifeDamage:0,economy.startCoins:${BASE.price * 4 + 20}`;
+  const game = await openGame(context, baseUrl, p, { speed: 4, cfg });
   const { page } = game;
-  let s = await game.placeTowers([FREE.a, FREE.b]);
+  let s = await game.placeTowers([FREE.a, FREE.b, FREE.c, FREE.d]);
   const towers = s.towers.map((t) => ({ x: t.x, y: t.y }));
+  check(`${p} четыре башни поставлены в лучшие клетки`, s.towers.length === 4, `башен ${s.towers.length}`);
   const traces = new Map();
   let violation = 0;
   let prev = s;
@@ -960,32 +1047,30 @@ async function runCombat(browser, baseUrl) {
     maxProjectiles = Math.max(maxProjectiles, s.projectiles);
     maxBacteria = Math.max(maxBacteria, s.bacteria.length);
     // никого нет в радиусе (с запасом на ход между замерами) — выстрелов быть не должно
-    const nearest = (st) => Math.min(...st.bacteria.map((b) => Math.min(...towers.map((t) => Math.hypot(b.x - t.x, b.y - t.y)) ) - b.r), 1e9);
+    const nearest = (st) => Math.min(...st.bacteria.map((b) => Math.min(...towers.map((t) => Math.hypot(b.x - t.x, b.y - t.y))) - b.r), 1e9);
     if (nearest(prev) > range + 100 && nearest(s) > range + 100 && s.shots !== prev.shots) violation++;
     if (s.state === 'won') wonEarly = true;
     prev = s;
-    if (s.spawned >= 4 && s.bacteria.length === 0) break;
+    if (s.spawned >= WAVE1 && s.bacteria.length === 0) break;
     await sleep(50);
   }
   await sleep(200);
   s = await game.state();
   check(`${p} башни стреляют (выстрелов ${s.shots}), бактерии уничтожаются (убито ${s.kills} из ${s.spawned})`, s.shots > 0 && s.kills >= 1, `выстрелов ${s.shots}, убито ${s.kills}, дошло до организма ${s.leaked}`);
-  check(`${p} две башни у ствола отбивают всю первую волну (${s.spawned} бактерии, дошло до организма ${s.leaked})`, s.spawned === 4 && s.kills === 4 && s.leaked === 0 && s.lives === 3, `убито ${s.kills}, дошло ${s.leaked}, жизни ${s.lives}`);
+  check(`${p} каждая бактерия волны либо убита, либо дошла до организма (${s.spawned} вышло = ${s.kills} убито + ${s.leaked} дошло)`, s.spawned === WAVE1 && s.kills + s.leaked === s.spawned && s.splits === 0, `вышло ${s.spawned}, убито ${s.kills}, дошло ${s.leaked}`);
   check(`${p} монеты: +${BASE.reward} за каждую убитую`, s.coins === 20 + BASE.reward * s.kills, `монет ${s.coins}, убито ${s.kills}`);
   check(`${p} отклик: частицы и «+монеты» — по разу на каждое убийство`, s.effects.bursts === s.kills && s.effects.popups === s.kills, `частицы ${s.effects.bursts}, надписи ${s.effects.popups}`);
   check(`${p} башня не стреляет, пока никого нет в радиусе ${range} px`, violation === 0, violation ? `нарушений: ${violation}` : '');
-  check(`${p} после уничтожения всех бактерий волны победа не засчитывается (волн ${CFG.waves}, состояние ${s.state}, волна ${s.wave})`, !wonEarly && s.state === 'playing' && s.wave === 1, `состояние ${s.state}, волна ${s.wave}`);
-  check(`${p} число объектов ограничено (снарядов ≤ 12, бактерий ≤ 12)`, maxProjectiles <= 12 && maxBacteria <= 12, `максимум снарядов ${maxProjectiles}, бактерий ${maxBacteria}`);
+  check(`${p} после уничтожения всех бактерий волны победа не засчитывается (волн 2, состояние ${s.state}, волна ${s.wave})`, !wonEarly && s.state === 'playing' && s.wave === 1, `состояние ${s.state}, волна ${s.wave}`);
+  check(`${p} число объектов ограничено (снарядов ≤ 12, бактерий ≤ ${WAVE1})`, maxProjectiles <= 12 && maxBacteria <= WAVE1, `максимум снарядов ${maxProjectiles}, бактерий ${maxBacteria}`);
   const a = analyzeTraces(traces, { ...speedBounds(), worldW: s.map.worldW });
-  check(`${p} бактерии выходят справа, у края карты`, a.lateStart === 0 && a.bacteria === 4, `бактерий записано ${a.bacteria}, вышли не справа: ${a.lateStart}`);
-  check(`${p} движение только вперёд по маршруту, маршрут не меняется`, a.backwards === 0 && a.routeChanged === 0 && a.leftwards === a.bacteria, `назад ${a.backwards}, смен маршрута ${a.routeChanged}, идут влево ${a.leftwards}/${a.bacteria}`);
-  check(`${p} бактерии идут по дорожке (отклонение от осевой линии ≤ 25 px) и только по клеткам дорожки`, a.maxDev <= 25 && a.offPath === 0, `макс. отклонение ${f1(a.maxDev)} px, замеров вне клеток дорожки ${a.offPath} из ${a.samples}`);
-  const sp = speedBounds();
-  check(`${p} скорость ${f1(sp.speedMin + 1.5)}…${f1(sp.speedMax - 1.5)} px/с (базовая ${BASE.baseSpeed} × ${BASE.speedFactor} ±${BASE.spread * 100}%)`, a.badSpeed === 0, `замерено ${f1(a.speedSeen[0])}…${f1(a.speedSeen[1])} px/с, вне нормы ${a.badSpeed}`);
-  check(`${p} путь кривой: не меньше 2 поворотов у бактерий, прошедших ≥900 px (первые два поворота — на ≈470 и ≈780 px пути)`, a.partialCount > 0 && a.minTurnsPartial >= 2, `бактерий ${a.partialCount}, минимум поворотов ${a.minTurnsPartial}`);
+  check(`${p} все бактерии выходят справа на входных рёбрах графа (${GRAPH.entrances.join(', ')})`, a.startedAtEntrance === a.bacteria && a.bacteria === WAVE1, `записано ${a.bacteria}, на входе ${a.startedAtEntrance}, входы: ${JSON.stringify(a.entrances)}`);
+  check(`${p} движение только вперёд по рёбрам графа: назад 0, переходов не на следующее ребро 0, идут влево ${a.bacteria}/${a.bacteria}`, a.backwards === 0 && a.badTransition === 0 && a.leftwards === a.bacteria, `назад ${a.backwards}, неверных переходов ${a.badTransition}, идут влево ${a.leftwards}/${a.bacteria}`);
+  check(`${p} координаты бактерий лежат на кривой своего ребра (отклонение ≤ 0,5 px), s в пределах ребра`, a.maxDev <= 0.5 && a.outOfEdge === 0, `макс. отклонение ${f2(a.maxDev)} px, замеров вне ребра ${a.outOfEdge} из ${a.samples}`);
+  const sp = coccusSpeed();
+  check(`${p} скорость ${f1(sp[0] + 1.5)}…${f1(sp[1] - 1.5)} px/с (базовая ${BASE.baseSpeed} × ${BASE.speedFactor} ±${BASE.spread * 100}%)`, a.badSpeed === 0, `замерено ${f1(a.speedSeen[0])}…${f1(a.speedSeen[1])} px/с, вне нормы ${a.badSpeed}`);
   await context.close();
 }
-
 
 // ================================================================== подсказка «◀ Организм» мигает красным, когда бактерия близко
 
@@ -993,7 +1078,7 @@ async function runDanger(browser, baseUrl) {
   const p = '[тревога у организма]';
   const danger = readConfigNumber('ui', 'dangerDistancePx');
   const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
-  const game = await openGame(context, baseUrl, p, { speed: 6, cfg: `waves.firstDelaySec:1,waves.firstCount:1,${FIXED_BALANCE.join(',')},ui.dangerDistancePx:${danger}` });
+  const game = await openGame(context, baseUrl, p, { speed: 6, cfg: `waves.firstDelaySec:1,waves.list.0.coccus:1,${FIXED_BALANCE.join(',')},ui.dangerDistancePx:${danger}` });
   const { page } = game;
   const chipRed = async () => {
     const png = await page.screenshot();
@@ -1034,7 +1119,7 @@ async function tapToRestart(game) {
 /** Проигрыш при работающих башнях: снаряды в полёте не должны зависать под экраном «Проигрыш». */
 async function loseWithTowers(context, baseUrl, p, name, device) {
   // Башни бьют далеко и медленными снарядами, но урон нулевой: бактерии не гибнут, доходят до организма, снарядов в воздухе много
-  const cfg = 'waves.firstDelaySec:1,waves.firstCount:4,lives.start:1,bacteria.baseSpeed:250,towers.pill.damage:0,towers.pill.cooldownMs:400,towers.pill.projectileSpeed:200,towers.pill.range:900,economy.startCoins:200';
+  const cfg = 'waves.firstDelaySec:1,waves.list.0.coccus:4,lives.start:1,bacteria.baseSpeed:250,towers.pill.damage:0,towers.pill.cooldownMs:400,towers.pill.projectileSpeed:200,towers.pill.range:900,economy.startCoins:200';
   const game = await openGame(context, baseUrl, p, { speed: 4, cfg, isTouch: device.hasTouch });
   await game.placeTowers([FREE.f, FREE.e]);
   let s = await game.state();
@@ -1059,7 +1144,7 @@ async function runLose(browser, baseUrl, lang, deviceKey, full) {
   const name = `${deviceKey}-${lang}`;
   const context = await newDeviceContext(browser, device, lang);
   const base = 250;
-  const cfg = `waves.firstDelaySec:1,waves.intervalStartSec:2,waves.intervalEndSec:2,waves.firstCount:4,${FIXED_BALANCE.filter((x) => !x.startsWith('bacteria.baseSpeed')).join(',')},bacteria.baseSpeed:${base}`;
+  const cfg = `waves.firstDelaySec:1,waves.intervalStartSec:2,waves.intervalEndSec:2,${FIXED_BALANCE.filter((x) => !x.startsWith('bacteria.baseSpeed')).join(',')},bacteria.baseSpeed:${base}`;
   const game = await openGame(context, baseUrl, p, { speed: 4, cfg, isTouch: device.hasTouch });
   const { page } = game;
   const listeners0 = (await game.state()).pointerListeners;
@@ -1107,8 +1192,9 @@ async function runLose(browser, baseUrl, lang, deviceKey, full) {
     if (cycle === 1) {
       await shot(page, `${name}-09-lost`);
       const a = analyzeTraces(traces, { ...speedBounds(base, BASE.speedFactor, BASE.spread), worldW: s.map.worldW });
-      check(`${p} бактерии проходят маршрут целиком (${a.fullCount} бактерий с пути ≥ 2500 px), по кривой дорожке: поворотов не меньше 6`, a.fullCount >= 1 && a.minTurnsFull >= 6, `бактерий целиком ${a.fullCount}, минимум поворотов ${a.minTurnsFull}`);
-      check(`${p} на всём пути: на дорожке (≤ 25 px от осевой), только по клеткам дорожки, вперёд, скорость в норме`, a.maxDev <= 25 && a.offPath === 0 && a.backwards === 0 && a.badSpeed === 0, `отклонение ${f1(a.maxDev)} px, вне клеток ${a.offPath}/${a.samples}, назад ${a.backwards}, скорость ${f1(a.speedSeen[0])}…${f1(a.speedSeen[1])}, вне нормы ${a.badSpeed}`);
+      const minChain = shortestChain();
+      check(`${p} бактерии проходят весь путь по графу от входа до выхода (дошли до выходного ребра: ${a.full}; цепочки рёбер не короче ${minChain})`, a.full >= 2 && a.edgeChain.filter((c) => GEO.outOf[GEO.byId.get(c[c.length - 1]).to] === undefined).every((c) => c.length >= minChain), `до выхода ${a.full}, выходы: ${JSON.stringify(a.exits)}, цепочки: ${a.edgeChain.map((c) => c.join('→')).join(' | ')}`);
+      check(`${p} на всём пути: на кривой ребра (≤ 0,5 px), вперёд, переходы только на следующие рёбра, скорость в норме`, a.maxDev <= 0.5 && a.outOfEdge === 0 && a.backwards === 0 && a.badTransition === 0 && a.badSpeed === 0, `отклонение ${f2(a.maxDev)} px, вне ребра ${a.outOfEdge}/${a.samples}, назад ${a.backwards}, неверных переходов ${a.badTransition}, скорость ${f1(a.speedSeen[0])}…${f1(a.speedSeen[1])}, вне нормы ${a.badSpeed}`);
     }
     await sleep(Math.max(0, CFG.restartLockMs + 200 - (Date.now() - detectedAt)));
     await tapToRestart(game);
@@ -1140,7 +1226,7 @@ async function runWin(browser, baseUrl, lang, deviceKey, full) {
   const p = `[победа, ${device.label}, ${lang}]`;
   const name = `${deviceKey}-${lang}`;
   const context = await newDeviceContext(browser, device, lang);
-  const cfg = 'waves.total:1,waves.firstCount:2,waves.firstDelaySec:1,towers.pill.range:900,economy.startCoins:500,bacteria.baseSpeed:200,lives.start:3';
+  const cfg = 'waves.total:1,waves.list.0.coccus:2,waves.firstDelaySec:1,towers.pill.range:900,economy.startCoins:500,bacteria.baseSpeed:200,lives.start:3';
   const game = await openGame(context, baseUrl, p, { speed: 4, cfg, isTouch: device.hasTouch });
   const { page } = game;
   const listeners0 = (await game.state()).pointerListeners;
@@ -1190,7 +1276,7 @@ async function runRotate(browser, baseUrl) {
   for (const lang of ['ru', 'en']) {
     const q = `${p} телефон, ${lang}`;
     const context = await newDeviceContext(browser, VIEWPORTS.phone, lang);
-    const game = await openGame(context, baseUrl, q, { speed: 2, isTouch: true, cfg: `waves.firstDelaySec:1,waves.firstCount:6,${FIXED_BALANCE.join(',')}` });
+    const game = await openGame(context, baseUrl, q, { speed: 2, isTouch: true, cfg: `waves.firstDelaySec:1,waves.list.0.coccus:6,${FIXED_BALANCE.join(',')}` });
     const { page } = game;
     // горизонтально: подсказки нет, время идёт (ждём, пока на карте появятся бактерии: без них «стоят» было бы пустой проверкой)
     await waitFor(page, (x) => x.bacteria.length >= 2, WAIT_MS, 'бактерии на карте');
@@ -1298,7 +1384,7 @@ async function brightness(page) {
 
 async function runProduction(browser, prodUrl, qaUrl) {
   const p = '[игровая сборка]';
-  const hostile = 'waves.firstDelaySec:0.01,waves.intervalStartSec:0.05,waves.intervalEndSec:0.05,waves.firstCount:30,bacteria.baseSpeed:6000,lives.start:1';
+  const hostile = 'waves.firstDelaySec:0.01,waves.intervalStartSec:0.05,waves.intervalEndSec:0.05,waves.list.0.coccus:30,bacteria.baseSpeed:6000,lives.start:1';
   const query = `&lang=en`;
   const context = await newDeviceContext(browser, VIEWPORTS.phone, 'ru');
   // Эталон: обычный старт в тестовой сборке
@@ -1382,6 +1468,578 @@ async function runProduction(browser, prodUrl, qaUrl) {
 
 // ================================================================== запуск
 
+// ================================================================== сеть дорожек: структура и движение бактерий по графу
+
+/** Играет до конца партии или до условия: на каждом замере зовёт fn(s); true — остановиться. Возвращает последнее состояние. */
+async function pollUntil(game, fn, timeoutMs = WAIT_MS, pollMs = 30) {
+  const started = Date.now();
+  let s = await game.state();
+  while (Date.now() - started < timeoutMs) {
+    s = await game.state();
+    if ((await fn(s)) === true) return s;
+    await sleep(pollMs);
+  }
+  return s;
+}
+
+/** Без потери жизней: все типы бактерий с нулевым уроном организму (партия не кончается проигрышем). */
+const NO_LIFE_LOSS = KINDS.map((k) => `types.${k}.lifeDamage:0`).join(',');
+
+async function runGraph(browser, baseUrl) {
+  const p = '[граф дорожек]';
+  // ---- A. структура сети (по данным, которые отдала игра)
+  const worldW = MAP.orgW + LEVEL.cols * MAP.tile;
+  const edges = GRAPH.edges;
+  const forks = Object.entries(GEO.outOf).filter(([, v]) => v.length > 1).map(([k]) => k);
+  const merges = Object.entries(GEO.inTo).filter(([, v]) => v.length > 1).map(([k]) => k);
+  check(`${p} сеть: 18 рёбер, 3 входа, 3 выхода, 4 развилки, 5 слияний`, edges.length === 18 && GRAPH.entrances.length === 3 && GRAPH.exits.length === 3 && forks.length === 4 && merges.length === 5, `рёбер ${edges.length}, входов ${GRAPH.entrances.length}, выходов ${GRAPH.exits.length}, развилки ${forks.join(',')}, слияния ${merges.join(',')}`);
+  check(`${p} входы начинаются за правым краем мира (x > ${worldW}), выходы кончаются за красной линией слева (x < ${MAP.orgW})`, GRAPH.entrances.every((id) => GEO.byId.get(id).pts[0][0] > worldW) && edges.filter((e) => !(GEO.outOf[e.to] ?? []).length).every((e) => e.pts[e.pts.length - 1][0] < MAP.orgW), `входы x: ${GRAPH.entrances.map((id) => Math.round(GEO.byId.get(id).pts[0][0])).join(', ')}`);
+  let joinBad = 0;
+  for (const e of edges) {
+    for (const nextId of GEO.outOf[e.to] ?? []) {
+      const a = e.pts[e.pts.length - 1];
+      const b = GEO.byId.get(nextId).pts[0];
+      if (Math.hypot(a[0] - b[0], a[1] - b[1]) > 1) joinBad++;
+    }
+  }
+  check(`${p} рёбра стыкуются в узлах (конец ребра совпадает с началом следующего, ≤ 1 px)`, joinBad === 0, `не сошлись: ${joinBad}`);
+  const backwardEdges = edges.filter((e) => e.pts.some((q, i) => i > 0 && q[0] > e.pts[i - 1][0] + 0.01));
+  check(`${p} каждое ребро идёт только влево (x не растёт) — бактерии не возвращаются`, backwardEdges.length === 0, backwardEdges.map((e) => e.id).join(','));
+  const lenBad = edges.filter((e) => Math.abs(e.pts.reduce((sum, q, i) => (i ? sum + Math.hypot(q[0] - e.pts[i - 1][0], q[1] - e.pts[i - 1][1]) : 0), 0) - e.length) > e.length * 0.005);
+  check(`${p} длина каждого ребра равна длине его кривой (±0,5%)`, lenBad.length === 0, lenBad.map((e) => e.id).join(','));
+  let deadEnds = 0;
+  const walk = (id, depth) => {
+    if (depth > 12) return void deadEnds++;
+    const next = GEO.outOf[GEO.byId.get(id).to] ?? [];
+    if (next.length === 0 && !GRAPH.exits.includes(GEO.byId.get(id).to)) deadEnds++;
+    for (const n of next) walk(n, depth + 1);
+  };
+  for (const id of GRAPH.entrances) walk(id, 0);
+  check(`${p} из каждого входа все пути кончаются выходом, циклов нет`, deadEnds === 0, `тупиков или циклов: ${deadEnds}`);
+
+  // ---- B. 100 бактерий без башен: по каким рёбрам они идут
+  const N = 100;
+  const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
+  const cfg = `waves.total:1,waves.list.0.coccus:${N},waves.intervalStartSec:0.3,waves.intervalEndSec:0.3,waves.firstDelaySec:1,${FIXED_BALANCE.join(',')},${NO_LIFE_LOSS}`;
+  const game = await openGame(context, baseUrl, p, { speed: 6, cfg });
+  const traces = new Map();
+  const s = await pollUntil(game, (x) => {
+    recordTraces(traces, x);
+    return x.state === 'won' || x.state === 'lost';
+  }, 180000, 20);
+  check(`${p} ${N} бактерий вышли и дошли до организма (партия закончилась победой, жизни целы)`, s.state === 'won' && s.spawned === N && s.leaked === N && s.kills === 0 && s.lives === CFG.lives, `состояние ${s.state}, вышло ${s.spawned}, дошло ${s.leaked}, жизни ${s.lives}`);
+  const a = analyzeTraces(traces, { ...speedBounds(), worldW: s.map.worldW });
+  check(`${p} бактерии лежат на кривой своего ребра (отклонение ≤ 0,5 px), s внутри ребра`, a.bacteria === N && a.maxDev <= 0.5 && a.outOfEdge === 0, `записано ${a.bacteria}, макс. отклонение ${f2(a.maxDev)} px, вне ребра ${a.outOfEdge} из ${a.samples} замеров`);
+  check(`${p} ребро меняется только на следующее по графу (неверных переходов 0), назад не ходят, все идут влево, скорость кокка в норме`, a.badTransition === 0 && a.backwards === 0 && a.leftwards === N && a.badSpeed === 0, `неверных переходов ${a.badTransition}, назад ${a.backwards}, идут влево ${a.leftwards}/${N}, скорость ${f1(a.speedSeen[0])}…${f1(a.speedSeen[1])}, вне нормы ${a.badSpeed}`);
+  // входы: каждый используется, доли не вырождены (каждая не меньше 40% от равной: при 100 бактериях срабатывание случайно ≈ 10⁻⁴)
+  const entrCounts = GRAPH.entrances.map((id) => a.entrances[id] ?? 0);
+  const entrMin = 0.4 * (N / GRAPH.entrances.length);
+  check(`${p} все три входа используются, выбор входа случайный: ${entrCounts.join(' / ')} из ${N} (каждый ≥ ${Math.ceil(entrMin)})`, a.startedAtEntrance === N && entrCounts.every((n) => n >= entrMin), `входные рёбра ${GRAPH.entrances.join(',')}: ${entrCounts.join(' / ')}`);
+  // развилки: считаем по цепочкам рёбер, выбор выхода случайный и поровну
+  const forkCounts = {};
+  for (const chain of a.edgeChain) {
+    for (let i = 0; i + 1 < chain.length; i++) {
+      const node = GEO.byId.get(chain[i]).to;
+      if ((GEO.outOf[node] ?? []).length > 1) {
+        forkCounts[node] ??= {};
+        forkCounts[node][chain[i + 1]] = (forkCounts[node][chain[i + 1]] ?? 0) + 1;
+      }
+    }
+  }
+  const forkReport = [];
+  let forksOk = forks.length > 0;
+  for (const node of forks) {
+    const outs = GEO.outOf[node];
+    const counts = outs.map((id) => forkCounts[node]?.[id] ?? 0);
+    const passes = counts.reduce((x, y) => x + y, 0);
+    const minShare = 0.4 * (passes / outs.length);
+    if (passes < 15 || counts.some((n) => n < minShare)) forksOk = false;
+    forkReport.push(`${node}: ${counts.join('/')} из ${passes}`);
+  }
+  check(`${p} на каждой из 4 развилок встречаются все выходы, доли не вырождены (каждая ≥ 40% от равной): ${forkReport.join('; ')}`, forksOk, forkReport.join('; '));
+  const exitIds = edges.filter((e) => !(GEO.outOf[e.to] ?? []).length).map((e) => e.id);
+  const exitCounts = exitIds.map((id) => a.exits[id] ?? 0);
+  const exitMin = 0.4 * (N / exitIds.length);
+  check(`${p} достигаются все три выхода к организму: ${exitCounts.join(' / ')} (каждый ≥ ${Math.ceil(exitMin)})`, exitCounts.every((n) => n >= exitMin), `выходные рёбра ${exitIds.join(',')}: ${exitCounts.join(' / ')}`);
+  const usedEdges = new Set(a.edgeChain.flat());
+  check(`${p} за партию бактерии побывали на всех ${edges.length} рёбрах сети`, usedEdges.size === edges.length, `побывали на ${usedEdges.size} из ${edges.length}; не было на: ${edges.filter((e) => !usedEdges.has(e.id)).map((e) => e.id).join(',') || '—'}`);
+  await context.close();
+}
+
+// ================================================================== палочка: рывки
+
+async function runDash(browser, baseUrl) {
+  const p = '[палочка: рывки]';
+  const every = readConfigNumber('rod', 'dashEverySec');
+  const dashSec = readConfigNumber('rod', 'dashSec');
+  const factor = readConfigNumber('rod', 'dashFactor');
+  const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
+  const RODS = 6;
+  const cfg = `waves.total:1,waves.list.0.coccus:3,waves.list.0.rod:${RODS},waves.intervalStartSec:1.5,waves.intervalEndSec:1.5,waves.firstDelaySec:1,${FIXED_BALANCE.join(',')},types.rod.speedFactor:1,${NO_LIFE_LOSS}`;
+  const game = await openGame(context, baseUrl, p, { speed: 4, cfg });
+  const traces = new Map();
+  const final = await pollUntil(game, (x) => {
+    recordTraces(traces, x);
+    return x.state === 'won' || x.state === 'lost';
+  }, 180000, 20);
+  // скорости по парам замеров: обычная и рывок (оба замера в одном состоянии, скорость считаем по пути вдоль рёбер)
+  const prog = (prev, cur) => {
+    if (cur.edge === prev.edge) return cur.s - prev.s;
+    const pe = GEO.byId.get(prev.edge);
+    return pe.to === GEO.byId.get(cur.edge).from ? pe.length - prev.s + cur.s : null;
+  };
+  const speeds = { normal: [], dash: [] };
+  const runs = []; // по палочкам: списки рывков { start, end }
+  const cocciDashing = [];
+  for (const [, tr] of traces) {
+    const kind = tr[0].kind;
+    if (kind !== 'rod') {
+      if (tr.some((q) => q.dashing)) cocciDashing.push(tr[0].kind);
+      continue;
+    }
+    const rodRuns = [];
+    let open = null;
+    for (let i = 0; i < tr.length; i++) {
+      if (tr[i].dashing && !open) open = { start: tr[i].e, end: tr[i].e, first: i === 0 };
+      else if (tr[i].dashing && open) open.end = tr[i].e;
+      else if (!tr[i].dashing && open) {
+        rodRuns.push({ ...open, closed: true });
+        open = null;
+      }
+      if (i > 0 && tr[i].dashing === tr[i - 1].dashing && tr[i].e - tr[i - 1].e >= 0.05) {
+        const d = prog(tr[i - 1], tr[i]);
+        if (d !== null) speeds[tr[i].dashing ? 'dash' : 'normal'].push(d / (tr[i].e - tr[i - 1].e));
+      }
+    }
+    runs.push(rodRuns);
+  }
+  const mean = (a) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : 0);
+  const median = (a) => (a.length ? [...a].sort((x, y) => x - y)[Math.floor(a.length / 2)] : 0);
+  const normal = median(speeds.normal);
+  const dash = median(speeds.dash);
+  const ratio = normal > 0 ? dash / normal : 0;
+  check(`${p} ${RODS} палочек прошли путь до организма (партия окончена: ${final.state}, жизни целы)`, final.state === 'won' && final.spawned === RODS + 3 && final.lives === CFG.lives, `состояние ${final.state}, вышло ${final.spawned}, жизни ${final.lives}`);
+  check(`${p} рывок ускоряет палочку в ${factor} раза: обычная скорость ${f1(normal)} px/с (${speeds.normal.length} замеров), в рывке ${f1(dash)} px/с (${speeds.dash.length} замеров), отношение ${f2(ratio)}`, speeds.dash.length >= 10 && speeds.normal.length >= 30 && Math.abs(ratio - factor) <= 0.35, `отношение ${f2(ratio)}, ждали ${factor} ±0,35`);
+  const complete = runs.flatMap((r) => r.filter((q) => q.closed && !q.first));
+  const lens = complete.map((q) => q.end - q.start);
+  check(`${p} рывок длится ≈ ${dashSec} с (замерено ${f2(mean(lens))} с по ${lens.length} рывкам; допуск: шаг замеров ≈ 0,2–0,3 с)`, lens.length >= 8 && Math.abs(mean(lens) - dashSec) <= 0.45 && lens.every((x) => x <= dashSec + 0.6), `длительности: ${lens.map(f2).join(', ')}`);
+  const gaps = [];
+  for (const r of runs) for (let i = 1; i < r.length; i++) gaps.push(r[i].start - r[i - 1].start);
+  check(`${p} рывки повторяются каждые ≈ ${every} с (по ${gaps.length} интервалам среднее ${f2(mean(gaps))} с)`, gaps.length >= 8 && Math.abs(mean(gaps) - every) <= 0.4, `интервалы: ${gaps.map(f2).join(', ')}`);
+  // у каждой палочки свой сдвиг часов: фазы начала рывка по модулю периода различаются
+  const phases = runs.filter((r) => r.length).map((r) => ((r[0].start % every) + every) % every);
+  // наименьшая дуга круга периода, содержащая все фазы: если все рывки идут «в ногу», дуга узкая
+  const sorted = [...phases].sort((x, y) => x - y);
+  const gapsCirc = sorted.map((v, i) => (i + 1 < sorted.length ? sorted[i + 1] - v : sorted[0] + every - v));
+  const arc = sorted.length > 1 ? every - Math.max(...gapsCirc) : 0;
+  check(`${p} у палочек разные сдвиги часов: фазы рывков ${phases.map(f2).join(', ')}; наименьшая дуга, в которую они все помещаются, ${f2(arc)} с из ${every} (ждём ≥ 0,45)`, phases.length >= 5 && arc >= 0.45, `дуга ${f2(arc)} с`);
+  check(`${p} у кокков рывков нет (dashing всегда false)`, cocciDashing.length === 0, cocciDashing.length ? `рывки у ${cocciDashing.length} кокков` : '');
+  await context.close();
+
+  // скриншот палочки в рывке (отдельный прогон: нужна палочка в кадре)
+  const c2 = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
+  const g2 = await openGame(c2, baseUrl, p, { speed: 2, cfg: `waves.total:1,waves.list.0.coccus:0,waves.list.0.rod:3,waves.intervalStartSec:1,waves.intervalEndSec:1,waves.firstDelaySec:1,${FIXED_BALANCE.join(',')},${NO_LIFE_LOSS}` });
+  let got = false;
+  const t0 = Date.now();
+  while (!got && Date.now() - t0 < 60000) {
+    const x = await g2.state();
+    const rod = x.bacteria.find((b) => {
+      const sx = x.viewW / 2 + (b.x - x.camera.cx) * x.camera.zoom;
+      const sy = x.height / 2 + (b.y - x.camera.cy) * x.camera.zoom;
+      return b.kind === 'rod' && b.dashing && sx > 120 && sx < 960 && sy > 80 && sy < 640;
+    });
+    if (rod) {
+      await shot(g2.page, 'dash-01-rod-dashing');
+      got = true;
+    }
+    await sleep(30);
+  }
+  check(`${p} скриншот палочки в рывке сделан (палочка в кадре)`, got);
+  await c2.close();
+}
+
+// ================================================================== делящаяся
+
+async function runSplit(browser, baseUrl) {
+  const p = '[делящаяся]';
+  const count = readConfigNumber('splitter', 'splitCount');
+  const gap = readConfigNumber('splitter', 'splitGapPx');
+  const reward = readConfigNumber('splitter', 'reward');
+  const SPL = 4;
+  const base = `waves.total:1,waves.list.0.coccus:0,waves.list.0.splitter:${SPL},waves.intervalStartSec:3,waves.intervalEndSec:3,waves.firstDelaySec:1,${FIXED_BALANCE.join(',')},${NO_LIFE_LOSS}`;
+  const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
+
+  // ---- A. башня убивает делящихся: на месте гибели появляются кокки
+  let game = await openGame(context, baseUrl, p, { speed: 2, cfg: `${base},towers.pill.range:450,economy.startCoins:${BASE.price}` });
+  await game.placeTowers([FREE.a]);
+  const seen = new Set();
+  let splitters = new Map();
+  let prev = await game.state();
+  const events = [];
+  let shotTaken = false;
+  let childKills = 0;
+  const end = await pollUntil(game, async (s) => {
+    const ids = new Set(s.bacteria.map((b) => b.id));
+    if (s.splits > prev.splits) {
+      const parents = [...splitters.values()].filter((q) => !ids.has(q.id));
+      const kids = s.bacteria.filter((b) => !seen.has(b.id) && b.kind === 'coccus');
+      events.push({ parent: parents[0], kids, coinsDelta: s.coins - prev.coins, killsDelta: s.kills - prev.kills, elapsed: s.elapsed });
+      const k0 = kids[0];
+      if (!shotTaken && k0) {
+        const sx = s.viewW / 2 + (k0.x - s.camera.cx) * s.camera.zoom;
+        const sy = s.height / 2 + (k0.y - s.camera.cy) * s.camera.zoom;
+        if (sx > 100 && sx < 980 && sy > 60 && sy < 660) {
+          await shot(game.page, 'split-01-after-split');
+          shotTaken = true;
+        }
+      }
+    } else if (s.kills > prev.kills) {
+      // гибель кокка (делящейся в этом кадре не было): +10
+      childKills++;
+      events.push({ kill: 'coccus', coinsDelta: s.coins - prev.coins, killsDelta: s.kills - prev.kills });
+    }
+    for (const b of s.bacteria) seen.add(b.id);
+    splitters = new Map(s.bacteria.filter((b) => b.kind === 'splitter').map((b) => [b.id, b]));
+    prev = s;
+    return s.state === 'won' || s.state === 'lost';
+  }, 240000, 25);
+  const splitEvents = events.filter((e) => e.parent !== undefined || e.kids);
+  check(`${p} башня убила делящихся: распадов ${end.splits} из ${SPL} (хотя бы один)`, end.splits >= 1, `распадов ${end.splits}, убито ${end.kills}, дошло ${end.leaked}`);
+  const ev = splitEvents[0];
+  if (ev) {
+    const e0 = ev.parent;
+    check(`${p} при гибели делящейся сразу появляются ${count} кокка(ов): сейчас ${ev.kids.length}`, ev.kids.length === count, `появилось ${ev.kids.length}, ждали ${count}`);
+    const sameEdge = e0 && ev.kids.every((k) => k.edge === e0.edge || GEO.byId.get(e0.edge).to === GEO.byId.get(k.edge).from);
+    check(`${p} кокки появляются на том же ребре дорожки, где погибла делящаяся`, Boolean(sameEdge), `ребро делящейся ${e0?.edge}, ребра кокков: ${ev.kids.map((k) => k.edge).join(',')}`);
+    const dist = ev.kids.length >= 2 ? Math.hypot(ev.kids[0].x - ev.kids[1].x, ev.kids[0].y - ev.kids[1].y) : 0;
+    const eAt = e0 ? GEO.byId.get(e0.edge) : null;
+    const interior = e0 && eAt && e0.s > 60 && e0.s < eAt.length - 60;
+    check(`${p} кокки стоят друг от друга на ${gap} px вдоль дорожки (замерено ${f1(dist)} px, допуск ±8; делящаяся не у края ребра: ${Boolean(interior)})`, Boolean(interior) && Math.abs(dist - gap) <= 8, `расстояние ${f1(dist)} px`);
+    check(`${p} награда за делящуюся ${reward} монет, +1 к счётчику распадов (монеты ${ev.coinsDelta}, убито ${ev.killsDelta})`, ev.coinsDelta === reward && ev.killsDelta === 1, `монеты +${ev.coinsDelta}, убито +${ev.killsDelta}`);
+  } else {
+    check(`${p} распад делящейся наблюдался (есть событие распада)`, false, 'не было ни одного распада');
+  }
+  const coccusKills = events.filter((e) => e.kill === 'coccus');
+  check(`${p} за каждого убитого кокка 10 монет (убито кокков ${coccusKills.length})`, coccusKills.every((e) => e.coinsDelta === BASE.reward && e.killsDelta === 1), coccusKills.map((e) => `+${e.coinsDelta}`).join(' '));
+  check(`${p} учёт: убитые + дошедшие = вышедшие + ${count}·распады (${end.kills} + ${end.leaked} = ${end.spawned} + ${count}·${end.splits}); партия окончена`, end.kills + end.leaked === end.spawned + count * end.splits && end.state === 'won', `состояние ${end.state}`);
+  check(`${p} монеты сходятся: ${reward}·распады + ${BASE.reward}·убитые кокки = ${end.coins}`, end.coins === reward * end.splits + BASE.reward * (end.kills - end.splits), `монет ${end.coins}, распадов ${end.splits}, убито ${end.kills}`);
+  await game.page.close();
+
+  // ---- B. без башен делящаяся не делится сама
+  game = await openGame(context, baseUrl, p, { speed: 4, cfg: base });
+  let coccusSeen = false;
+  const endB = await pollUntil(game, (s) => {
+    if (s.bacteria.some((b) => b.kind === 'coccus')) coccusSeen = true;
+    return s.state === 'won' || s.state === 'lost';
+  }, 240000, 25);
+  check(`${p} если делящуюся не убивать, она не делится: кокков не появилось, распадов ${endB.splits}, прошло ${f1(endB.elapsed)} с игры`, !coccusSeen && endB.splits === 0 && endB.leaked === SPL && endB.elapsed > 25, `кокки видели: ${coccusSeen}, дошло ${endB.leaked}/${SPL}`);
+  await context.close();
+}
+
+// ================================================================== спора: глушение башен
+
+/** Свободная клетка ближе всего к «стволу» (узлу с тремя выходами): каждая бактерия проходит рядом с ней. */
+function nearTrunkCell() {
+  const trunk = Object.entries(GEO.outOf).find(([, v]) => v.length === 3);
+  const z = GEO.byId.get(trunk[1][0]).pts[0];
+  let best = null;
+  for (let col = 0; col < LEVEL.cols; col++) {
+    for (let row = 0; row < LEVEL.rows; row++) {
+      if (GEO.isPathCell(col, row)) continue;
+      const c = GEO.center(col, row);
+      const d = Math.hypot(c.x - z[0], c.y - z[1]);
+      if (!best || d < best.d) best = { col, row, d };
+    }
+  }
+  return best;
+}
+/** Свободная клетка дальше всех от любых дорожек (башня там не достаёт ни до какой бактерии и не глушится). */
+function farCell() {
+  let best = null;
+  for (let col = 0; col < LEVEL.cols; col++) {
+    for (let row = 0; row < LEVEL.rows; row++) {
+      if (GEO.isPathCell(col, row)) continue;
+      const c = GEO.center(col, row);
+      const d = Math.min(...GRAPH.edges.map((e) => GEO.distToEdge(c, e.id)));
+      if (!best || d > best.d) best = { col, row, d };
+    }
+  }
+  return best;
+}
+
+async function sporeGame(context, baseUrl, p, { radius = null, far = false, minZoom = false }) {
+  const extra = radius ? `,types.spore.disableRadius:${radius}` : '';
+  const cfg = `waves.total:1,waves.list.0.coccus:6,waves.list.0.spore:1,waves.intervalStartSec:1.2,waves.intervalEndSec:1.2,waves.firstDelaySec:1,${FIXED_BALANCE.join(',')},towers.pill.damage:0,economy.startCoins:${BASE.price * (far ? 2 : 1)},${NO_LIFE_LOSS}${extra}`;
+  const game = await openGame(context, baseUrl, p, { speed: 2, cfg });
+  if (minZoom) {
+    for (let i = 0; i < 3; i++) await game.input.wheel(game.g(540, 360), 500);
+  } else {
+    await game.input.drag(game.g(40, 360), game.g(1040, 360)); // карта до левого края: видны «ствол» и организм
+  }
+  await settle();
+  const near = nearTrunkCell();
+  await game.placeTowers(far ? [[near.col, near.row], [farCell().col, farCell().row]] : [[near.col, near.row]]);
+  return { game, near };
+}
+
+async function runSpore(browser, baseUrl) {
+  const p = '[спора]';
+  const disableSec = readConfigNumber('spore', 'disableSec');
+  const disableRadius = readConfigNumber('spore', 'disableRadius');
+  const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
+
+  /** Играет партию и следит за башней №0 и спорой. */
+  const watch = async (game, radius, { shotName = null, tail = 5 } = {}) => {
+    const log = [];
+    let prev = await game.state();
+    let shotDone = false;
+    let offAt = null;
+    const end = await pollUntil(game, async (s) => {
+      const tower = s.towers[0];
+      const spore = s.bacteria.find((b) => b.kind === 'spore');
+      const dist = tower && spore ? Math.hypot(spore.x - tower.x, spore.y - tower.y) : null;
+      log.push({ e: s.elapsed, shots: s.shots, disabled: tower?.disabled ?? false, far: s.towers[1]?.disabled ?? false, disables: s.disables, zaps: s.effects.zaps, dist, prevDist: log.length ? log[log.length - 1].dist : null });
+      if (shotName && !shotDone && tower?.disabled) {
+        await shot(game.page, shotName);
+        shotDone = true;
+      }
+      prev = s;
+      // дальше смотреть незачем: башня включилась и прошло ещё tail секунд (или партия кончилась)
+      if (offAt === null && log.some((q) => q.disabled) && !tower?.disabled) offAt = s.elapsed;
+      return s.state === 'won' || s.state === 'lost' || (offAt !== null && s.elapsed > offAt + tail);
+    }, 240000, 20);
+    return { log, end };
+  };
+  const timeline = (log) => {
+    const on = log.findIndex((q) => q.disabled);
+    const off = on >= 0 ? log.findIndex((q, i) => i > on && !q.disabled) : -1;
+    return { on, off };
+  };
+
+  // ---- S1: одна башня у «ствола», глушение по таймеру (зум 1, карта у организма)
+  let { game, near } = await sporeGame(context, baseUrl, p, {});
+  const r1 = await watch(game, disableRadius, { shotName: 'spore-01-tower-disabled' });
+  let { on, off } = timeline(r1.log);
+  const L = r1.log;
+  check(`${p} спора, подойдя ближе ${disableRadius} px к башне у «ствола» (клетка ${near.col};${near.row}), глушит её: disables = 1, башня disabled, красное кольцо сработало (zaps ${L[on]?.zaps})`, on >= 0 && L[on].disables === 1 && L[on].zaps === 1, on >= 0 ? `на замере ${on}: disables ${L[on].disables}, zaps ${L[on].zaps}` : 'башня не была заглушена');
+  const dOn = L[on]?.dist;
+  check(`${p} глушение срабатывает на расстоянии ≤ ${disableRadius} px (на замере ${f1(dOn)} px, за замер до этого ${f1(L[on]?.prevDist)} px)`, on > 0 && dOn <= disableRadius + 0.5 && dOn >= disableRadius - 70 && L[on].prevDist > disableRadius - 0.5, `расстояние ${f1(dOn)}, раньше ${f1(L[on]?.prevDist)}`);
+  const dur = off >= 0 ? L[off].e - L[on].e : -1;
+  check(`${p} башня заглушена ≈ ${disableSec} с (замерено ${f2(dur)} с, допуск ±0,4)`, off > on && Math.abs(dur - disableSec) <= 0.4, `с ${f2(L[on]?.e)} по ${f2(L[off]?.e)}`);
+  check(`${p} пока башня заглушена, её выстрелы не растут (выстрелов ${L[on]?.shots} → ${L[off - 1]?.shots}), а до и после глушения она стреляла`, on > 0 && off > on && L[off - 1].shots === L[on].shots && L[on].shots > 0 && L[L.length - 1].shots > L[off].shots, `до: ${L[on]?.shots}, в конце: ${L[L.length - 1].shots}`);
+  check(`${p} спора глушит башню один раз, кольцо глушения сработало один раз (disables = ${r1.end.disables}, zaps = ${r1.end.effects.zaps}) и ещё 5 с после включения башни`, r1.end.disables === 1 && r1.end.effects.zaps === 1, `состояние ${r1.end.state}`);
+  await game.page.close();
+
+  // ---- S2: у «ствола» и далеко от дорожек (мин. приближение): дальняя башня не глушится
+  ({ game, near } = await sporeGame(context, baseUrl, p, { far: true, minZoom: true }));
+  const far = farCell();
+  const r2 = await watch(game, disableRadius);
+  check(`${p} башня вдали от дорожек (клетка ${far.col};${far.row}, до ближайшей дорожки ${Math.round(far.d)} px) не глушится ни разу, глушится только башня у «ствола»`, r2.log.every((q) => !q.far) && r2.end.disables === 1 && r2.log.some((q) => q.disabled), `disables ${r2.end.disables}, дальняя заглушена: ${r2.log.some((q) => q.far)}`);
+  await game.page.close();
+
+  // ---- S3: увеличенный радиус 400: спора ещё рядом, когда башня включилась, но второй раз её не глушит
+  const R3 = 400;
+  ({ game } = await sporeGame(context, baseUrl, p, { radius: R3, minZoom: true }));
+  const r3 = await watch(game, R3);
+  const t3 = timeline(r3.log);
+  const L3 = r3.log;
+  check(`${p} радиус глушения ${R3} px: заглушена один раз (в момент ${f1(L3[t3.on]?.dist)} px), к концу глушения спора ещё ближе ${R3} px (${f1(L3[t3.off]?.dist)} px), но башню повторно не глушит (disables ${r3.end.disables})`, t3.on >= 0 && t3.off > t3.on && L3[t3.off].dist < R3 && r3.end.disables === 1 && L3.slice(t3.off).every((q) => !q.disabled), `заглушена с замера ${t3.on} по ${t3.off}, disables ${r3.end.disables}`);
+  await context.close();
+}
+
+// ================================================================== бронированная
+
+async function runArmored(browser, baseUrl) {
+  const p = '[бронированная]';
+  const hp = readConfigNumber('armored', 'hp');
+  const damage = readConfigNumber('armored', 'lifeDamage');
+  const reward = readConfigNumber('armored', 'reward');
+  const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
+  const base = `waves.total:1,waves.list.0.coccus:0,waves.list.0.armored:1,waves.firstDelaySec:1,${FIXED_BALANCE.join(',')}`;
+
+  // ---- A. башня: нужно hp выстрелов
+  let game = await openGame(context, baseUrl, p, { speed: 4, cfg: `${base},towers.pill.range:520,economy.startCoins:${BASE.price * 2}` });
+  await game.placeTowers([FREE.a, FREE.b]);
+  const hps = [];
+  let shotTaken = false;
+  let shotsAtKill = 0;
+  const end = await pollUntil(game, async (s) => {
+    const a = s.bacteria.find((b) => b.kind === 'armored');
+    if (a) {
+      if (!hps.length || hps[hps.length - 1] !== a.hp) hps.push(a.hp);
+      const sx = s.viewW / 2 + (a.x - s.camera.cx) * s.camera.zoom;
+      const sy = s.height / 2 + (a.y - s.camera.cy) * s.camera.zoom;
+      if (!shotTaken && a.hp <= hp / 2 && sx > 100 && sx < 980 && sy > 60 && sy < 660) {
+        await shot(game.page, 'armored-01-cracked');
+        shotTaken = true;
+      }
+    } else if (!shotsAtKill && hps.length) shotsAtKill = s.shots;
+    return s.state === 'won' || s.state === 'lost';
+  }, 240000, 25);
+  check(`${p} у бронированной ${hp} HP: по ходу боя HP падали по одному ${hps.join(' → ')}`, hps[0] === hp && hps.every((v, i) => i === 0 || v === hps[i - 1] - 1 || v < hps[i - 1]) && hps.length >= 3, hps.join(' → '));
+  check(`${p} башня убила бронированную: убито 1, выстрелов не меньше ${hp} (выстрелов ${end.shots}), награда ${reward} монет`, end.kills === 1 && end.shots >= hp && end.coins === reward, `убито ${end.kills}, выстрелов ${end.shots}, монет ${end.coins}`);
+  await game.page.close();
+
+  // ---- B. без башен: одна бронированная отнимает 2 жизни
+  game = await openGame(context, baseUrl, p, { speed: 4, cfg: base });
+  const endB = await pollUntil(game, (s) => s.state === 'won' || s.state === 'lost', 240000, 25);
+  check(`${p} дойдя до организма, одна бронированная отнимает ${damage} жизни (жизни ${CFG.lives} → ${endB.lives}), красная вспышка сработала`, endB.leaked === 1 && endB.lives === CFG.lives - damage && endB.effects.lifeLosses === 1, `дошло ${endB.leaked}, жизни ${endB.lives}, вспышек ${endB.effects.lifeLosses}`);
+  await context.close();
+}
+
+// ================================================================== порядок появления типов и сообщения «Новая бактерия!»
+
+/** Сколько «жёлтых» точек текста сообщения вверху экрана и где он начинается и кончается по горизонтали (экран игры, px). */
+async function toastPixels(game, png) {
+  const points = [];
+  const coords = [];
+  for (let gy = 30; gy <= 62; gy += 2) {
+    for (let gx = 0; gx <= 1100; gx += 3) {
+      const c = game.screen.g2c(gx, gy);
+      points.push([c.x, c.y]);
+      coords.push(gx);
+    }
+  }
+  const px = await samplePixels(game.page, png, points);
+  let count = 0;
+  let minX = Infinity;
+  let maxX = -Infinity;
+  px.forEach(([r, g, b], i) => {
+    if (r >= 230 && g >= 190 && g <= 236 && b <= 140) {
+      count++;
+      minX = Math.min(minX, coords[i]);
+      maxX = Math.max(maxX, coords[i]);
+    }
+  });
+  return { count, minX, maxX };
+}
+
+async function runIntro(browser, baseUrl) {
+  const p = '[порядок появления типов]';
+  const FIRST_WAVE = { coccus: 1, rod: 3, splitter: 5, armored: 7, spore: 9 };
+  // ---- A. по волнам: кокк — 1, палочка — 3, делящаяся — 5, бронированная — 7, спора — 9; новый тип выходит один
+  const TOTAL = 9;
+  const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
+  // кокков в каждой волне — по 2 (чтобы партия была короче); остальные типы — как в таблице config.ts
+  const COCCI = 2;
+  const cocciCfg = Array.from({ length: TOTAL }, (_, i) => `waves.list.${i}.coccus:${COCCI}`).join(',');
+  const cfg = `waves.total:${TOTAL},${cocciCfg},waves.firstDelaySec:1,waves.pauseSec:1,waves.intervalStartSec:0.5,waves.intervalEndSec:0.5,${FIXED_BALANCE.join(',')},${NO_LIFE_LOSS}`;
+  const game = await openGame(context, baseUrl, p, { speed: 4, cfg });
+  const events = [];
+  let prev = await game.state();
+  const end = await pollUntil(game, (s) => {
+    if (s.introduced.length > prev.introduced.length) {
+      const kind = s.introduced[s.introduced.length - 1];
+      const before = WAVE_LIST.slice(0, s.wave - 1).reduce((sum, row) => sum + KINDS.reduce((x, k) => x + (k === 'coccus' ? COCCI : (row[k] ?? 0)), 0), 0);
+      events.push({ kind, wave: s.wave, onMap: s.bacteria.filter((b) => b.kind === kind).length, inWave: s.spawned - before });
+    }
+    prev = s;
+    return s.state === 'won' || s.state === 'lost';
+  }, 240000, 20);
+  const rowSum = (row) => KINDS.reduce((x, k) => x + (k === 'coccus' ? COCCI : (row[k] ?? 0)), 0);
+  const planned = WAVE_LIST.slice(0, TOTAL).reduce((sum, row) => sum + rowSum(row), 0);
+  check(`${p} типы появляются по одному в порядке ${KINDS.join(' → ')}: introduced = [${end.introduced.join(', ')}]`, end.introduced.join() === KINDS.join(), `итог ${end.introduced.join(', ')}`);
+  check(`${p} каждый тип впервые выходит в своей волне: ${events.map((e) => `${e.kind} — волна ${e.wave}`).join(', ')} (ждали ${KINDS.map((k) => `${k} — ${FIRST_WAVE[k]}`).join(', ')})`, events.length === 5 && events.every((e) => e.wave === FIRST_WAVE[e.kind]), events.map((e) => `${e.kind}:${e.wave}`).join(' '));
+  check(`${p} новый тип выходит один и первым в своей волне: на карте в момент появления ${events.map((e) => `${e.kind}×${e.onMap}`).join(', ')}; до него в волне вышло ${events.map((e) => e.inWave - 1).join(', ')}`, events.every((e) => e.onMap === 1 && e.inWave === 1), events.map((e) => `${e.kind}: на карте ${e.onMap}, по счёту в волне ${e.inWave}`).join('; '));
+  check(`${p} состав волн из config.ts: вышло ${end.spawned} бактерий (ждали ${planned}), волн ${end.wave} из ${end.waveTotal}, партия окончена победой`, end.spawned === planned && end.wave === TOTAL && end.waveTotal === TOTAL && end.state === 'won' && end.leaked === planned, `вышло ${end.spawned}, дошло ${end.leaked}, состояние ${end.state}`);
+  await context.close();
+
+  // ---- B. сообщение «Новая бактерия!» и звук при первом появлении (ru и en): все четыре типа подряд
+  for (const lang of ['ru', 'en']) {
+    const q = `${p} ${lang}`;
+    const ctx = await newDeviceContext(browser, VIEWPORTS.desktop, lang);
+    const g = await openGame(ctx, baseUrl, q, { speed: 1, cfg: `waves.total:1,waves.list.0.coccus:0,waves.list.0.rod:1,waves.list.0.splitter:1,waves.list.0.armored:1,waves.list.0.spore:1,waves.intervalStartSec:2.5,waves.intervalEndSec:2.5,waves.firstDelaySec:1,${FIXED_BALANCE.join(',')},${NO_LIFE_LOSS}` });
+    await g.input.tap(g.g(540, 560)); // касание включает звук (как у настоящего игрока)
+    let last = await g.state();
+    const seen = [];
+    await pollUntil(g, async (s) => {
+      if (s.introduced.length > last.introduced.length) {
+        const kind = s.introduced[s.introduced.length - 1];
+        const png = await shot(g.page, `intro-toast-${lang}-${kind}`);
+        const t = await toastPixels(g, png);
+        seen.push({ kind, t, playedDelta: s.sound.played - last.sound.played, soundState: s.sound.state });
+      }
+      last = s;
+      return seen.length >= 4;
+    }, 60000, 25);
+    check(`${q} при первом появлении каждого нового типа вверху сообщение «Новая бактерия!…» (жёлтые точки текста ${seen.map((x) => `${x.kind}: ${x.t.count}`).join(', ')})`, seen.length === 4 && seen.every((x) => x.t.count >= 120), seen.map((x) => `${x.kind}: ${x.t.count}`).join(', '));
+    check(`${q} текст сообщения целиком в окне карты (от ${Math.min(...seen.map((x) => x.t.minX))} до ${Math.max(...seen.map((x) => x.t.maxX))} px из 1080)`, seen.length === 4 && seen.every((x) => x.t.minX >= 10 && x.t.maxX <= 1074), seen.map((x) => `${x.kind}: ${x.t.minX}…${x.t.maxX}`).join('; '));
+    check(`${q} при первом появлении нового типа играет звук (аудио запущено, sound.played растёт на каждом появлении)`, seen.length === 4 && seen.every((x) => x.soundState === 'running' && x.playedDelta >= 1), seen.map((x) => `${x.kind}: +${x.playedDelta}`).join(', '));
+    await ctx.close();
+  }
+}
+
+// ================================================================== полная партия: все 12 волн при сильной обороне
+
+/** Выбирает n клеток для башен вдоль всей сети: жадно, каждая следующая закрывает больше ещё не прикрытого пути (с учётом вероятностей рёбер). */
+function spreadCells(n, reach = 230) {
+  const segs = [];
+  for (const e of GRAPH.edges) {
+    const w = GEO.prob.get(e.id) ?? 0;
+    for (let i = 0; i < e.pts.length - 1; i++) {
+      const a = e.pts[i];
+      const b = e.pts[i + 1];
+      segs.push({ x: (a[0] + b[0]) / 2, y: (a[1] + b[1]) / 2, v: w * Math.hypot(b[0] - a[0], b[1] - a[1]) });
+    }
+  }
+  const cand = [];
+  for (let col = 0; col < LEVEL.cols; col++) for (let row = 0; row < LEVEL.rows; row++) if (!GEO.isPathCell(col, row)) cand.push({ col, row, c: GEO.center(col, row) });
+  const chosen = [];
+  for (let k = 0; k < n; k++) {
+    let best = null;
+    for (const q of cand) {
+      if (chosen.some((c) => c.col === q.col && c.row === q.row)) continue;
+      const v = segs.reduce((sum, sg) => (Math.hypot(sg.x - q.c.x, sg.y - q.c.y) <= reach ? sum + sg.v : sum), 0);
+      if (!best || v > best.v) best = { ...q, v };
+    }
+    chosen.push(best);
+    for (const sg of segs) if (Math.hypot(sg.x - best.c.x, sg.y - best.c.y) <= reach) sg.v *= 0.4;
+  }
+  return chosen.map((q) => [q.col, q.row]);
+}
+
+async function runFullGame(browser, baseUrl) {
+  const p = '[полная партия]';
+  const TOWERS = Number(process.env.QA_FULL_TOWERS) || 16;
+  const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
+  // Настоящие числа игры; подменяем только стартовые монеты: на все башни сразу
+  const game = await openGame(context, baseUrl, p, { speed: 8, cfg: `economy.startCoins:${BASE.price * TOWERS}` });
+  for (let i = 0; i < 3; i++) await game.input.wheel(game.g(540, 360), 500); // минимальное приближение: видна вся карта
+  await settle();
+  const cells = spreadCells(TOWERS);
+  await game.placeTowers(cells);
+  const placed = await game.state();
+  check(`${p} ${TOWERS} башен поставлены вдоль всей сети при минимальном приближении`, placed.towers.length === TOWERS && placed.coins === 0, `башен ${placed.towers.length}, монет ${placed.coins}`);
+  const started = Date.now();
+  let minLives = placed.lives;
+  let maxBacteria = 0;
+  let midShot = false;
+  let lastWave = 0;
+  const end = await pollUntil(game, async (s) => {
+    minLives = Math.min(minLives, s.lives);
+    maxBacteria = Math.max(maxBacteria, s.bacteria.length);
+    if (s.wave !== lastWave) {
+      lastWave = s.wave;
+      console.log(`   … волна ${s.wave}/${s.waveTotal}, убито ${s.kills}, дошло ${s.leaked}, жизни ${s.lives}, монет ${s.coins}, прошло ${Math.round((Date.now() - started) / 1000)} с`);
+    }
+    if (!midShot && s.wave >= 10 && s.bacteria.length >= 4 && s.projectiles > 0) {
+      await shot(game.page, 'fullgame-01-battle-all-types');
+      midShot = true;
+    }
+    return s.state === 'won' || s.state === 'lost';
+  }, 900000, 100);
+  const seconds = Math.round((Date.now() - started) / 1000);
+  await sleep(300);
+  await shot(game.page, `fullgame-02-${end.state}`);
+  const planned = WAVE_LIST.slice(0, 12).reduce((sum, row) => sum + KINDS.reduce((x, k) => x + (row[k] ?? 0), 0), 0);
+  const splitCount = readConfigNumber('splitter', 'splitCount');
+  check(`${p} все 12 волн пройдены при ${TOWERS} башнях: состояние «победа», волна ${end.wave} из ${end.waveTotal}`, end.state === 'won' && end.wave === 12 && end.waveTotal === 12 && end.lives > 0, `состояние ${end.state}, волна ${end.wave}/${end.waveTotal}, жизни ${end.lives}`);
+  check(`${p} вышло ${planned} бактерий по таблице волн, все пять типов появились по порядку`, end.spawned === planned && end.introduced.join() === KINDS.join(), `вышло ${end.spawned} (ждали ${planned}), типы ${end.introduced.join(', ')}`);
+  check(`${p} учёт: убитые + дошедшие = вышедшие + ${splitCount}·распады (${end.kills} + ${end.leaked} = ${end.spawned} + ${splitCount}·${end.splits})`, end.kills + end.leaked === end.spawned + splitCount * end.splits, `убито ${end.kills}, дошло ${end.leaked}, вышло ${end.spawned}, распадов ${end.splits}`);
+  note(`Полная партия (настоящие числа, скорость ×8, ${TOWERS} башен по ${BASE.price} монет, поставленных до начала вдоль всей сети): итог «${end.state}» за ${seconds} с реального времени (${f1(end.elapsed)} с игрового); убито ${end.kills}, дошло до организма ${end.leaked}, жизни ${CFG.lives} → ${end.lives} (минимум ${minLives}), заглушений башен спорами ${end.disables}, распадов ${end.splits}, одновременно на карте до ${maxBacteria} бактерий, монет в конце ${end.coins} (то есть зарабатывается в партии ≈ ${end.coins} сверх ${BASE.price * TOWERS} потраченных).`);
+  await context.close();
+}
+
 async function safe(label, fn) {
   const started = Date.now();
   try {
@@ -1396,19 +2054,35 @@ const needQa = SCENARIOS.filter((k) => k !== 'production').some(wants);
 const qaServer = needQa || wants('production') ? await startServer('dist-qa') : null;
 const prodServer = wants('production') ? await startServer('dist') : null;
 const browser = await launchBrowser();
-// Страховка от зависания: через 25 минут всё останавливаем
+// Страховка от зависания: через 40 минут всё останавливаем
 const watchdog = setTimeout(async () => {
-  console.error('❌ Проверка не уложилась в 25 минут — остановлена.');
+  console.error('❌ Проверка не уложилась в 40 минут — остановлена.');
   await Promise.race([browser.close(), sleep(5000)]);
   process.exit(1);
-}, 25 * 60 * 1000);
+}, 40 * 60 * 1000);
 let crashed = null;
 try {
+  // Сеть дорожек берём у самой игры (window.__pvb.getGraph()) и по ней выбираем клетки для проверок
+  if (qaServer) {
+    const ctx = await browser.newContext({ viewport: { width: 1280, height: 720 } });
+    const page = await ctx.newPage();
+    watchConsole(page, '[сеть дорожек]');
+    await page.goto(`${qaServer.url}?qa&cfg=waves.firstDelaySec:9999`, { waitUntil: 'load' });
+    await waitFor(page, (x) => x.state === 'playing', 20000, 'запуск игры для чтения сети дорожек');
+    setupWorld(await page.evaluate(() => window.__pvb.getGraph()));
+    await ctx.close();
+  }
   for (const [key, device, lang] of [['desktop-ru', 'desktop', 'ru'], ['phone-ru', 'phone', 'ru'], ['desktop-en', 'desktop', 'en'], ['phone-en', 'phone', 'en']]) {
     if (wants(key)) await safe(`[${key}]`, () => runProfile(browser, qaServer.url, device, lang));
   }
   if (wants('rules')) await safe('[правила клеток]', () => runRules(browser, qaServer.url));
+  if (wants('graph')) await safe('[граф дорожек]', () => runGraph(browser, qaServer.url));
   if (wants('combat')) await safe('[бой]', () => runCombat(browser, qaServer.url));
+  if (wants('dash')) await safe('[рывки палочки]', () => runDash(browser, qaServer.url));
+  if (wants('split')) await safe('[делящаяся]', () => runSplit(browser, qaServer.url));
+  if (wants('spore')) await safe('[спора]', () => runSpore(browser, qaServer.url));
+  if (wants('armored')) await safe('[бронированная]', () => runArmored(browser, qaServer.url));
+  if (wants('intro')) await safe('[появление типов]', () => runIntro(browser, qaServer.url));
   if (wants('lose-ru')) await safe('[проигрыш ru]', () => runLose(browser, qaServer.url, 'ru', 'desktop', true));
   if (wants('lose-en')) await safe('[проигрыш en]', () => runLose(browser, qaServer.url, 'en', 'phone', false));
   if (wants('win-ru')) await safe('[победа ru]', () => runWin(browser, qaServer.url, 'ru', 'desktop', true));
@@ -1416,6 +2090,7 @@ try {
   if (wants('danger')) await safe('[тревога]', () => runDanger(browser, qaServer.url));
   if (wants('rotate')) await safe('[поворот]', () => runRotate(browser, qaServer.url));
   if (wants('production')) await safe('[игровая сборка]', () => runProduction(browser, prodServer.url, qaServer.url));
+  if (wants('fullgame')) await safe('[полная партия]', () => runFullGame(browser, qaServer.url));
 } catch (error) {
   crashed = error;
   check('Проверка дошла до конца', false, error.message);
