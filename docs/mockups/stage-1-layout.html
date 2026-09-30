@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Макет поля: tower defense, этап 1</title>
+<!--
+  МАКЕТ раскладки поля (это картинка, а не игра: логики нет). Цвета и формы бактерий — те же, что в игре (src/theme.ts).
+  Открыть в браузере: docs/mockups/stage-1-layout.html
+    ?view=desktop   поле 1280×720 (по умолчанию)
+    ?view=notes     то же с подписями
+    ?view=phone     как на телефоне в горизонтальном положении (844×390) с кругом «палец»
+  Числа раскладки — в блоке LAYOUT ниже: поменяйте и обновите страницу.
+-->
+<style>
+  html, body { margin: 0; background: #0a1222; }
+  body { font-family: Arial, "Liberation Sans", sans-serif; }
+  svg { display: block; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script>
+// ------------------------------------------------------------------ LAYOUT (пиксели поля 1280×720)
+const LAYOUT = {
+  W: 1280, H: 720,
+  orgW: 150,        // зона «организм» слева; красная линия — на её правом краю
+  panelW: 200,      // правая панель (волна, монеты, башни); бактерии выезжают из-под неё
+  lanes: 3,         // число дорожек
+  towerRowH: 100,   // высота ряда клеток для башен
+  cols: 9,          // клеток в ряду
+};
+const L = LAYOUT;
+L.laneH = (L.H - (L.lanes + 1) * L.towerRowH) / L.lanes;      // высота дорожки
+L.fieldX = L.orgW; L.fieldW = L.W - L.orgW - L.panelW;         // рабочая область
+L.cellW = L.fieldW / L.cols;
+L.panelX = L.W - L.panelW;
+
+const C = { bg: '#12203a', tissue: '#1d3760', tissueLine: '#33578f', lane: '#0b1528', laneLine: '#24406b',
+  org1: '#3a1a26', org2: '#5c2436', line: '#ff4d5e', heart: '#ff4d6d', gold: '#ffd84d', panel: '#0d162b', panelLine: '#33578f',
+  tower: '#2c4a7c', towerEdge: '#8fb0e6', text: '#ffffff', dim: '#7f93b8' };
+const KIND = { body: '#7bdc7b', shell: '#2f8f3a' };   // кокк, как в игре
+
+const params = new URLSearchParams(location.search);
+const view = params.get('view') || 'desktop';
+
+// --- геометрия рядов: башни / дорожка / башни / дорожка / ... / башни
+const rows = [];
+{ let y = 0;
+  for (let i = 0; i <= L.lanes * 2; i++) {
+    const isLane = i % 2 === 1, h = isLane ? L.laneH : L.towerRowH;
+    rows.push({ y, h, isLane, idx: isLane ? (i - 1) / 2 : i / 2 }); y += h; } }
+const laneY = n => rows.filter(r => r.isLane)[n].y + L.laneH / 2;           // центр дорожки n
+const cellX = c => L.fieldX + L.cellW * (c + 0.5);
+const towerRowY = n => rows.filter(r => !r.isLane)[n].y + L.towerRowH / 2;  // центр ряда башен n
+
+// --- мелкие помощники SVG
+const parts = [];
+const add = s => parts.push(s);
+const heart = (x, y, s, fill) => `<path transform="translate(${x} ${y}) scale(${s})" d="M0 12 C-22 -4 -20 -22 -8 -22 C-3 -22 0 -18 0 -14 C0 -18 3 -22 8 -22 C20 -22 22 -4 0 12Z" fill="${fill}" stroke="#0b1020" stroke-width="1.5"/>`;
+const coin = (x, y, r) => `<circle cx="${x}" cy="${y}" r="${r}" fill="${C.gold}" stroke="#b8901a" stroke-width="2.5"/><circle cx="${x}" cy="${y}" r="${r*0.55}" fill="none" stroke="#b8901a" stroke-width="2"/>`;
+const coccus = (x, y, r = 30) => `<g><circle cx="${x}" cy="${y}" r="${r}" fill="${KIND.shell}"/><circle cx="${x}" cy="${y}" r="${r-4}" fill="${KIND.body}"/><circle cx="${x-r*0.35}" cy="${y-r*0.38}" r="${r*0.16}" fill="#fff" opacity=".35"/></g>`;
+const towerIcon = (x, y, k = 1, alpha = 1) => `<g transform="translate(${x} ${y}) scale(${k})" opacity="${alpha}">
+  <circle r="36" fill="${C.tower}" stroke="${C.towerEdge}" stroke-width="3"/>
+  <rect x="-6" y="-13" width="46" height="26" rx="13" fill="#fff" stroke="#c8d0e2" stroke-width="2"/>
+  <path d="M17 -13 h10 a13 13 0 0 1 0 26 h-10z" fill="#74b8ff"/>
+  <circle r="9" fill="#12203a" stroke="${C.towerEdge}" stroke-width="2"/></g>`;
+const pill = (x, y, ang) => `<g transform="translate(${x} ${y}) rotate(${ang})"><rect x="-15" y="-5" width="30" height="10" rx="5" fill="#fff" stroke="#d0d6e4" stroke-width="1.5"/><path d="M0 -5 h10 a5 5 0 0 1 0 10 h-10z" fill="#74b8ff"/></g>`;
+const lock = (x, y, col) => `<g transform="translate(${x} ${y})"><rect x="-13" y="-4" width="26" height="20" rx="4" fill="${col}"/><path d="M-8 -4 v-6 a8 8 0 0 1 16 0 v6" fill="none" stroke="${col}" stroke-width="4"/></g>`;
+const txt = (x, y, s, size, fill = C.text, anchor = 'start', weight = 'bold', extra = '') =>
+  `<text x="${x}" y="${y}" font-size="${size}" font-weight="${weight}" fill="${fill}" text-anchor="${anchor}" ${extra}>${s}</text>`;
+
+// ------------------------------------------------------------------ фон и ряды
+add(`<defs>
+  <linearGradient id="org" x1="0" x2="1"><stop offset="0" stop-color="${C.org1}"/><stop offset="1" stop-color="${C.org2}"/></linearGradient>
+  <linearGradient id="spawn" x1="0" x2="1"><stop offset="0" stop-color="#e8f0ff" stop-opacity="0"/><stop offset="1" stop-color="#e8f0ff" stop-opacity=".10"/></linearGradient>
+  <filter id="glow" x="-200%" y="-5%" width="500%" height="110%"><feGaussianBlur stdDeviation="6"/></filter>
+</defs>`);
+add(`<rect width="${L.W}" height="${L.H}" fill="${C.bg}"/>`);
+
+for (const r of rows) {
+  if (r.isLane) {
+    add(`<rect x="${L.fieldX}" y="${r.y}" width="${L.fieldW + L.panelW}" height="${r.h}" fill="${C.lane}"/>`);
+    add(`<line x1="${L.fieldX}" x2="${L.W}" y1="${r.y + 1}" y2="${r.y + 1}" stroke="${C.laneLine}" stroke-width="2"/>`);
+    add(`<line x1="${L.fieldX}" x2="${L.W}" y1="${r.y + r.h - 1}" y2="${r.y + r.h - 1}" stroke="${C.laneLine}" stroke-width="2"/>`);
+    for (let k = 0; k < 14; k++) add(txt(L.fieldX + 40 + k * 70, r.y + r.h / 2 + 14, '‹', 44, '#ffffff', 'middle', 'normal', 'opacity=".06"'));
+  } else {
+    add(`<rect x="${L.fieldX}" y="${r.y}" width="${L.fieldW + L.panelW}" height="${r.h}" fill="${C.bg}"/>`);
+    for (let c = 0; c < L.cols; c++)
+      add(`<rect x="${L.fieldX + c * L.cellW + 3}" y="${r.y + 3}" width="${L.cellW - 6}" height="${r.h - 6}" rx="10" fill="${C.tissue}" stroke="${C.tissueLine}" stroke-width="1.5" opacity=".9"/>`);
+  }
+}
+// подсказка «бактерии приходят отсюда»
+add(`<rect x="${L.panelX - 140}" y="0" width="140" height="${L.H}" fill="url(#spawn)"/>`);
+
+// ------------------------------------------------------------------ организм
+add(`<rect width="${L.orgW}" height="${L.H}" fill="url(#org)"/>`);
+add(`<rect x="${L.orgW - 4}" y="0" width="14" height="${L.H}" fill="${C.line}" opacity=".55" filter="url(#glow)"/>`);
+add(`<rect x="${L.orgW - 3}" y="0" width="6" height="${L.H}" fill="${C.line}"/>`);
+add(txt(L.orgW / 2 - 3, 44, 'ОРГАНИЗМ', 17, '#ffb3bd', 'middle', 'bold', 'letter-spacing="1.5"'));
+for (let i = 0; i < 3; i++) add(heart(L.orgW / 2 - 3, 290 + i * 72, 1.15, C.heart));
+
+// ------------------------------------------------------------------ бактерии, башни, выстрелы
+const bacteria = [ [0, 760], [0, 1000], [1, 930], [1, 420], [2, 700], [2, 1010], [2, 1092] ];
+const ROW_T = { top: 0, t2: 1, t3: 2, bottom: 3 };
+const towers = [ [ROW_T.t2, 3], [ROW_T.t2, 6], [ROW_T.t3, 4] ];
+
+for (const [lane, x] of bacteria) add(coccus(x, laneY(lane)));
+for (const [row, col] of towers) add(towerIcon(cellX(col), towerRowY(row), 0.98));
+
+// выстрелы в полёте: от башни к бактерии в соседней дорожке
+const shot = (row, col, lane, bx) => {
+  const x0 = cellX(col), y0 = towerRowY(row), t = 0.45, y1 = laneY(lane);
+  const x = x0 + (bx - x0) * t, y = y0 + (y1 - y0) * t;
+  return pill(x, y, Math.atan2(y1 - y0, bx - x0) * 180 / Math.PI);
+};
+add(shot(ROW_T.t2, 6, 1, 930));
+add(shot(ROW_T.t2, 3, 0, 760));
+add(shot(ROW_T.t3, 4, 2, 700));
+
+// «призрак» башни в выбранной клетке + радиус (момент постановки)
+const ghost = { row: ROW_T.bottom, col: 2 };
+const gx = cellX(ghost.col), gy = towerRowY(ghost.row);
+add(`<circle cx="${gx}" cy="${gy}" r="190" fill="#74b8ff" opacity=".10"/><circle cx="${gx}" cy="${gy}" r="190" fill="none" stroke="#9fd0ff" stroke-width="2.5" stroke-dasharray="10 8"/>`);
+add(`<rect x="${L.fieldX + ghost.col * L.cellW + 3}" y="${rows[6].y + 3}" width="${L.cellW - 6}" height="${L.towerRowH - 6}" rx="10" fill="#74b8ff" opacity=".25" stroke="#9fd0ff" stroke-width="3"/>`);
+add(towerIcon(gx, gy, 0.98, 0.65));
+
+// «+» в свободных клетках рядом (подсказка, что здесь можно ставить)
+for (const r of rows.filter(r => !r.isLane)) for (let c = 0; c < L.cols; c++) {
+  const occupied = towers.some(([tr, tc]) => rows.filter(q => !q.isLane)[tr] === r && tc === c);
+  const isGhost = r === rows[6] && c === ghost.col;
+  if (!occupied && !isGhost) add(txt(cellX(c), r.y + r.h / 2 + 9, '+', 30, '#ffffff', 'middle', 'normal', 'opacity=".16"'));
+}
+
+// ------------------------------------------------------------------ правая панель
+const px = L.panelX;
+add(`<rect x="${px}" y="0" width="${L.panelW}" height="${L.H}" fill="${C.panel}" opacity=".97"/>`);
+add(`<rect x="${px}" y="0" width="3" height="${L.H}" fill="${C.panelLine}"/>`);
+add(txt(px + L.panelW / 2 + 1, 38, 'Волна 3 / 12', 23, C.text, 'middle'));
+add(`<rect x="${px + 22}" y="52" width="${L.panelW - 44}" height="9" rx="4.5" fill="#22355a"/><rect x="${px + 22}" y="52" width="${(L.panelW - 44) * 0.25}" height="9" rx="4.5" fill="#74b8ff"/>`);
+add(coin(px + 46, 104, 18));
+add(txt(px + 76, 116, '120', 36, C.gold));
+const slots = [ { name: 'Таблетка', price: 50, on: true }, { name: 'Сироп', price: 75 }, { name: 'Шипучка', price: 100 }, { name: 'Капсула', price: 90 } ];
+slots.forEach((s, i) => {
+  const y = 142 + i * 126, x = px + 12, w = L.panelW - 24, h = 118;
+  add(`<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="14" fill="${s.on ? '#1c3a6a' : '#121d36'}" stroke="${s.on ? C.gold : '#26385e'}" stroke-width="${s.on ? 4 : 2}"/>`);
+  if (s.on) {
+    add(towerIcon(x + 38, y + h / 2, 0.68));
+    add(txt(x + 74, y + 48, s.name, 18, C.text));
+    add(coin(x + 84, y + 84, 10)); add(txt(x + 100, y + 93, s.price, 25, C.gold));
+  } else {
+    add(lock(x + 38, y + h / 2 - 8, '#4a5c82'));
+    add(txt(x + 74, y + 48, s.name, 18, '#4a5c82'));
+    add(txt(x + 74, y + 84, 'закрыто', 15, '#4a5c82', 'start', 'normal'));
+  }
+});
+// пауза
+add(`<circle cx="${px + L.panelW / 2}" cy="682" r="24" fill="#1c2c50" stroke="#33578f" stroke-width="2"/><rect x="${px + L.panelW / 2 - 9}" y="671" width="6" height="22" rx="2" fill="#fff"/><rect x="${px + L.panelW / 2 + 3}" y="671" width="6" height="22" rx="2" fill="#fff"/>`);
+
+// ------------------------------------------------------------------ подписи (view=notes)
+if (view === 'notes') {
+  const tag = (x, y, n, s, w) => `<g><rect x="${x}" y="${y}" width="${w}" height="34" rx="17" fill="#0b1020" fill-opacity=".88" stroke="#ffd84d" stroke-width="2"/>
+    <circle cx="${x + 17}" cy="${y + 17}" r="13" fill="#ffd84d"/>${txt(x + 17, y + 23, n, 17, '#0b1020', 'middle')}${txt(x + 40, y + 23, s, 16, '#fff', 'start', 'bold')}</g>`;
+  add(tag(168, 33, 1, 'Клетки для башен: 4 ряда × 9 (≈103×100 px)', 385));
+  add(tag(168, 122, 2, 'Дорожка (всего 3): бактерии идут справа налево', 440));
+  add(tag(6, 668, 3, 'Красная линия + 3 жизни', 240));
+  add(tag(720, 668, 4, 'Бактерии выезжают из-под панели', 330));
+  add(tag(640, 33, 5, 'Панель: волна, монеты, башни →', 385));
+  add(tag(268, 556, 6, 'Тап по кнопке башни → тап по клетке', 360));
+}
+
+// ------------------------------------------------------------------ вывод
+const fieldSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="${L.W}" height="${L.H}" viewBox="0 0 ${L.W} ${L.H}">${parts.join('')}</svg>`;
+
+if (view === 'phone') {
+  // как на телефоне 844×390 (CSS-пиксели) в горизонтальном положении: поле вписывается по высоте
+  const VW = 844, VH = 390, k = Math.min(VW / L.W, VH / L.H), ox = (VW - L.W * k) / 2;
+  const cell = Math.round(L.cellW * k), row = Math.round(L.towerRowH * k), lane = Math.round(L.laneH * k), slot = Math.round(118 * k);
+  document.getElementById('root').innerHTML = `<div style="width:${VW}px;background:#0a1222">
+    <div style="position:relative;width:${VW}px;height:${VH}px;background:#05090f;overflow:hidden">
+      <div style="position:absolute;left:${ox}px;top:0;width:${L.W}px;height:${L.H}px;transform:scale(${k});transform-origin:0 0">${fieldSvg}</div>
+      <div style="position:absolute;left:${ox + (gx) * k - 22}px;top:${(gy) * k - 22}px;width:44px;height:44px;border-radius:50%;background:rgba(255,255,255,.55);border:3px solid #fff;box-sizing:border-box"></div>
+    </div>
+    <div style="padding:10px 14px;color:#dbe6ff;font-size:14px;line-height:1.35">
+      <b style="color:#ffd84d">Телефон в горизонтальном положении (844×390).</b> Белый круг — палец (44 px, минимум для касания).
+      Клетка ≈ <b>${cell}×${row}</b> px, дорожка ≈ <b>${lane}</b> px, кнопка башни ≈ <b>${slot}</b> px высотой — палец помещается, но запас небольшой: клетки не стоит делать меньше.
+    </div></div>`;
+} else {
+  document.getElementById('root').innerHTML = fieldSvg;
+}
+</script>
+</body>
+</html>
