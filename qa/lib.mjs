@@ -238,6 +238,11 @@ export function makeGraphGeometry(graph, map, cols, rows) {
       if (distToAnyCurve(c) < limit) pathCellsByCurve.add(`${col},${row}`);
     }
   }
+  // закрытые клетки (этап 3б: дальше buildMaxDistPx от дорожки башню ставить нельзя) — игра сама отдаёт их список в getGraph().blockedCells;
+  // для проверок они «не свободны», как клетки дорожки (isPathCell), но считаются отдельно
+  const lanePathCount = pathCells.size;
+  const blockedCells = new Set((graph.blockedCells ?? []).map(([c, r]) => `${c},${r}`));
+  for (const key of blockedCells) pathCells.add(key);
   // вероятность пройти по ребру: на входе поровну, на каждой развилке выход поровну
   const outOf = {};
   const inTo = {};
@@ -261,7 +266,11 @@ export function makeGraphGeometry(graph, map, cols, rows) {
     distToAnyPoint,
     distToAnyCurve,
     isPathCell: (col, row) => pathCells.has(`${col},${row}`),
+    /** Клетки, где башню ставить нельзя: дорожка + закрытые. */
     pathCellCount: pathCells.size,
+    /** Только клетки, задетые дорожкой, и только закрытые клетки. */
+    lanePathCellCount: lanePathCount,
+    blockedCellCount: blockedCells.size,
     pathCellCountByCurve: pathCellsByCurve.size,
     /** Клетка под точкой мира или null (вне сетки — например, зона организма). */
     cellAt: (x, y) => {

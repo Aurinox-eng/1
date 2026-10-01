@@ -41,6 +41,8 @@ export interface DebugSnapshot {
   slows: number;
   /** Сколько выстрелов сделано башнями. */
   shots: number;
+  /** Скорость игры, выбранная игроком кнопкой (1, 2, 3). */
+  speed: number;
   elapsed: number;
   lang: string;
   renderer: 'webgl' | 'canvas';
@@ -79,6 +81,9 @@ export interface DebugSnapshot {
     towerButton: { x: number; y: number; w: number; h: number };
     towerButtons: { id: string; x: number; y: number; w: number; h: number }[];
     pauseButton: { x: number; y: number };
+    /** Кнопка скорости (×1/×2/×3) и кнопка «Начать волну» (visible — видна ли сейчас, bonus — сколько монет даст досрочный вызов). */
+    speedButton: { x: number; y: number };
+    waveButton: { x: number; y: number; w: number; h: number; visible: boolean; bonus: number };
     lives: number;
   };
   /** Сколько обработчиков нажатия навешено на сцену (при перезапуске не должно расти — иначе утечка). */
@@ -94,6 +99,8 @@ export interface DebugGraph {
   edges: { id: number; from: string; to: string; length: number; pts: [number, number][] }[];
   entrances: number[];
   exits: string[];
+  /** Закрытые для башен клетки (не на дорожке, но слишком далеко от неё): [колонка, ряд]. */
+  blockedCells: [number, number][];
 }
 
 /** Что игра отдаёт проверкам через window.__pvb. */

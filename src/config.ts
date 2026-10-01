@@ -48,6 +48,9 @@ export const CONFIG = {
     panelW: 200,
     /** Ширина дорожки, пикселей. Бактерия чуть шире дорожки (бронированная) слегка выходит за её край. */
     pathWidth: 86,
+    /** Клетки, центр которых дальше этого расстояния от дорожки, закрыты для башен (там башня ничего бы не достала): пикселей.
+     *  240 — для самой дальнобойной башни; оставляет около 115 из 158 свободных клеток (было 158, из них 35 бесполезных). */
+    buildMaxDistPx: 240,
   },
 
   // ------------------------------------------------------------
@@ -78,9 +81,9 @@ export const CONFIG = {
     start: 3,
   },
   economy: {
-    /** Сколько монет у игрока в начале уровня (хватает на три башни «Таблетка»). Было 120: по замеру бота в первых волнах не хватало
-     *  башен, и «средний» игрок проигрывал на 2-й волне в 5 партиях из 10. */
-    startCoins: 150,
+    /** Сколько монет у игрока в начале уровня (две башни «Таблетка» и немного на третью). Игра стала тяжелее (этап 3б): цены выше,
+     *  награды меньше, поэтому каждая покупка — решение. */
+    startCoins: 180,
     /** Доля цены, которая возвращается при продаже башни (продажа появится позже). */
     sellRefund: 0.7,
   },
@@ -110,7 +113,7 @@ export const CONFIG = {
   towers: {
     /** Таблетка — базовая башня: дёшево, бьёт одну бактерию в радиусе. */
     pill: {
-      price: 50,
+      price: 70,
       range: 200,
       damage: 1,
       cooldownMs: 1000,
@@ -123,7 +126,7 @@ export const CONFIG = {
     },
     /** Сироп — замедляющая: попавшая бактерия идёт вдвое медленнее 2,5 секунды. Бьёт редко и слабо, зато держит толпу под огнём других башен. */
     syrup: {
-      price: 70,
+      price: 100,
       range: 190,
       damage: 1,
       cooldownMs: 1500,
@@ -137,7 +140,7 @@ export const CONFIG = {
     /** Шипучка — взрывная: медленный снаряд, взрыв задевает всех в круге. Хороша против толп. Урон 2 (было 1): по замеру бота круга 3 без неё
      *  партия шла так же хорошо — при 1 урона она не окупала цену 120 против двух Таблеток. */
     fizz: {
-      price: 120,
+      price: 170,
       range: 210,
       damage: 2,
       cooldownMs: 2200,
@@ -151,7 +154,7 @@ export const CONFIG = {
     /** Шприц — пробивающая: дальняя, игла летит насквозь и бьёт всех на линии; стреляет только «вперёд» (по тем, кто ещё не дошёл до башни).
      *  Урон 2 (было 1): по замеру бота круга 3 башня была лишней (см. Шипучку). */
     syringe: {
-      price: 100,
+      price: 150,
       range: 260,
       damage: 2,
       cooldownMs: 1600,
@@ -181,16 +184,16 @@ export const CONFIG = {
   //   disableSec, disableRadius         — ГЛУШЕНИЕ БАШЕН: проходя ближе disableRadius пикселей к башне, отключает её на disableSec
   //                                       секунд (каждую башню одна бактерия глушит один раз)
   types: {
-    /** Кокк — зелёный круг. Базовый: 1 HP, медленный. */
-    coccus: { hp: 1, speedFactor: 0.8, reward: 8, lifeDamage: 1, radius: 30, length: 0, dashEverySec: 0, dashSec: 0, dashFactor: 1, splitCount: 0, splitGapPx: 0, disableSec: 0, disableRadius: 0 },
-    /** Палочка — синяя вытянутая капсула. 4 HP, идёт быстрее кокка и делает рывки. */
-    rod: { hp: 4, speedFactor: 1, reward: 10, lifeDamage: 1, radius: 22, length: 104, dashEverySec: 3, dashSec: 1, dashFactor: 2.5, splitCount: 0, splitGapPx: 0, disableSec: 0, disableRadius: 0 },
-    /** Делящаяся — жёлтая, с перетяжкой посередине. 3 HP. Уничтожена — на этом месте появляются два кокка. */
-    splitter: { hp: 3, speedFactor: 0.9, reward: 12, lifeDamage: 1, radius: 27, length: 0, dashEverySec: 0, dashSec: 0, dashFactor: 1, splitCount: 2, splitGapPx: 64, disableSec: 0, disableRadius: 0 },
-    /** Бронированная — фиолетовая, с толстой оболочкой. 14 HP, медленная, отнимает 2 жизни. */
-    armored: { hp: 14, speedFactor: 0.6, reward: 30, lifeDamage: 2, radius: 48, length: 0, dashEverySec: 0, dashSec: 0, dashFactor: 1, splitCount: 0, splitGapPx: 0, disableSec: 0, disableRadius: 0 },
-    /** Спора — маленькая красная. 2 HP, быстрая; проходя рядом с башней, глушит её на 3 секунды. */
-    spore: { hp: 2, speedFactor: 1.4, reward: 20, lifeDamage: 1, radius: 18, length: 0, dashEverySec: 0, dashSec: 0, dashFactor: 1, splitCount: 0, splitGapPx: 0, disableSec: 3, disableRadius: 150 },
+    /** Кокк — зелёный круг. Базовый: 2 HP, медленный. */
+    coccus: { hp: 2, speedFactor: 0.8, reward: 5, lifeDamage: 1, radius: 30, length: 0, dashEverySec: 0, dashSec: 0, dashFactor: 1, splitCount: 0, splitGapPx: 0, disableSec: 0, disableRadius: 0 },
+    /** Палочка — синяя вытянутая капсула. 5 HP, идёт быстрее кокка и делает рывки. */
+    rod: { hp: 5, speedFactor: 1, reward: 6, lifeDamage: 1, radius: 22, length: 104, dashEverySec: 3, dashSec: 1, dashFactor: 2.5, splitCount: 0, splitGapPx: 0, disableSec: 0, disableRadius: 0 },
+    /** Делящаяся — жёлтая, с перетяжкой посередине. 4 HP. Уничтожена — на этом месте появляются два кокка. */
+    splitter: { hp: 4, speedFactor: 0.9, reward: 8, lifeDamage: 1, radius: 27, length: 0, dashEverySec: 0, dashSec: 0, dashFactor: 1, splitCount: 2, splitGapPx: 64, disableSec: 0, disableRadius: 0 },
+    /** Бронированная — фиолетовая, с толстой оболочкой. 20 HP, медленная, отнимает 2 жизни. */
+    armored: { hp: 20, speedFactor: 0.6, reward: 20, lifeDamage: 2, radius: 48, length: 0, dashEverySec: 0, dashSec: 0, dashFactor: 1, splitCount: 0, splitGapPx: 0, disableSec: 0, disableRadius: 0 },
+    /** Спора — маленькая красная. 3 HP, быстрая; проходя рядом с башней, глушит её на 3 секунды. */
+    spore: { hp: 3, speedFactor: 1.4, reward: 12, lifeDamage: 1, radius: 18, length: 0, dashEverySec: 0, dashSec: 0, dashFactor: 1, splitCount: 0, splitGapPx: 0, disableSec: 3, disableRadius: 150 },
   },
   bacteria: {
     /** Базовая скорость бактерий, пикселей в секунду (у каждого типа умножается на speedFactor).
@@ -215,6 +218,8 @@ export const CONFIG = {
     firstDelaySec: 8,
     /** Пауза между волнами (после того, как вышла последняя бактерия волны), секунд. */
     pauseSec: 6,
+    /** Бонус за досрочный вызов волны кнопкой «Начать волну»: монет за каждую пропущенную секунду ожидания. */
+    skipBonusPerSec: 1,
     /** Состав волн: одна строка — одна волна, числа — сколько бактерий каждого типа. Типы выходят в случайном порядке.
      *  Новый тип в первую свою волну выходит ОДИН и первым (игра подсказывает сигналом и сообщением): кокк — волна 1,
      *  палочка — 3, делящаяся — 5, бронированная — 7, спора — 9. */
@@ -242,6 +247,8 @@ export const CONFIG = {
     dangerDistancePx: 520,
     /** Сколько миллисекунд держится всплывающая подсказка сверху экрана. */
     toastMs: 1800,
+    /** Какие скорости игры переключает кнопка рядом с паузой (по кругу): 1 — обычная. Ускоряется всё: бактерии, башни, волны. */
+    speeds: [1, 2, 3] as number[],
   },
 
   // ------------------------------------------------------------
