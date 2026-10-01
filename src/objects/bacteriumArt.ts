@@ -4,15 +4,21 @@ import { COLORS } from '../theme';
 
 type Kind = keyof typeof CONFIG.types;
 
-/** На сколько пикселей оболочка толще за каждое лишнее HP (у 1-HP типов оболочка тонкая и не меняется). */
-const SHELL_STEP: Record<Kind, number> = { coccus: 0, rod: 3, splitter: 3, armored: 3.4, spore: 0 };
+/** Какую долю радиуса (у палочки — половины ширины) занимает оболочка при полном HP (у кокка и споры оболочка тонкая и не меняется).
+ *  Доля меньше половины, поэтому тело внутри не исчезает при любом числе HP в config.ts (раньше толщина росла на фиксированное число
+ *  пикселей за каждое HP, и у бронированной с 14 HP радиус тела выходил отрицательным — режим canvas на этом падал). */
+const SHELL_MAX_SHARE: Record<Kind, number> = { coccus: 0, rod: 0.45, splitter: 0.4, armored: 0.45, spore: 0 };
 const SHELL_BASE = 4;
 /** Расстояние от центра делящейся до центра каждой доли, в радиусах доли (чем больше, тем глубже перетяжка). */
 export const SPLITTER_LOBE_OFFSET = 0.95;
 
-/** Толщина оболочки: чем больше осталось HP, тем толще. Так здоровье видно без текста. */
+/** Толщина оболочки: чем больше осталось HP, тем толще (от SHELL_BASE при 1 HP до доли радиуса при полном HP). Так здоровье видно без текста. */
 export function shellWidth(kind: Kind, hp: number): number {
-  return SHELL_BASE + Math.max(0, hp - 1) * SHELL_STEP[kind];
+  const { hp: maxHp, radius } = CONFIG.types[kind];
+  const share = SHELL_MAX_SHARE[kind];
+  if (maxHp <= 1 || share <= 0) return SHELL_BASE;
+  const top = Math.max(SHELL_BASE, radius * share);
+  return SHELL_BASE + (top - SHELL_BASE) * Math.min(1, Math.max(0, hp - 1) / (maxHp - 1));
 }
 
 /** Ломаная-трещина от точки на краю внутрь тела. */
@@ -57,7 +63,7 @@ export function drawBody(g: Phaser.GameObjects.Graphics, kind: Kind, state: Body
     g.fillStyle(col.shell, 1);
     g.fillRoundedRect(-w / 2, -l / 2, w, l, w / 2);
     g.fillStyle(col.body, 1);
-    g.fillRoundedRect(-w / 2 + sw, -l / 2 + sw, w - 2 * sw, l - 2 * sw, (w - 2 * sw) / 2);
+    g.fillRoundedRect(-w / 2 + sw, -l / 2 + sw, Math.max(1, w - 2 * sw), Math.max(1, l - 2 * sw), Math.max(1, w - 2 * sw) / 2);
     shine(g, -w * 0.18, -l * 0.28, w * 0.1);
     for (let i = 0; i < damage; i++) {
       const side = i % 2 === 0 ? -1 : 1;
@@ -75,8 +81,8 @@ export function drawBody(g: Phaser.GameObjects.Graphics, kind: Kind, state: Body
     g.fillCircle(-off, 0, r);
     g.fillCircle(off, 0, r);
     g.fillStyle(col.body, 1);
-    g.fillCircle(-off, 0, r - sw);
-    g.fillCircle(off, 0, r - sw);
+    g.fillCircle(-off, 0, Math.max(1, r - sw));
+    g.fillCircle(off, 0, Math.max(1, r - sw));
     // перетяжка: тёмная перегородка и две «зарубки» сверху и снизу
     const waist = Math.sqrt(Math.max(1, r * r - (r * SPLITTER_LOBE_OFFSET) ** 2)) + 2;
     g.lineStyle(5, COLORS.septum, 1);
@@ -95,7 +101,7 @@ export function drawBody(g: Phaser.GameObjects.Graphics, kind: Kind, state: Body
   g.fillStyle(col.shell, 1);
   g.fillCircle(0, 0, r);
   g.fillStyle(col.body, 1);
-  g.fillCircle(0, 0, r - sw);
+  g.fillCircle(0, 0, Math.max(1, r - sw));
   shine(g, -r * 0.35, -r * 0.38, r * 0.16);
   const step = (Math.PI * 2) / Math.max(3, state.maxHp);
   for (let i = 0; i < damage; i++) {

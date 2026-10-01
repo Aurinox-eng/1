@@ -178,6 +178,9 @@ dist/, dist-qa/            результаты сборки (в git нет)
 - Инструменты GitHub (`mcp__github__*`) подгружаются через ToolSearch; `gh` в облаке нет. Отправка меток (tags) на GitHub из
   облака не проходит (403).
 - Chromium для Playwright лежит в `/opt/pw-browsers`; `qa/lib.mjs` умеет его искать.
+- Режим `?qa&canvas` строже WebGL: отрицательный радиус круга в canvas бросает исключение («The radius provided (-0.2) is negative»), а в WebGL
+  рисунок молча ломается. Так нашли ошибку круга 3: оболочка бронированной (14 HP) стала толще радиуса тела. Теперь толщина оболочки — доля радиуса
+  (`bacteriumArt.shellWidth`), а внутренние радиусы не меньше 1. При смене HP в `config.ts` поглядеть на `bacteriumArt.ts`.
 - После слияния PR ветка `claude/...` уже «старая»: `git fetch origin main && git rebase origin/main`, затем
   `git push --force-with-lease` (это своя рабочая ветка, не чужая). Новый PR — только по просьбе владельца.
 - GitHub Pages кэширует страницу до 10 минут (`max-age=600`): владелец может видеть старую версию после слияния. Проверять
