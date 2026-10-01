@@ -66,8 +66,8 @@
 3. **Средний:** то же с `--profile=average --tag=r6-average`.
 4. **Сильный:** то же с `--profile=strong --tag=r6-strong`.
 5. **Особо сильный:** то же с `--profile=expert --tag=r6-expert`.
-6. **Нужна ли башня, часть 1:** `--profile=expert --runs=3 --exclude=syrup --tag=r6-expert-nosyrup`, затем `--exclude=fizz --tag=r6-expert-nofizz` (≈ 45 мин).
-7. **Нужна ли башня, часть 2:** `--profile=expert --runs=3 --exclude=syringe --tag=r6-expert-nosyringe`, затем `--exclude=pill --tag=r6-expert-nopill` (≈ 45 мин).
+6. **Нужна ли башня (четыре чата, по одной башне на чат, ≈ 25 мин каждый):** `node qa/bot.mjs --profile=expert --runs=3 --speed=2 --canvas --exclude=<syrup|fizz|syringe|pill> --tag=r6-expert-no<имя>`.
+7. (номер занят: пункты 2–5 — один промпт на четыре чата, подставляется профиль).
 8. **Починка проверок `smoke` (1–2 часа, правит только `qa/`)** — см. Шаблон 4: теперь ещё учти, что у Шприца `range` = 0, луч до края карты, поворот тапом по правой/левой половине башни (вправо/влево на 45°),
    волн 30, типов бактерий 13 (слизень, регенератор, командир, матка, гигант). Начало другое: не «бот», а `npm run build && npm run build:qa`, сценарии по одному (`node qa/smoke.mjs --tag=fix-<имя> --only=<сценарий>`);
    в конце `git pull --rebase origin claude/serene-rubin-x3t2gu`, коммит только `qa/`, push; ответ: что починено / что осталось красным и почему / замечания по игре.
