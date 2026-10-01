@@ -68,6 +68,30 @@ export function drawAimLine(g: Phaser.GameObjects.Graphics, length: number, alph
   }
 }
 
+/** Две изогнутые стрелки по бокам башни с лучом: левая — «повернуть против часовой», правая — «по часовой» (тап по левой/правой половине башни). */
+function drawTurnArrows(scene: Phaser.Scene): Phaser.GameObjects.Graphics {
+  const g = scene.add.graphics();
+  g.lineStyle(3.5, COLORS.needle, 0.85).fillStyle(COLORS.needle, 0.85);
+  const radius = 46;
+  // dir: 1 — стрелка по часовой стрелке (справа), -1 — против (слева); center — угол середины дуги, градусы
+  for (const [dir, center] of [[1, 0], [-1, 180]] as const) {
+    const from = ((center - 38 * dir) * Math.PI) / 180;
+    const to = ((center + 38 * dir) * Math.PI) / 180;
+    g.beginPath();
+    g.arc(0, 0, radius, from, to, dir < 0);
+    g.strokePath();
+    // наконечник в конце дуги: по касательной в сторону движения
+    const px = Math.cos(to) * radius;
+    const py = Math.sin(to) * radius;
+    const tx = -Math.sin(to) * dir;
+    const ty = Math.cos(to) * dir;
+    const nx = Math.cos(to);
+    const ny = Math.sin(to);
+    g.fillTriangle(px + tx * 9, py + ty * 9, px + nx * 6, py + ny * 6, px - nx * 6, py - ny * 6);
+  }
+  return g;
+}
+
 /** Рисует башню (основание и ствол) в контейнере; возвращает ствол — он поворачивается на цель. */
 export function createTowerArt(scene: Phaser.Scene, parent: Phaser.GameObjects.Container, id: TowerId = 'pill'): Phaser.GameObjects.Container {
   const base = scene.add.graphics();
@@ -132,8 +156,9 @@ export class Tower {
     this.ring = scene.add.circle(0, 0, 44).setStrokeStyle(5, COLORS.loseLine, 1).setFillStyle().setVisible(false);
     this.container.add(this.ring);
     if (this.aimLine) {
-      // линия — под основанием башни
+      // линия — под основанием башни; стрелки поворота (влево/вправо на 45°) — над ней
       this.container.sendToBack(this.aimLine);
+      this.container.add(drawTurnArrows(scene));
       this.applyAim();
     }
     layer.add(this.container);
@@ -152,10 +177,10 @@ export class Tower {
     return aimAngle(this.aim);
   }
 
-  /** Повернуть луч на один шаг (45°) по часовой стрелке. Для башен без луча ничего не делает. */
-  rotateAim(): void {
+  /** Повернуть луч на один шаг (45°): dir 1 — по часовой стрелке, -1 — против. Для башен без луча ничего не делает. */
+  rotateAim(dir: 1 | -1 = 1): void {
     if (!this.isBeam) return;
-    this.aim = (this.aim + 1) % AIM_STEPS;
+    this.aim = (this.aim + dir + AIM_STEPS) % AIM_STEPS;
     this.applyAim();
     this.scene.tweens.add({ targets: this.container, scale: { from: 1.12, to: 1 }, duration: 140, ease: 'Quad.easeOut' });
   }

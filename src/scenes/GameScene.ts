@@ -651,13 +651,14 @@ export class GameScene extends Phaser.Scene {
     return this.towers.find((tower) => tower.col === col && tower.row === row) ?? null;
   }
 
-  /** Тап по карте: по башне с лучом — поворачиваем её на 45°; иначе, если выбрана башня, ставим её в клетку под пальцем. */
+  /** Тап по карте: по башне с лучом — поворачиваем её на 45° (по правой половине — по часовой, по левой — против); иначе, если выбрана башня, ставим её в клетку под пальцем. */
   private onTap(sx: number, sy: number): void {
     const world = this.rig.screenToWorld(sx, sy);
     const cell = worldToCell(world.x, world.y);
     const own = cell ? this.towerAt(cell[0], cell[1]) : null;
     if (own?.isBeam) {
-      own.rotateAim();
+      // правая половина башни — повернуть на 45° по часовой стрелке, левая — против
+      own.rotateAim(world.x < own.x ? -1 : 1);
       sfx.rotate();
       return;
     }

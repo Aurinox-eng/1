@@ -567,9 +567,13 @@ async function playGame(browser, baseUrl, profile, run) {
     const aimTower = async (st, tower, cell) => {
       const others = st.towers.filter((tw) => !(tw.col === cell.col && tw.row === cell.row));
       const best = WORLD.bestAim(tower.id, cell, true, WORLD.coverCounts(others));
-      const steps = (best.dir - tower.aim + AIM_STEPS) % AIM_STEPS;
+      // тап по правой половине башни — на 45° по часовой, по левой — против: идём в ту сторону, где шагов меньше
+      const cw = (best.dir - tower.aim + AIM_STEPS) % AIM_STEPS;
+      const steps = Math.min(cw, AIM_STEPS - cw);
+      const side = cw <= AIM_STEPS - cw ? 1 : -1;
       for (let k = 0; k < steps; k++) {
-        await input.tap(await cellPos(cell.col, cell.row));
+        const c = await cellPos(cell.col, cell.row);
+        await input.tap({ x: c.x + side * 8, y: c.y });
         await sleep(60);
       }
       if (steps === 0) return;
@@ -831,7 +835,7 @@ process.on('SIGINT', () => {
 });
 
 console.log(`Бот-замерщик: профили ${PROFILES.map((p) => PROFILE_TITLES[p]).join(', ')}; партий на профиль ${RUNS}; speed ${SPEED}; потолок ${MAX_GAME_SEC} игровых с; seed ${SEED}`);
-console.log(`  башни из config.ts${CFG_STRING ? ' с подменой --cfg' : ''}: ${KNOWN_TOWERS.map((id) => `${NAMES[id] ?? id} ${TABLE[id].price}₽/${TABLE[id].range}px`).join(', ')}`);
+console.log(`  башни из config.ts${CFG_STRING ? ' с подменой --cfg' : ''}: ${KNOWN_TOWERS.map((id) => `${NAMES[id] ?? id} ${TABLE[id].price}₽/${TABLE[id].targeting === 'beam' ? 'луч' : `${TABLE[id].range}px`}`).join(', ')}`);
 if (EXCLUDE.size) console.log(`  не строят: ${[...EXCLUDE].map((id) => NAMES[id] ?? id).join(', ')}`);
 if (CFG_STRING) console.log(`  подмена чисел (--cfg): ${CFG_STRING}`);
 if (SPEED > 2) console.log(`  ⚠ speed ${SPEED} выше 2: замеры грубее (кадры крупнее, бот тратит больше игрового времени на тап). Для итоговых чисел баланса используйте speed 2.`);
