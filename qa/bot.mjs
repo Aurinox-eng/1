@@ -5,16 +5,20 @@
  * машиночитаемый итог — qa/bot-results/<tag>.json (дописывается после каждой партии; в git не коммитить).
  *
  * Запуск (сначала `npm run build:qa`; если src новее dist-qa, скрипт остановится сам):
- *   node qa/bot.mjs [--profile=novice|average|strong|all] [--runs=N] [--speed=2] [--exclude=syrup,fizz,syringe,pill]
+ *   node qa/bot.mjs [--profile=novice|average|strong|expert|all] [--runs=N] [--speed=2] [--exclude=syrup,fizz,syringe,pill]
  *                   [--cfg=путь:число,...] [--tag=имя] [--seed=N] [--max-game-sec=1200] [--verbose] [--shots] [--help]
  *
  * Профили («игроки»; порядок покупок и выбор клеток — в makePlayer ниже):
  *   novice  («новичок»)  только Таблетки, клетки наугад (где хоть что-то видно с дорожки), не больше 6 башен, покупает, как только хватает.
  *   average («средний»)  по кругу [Таблетка, Таблетка, Сироп, Таблетка, Шипучка, Шприц], ждёт монет на очередную; клетка — наугад
  *                        из лучших 15 % по охвату дорожки (длина дорожки в радиусе башни).
- *   strong  («сильный»)  по кругу [Таблетка, Сироп, Шипучка, Шприц, Таблетка, Шипучка, Сироп, Шприц]; клетка — лучшая именно для этой
- *                        башни (охват с учётом того, сколько бактерий там проходит; Шипучка — где сходятся ветки; Шприц — длинные прямые
- *                        участки «впереди»), башни расставляет по всей сети, а не кучкой.
+ *   expert  («особо сильный»)  по кругу [Таблетка, Сироп, Шипучка, Шприц, Таблетка, Шипучка, Сироп, Шприц]; клетка — лучшая именно для
+ *                        этой башни (охват с учётом того, сколько бактерий там проходит; Шипучка — где сходятся ветки; Шприц — длинные
+ *                        прямые участки «впереди»), башни расставляет по всей сети, а не кучкой, копит на дорогую башню до 30 игровых секунд,
+ *                        решает каждые 2 с. ЭТО БЫВШИЙ «сильный» из кругов замеров 1–2 (до коммита с профилем expert): те же числа и поведение.
+ *   strong  («сильный»)  тот же порядок и та же оценка клеток, но с человеческими несовершенствами: решает реже (раз в 3 с), копит на
+ *                        дорогую башню только 8 с (потом берёт то, что по карману — больше дешёвых Таблеток), клетку берёт не самую лучшую,
+ *                        а наугад из лучших четырёх (не хуже 70 % от лучшей), оценка клеток «шумнее» (12 % вместо 3 %).
  *
  * Все решения принимаются не чаще, чем раз в 2 секунды ИГРОВОГО времени (как человек). Состояние опрашивается каждые ~120 мс реального времени.
  * Генератор случайных чисел бота — с --seed (игра сама случайна: путь на развилках выбирается наугад, поэтому нужно ≥ 10 партий на профиль).
@@ -41,10 +45,15 @@ import {
 
 // ------------------------------------------------------------------ параметры бота
 
-const DECIDE_EVERY_SEC = 2; // решения — не чаще, чем раз в столько секунд игрового времени
 const POLL_MS = 120; // опрос состояния, мс реального времени
 const VIEW_W = 1080; // окно карты (без правой панели), px экрана игры
-const PATIENCE_SEC = 30; // «сильный»: столько секунд игрового времени ждёт монет на дорогую приоритетную башню, потом берёт доступное
+const PATIENCE_SEC = 30; // «особо сильный»: столько секунд игрового времени ждёт монет на дорогую приоритетную башню, потом берёт доступное
+const STRONG_PATIENCE_SEC = 8; // «сильный»: ждёт монет на дорогую башню всего столько секунд (нетерпеливый: берёт доступное — больше дешёвых Таблеток)
+const STRONG_PICK_FROM = 4; // «сильный»: клетку берёт наугад из лучших четырёх …
+const STRONG_PICK_MIN_SHARE = 0.7; // … не хуже этой доли от оценки лучшей клетки
+const STRONG_NOISE = 0.12; // «сильный»: шум оценки клеток (доля), у «особо сильного» — EXPERT_NOISE
+const EXPERT_NOISE = 0.03;
+const DECIDE_EVERY = { novice: 2, average: 2, strong: 3, expert: 2 }; // как часто игрок принимает решения, игровых секунд (человек: сильный реагирует медленнее)
 const OVERLAP_DISCOUNT = 0.5; // «сильный»: охват, уже накрытый другой башней, ценится в столько раз (расставляет по сети, а не кучкой)
 const SYRUP_OVERLAP = 0.8; // …но замедляющей башне выгодно стоять там, где уже стреляют: скидка мягче
 const ADJACENT_FACTOR = 0.3; // «сильный»: клетка рядом (в том числе по диагонали) с уже стоящей башней ценится в столько раз
@@ -57,7 +66,7 @@ const STALL_SEC = 30; // игровое время не идёт столько 
 
 const NAMES = { pill: 'Таблетка', syrup: 'Сироп', fizz: 'Шипучка', syringe: 'Шприц' };
 const SHORT = { pill: 'Таб', syrup: 'Сир', fizz: 'Шип', syringe: 'Шпр' };
-const PROFILE_TITLES = { novice: 'новичок', average: 'средний', strong: 'сильный' };
+const PROFILE_TITLES = { novice: 'новичок', average: 'средний', strong: 'сильный', expert: 'особо сильный' };
 const PROFILE_IDS = Object.keys(PROFILE_TITLES);
 const AVERAGE_CYCLE = ['pill', 'pill', 'syrup', 'pill', 'fizz', 'syringe'];
 const STRONG_CYCLE = ['pill', 'syrup', 'fizz', 'syringe', 'pill', 'fizz', 'syrup', 'syringe'];
@@ -71,7 +80,7 @@ const HELP = `Бот-замерщик баланса: играет целые п
 
   node qa/bot.mjs [параметры]
 
-  --profile=novice|average|strong|all   кто играет (по умолчанию all)
+  --profile=novice|average|strong|expert|all   кто играет (по умолчанию all); expert — «особо сильный» (бывший «сильный» кругов 1–2)
   --runs=N                              партий на профиль (по умолчанию 10; для замера нужно не меньше 10)
   --speed=2                             ускорение игрового времени, 0.1…4 (по умолчанию 2). ВЫШЕ 2 ЗАМЕРЫ ГРУБЕЕ: годится для проб, не для итоговых чисел
   --exclude=syrup,fizz,syringe,pill     каких башен профили не строят (проверка «нужна ли башня»)
@@ -380,7 +389,11 @@ function makePlayer(profile, { world, rng, buttons }) {
     };
   }
 
-  // strong: строго по списку приоритетов; ждёт монет на очередную башню, но не дольше PATIENCE_SEC (тогда берёт первую доступную)
+  // expert / strong: строго по списку приоритетов; ждёт монет на очередную башню, но не дольше patience (тогда берёт первую доступную).
+  // expert — прежний «сильный» (кругов 1–2) без изменений; strong — то же с человеческими несовершенствами (см. шапку и константы STRONG_*)
+  const imperfect = profile === 'strong';
+  const patience = imperfect ? STRONG_PATIENCE_SEC : PATIENCE_SEC;
+  const noise = imperfect ? STRONG_NOISE : EXPERT_NOISE;
   let ptr = 0;
   let headSince = 0;
   let lastPtr = -1;
@@ -399,14 +412,20 @@ function makePlayer(profile, { world, rng, buttons }) {
       if (!order.length) return null;
       let chosen = null;
       if (view.coins >= TABLE[order[0].type].price) chosen = order[0];
-      else if (now - headSince >= PATIENCE_SEC) chosen = order.find((o) => view.coins >= TABLE[o.type].price) ?? null;
+      else if (now - headSince >= patience) chosen = order.find((o) => view.coins >= TABLE[o.type].price) ?? null;
       if (!chosen) return null;
-      let best = null;
+      const candidates = [];
       for (const c of view.free) {
         let v = world.strongScore(chosen.type, c, view.covCount);
         if (view.towers.some((tw) => Math.abs(tw.col - c.col) <= 1 && Math.abs(tw.row - c.row) <= 1)) v *= ADJACENT_FACTOR;
-        v *= 1 + 0.03 * rng(); // небольшой шум: идеально одинаковых партий не бывает
-        if (v > 0 && (!best || v > best.v)) best = { c, v };
+        v *= 1 + noise * rng(); // небольшой шум: идеально одинаковых партий не бывает
+        if (v > 0) candidates.push({ c, v });
+      }
+      candidates.sort((a, b) => b.v - a.v); // сортировка устойчивая: при равных оценках первой остаётся клетка с меньшим номером, как раньше
+      let best = candidates[0] ?? null;
+      if (imperfect && best) {
+        const pool = candidates.slice(0, STRONG_PICK_FROM).filter((x) => x.v >= STRONG_PICK_MIN_SHARE * best.v);
+        best = pool[Math.floor(rng() * pool.length)];
       }
       if (!best) {
         ptr = chosen.idx + 1; // клеток для этой башни нет — переходит к следующей в списке
@@ -630,7 +649,7 @@ async function playGame(browser, baseUrl, profile, run) {
           bad.add(choice.cell.key);
           s = await getState(page);
         }
-        nextDecisionAt = decisionStart + DECIDE_EVERY_SEC;
+        nextDecisionAt = decisionStart + DECIDE_EVERY[profile];
         continue;
       }
       await sleep(POLL_MS);
