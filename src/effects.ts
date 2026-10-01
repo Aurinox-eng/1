@@ -19,16 +19,17 @@ export class Effects {
   placements = 0;
   lifeLosses = 0;
   zaps = 0;
+  blasts = 0;
 
   constructor(
     private readonly scene: Phaser.Scene,
     private readonly layer: Phaser.GameObjects.Container,
   ) {}
 
-  /** Яркая круглая вспышка на месте попадания: быстро расширяется и гаснет. */
-  flash(x: number, y: number, radius: number): void {
+  /** Яркая круглая вспышка на месте попадания: быстро расширяется и гаснет (color — цвет вспышки; у сиропа оранжевая). */
+  flash(x: number, y: number, radius: number, color: number = COLORS.hit): void {
     this.flashes++;
-    const flash = this.scene.add.circle(x, y, radius, COLORS.hit, 1).setBlendMode(Phaser.BlendModes.ADD);
+    const flash = this.scene.add.circle(x, y, radius, color, 1).setBlendMode(Phaser.BlendModes.ADD);
     this.layer.add(flash);
     this.scene.tweens.add({ targets: flash, scale: 1.6, alpha: 0, duration: 180, onComplete: () => flash.destroy() });
   }
@@ -60,7 +61,7 @@ export class Effects {
   popup(x: number, y: number, text: string): void {
     this.popups++;
     const label = this.scene.add
-      .text(x, y - 20, text, {
+      .text(x + (Math.random() - 0.5) * 56, y - 20 - Math.random() * 26, text, {
         fontFamily: FONT,
         fontSize: '34px',
         fontStyle: 'bold',
@@ -73,7 +74,7 @@ export class Effects {
     this.layer.add(label);
     this.scene.tweens.add({
       targets: label,
-      y: y - 90,
+      y: y - 90 - Math.random() * 14,
       alpha: 0,
       duration: CONFIG.feedback.popupMs,
       ease: 'Cubic.easeOut',
@@ -87,6 +88,16 @@ export class Effects {
     const ring = this.scene.add.circle(x, y, 40).setStrokeStyle(5, COLORS.ghostEdge, 1).setFillStyle();
     this.layer.add(ring);
     this.scene.tweens.add({ targets: ring, scale: 2.4, alpha: 0, duration: 380, onComplete: () => ring.destroy() });
+  }
+
+  /** Взрыв шипучки: розовый круг радиуса взрыва вспыхивает и гаснет, по его краю расходится кольцо. */
+  blast(x: number, y: number, radius: number): void {
+    this.blasts++;
+    const disc = this.scene.add.circle(x, y, radius, COLORS.fizz, 0.28).setBlendMode(Phaser.BlendModes.ADD);
+    const ring = this.scene.add.circle(x, y, radius).setStrokeStyle(5, COLORS.fizz, 1).setFillStyle();
+    this.layer.add([disc, ring]);
+    this.scene.tweens.add({ targets: disc, scale: 1.12, alpha: 0, duration: 320, onComplete: () => disc.destroy() });
+    this.scene.tweens.add({ targets: ring, scale: 1.25, alpha: 0, duration: 380, onComplete: () => ring.destroy() });
   }
 
   /** Спора заглушила башню: красное кольцо расходится от башни. */

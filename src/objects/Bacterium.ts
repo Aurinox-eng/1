@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import { CONFIG } from '../config';
 import { EDGES_FROM } from '../level';
 import { pointAt, type Edge } from '../pathing';
+import { COLORS } from '../theme';
 import { drawBody, SPLITTER_LOBE_OFFSET } from './bacteriumArt';
 
 export type BacteriumKind = keyof typeof CONFIG.types;
@@ -42,6 +43,11 @@ export class Bacterium {
   readonly radius: number;
 
   private readonly baseSpeed: number;
+  /** Замедление от «Сиропа»: сколько секунд ещё действует и во сколько раз медленнее идёт (1 — не замедлена). */
+  private slowLeft = 0;
+  private slowBy = 1;
+  private slowRing: Phaser.GameObjects.Arc | null = null;
+  private readonly scene: Phaser.Scene;
   private readonly container: Phaser.GameObjects.Container;
   private readonly gfx: Phaser.GameObjects.Graphics;
   private readonly seed = Math.random() * Math.PI * 2;
@@ -59,6 +65,7 @@ export class Bacterium {
     edge: Edge,
     s = 0,
   ) {
+    this.scene = scene;
     this.kind = kind;
     const cfg = CONFIG.types[kind];
     this.maxHp = cfg.hp;
@@ -82,9 +89,39 @@ export class Bacterium {
     return this.edge.length - this.s + this.edge.remainingAtEnd;
   }
 
+  /** Идёт ли бактерия замедленной (попала под «Сироп»). */
+  get slowed(): boolean {
+    return this.slowLeft > 0;
+  }
+
+  /**
+   * Замедлить: идёт в `factor` раз медленнее `seconds` секунд. Повторное попадание не усиливает замедление (берётся сильнейшее)
+   * и продлевает время до `seconds`, но не суммируется.
+   */
+  slow(factor: number, seconds: number): void {
+    if (factor >= 1 || seconds <= 0 || this.hp <= 0) return;
+    this.slowBy = this.slowLeft > 0 ? Math.min(this.slowBy, factor) : factor;
+    this.slowLeft = Math.max(this.slowLeft, seconds);
+    if (!this.slowRing) {
+      this.slowRing = this.scene.add.circle(0, 0, this.radius + 8).setStrokeStyle(4, COLORS.syrup, 0.9).setFillStyle();
+      this.container.add(this.slowRing);
+    }
+    this.slowRing.setVisible(true);
+  }
+
   update(dt: number): void {
     const cfg = CONFIG.types[this.kind];
     let factor = 1;
+    if (this.slowLeft > 0) {
+      this.slowLeft -= dt;
+      if (this.slowLeft <= 0) {
+        this.slowLeft = 0;
+        this.slowBy = 1;
+        this.slowRing?.setVisible(false);
+      } else {
+        factor *= this.slowBy;
+      }
+    }
     if (cfg.dashEverySec > 0) {
       // Рывок — последние dashSec секунд каждого периода dashEverySec
       this.dashClock += dt;
@@ -93,7 +130,7 @@ export class Bacterium {
         this.dashing = dashing;
         this.container.setScale(1, dashing ? 1.22 : 1);
       }
-      if (dashing) factor = cfg.dashFactor;
+      if (dashing) factor *= cfg.dashFactor;
     }
     this.advance(this.baseSpeed * factor * dt);
   }

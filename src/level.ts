@@ -66,6 +66,27 @@ for (const edge of EDGES) edge.remainingAtEnd = nodeRemaining(edge.to);
 
 export const cellKey = (col: number, row: number): string => `${col},${row}`;
 
+/**
+ * «Расстояние до организма по дорожкам» для точки мира: берётся ближайшая к ней точка сети дорожек и считается, сколько
+ * пикселей от неё до организма по самому короткому пути. По этому числу башни отличают «вперёд» (бактериям до организма
+ * дальше, чем башне — они ещё не дошли) от «назад» (ближе — уже прошли).
+ */
+export function remainingNear(x: number, y: number): number {
+  let best = Infinity;
+  let bestRemaining = 0;
+  for (const edge of EDGES) {
+    for (let i = 0; i < edge.pts.length; i++) {
+      const d = Math.hypot(edge.pts[i].x - x, edge.pts[i].y - y);
+      if (d < best) {
+        best = d;
+        bestRemaining = edge.length - edge.cum[i] + edge.remainingAtEnd;
+      }
+    }
+  }
+  return bestRemaining;
+}
+
+
 /** Клетки, задетые дорожкой (центр клетки ближе к дорожке, чем полширины дорожки + 0,45 клетки): башни там ставить нельзя.
  *  Запас 0,45 клетки = полкаймы дорожки + радиус основания башни + зазор, поэтому башня не заходит на полосу. */
 export const PATH_TILES: ReadonlySet<string> = (() => {

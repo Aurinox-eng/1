@@ -16,8 +16,14 @@ const ru = {
   towerPill: 'Таблетка',
   towerSyrup: 'Сироп',
   towerFizz: 'Шипучка',
-  towerCapsule: 'Капсула',
-  locked: 'закрыто',
+  towerSyringe: 'Шприц',
+  tagPill: 'по радиусу',
+  tagSyrup: 'замедляет',
+  tagFizz: 'по площади',
+  tagSyringe: 'насквозь',
+  infoSyrup: 'Сироп: попавшая бактерия идёт на {pct} % медленнее {sec} с',
+  infoFizz: 'Шипучка: взрыв задевает всех бактерий в круге',
+  infoSyringe: 'Шприц: игла насквозь, бьёт только тех, кто не дошёл до башни',
   hintPlace: 'Выберите башню справа и тапните по свободной клетке',
   hintNoCoins: 'Не хватает монет',
   hintCantBuild: 'Здесь нельзя ставить башню',
@@ -45,8 +51,14 @@ const en: Record<TextKey, string> = {
   towerPill: 'Pill',
   towerSyrup: 'Syrup',
   towerFizz: 'Fizz',
-  towerCapsule: 'Capsule',
-  locked: 'locked',
+  towerSyringe: 'Syringe',
+  tagPill: 'in range',
+  tagSyrup: 'slows',
+  tagFizz: 'area blast',
+  tagSyringe: 'pierces',
+  infoSyrup: 'Syrup: a hit bacterium moves {pct}% slower for {sec} s',
+  infoFizz: 'Fizz: the blast hits every bacterium in the circle',
+  infoSyringe: "Syringe: needle goes through; hits only bacteria not yet past it",
   hintPlace: 'Pick a tower on the right, then tap an empty cell',
   hintNoCoins: 'Not enough coins',
   hintCantBuild: "You can't build here",
@@ -64,6 +76,12 @@ const en: Record<TextKey, string> = {
 };
 
 const TEXTS: Record<Lang, Record<TextKey, string>> = { ru, en };
+
+/** Число для текста: по-русски с десятичной запятой («2,5»), по-английски с точкой. */
+export function num(n: number): string {
+  const text = String(n);
+  return getLang() === 'ru' ? text.replace('.', ',') : text;
+}
 
 /** Возвращает текст на текущем языке. `vars` подставляет значения вместо {имя}. */
 export function t(key: TextKey, vars?: Record<string, string | number>): string {
