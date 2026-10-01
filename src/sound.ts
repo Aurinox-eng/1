@@ -69,9 +69,18 @@ class Sfx {
     this.played++;
   }
 
-  /** Выстрел башни: короткий тихий «пуф» (выстрелов много, поэтому тише остальных звуков). */
-  shoot(): void {
-    this.tone({ from: 300, to: 180, ms: 60, type: 'triangle', gain: 0.35 });
+  /** Выстрел башни: короткий тихий «пуф» (выстрелов много, поэтому тише остальных звуков). У каждой башни свой тон. */
+  shoot(tower: 'pill' | 'syrup' | 'fizz' | 'syringe' = 'pill'): void {
+    if (tower === 'syrup') this.tone({ from: 220, to: 330, ms: 90, type: 'sine', gain: 0.45 });
+    else if (tower === 'fizz') this.tone({ from: 160, to: 90, ms: 110, type: 'triangle', gain: 0.5 });
+    else if (tower === 'syringe') this.tone({ from: 1500, to: 900, ms: 70, type: 'sawtooth', gain: 0.18 });
+    else this.tone({ from: 300, to: 180, ms: 60, type: 'triangle', gain: 0.35 });
+  }
+
+  /** Взрыв шипучки: низкий «бум» с шипением. */
+  blast(): void {
+    this.tone({ from: 140, to: 50, ms: 220, type: 'sawtooth', gain: 0.6 });
+    this.tone({ from: 900, to: 300, ms: 150, type: 'square', gain: 0.15, delayMs: 20 });
   }
 
   /** Попадание, не добившее бактерию: короткий «тик». Тон зависит от типа (бронированная — глухой «клац»). */

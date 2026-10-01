@@ -25,6 +25,11 @@
  */
 import { applyConfigOverrides } from './debug';
 
+/** Как башня бьёт (см. таблицу башен ниже). */
+export type Targeting = 'radius' | 'area' | 'line';
+/** Куда смотрит башня: любых в радиусе, только «вперёд» (ещё не дошли до башни) или только «назад» (уже прошли). */
+export type TowerSide = 'both' | 'forward' | 'back';
+
 export const CONFIG = {
   // ------------------------------------------------------------
   //  ЭКРАН И КАРТА
@@ -73,32 +78,89 @@ export const CONFIG = {
     start: 3,
   },
   economy: {
-    /** Сколько монет у игрока в начале уровня (хватает на две башни «Таблетка»). */
-    startCoins: 120,
+    /** Сколько монет у игрока в начале уровня (хватает на три башни «Таблетка»). Было 120: по замеру бота в первых волнах не хватало
+     *  башен, и «средний» игрок проигрывал на 2-й волне в 5 партиях из 10. */
+    startCoins: 150,
     /** Доля цены, которая возвращается при продаже башни (продажа появится позже). */
     sellRefund: 0.7,
   },
 
   // ------------------------------------------------------------
-  //  БАШНИ (таблица: одна строка — одна башня)
+  //  БАШНИ (таблица: одна строка — одна башня; новая башня = новая строка)
   // ------------------------------------------------------------
   //  Колонки:
   //   price          — цена в монетах
   //   range          — радиус стрельбы, пикселей (клетка = 103 px, то есть 200 ≈ две клетки)
-  //   damage         — сколько HP снимает один выстрел
+  //   damage         — сколько HP снимает один выстрел (каждой задетой бактерии)
   //   cooldownMs     — пауза между выстрелами, мс
   //   projectileSpeed— скорость снаряда, пикселей в секунду
-  //   targeting      — способ стрельбы. Сейчас есть только 'radius' (бьёт любую бактерию в радиусе, выбирает
-  //                    ту, что ближе всех к организму). Другие способы (по площади, одна цель, вперёд, назад…) — этап 3.
+  //  Способ стрельбы собирается из двух колонок:
+  //   targeting — КАК бьёт:
+  //     'radius' — каждый выстрел по одной бактерии из тех, что в радиусе (выбирается ближайшая к организму);
+  //     'area'   — снаряд летит в цель и взрывается: урон ВСЕМ в круге blastRadius вокруг места взрыва;
+  //     'line'   — игла летит от башни через цель НАСКВОЗЬ и бьёт всех, кого заденет по пути (длина — radius).
+  //   side — КУДА смотрит. «Вперёд/назад» считается по дорожкам: у клетки башни и у бактерии есть «расстояние до организма».
+  //     'both'    — бьёт любых бактерий в радиусе;
+  //     'forward' — только тех, кому до организма дальше, чем башне (ещё не дошли до башни — башня «встречает»);
+  //     'back'    — только тех, кому ближе (уже прошли башню — башня «догоняет»).
+  //  Особые свойства (0 или 1 — свойства нет):
+  //   blastRadius — радиус взрыва, пикселей (только 'area')
+  //   slowFactor, slowSec — попавшая бактерия идёт в slowFactor раз медленнее (0.5 = вдвое) slowSec секунд;
+  //                         повторное попадание не усиливает замедление, а продлевает его до slowSec
   towers: {
-    /** Таблетка — базовая башня: дёшево, стреляет по радиусу. */
+    /** Таблетка — базовая башня: дёшево, бьёт одну бактерию в радиусе. */
     pill: {
       price: 50,
       range: 200,
       damage: 1,
       cooldownMs: 1000,
       projectileSpeed: 620,
-      targeting: 'radius' as 'radius',
+      targeting: 'radius' as Targeting,
+      side: 'both' as TowerSide,
+      blastRadius: 0,
+      slowFactor: 1,
+      slowSec: 0,
+    },
+    /** Сироп — замедляющая: попавшая бактерия идёт вдвое медленнее 2,5 секунды. Бьёт редко и слабо, зато держит толпу под огнём других башен. */
+    syrup: {
+      price: 70,
+      range: 190,
+      damage: 1,
+      cooldownMs: 1500,
+      projectileSpeed: 560,
+      targeting: 'radius' as Targeting,
+      side: 'both' as TowerSide,
+      blastRadius: 0,
+      slowFactor: 0.5,
+      slowSec: 2.5,
+    },
+    /** Шипучка — взрывная: медленный снаряд, взрыв задевает всех в круге. Хороша против толп. Урон 2 (было 1): по замеру бота круга 3 без неё
+     *  партия шла так же хорошо — при 1 урона она не окупала цену 120 против двух Таблеток. */
+    fizz: {
+      price: 120,
+      range: 210,
+      damage: 2,
+      cooldownMs: 2200,
+      projectileSpeed: 420,
+      targeting: 'area' as Targeting,
+      side: 'both' as TowerSide,
+      blastRadius: 85,
+      slowFactor: 1,
+      slowSec: 0,
+    },
+    /** Шприц — пробивающая: дальняя, игла летит насквозь и бьёт всех на линии; стреляет только «вперёд» (по тем, кто ещё не дошёл до башни).
+     *  Урон 2 (было 1): по замеру бота круга 3 башня была лишней (см. Шипучку). */
+    syringe: {
+      price: 100,
+      range: 260,
+      damage: 2,
+      cooldownMs: 1600,
+      projectileSpeed: 1400,
+      targeting: 'line' as Targeting,
+      side: 'forward' as TowerSide,
+      blastRadius: 0,
+      slowFactor: 1,
+      slowSec: 0,
     },
   },
 
@@ -120,15 +182,15 @@ export const CONFIG = {
   //                                       секунд (каждую башню одна бактерия глушит один раз)
   types: {
     /** Кокк — зелёный круг. Базовый: 1 HP, медленный. */
-    coccus: { hp: 1, speedFactor: 0.8, reward: 10, lifeDamage: 1, radius: 30, length: 0, dashEverySec: 0, dashSec: 0, dashFactor: 1, splitCount: 0, splitGapPx: 0, disableSec: 0, disableRadius: 0 },
-    /** Палочка — синяя вытянутая капсула. 2 HP, идёт быстрее кокка и делает рывки. */
-    rod: { hp: 2, speedFactor: 1, reward: 20, lifeDamage: 1, radius: 22, length: 104, dashEverySec: 3, dashSec: 1, dashFactor: 2.5, splitCount: 0, splitGapPx: 0, disableSec: 0, disableRadius: 0 },
-    /** Делящаяся — жёлтая, с перетяжкой посередине. 2 HP. Уничтожена — на этом месте появляются два кокка. */
-    splitter: { hp: 2, speedFactor: 0.9, reward: 25, lifeDamage: 1, radius: 27, length: 0, dashEverySec: 0, dashSec: 0, dashFactor: 1, splitCount: 2, splitGapPx: 64, disableSec: 0, disableRadius: 0 },
-    /** Бронированная — фиолетовая, с толстой оболочкой. 6 HP, медленная, отнимает 2 жизни. */
-    armored: { hp: 6, speedFactor: 0.6, reward: 60, lifeDamage: 2, radius: 48, length: 0, dashEverySec: 0, dashSec: 0, dashFactor: 1, splitCount: 0, splitGapPx: 0, disableSec: 0, disableRadius: 0 },
-    /** Спора — маленькая красная. 1 HP, быстрая; проходя рядом с башней, глушит её на 3 секунды. */
-    spore: { hp: 1, speedFactor: 1.4, reward: 40, lifeDamage: 1, radius: 18, length: 0, dashEverySec: 0, dashSec: 0, dashFactor: 1, splitCount: 0, splitGapPx: 0, disableSec: 3, disableRadius: 150 },
+    coccus: { hp: 1, speedFactor: 0.8, reward: 8, lifeDamage: 1, radius: 30, length: 0, dashEverySec: 0, dashSec: 0, dashFactor: 1, splitCount: 0, splitGapPx: 0, disableSec: 0, disableRadius: 0 },
+    /** Палочка — синяя вытянутая капсула. 4 HP, идёт быстрее кокка и делает рывки. */
+    rod: { hp: 4, speedFactor: 1, reward: 10, lifeDamage: 1, radius: 22, length: 104, dashEverySec: 3, dashSec: 1, dashFactor: 2.5, splitCount: 0, splitGapPx: 0, disableSec: 0, disableRadius: 0 },
+    /** Делящаяся — жёлтая, с перетяжкой посередине. 3 HP. Уничтожена — на этом месте появляются два кокка. */
+    splitter: { hp: 3, speedFactor: 0.9, reward: 12, lifeDamage: 1, radius: 27, length: 0, dashEverySec: 0, dashSec: 0, dashFactor: 1, splitCount: 2, splitGapPx: 64, disableSec: 0, disableRadius: 0 },
+    /** Бронированная — фиолетовая, с толстой оболочкой. 14 HP, медленная, отнимает 2 жизни. */
+    armored: { hp: 14, speedFactor: 0.6, reward: 30, lifeDamage: 2, radius: 48, length: 0, dashEverySec: 0, dashSec: 0, dashFactor: 1, splitCount: 0, splitGapPx: 0, disableSec: 0, disableRadius: 0 },
+    /** Спора — маленькая красная. 2 HP, быстрая; проходя рядом с башней, глушит её на 3 секунды. */
+    spore: { hp: 2, speedFactor: 1.4, reward: 20, lifeDamage: 1, radius: 18, length: 0, dashEverySec: 0, dashSec: 0, dashFactor: 1, splitCount: 0, splitGapPx: 0, disableSec: 3, disableRadius: 150 },
   },
   bacteria: {
     /** Базовая скорость бактерий, пикселей в секунду (у каждого типа умножается на speedFactor).
@@ -157,18 +219,18 @@ export const CONFIG = {
      *  Новый тип в первую свою волну выходит ОДИН и первым (игра подсказывает сигналом и сообщением): кокк — волна 1,
      *  палочка — 3, делящаяся — 5, бронированная — 7, спора — 9. */
     list: [
-      { coccus: 6, rod: 0, splitter: 0, armored: 0, spore: 0 },
-      { coccus: 8, rod: 0, splitter: 0, armored: 0, spore: 0 },
-      { coccus: 6, rod: 1, splitter: 0, armored: 0, spore: 0 },
-      { coccus: 6, rod: 4, splitter: 0, armored: 0, spore: 0 },
+      { coccus: 4, rod: 0, splitter: 0, armored: 0, spore: 0 },
+      { coccus: 5, rod: 0, splitter: 0, armored: 0, spore: 0 },
+      { coccus: 5, rod: 1, splitter: 0, armored: 0, spore: 0 },
+      { coccus: 6, rod: 3, splitter: 0, armored: 0, spore: 0 },
       { coccus: 6, rod: 3, splitter: 1, armored: 0, spore: 0 },
-      { coccus: 6, rod: 4, splitter: 3, armored: 0, spore: 0 },
-      { coccus: 8, rod: 4, splitter: 2, armored: 1, spore: 0 },
-      { coccus: 8, rod: 4, splitter: 3, armored: 2, spore: 0 },
-      { coccus: 8, rod: 4, splitter: 3, armored: 2, spore: 1 },
-      { coccus: 10, rod: 5, splitter: 4, armored: 3, spore: 3 },
-      { coccus: 10, rod: 6, splitter: 5, armored: 3, spore: 5 },
-      { coccus: 12, rod: 6, splitter: 6, armored: 4, spore: 6 },
+      { coccus: 8, rod: 4, splitter: 3, armored: 0, spore: 0 },
+      { coccus: 10, rod: 5, splitter: 3, armored: 2, spore: 0 },
+      { coccus: 12, rod: 7, splitter: 4, armored: 3, spore: 0 },
+      { coccus: 14, rod: 8, splitter: 5, armored: 4, spore: 2 },
+      { coccus: 18, rod: 10, splitter: 7, armored: 6, spore: 5 },
+      { coccus: 20, rod: 12, splitter: 9, armored: 7, spore: 7 },
+      { coccus: 24, rod: 14, splitter: 11, armored: 9, spore: 11 },
     ] as Partial<Record<'coccus' | 'rod' | 'splitter' | 'armored' | 'spore', number>>[],
   },
 

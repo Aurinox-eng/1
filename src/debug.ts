@@ -8,6 +8,7 @@
  *   http://localhost:5173/?qa&speed=4    — то же, но игровое время идёт в 4 раза быстрее
  *   http://localhost:5173/?qa&cfg=bacteria.baseSpeed:60,towers.pill.cooldownMs:300,economy.startCoins:500
  *                                        — временно подменяет числа из config.ts (для подбора баланса)
+ *   http://localhost:5173/?qa&canvas     — рисовать через canvas вместо WebGL (быстрее на слабой машине без видеокарты; для бота баланса)
  *   http://localhost:5173/?lang=en       — принудительно выбирает язык (проверка переводов)
  */
 /** Разрешён ли режим проверки в этой сборке (в игровой сборке — всегда false). */
@@ -32,10 +33,12 @@ export interface DebugSnapshot {
   kills: number;
   /** Сколько бактерий дошло до организма. */
   leaked: number;
-  /** Какие типы бактерий уже появлялись (в порядке появления); сколько делящихся распалось; сколько раз спора заглушила башню. */
+  /** Какие типы бактерий уже появлялись (в порядке появления); сколько делящихся распалось; сколько раз спора заглушила башню;
+   *  сколько раз «Сироп» замедлил бактерию. */
   introduced: string[];
   splits: number;
   disables: number;
+  slows: number;
   /** Сколько выстрелов сделано башнями. */
   shots: number;
   elapsed: number;
@@ -51,17 +54,37 @@ export interface DebugSnapshot {
   camera: { zoom: number; cx: number; cy: number; zoomMin: number; zoomMax: number };
   /** Выбрана ли башня на панели (её название) и цена. */
   selected: string | null;
-  /** Поставленные башни: клетка и центр в пикселях мира; заглушена ли (спорой). */
-  towers: { id: string; col: number; row: number; x: number; y: number; disabled: boolean }[];
-  /** Бактерии: центр в пикселях мира, радиус, номер ребра дорожки и пройденный по нему путь, идёт ли рывок. */
-  bacteria: { id: number; x: number; y: number; r: number; kind: string; hp: number; maxHp: number; edge: number; s: number; dashing: boolean }[];
+  /** Поставленные башни: клетка и центр в пикселях мира; заглушена ли (спорой); расстояние до организма по дорожкам (для «вперёд/назад»). */
+  towers: { id: string; col: number; row: number; x: number; y: number; disabled: boolean; remaining: number }[];
+  /** Бактерии: центр в пикселях мира, радиус, номер ребра дорожки и пройденный по нему путь, идёт ли рывок, замедлена ли («Сироп»),
+   *  сколько пикселей осталось до организма по самому короткому пути. */
+  bacteria: {
+    id: number;
+    x: number;
+    y: number;
+    r: number;
+    kind: string;
+    hp: number;
+    maxHp: number;
+    edge: number;
+    s: number;
+    dashing: boolean;
+    slowed: boolean;
+    remaining: number;
+  }[];
+  /** Снаряды и иглы в полёте. */
   projectiles: number;
-  /** Где на экране игры кнопки панели (центры) и сколько жизней нарисовано. */
-  ui: { towerButton: { x: number; y: number; w: number; h: number }; pauseButton: { x: number; y: number }; lives: number };
+  /** Где на экране игры кнопки панели (центры) и сколько жизней нарисовано: towerButton — первая башня (Таблетка), towerButtons — все. */
+  ui: {
+    towerButton: { x: number; y: number; w: number; h: number };
+    towerButtons: { id: string; x: number; y: number; w: number; h: number }[];
+    pauseButton: { x: number; y: number };
+    lives: number;
+  };
   /** Сколько обработчиков нажатия навешено на сцену (при перезапуске не должно расти — иначе утечка). */
   pointerListeners: number;
-  /** Сколько раз сработали вспышка, частицы, «+монеты», кольцо постановки, красная вспышка потери жизни и кольцо глушения башни. */
-  effects: { flashes: number; bursts: number; popups: number; placements: number; lifeLosses: number; zaps: number };
+  /** Сколько раз сработали вспышка, частицы, «+монеты», кольцо постановки, красная вспышка потери жизни, кольцо глушения башни и взрыв шипучки. */
+  effects: { flashes: number; bursts: number; popups: number; placements: number; lifeLosses: number; zaps: number; blasts: number };
   /** Звук: состояние аудио («running» — играет) и сколько звуков сыграно с загрузки страницы. */
   sound: { state: string; played: number };
 }

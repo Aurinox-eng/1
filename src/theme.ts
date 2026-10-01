@@ -41,6 +41,14 @@ export const COLORS = {
   /** Башня. */
   tower: 0x2c4a7c,
   towerEdge: 0x8fb0e6,
+  /** Сироп (оранжевый: замедление), шипучка (розовая: взрыв), шприц (светлый с бирюзовой иглой: пробивание). */
+  syrup: 0xff9f43,
+  syrupDark: 0xc96a12,
+  fizz: 0xff5fa8,
+  fizzDark: 0xb02a6a,
+  syringe: 0xe8f1ff,
+  syringeEdge: 0x9fb4d8,
+  needle: 0x5fe3ff,
   /** «Призрак» башни и её радиус при выборе клетки. */
   ghost: 0x74b8ff,
   ghostEdge: 0x9fd0ff,
@@ -64,6 +72,7 @@ export const TEXT_COLORS = {
   accent: '#ffd84d',
   stroke: '#0b1020',
   dim: '#4a5c82',
+  soft: '#9fb3d9',
   bad: '#ff6b7a',
 } as const;
 

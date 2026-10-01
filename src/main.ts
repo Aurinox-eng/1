@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { CONFIG } from './config';
+import { QA_MODE } from './debug';
 import { t } from './i18n';
 import { getLang, setLang } from './lang';
 import { GameScene } from './scenes/GameScene';
@@ -11,8 +12,12 @@ document.title = t('gameTitle');
 const rotateText = document.getElementById('rotate-text');
 if (rotateText) rotateText.textContent = t('rotatePhone');
 
+// Режим проверки (?qa&canvas, только в тестовой сборке и dev): рисовать через canvas вместо WebGL — на слабом контейнере без видеокарты
+// это втрое быстрее, бот баланса замеряет партии быстрее. В игровой сборке параметр не работает.
+const useCanvas = QA_MODE && new URLSearchParams(window.location.search).has('canvas');
+
 const game = new Phaser.Game({
-  type: Phaser.AUTO,
+  type: useCanvas ? Phaser.CANVAS : Phaser.AUTO,
   parent: 'game',
   width: CONFIG.screen.width,
   height: CONFIG.screen.height,

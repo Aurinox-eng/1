@@ -1,7 +1,7 @@
 /**
  * Общие функции для проверок: запуск браузера и локального сервера, ввод (мышь, касания, щипок),
  * данные уровня (дорожки) и снятие цвета пикселей со скриншота.
- * Используются скриптом smoke.mjs (проверка + скриншоты). Бота баланса пока нет (этап 3).
+ * Используются скриптами smoke.mjs (проверка + скриншоты) и bot.mjs (бот-замерщик баланса).
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -162,6 +162,40 @@ export function readWaveList() {
     for (const [, key, value] of m[1].matchAll(/(\w+):\s*(-?[\d.]+)/g)) row[key] = Number(value);
     return row;
   });
+}
+
+/**
+ * Таблица башен из src/config.ts (раздел `towers`): { id: { price, range, damage, cooldownMs, projectileSpeed, blastRadius,
+ * slowFactor, slowSec, targeting, side } } в порядке строк. Читает числа и строки в одинарных кавычках из каждой строки таблицы
+ * (комментарии пропускает). Бот баланса берёт отсюда цены и радиусы (подмену `?cfg=towers.<id>.<ключ>:<число>` он накладывает сам).
+ */
+export function readTowerTable() {
+  const src = readSource('src/config.ts');
+  const start = /\btowers:\s*\{/.exec(src);
+  if (!start) throw new Error('В config.ts нет раздела «towers»');
+  let depth = 0;
+  let end = -1;
+  for (let i = start.index + start[0].length - 1; i < src.length; i++) {
+    if (src[i] === '{') depth++;
+    else if (src[i] === '}' && --depth === 0) {
+      end = i;
+      break;
+    }
+  }
+  if (end < 0) throw new Error('Не нашёл конец раздела «towers» в config.ts');
+  const block = src
+    .slice(start.index + start[0].length, end)
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/\/\/[^\n]*/g, '');
+  const table = {};
+  for (const m of block.matchAll(/(\w+):\s*\{([^{}]*)\}/g)) {
+    const row = {};
+    for (const [, key, value] of m[2].matchAll(/(\w+):\s*(-?[\d.]+)/g)) row[key] = Number(value);
+    for (const [, key, value] of m[2].matchAll(/(\w+):\s*'([^']*)'/g)) row[key] = value;
+    table[m[1]] = row;
+  }
+  if (!Object.keys(table).length) throw new Error('В разделе «towers» config.ts не нашёл ни одной башни');
+  return table;
 }
 
 /**
