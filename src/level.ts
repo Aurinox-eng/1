@@ -109,6 +109,25 @@ export const PATH_TILES: ReadonlySet<string> = (() => {
   return tiles;
 })();
 
+/**
+ * Закрытые клетки: не на дорожке, но дальше `CONFIG.map.buildMaxDistPx` от неё — башня там ничего бы не достала.
+ * Рисуются тёмными (штриховка), ставить башни нельзя.
+ */
+export const BLOCKED_TILES: ReadonlySet<string> = (() => {
+  const limit = CONFIG.map.buildMaxDistPx;
+  const tiles = new Set<string>();
+  for (let col = 0; col < LEVEL.cols; col++) {
+    for (let row = 0; row < LEVEL.rows; row++) {
+      if (PATH_TILES.has(cellKey(col, row))) continue;
+      const center = tileCenter(col, row);
+      let nearest = Infinity;
+      for (const edge of EDGES) for (const p of edge.pts) nearest = Math.min(nearest, Math.hypot(p.x - center.x, p.y - center.y));
+      if (nearest > limit) tiles.add(cellKey(col, row));
+    }
+  }
+  return tiles;
+})();
+
 /** Клетка под точкой мира или null, если точка вне сетки (например, в зоне организма). */
 export function worldToCell(x: number, y: number): [number, number] | null {
   const { orgW, tile } = CONFIG.map;

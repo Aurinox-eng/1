@@ -4,7 +4,7 @@ import { CONFIG } from '../config';
 import { exposeDebug, TIME_SCALE, type DebugSnapshot } from '../debug';
 import { Effects } from '../effects';
 import { num, t, type TextKey } from '../i18n';
-import { EDGES, ENTRANCE_EDGES, LEVEL, PATH_TILES, WORLD, cellKey, worldToCell } from '../level';
+import { BLOCKED_TILES, EDGES, ENTRANCE_EDGES, LEVEL, PATH_TILES, WORLD, cellKey, worldToCell } from '../level';
 import { isPortraitPhone } from '../orientation';
 import { addMap } from '../mapArt';
 import { MapGestures } from '../mapGestures';
@@ -53,6 +53,8 @@ export class GameScene extends Phaser.Scene {
   private shots = 0;
   private slows = 0;
   private spawned = 0;
+  /** Скорость игры, выбранная игроком кнопкой (1, 2, 3 …): множитель времени сверх тестового `?speed`. */
+  private userSpeed = 1;
 
   private bacteria: Bacterium[] = [];
   private towers: Tower[] = [];
@@ -161,8 +163,15 @@ export class GameScene extends Phaser.Scene {
 
     this.effects = new Effects(this, this.fxLayer);
     this.buildGhost();
-    this.panel = new Panel(this, { onTower: (id) => this.toggleTower(id), onPause: () => this.togglePause() });
+    this.userSpeed = this.loadSpeed();
+    this.panel = new Panel(this, {
+      onTower: (id) => this.toggleTower(id),
+      onPause: () => this.togglePause(),
+      onSpeed: () => this.cycleSpeed(),
+      onWave: () => this.startWaveNow(),
+    });
     this.panel.init();
+    this.panel.setSpeed(this.userSpeed);
     this.panel.setCoins(this.coins);
     this.updateHint();
     this.refreshPanel();
@@ -181,6 +190,10 @@ export class GameScene extends Phaser.Scene {
         edges: EDGES.map((e) => ({ id: e.id, from: e.from, to: e.to, length: e.length, pts: e.pts.map((p): [number, number] => [p.x, p.y]) })),
         entrances: ENTRANCE_EDGES.map((e) => e.id),
         exits: Object.keys(LEVEL.nodes).filter((n) => !EDGES.some((e) => e.from === n)),
+        blockedCells: [...BLOCKED_TILES].map((key): [number, number] => {
+          const [col, row] = key.split(',').map(Number);
+          return [col, row];
+        }),
       }),
       gameToClient: (gx, gy) => this.gameToClient(gx, gy),
       worldToClient: (wx, wy) => {
@@ -199,7 +212,7 @@ export class GameScene extends Phaser.Scene {
     this.updateChip(time / 1000);
     if (this.state !== 'playing' || isPortraitPhone()) return;
 
-    const dt = (Math.min(deltaMs, MAX_FRAME_MS) / 1000) * TIME_SCALE;
+    const dt = (Math.min(deltaMs, MAX_FRAME_MS) / 1000) * TIME_SCALE * this.userSpeed;
     this.elapsed += dt;
     this.updateWaves(dt);
 
@@ -474,7 +487,7 @@ export class GameScene extends Phaser.Scene {
   private tryPlace(id: TowerId, col: number, row: number): void {
     const cfg = CONFIG.towers[id];
     const key = cellKey(col, row);
-    if (PATH_TILES.has(key) || this.occupied.has(key)) {
+    if (PATH_TILES.has(key) || BLOCKED_TILES.has(key) || this.occupied.has(key)) {
       this.deny(t('hintCantBuild'));
       return;
     }
@@ -504,7 +517,7 @@ export class GameScene extends Phaser.Scene {
   private onHover(sx: number, sy: number): void {
     const world = this.rig.screenToWorld(sx, sy);
     const cell = this.selected ? worldToCell(world.x, world.y) : null;
-    if (!this.selected || !cell || PATH_TILES.has(cellKey(cell[0], cell[1])) || this.occupied.has(cellKey(cell[0], cell[1]))) {
+    if (!this.selected || !cell || PATH_TILES.has(cellKey(cell[0], cell[1])) || BLOCKED_TILES.has(cellKey(cell[0], cell[1])) || this.occupied.has(cellKey(cell[0], cell[1]))) {
       this.ghost.setVisible(false);
       return;
     }
@@ -533,6 +546,44 @@ export class GameScene extends Phaser.Scene {
   private setGhostArt(id: TowerId): void {
     this.ghostArt.removeAll(true);
     createTowerArt(this, this.ghostArt, id);
+  }
+
+  /** Скорость игры из прошлой партии (браузер запоминает выбор игрока); без хранилища — обычная. */
+  private loadSpeed(): number {
+    try {
+      const saved = Number(window.localStorage.getItem('pvb.speed'));
+      if (CONFIG.ui.speeds.includes(saved)) return saved;
+    } catch {
+      /* хранилище недоступно (приватное окно и т. п.) — играем на обычной скорости */
+    }
+    return CONFIG.ui.speeds[0];
+  }
+
+  /** Кнопка скорости: ×1 → ×2 → ×3 → ×1 …; выбор запоминается. */
+  private cycleSpeed(): void {
+    if (this.state !== 'playing' || isPortraitPhone()) return;
+    const speeds = CONFIG.ui.speeds;
+    this.userSpeed = speeds[(Math.max(0, speeds.indexOf(this.userSpeed)) + 1) % speeds.length];
+    this.panel.setSpeed(this.userSpeed);
+    try {
+      window.localStorage.setItem('pvb.speed', String(this.userSpeed));
+    } catch {
+      /* не страшно: просто не запомнится */
+    }
+  }
+
+  /** Кнопка «Начать волну»: пропускает ожидание до волны, за каждую пропущенную секунду — монеты. */
+  private startWaveNow(): void {
+    if (this.state !== 'playing' || isPortraitPhone()) return;
+    if (this.phase !== 'countdown' && this.phase !== 'pause') return;
+    this.coins += this.skipBonus();
+    this.panel.setCoins(this.coins);
+    this.phaseTimer = 0;
+  }
+
+  /** Сколько монет даст досрочный вызов волны прямо сейчас. */
+  private skipBonus(): number {
+    return Math.max(0, Math.floor(this.phaseTimer * CONFIG.waves.skipBonusPerSec));
   }
 
   /** Любое касание экрана: на паузе — продолжить, после конца уровня — начать заново. */
@@ -605,6 +656,7 @@ export class GameScene extends Phaser.Scene {
     if (key === this.panelKey) return;
     this.panelKey = key;
     this.panel.setWave(Math.max(1, this.waveIdx), this.waveTotal(), progress, next);
+    this.panel.setWaveButton(next !== null, next === null ? 0 : this.skipBonus());
   }
 
   /** Подсказка «◀ Организм»: показываем, когда организм за краем экрана; мигает, если бактерия близко к нему. */
@@ -638,6 +690,7 @@ export class GameScene extends Phaser.Scene {
       disables: this.disables,
       slows: this.slows,
       shots: this.shots,
+      speed: this.userSpeed,
       elapsed: this.elapsed,
       lang: document.documentElement.lang,
       renderer: this.game.renderer.type === Phaser.WEBGL ? 'webgl' : 'canvas',

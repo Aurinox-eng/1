@@ -19,7 +19,12 @@
       body {
         margin: 0;
         height: 100%;
-        background: #0b1020;
+        /* Тёмный фон с мягким свечением и узором из «клеточек»: он виден по краям, когда окно не 16:9 (вместо чёрных полос) */
+        background:
+          radial-gradient(ellipse at 50% 38%, rgba(60, 110, 200, 0.3), transparent 62%),
+          radial-gradient(circle at 12% 88%, rgba(255, 77, 94, 0.12), transparent 38%),
+          linear-gradient(180deg, #0d1730, #070e20);
+        background-color: #0b1020;
         overflow: hidden;
         /* Запрещаем прокрутку, зум и выделение на телефоне: игра управляется касаниями */
         touch-action: none;
@@ -34,8 +39,25 @@
         height: 100vh;
         height: 100dvh;
       }
+      body::before {
+        content: '';
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        background-image: radial-gradient(circle, rgba(120, 170, 255, 0.08) 2px, transparent 3px);
+        background-size: 46px 46px;
+      }
       canvas {
         display: block;
+      }
+      /* На компьютере игра — «окно» с рамкой и тенью на фоне; на телефоне она во весь экран без рамок */
+      @media (pointer: fine) and (min-width: 900px) {
+        canvas {
+          border-radius: 12px;
+          box-shadow:
+            0 0 0 2px rgba(90, 140, 220, 0.55),
+            0 22px 70px rgba(0, 0, 0, 0.7);
+        }
       }
       /* Телефон вертикально: игра горизонтальная, просим повернуть (текст подставляет main.ts; на компьютере не показывается) */
       #rotate {

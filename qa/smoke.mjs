@@ -523,7 +523,8 @@ async function profileLoadAndCamera(c) {
   // Карта: сколько клеток задето дорожкой (по заданию: 252 всего, 94 задеты, 158 свободны; правило — центр клетки ближе pathWidth/2 + 0,45·tile = 88,5 px к точке ребра). Если цифры не сойдутся — сигнал об ошибке правила или карты.
   const totalCells = LEVEL.cols * LEVEL.rows;
   const freeCells = totalCells - GEO.pathCellCount;
-  check(`${p} карта: клеток ${totalCells}, задето дорожкой ${GEO.pathCellCount} (ждали 94), свободных ${freeCells} (ждали 158)`, totalCells === 252 && GEO.pathCellCount === 94 && freeCells === 158, `по точкам рёбер: ${GEO.pathCellCount}; по отрезкам между точками: ${GEO.pathCellCountByCurve}`);
+  // этап 3б: 158 бывших свободных клеток делятся на открытые и закрытые (дальше buildMaxDistPx от дорожки) — сколько закрыто, считает игра
+  check(`${p} карта: клеток ${totalCells}, задето дорожкой ${GEO.lanePathCellCount} (ждали 94), закрыто как далёкие ${GEO.blockedCellCount}, свободных ${freeCells}`, totalCells === 252 && GEO.lanePathCellCount === 94 && GEO.blockedCellCount > 0 && freeCells === 158 - GEO.blockedCellCount, `по точкам рёбер: ${GEO.lanePathCellCount}; закрытых ${GEO.blockedCellCount}`);
   check(`${p} клетки для проверок подобраны (свободные ${Object.keys(FREE).length}, дорожные ${PATH.length})`, Object.keys(FREE).length === 7 && PATH.length === 3 && Object.values(FREE).every(([c, r]) => !GEO.isPathCell(c, r)) && PATH.every(([c, r]) => GEO.isPathCell(c, r)), `FREE ${Object.values(FREE).map((q) => `(${q})`).join(' ')}; PATH ${PATH.map((q) => `(${q})`).join(' ')}`);
 
   await sleep(400);

@@ -199,7 +199,7 @@ function makeRng(seedText) {
  *  inRange(range) — для каждой клетки список отрезков в радиусе range (кэш).
  */
 function buildWorld(graph, map, cols, rows) {
-  const geo = makeGraphGeometry(graph, map, cols, rows);
+  const geo = makeGraphGeometry(graph, map, cols, rows); // isPathCell: «не свободна» — дорожка или закрытая (далёкая) клетка
   const edges = graph.edges;
   const cum = new Map();
   for (const e of edges) {

@@ -2,8 +2,7 @@ import Phaser from 'phaser';
 import { CONFIG } from './config';
 import { t } from './i18n';
 import { getLang } from './lang';
-import { EDGES, LEVEL, PATH_TILES, WORLD, cellKey } from './level';
-import { tileCenter } from './pathing';
+import { BLOCKED_TILES, EDGES, LEVEL, PATH_TILES, WORLD, cellKey } from './level';
 import { FONT, MAP_COLORS } from './theme';
 
 /** Во сколько раз текстура плотнее мира: при самом сильном приближении карта остаётся чёткой. */
@@ -34,40 +33,100 @@ function paintMap(ctx: CanvasRenderingContext2D): void {
     for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
   };
 
-  ctx.fillStyle = MAP_COLORS.background;
+  // Фон: тёмно-синий с мягким светлым пятном в середине и россыпью «клеточек» (одинаковая для всех кусков: зерно фиксировано)
+  const bg = ctx.createRadialGradient(WORLD.w * 0.55, WORLD.h * 0.5, 80, WORLD.w * 0.55, WORLD.h * 0.5, WORLD.w * 0.75);
+  bg.addColorStop(0, '#1a2d52');
+  bg.addColorStop(1, '#0e1a33');
+  ctx.fillStyle = bg;
   ctx.fillRect(0, 0, WORLD.w, WORLD.h);
+  let seed = 12345;
+  const rnd = (): number => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  for (let i = 0; i < 260; i++) {
+    ctx.fillStyle = `rgba(120,170,255,${0.02 + rnd() * 0.035})`;
+    ctx.beginPath();
+    ctx.arc(orgW + rnd() * (WORLD.w - orgW), rnd() * WORLD.h, 4 + rnd() * 16, 0, Math.PI * 2);
+    ctx.fill();
+  }
 
-  // Клетки для башен — все, кроме дорожки
-  ctx.globalAlpha = 0.9;
-  ctx.fillStyle = MAP_COLORS.tissue;
-  ctx.strokeStyle = MAP_COLORS.tissueLine;
-  ctx.lineWidth = 1.5;
+  // Клетки: свободные (ткань с объёмом и «+») и закрытые (тёмные, со штриховкой: башня там ничего бы не достала)
   for (let c = 0; c < cols; c++) {
     for (let r = 0; r < rows; r++) {
-      if (PATH_TILES.has(cellKey(c, r))) continue;
-      roundRectPath(ctx, orgW + c * tile + 3, r * tile + 3, tile - 6, tile - 6, 10);
+      const key = cellKey(c, r);
+      if (PATH_TILES.has(key)) continue;
+      const x = orgW + c * tile + 3;
+      const y = r * tile + 3;
+      const size = tile - 6;
+      if (BLOCKED_TILES.has(key)) {
+        roundRectPath(ctx, x, y, size, size, 12);
+        ctx.fillStyle = '#0d1830';
+        ctx.fill();
+        ctx.save();
+        ctx.clip();
+        ctx.strokeStyle = 'rgba(70,105,165,0.22)';
+        ctx.lineWidth = 3;
+        for (let k = -size; k < size * 2; k += 16) {
+          ctx.beginPath();
+          ctx.moveTo(x + k, y);
+          ctx.lineTo(x + k - size, y + size);
+          ctx.stroke();
+        }
+        ctx.restore();
+        roundRectPath(ctx, x, y, size, size, 12);
+        ctx.strokeStyle = 'rgba(40,70,125,0.7)';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+        continue;
+      }
+      roundRectPath(ctx, x, y, size, size, 12);
+      const g = ctx.createLinearGradient(0, y, 0, y + size);
+      g.addColorStop(0, '#2a4c85');
+      g.addColorStop(1, '#1d3a6a');
+      ctx.fillStyle = g;
       ctx.fill();
+      ctx.strokeStyle = MAP_COLORS.tissueLine;
+      ctx.lineWidth = 1.8;
       ctx.stroke();
+      // светлая кромка сверху и «+» в центре
+      ctx.beginPath();
+      ctx.moveTo(x + 12, y + 2.5);
+      ctx.lineTo(x + size - 12, y + 2.5);
+      ctx.strokeStyle = 'rgba(190,220,255,0.16)';
+      ctx.lineWidth = 2;
+      ctx.stroke();
+      ctx.fillStyle = 'rgba(255,255,255,0.18)';
+      ctx.font = `28px ${FONT}`;
+      ctx.textAlign = 'center';
+      ctx.fillText('+', x + size / 2, y + size / 2 + 10);
     }
   }
-  ctx.globalAlpha = 1;
 
-  // Дорожки: сначала контуры всех рёбер, потом их внутренность — на стыках и слияниях не остаётся швов
+  // Дорожки: сначала контуры со свечением, потом их внутренность — на стыках и слияниях не остаётся швов
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
+  ctx.save();
+  ctx.shadowColor = 'rgba(110,170,255,0.35)';
+  ctx.shadowBlur = 18;
   ctx.strokeStyle = MAP_COLORS.laneOuter;
   ctx.lineWidth = pathWidth + 12;
   for (const edge of EDGES) {
     path(edge.pts);
     ctx.stroke();
   }
+  ctx.restore();
   ctx.strokeStyle = MAP_COLORS.lane;
   ctx.lineWidth = pathWidth;
   for (const edge of EDGES) {
     path(edge.pts);
     ctx.stroke();
   }
-  ctx.strokeStyle = 'rgba(255,255,255,0.07)';
+  // мягкий светлый «ручей» по центру дорожки и пунктир
+  ctx.strokeStyle = 'rgba(80,130,210,0.10)';
+  ctx.lineWidth = pathWidth * 0.5;
+  for (const edge of EDGES) {
+    path(edge.pts);
+    ctx.stroke();
+  }
+  ctx.strokeStyle = 'rgba(255,255,255,0.08)';
   ctx.lineWidth = 3;
   ctx.setLineDash([14, 12]);
   for (const edge of EDGES) {
@@ -77,7 +136,7 @@ function paintMap(ctx: CanvasRenderingContext2D): void {
   ctx.setLineDash([]);
 
   // Стрелки: куда идут бактерии (через каждые ~66 px вдоль ребра, по касательной)
-  ctx.strokeStyle = 'rgba(255,255,255,0.2)';
+  ctx.strokeStyle = 'rgba(255,255,255,0.22)';
   ctx.lineWidth = 4;
   for (const edge of EDGES) {
     let walked = 0;
@@ -103,24 +162,23 @@ function paintMap(ctx: CanvasRenderingContext2D): void {
     }
   }
 
-  // «+» в свободных клетках: здесь можно ставить башню
-  ctx.fillStyle = 'rgba(255,255,255,0.16)';
-  ctx.font = `30px ${FONT}`;
-  ctx.textAlign = 'center';
-  for (let c = 0; c < cols; c++) {
-    for (let r = 0; r < rows; r++) {
-      if (PATH_TILES.has(cellKey(c, r))) continue;
-      const p = tileCenter(c, r);
-      ctx.fillText('+', p.x, p.y + 10);
-    }
-  }
-
-  // Организм: тёмно-красная зона слева и красная линия на её краю
+  // Организм: тёмно-красная зона слева с «сосудами» и красная линия на её краю
   const grad = ctx.createLinearGradient(0, 0, orgW, 0);
   grad.addColorStop(0, MAP_COLORS.organismFrom);
   grad.addColorStop(1, MAP_COLORS.organismTo);
   ctx.fillStyle = grad;
   ctx.fillRect(0, 0, orgW, WORLD.h);
+  ctx.strokeStyle = 'rgba(255,120,140,0.14)';
+  ctx.lineWidth = 5;
+  for (let k = 0; k < 7; k++) {
+    ctx.beginPath();
+    for (let y = 0; y <= WORLD.h; y += 20) {
+      const x = 22 + (k % 3) * 38 + Math.sin(y / 70 + k * 1.7) * 14;
+      if (y === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+  }
   ctx.save();
   ctx.shadowColor = MAP_COLORS.loseLine;
   ctx.shadowBlur = 18 * DENSITY;
@@ -137,6 +195,13 @@ function paintMap(ctx: CanvasRenderingContext2D): void {
   ctx.textAlign = 'center';
   ctx.fillText(t('organism').toUpperCase(), 0, 0);
   ctx.restore();
+
+  // Лёгкая виньетка по краям карты: взгляд идёт к середине
+  const vg = ctx.createRadialGradient(WORLD.w * 0.55, WORLD.h * 0.5, WORLD.h * 0.45, WORLD.w * 0.55, WORLD.h * 0.5, WORLD.w * 0.72);
+  vg.addColorStop(0, 'rgba(0,0,0,0)');
+  vg.addColorStop(1, 'rgba(4,8,20,0.38)');
+  ctx.fillStyle = vg;
+  ctx.fillRect(orgW, 0, WORLD.w - orgW, WORLD.h);
 }
 
 /**
