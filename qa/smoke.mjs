@@ -39,7 +39,8 @@
  *   rotate                 телефон вертикально ↔ горизонтально (на ru и en): вертикально — подсказка «Поверните телефон», время стоит, тапы
  *                          игре не мешают; обратно — подсказка пропала, время идёт; на компьютере подсказки нет ни в каком окне
  *   production             ИГРОВАЯ сборка (dist, та, что уйдёт на Яндекс): режима проверки, подмены чисел и языка из адреса нет; игра при этом работает (башня ставится тапом)
- *   fullgame               ПОЛНАЯ партия на настоящих числах: 12 волн, скорость ×8, 16 башен вдоль сети (QA_FULL_TOWERS=N — другое число);
+ *   fullgame               ПОЛНАЯ партия на настоящих числах: 12 волн, скорость ×8, 40 башен вдоль сети (QA_FULL_TOWERS=N — другое число; башен много нарочно:
+ *                          проверка не должна краснеть от подбора баланса);
  *                          ждёт «победу», печатает заметку о реальном времени и потерях (ориентир баланса, не замер)
  * Дополнительно: --only=combat (или любое другое имя из списка) запускает один сценарий; для production нужна свежая
  * `npm run build`, для остальных — `npm run build:qa`.
@@ -2111,7 +2112,7 @@ function spreadCells(n, reach = 230) {
 
 async function runFullGame(browser, baseUrl) {
   const p = '[полная партия]';
-  const TOWERS = Number(process.env.QA_FULL_TOWERS) || 16;
+  const TOWERS = Number(process.env.QA_FULL_TOWERS) || 40;
   const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
   // Настоящие числа игры; подменяем только стартовые монеты: на все башни сразу
   const game = await openGame(context, baseUrl, p, { speed: 8, cfg: `economy.startCoins:${BASE.price * TOWERS}` });

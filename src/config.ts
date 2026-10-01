@@ -78,8 +78,9 @@ export const CONFIG = {
     start: 3,
   },
   economy: {
-    /** Сколько монет у игрока в начале уровня (хватает на две башни «Таблетка»). */
-    startCoins: 120,
+    /** Сколько монет у игрока в начале уровня (хватает на три башни «Таблетка»). Было 120: по замеру бота в первых волнах не хватало
+     *  башен, и «средний» игрок проигрывал на 2-й волне в 5 партиях из 10. */
+    startCoins: 150,
     /** Доля цены, которая возвращается при продаже башни (продажа появится позже). */
     sellRefund: 0.7,
   },
@@ -179,15 +180,15 @@ export const CONFIG = {
   //                                       секунд (каждую башню одна бактерия глушит один раз)
   types: {
     /** Кокк — зелёный круг. Базовый: 1 HP, медленный. */
-    coccus: { hp: 1, speedFactor: 0.8, reward: 10, lifeDamage: 1, radius: 30, length: 0, dashEverySec: 0, dashSec: 0, dashFactor: 1, splitCount: 0, splitGapPx: 0, disableSec: 0, disableRadius: 0 },
-    /** Палочка — синяя вытянутая капсула. 2 HP, идёт быстрее кокка и делает рывки. */
-    rod: { hp: 2, speedFactor: 1, reward: 20, lifeDamage: 1, radius: 22, length: 104, dashEverySec: 3, dashSec: 1, dashFactor: 2.5, splitCount: 0, splitGapPx: 0, disableSec: 0, disableRadius: 0 },
+    coccus: { hp: 1, speedFactor: 0.8, reward: 8, lifeDamage: 1, radius: 30, length: 0, dashEverySec: 0, dashSec: 0, dashFactor: 1, splitCount: 0, splitGapPx: 0, disableSec: 0, disableRadius: 0 },
+    /** Палочка — синяя вытянутая капсула. 3 HP, идёт быстрее кокка и делает рывки. */
+    rod: { hp: 3, speedFactor: 1, reward: 10, lifeDamage: 1, radius: 22, length: 104, dashEverySec: 3, dashSec: 1, dashFactor: 2.5, splitCount: 0, splitGapPx: 0, disableSec: 0, disableRadius: 0 },
     /** Делящаяся — жёлтая, с перетяжкой посередине. 2 HP. Уничтожена — на этом месте появляются два кокка. */
-    splitter: { hp: 2, speedFactor: 0.9, reward: 25, lifeDamage: 1, radius: 27, length: 0, dashEverySec: 0, dashSec: 0, dashFactor: 1, splitCount: 2, splitGapPx: 64, disableSec: 0, disableRadius: 0 },
-    /** Бронированная — фиолетовая, с толстой оболочкой. 6 HP, медленная, отнимает 2 жизни. */
-    armored: { hp: 6, speedFactor: 0.6, reward: 60, lifeDamage: 2, radius: 48, length: 0, dashEverySec: 0, dashSec: 0, dashFactor: 1, splitCount: 0, splitGapPx: 0, disableSec: 0, disableRadius: 0 },
+    splitter: { hp: 2, speedFactor: 0.9, reward: 12, lifeDamage: 1, radius: 27, length: 0, dashEverySec: 0, dashSec: 0, dashFactor: 1, splitCount: 2, splitGapPx: 64, disableSec: 0, disableRadius: 0 },
+    /** Бронированная — фиолетовая, с толстой оболочкой. 8 HP, медленная, отнимает 2 жизни. */
+    armored: { hp: 8, speedFactor: 0.6, reward: 30, lifeDamage: 2, radius: 48, length: 0, dashEverySec: 0, dashSec: 0, dashFactor: 1, splitCount: 0, splitGapPx: 0, disableSec: 0, disableRadius: 0 },
     /** Спора — маленькая красная. 1 HP, быстрая; проходя рядом с башней, глушит её на 3 секунды. */
-    spore: { hp: 1, speedFactor: 1.4, reward: 40, lifeDamage: 1, radius: 18, length: 0, dashEverySec: 0, dashSec: 0, dashFactor: 1, splitCount: 0, splitGapPx: 0, disableSec: 3, disableRadius: 150 },
+    spore: { hp: 1, speedFactor: 1.4, reward: 20, lifeDamage: 1, radius: 18, length: 0, dashEverySec: 0, dashSec: 0, dashFactor: 1, splitCount: 0, splitGapPx: 0, disableSec: 3, disableRadius: 150 },
   },
   bacteria: {
     /** Базовая скорость бактерий, пикселей в секунду (у каждого типа умножается на speedFactor).
@@ -216,18 +217,18 @@ export const CONFIG = {
      *  Новый тип в первую свою волну выходит ОДИН и первым (игра подсказывает сигналом и сообщением): кокк — волна 1,
      *  палочка — 3, делящаяся — 5, бронированная — 7, спора — 9. */
     list: [
-      { coccus: 6, rod: 0, splitter: 0, armored: 0, spore: 0 },
-      { coccus: 8, rod: 0, splitter: 0, armored: 0, spore: 0 },
-      { coccus: 6, rod: 1, splitter: 0, armored: 0, spore: 0 },
-      { coccus: 6, rod: 4, splitter: 0, armored: 0, spore: 0 },
+      { coccus: 4, rod: 0, splitter: 0, armored: 0, spore: 0 },
+      { coccus: 5, rod: 0, splitter: 0, armored: 0, spore: 0 },
+      { coccus: 5, rod: 1, splitter: 0, armored: 0, spore: 0 },
+      { coccus: 6, rod: 3, splitter: 0, armored: 0, spore: 0 },
       { coccus: 6, rod: 3, splitter: 1, armored: 0, spore: 0 },
-      { coccus: 6, rod: 4, splitter: 3, armored: 0, spore: 0 },
-      { coccus: 8, rod: 4, splitter: 2, armored: 1, spore: 0 },
-      { coccus: 8, rod: 4, splitter: 3, armored: 2, spore: 0 },
-      { coccus: 8, rod: 4, splitter: 3, armored: 2, spore: 1 },
-      { coccus: 10, rod: 5, splitter: 4, armored: 3, spore: 3 },
-      { coccus: 10, rod: 6, splitter: 5, armored: 3, spore: 5 },
-      { coccus: 12, rod: 6, splitter: 6, armored: 4, spore: 6 },
+      { coccus: 8, rod: 4, splitter: 3, armored: 0, spore: 0 },
+      { coccus: 10, rod: 5, splitter: 3, armored: 2, spore: 0 },
+      { coccus: 12, rod: 6, splitter: 4, armored: 3, spore: 0 },
+      { coccus: 14, rod: 7, splitter: 5, armored: 4, spore: 2 },
+      { coccus: 16, rod: 9, splitter: 7, armored: 5, spore: 5 },
+      { coccus: 18, rod: 10, splitter: 8, armored: 6, spore: 7 },
+      { coccus: 22, rod: 12, splitter: 10, armored: 8, spore: 10 },
     ] as Partial<Record<'coccus' | 'rod' | 'splitter' | 'armored' | 'spore', number>>[],
   },
 
