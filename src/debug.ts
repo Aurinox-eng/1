@@ -8,6 +8,7 @@
  *   http://localhost:5173/?qa&speed=4    — то же, но игровое время идёт в 4 раза быстрее
  *   http://localhost:5173/?qa&cfg=bacteria.baseSpeed:60,towers.pill.cooldownMs:300,economy.startCoins:500
  *                                        — временно подменяет числа из config.ts (для подбора баланса)
+ *   http://localhost:5173/?qa&canvas     — рисовать через canvas вместо WebGL (быстрее на слабой машине без видеокарты; для бота баланса)
  *   http://localhost:5173/?lang=en       — принудительно выбирает язык (проверка переводов)
  */
 /** Разрешён ли режим проверки в этой сборке (в игровой сборке — всегда false). */
