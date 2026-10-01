@@ -30,7 +30,8 @@
   6 — expert ×5 с `--exclude=syringe`, затем `--exclude=pill`. (В кругах 1–2 «strong» значил то, что теперь `expert`.)
 - **«Лестница сложности»** (подбор чисел без правки файла): те же профили на трёх уровнях прочности бактерий через `--cfg`:
   L0 — без `--cfg`; L1 — `--cfg=types.rod.hp:5,types.splitter.hp:4,types.armored.hp:18,types.spore.hp:3`;
-  L2 — `--cfg=types.rod.hp:6,types.splitter.hp:5,types.armored.hp:21,types.spore.hp:4`. Теги — `<профиль>-L0/L1/L2`.
+  L2 — `--cfg=types.rod.hp:6,types.splitter.hp:5,types.armored.hp:21,types.spore.hp:4`; L3 (вдвое прочнее L0) —
+  `--cfg=types.rod.hp:8,types.splitter.hp:6,types.armored.hp:28,types.spore.hp:5`. Теги — `<профиль>-L0/L1/L2/L3`.
 - Если бот менялся с прошлого круга (новый профиль и т. п.), чат сначала делает пробную партию `--profile=<профиль> --runs=1 --speed=4 --canvas`
   (≈ 1–3 минуты) и, если бот упал, присылает текст ошибки, не начиная основной прогон.
 - Формат ответа: «ЧАТ / КОММИТ / КОМАНДЫ / ИТОГОВАЯ ТАБЛИЦА БОТА (дословно) / ПАРТИИ (дословно) / ПРОБЛЕМЫ / НЕ УДАЛОСЬ».
