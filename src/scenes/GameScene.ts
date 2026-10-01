@@ -36,6 +36,11 @@ const NEW_TYPE_TEXT: Partial<Record<BacteriumKind, TextKey>> = {
   swarm: 'newTypeSwarm',
   runner: 'newTypeRunner',
   healer: 'newTypeHealer',
+  slick: 'newTypeSlick',
+  regen: 'newTypeRegen',
+  commander: 'newTypeCommander',
+  brood: 'newTypeBrood',
+  giant: 'newTypeGiant',
 };
 /** Сколько миллисекунд держится сообщение о новом типе. */
 const NEW_TYPE_TOAST_MS = 4200;
@@ -43,6 +48,8 @@ const NEW_TYPE_TOAST_MS = 4200;
 const BEAM_START_PX = 50;
 /** Во что распадается делящаяся (правило игры, не число баланса). */
 const SPLITS_INTO: BacteriumKind = 'coccus';
+/** Кого рожает матка (правило игры; сколько и как часто — в таблице типов). */
+const BREWS_INTO: BacteriumKind = 'swarm';
 
 /** Кто выходит следующим в волне: тип, вход (null — случайный) и сколько секунд ждать до следующего (в пачке — короткая пауза). */
 interface SpawnItem {
@@ -251,7 +258,9 @@ export class GameScene extends Phaser.Scene {
 
     this.updatePuddles(dt);
     this.applyHealing(dt);
+    this.applyHaste();
     for (const bacterium of this.bacteria) bacterium.update(dt);
+    this.updateBrood(dt);
     this.applySpores();
     for (const tower of this.towers) tower.update(dt, this.bacteria, (target, x, y) => this.fire(tower, target, x, y));
     this.updateProjectiles(dt);
@@ -296,8 +305,7 @@ export class GameScene extends Phaser.Scene {
   private startWave(): void {
     const w = CONFIG.waves;
     const i = this.waveIdx;
-    const total = this.waveTotal();
-    const k = total > 1 ? i / (total - 1) : 0;
+    const k = w.intervalRampWaves > 1 ? Math.min(1, i / (w.intervalRampWaves - 1)) : 1;
     this.waveInterval = w.intervalStartSec + (w.intervalEndSec - w.intervalStartSec) * k;
     // Новый тип выходит первым и в одном экземпляре (остальные такого же типа — потом, вперемешку с прочими)
     const all = this.waveKinds(i);
@@ -433,7 +441,7 @@ export class GameScene extends Phaser.Scene {
     if (this.puddles.length === 0) return;
     for (const bacterium of this.bacteria) {
       for (const puddle of this.puddles) {
-        if (!puddle.covers(bacterium)) continue;
+        if (!puddle.covers(bacterium) || CONFIG.types[bacterium.kind].slowImmune > 0) continue;
         if (!bacterium.slowed) this.slows++;
         bacterium.slow(puddle.slowFactor, puddle.slowSec);
       }
@@ -455,6 +463,37 @@ export class GameScene extends Phaser.Scene {
         if (Math.hypot(bacterium.x - healer.x, bacterium.y - healer.y) > healRadius) continue;
         bacterium.heal(healPerSec * dt);
       }
+    }
+  }
+
+  /** Командир: все остальные бактерии в его кольце идут быстрее (берётся сильнейшее из ускорений); выставляется заново каждый кадр. */
+  private applyHaste(): void {
+    for (const bacterium of this.bacteria) bacterium.haste = 1;
+    for (const commander of this.bacteria) {
+      const { hasteRadius, hasteFactor } = CONFIG.types[commander.kind];
+      if (hasteRadius <= 0 || commander.hp <= 0) continue;
+      for (const bacterium of this.bacteria) {
+        if (bacterium === commander) continue;
+        if (Math.hypot(bacterium.x - commander.x, bacterium.y - commander.y) > hasteRadius) continue;
+        bacterium.haste = Math.max(bacterium.haste, hasteFactor);
+      }
+    }
+  }
+
+  /** Матка: раз в brewEverySec секунд рожает brewCount бактерий роя на своём месте (чуть друг за другом). Рождённые в «вышло за волну» не считаются. */
+  private updateBrood(dt: number): void {
+    for (const mother of [...this.bacteria]) {
+      const { brewEverySec, brewCount } = CONFIG.types[mother.kind];
+      if (brewEverySec <= 0 || mother.hp <= 0) continue;
+      mother.brewClock += dt;
+      if (mother.brewClock < brewEverySec) continue;
+      mother.brewClock -= brewEverySec;
+      for (let i = 0; i < brewCount; i++) {
+        const child = new Bacterium(this, this.bacteriaLayer, BREWS_INTO, mother.edge, mother.s);
+        child.moveForward(i * CONFIG.types[BREWS_INTO].radius * 2);
+        this.bacteria.push(child);
+      }
+      this.effects.flash(mother.x, mother.y, mother.radius * 0.8, COLORS.egg);
     }
   }
 

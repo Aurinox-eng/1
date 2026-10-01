@@ -27,6 +27,8 @@ import { applyConfigOverrides } from './debug';
 
 /** Как башня бьёт (см. таблицу башен ниже). */
 export type Targeting = 'radius' | 'area' | 'puddle' | 'beam';
+/** Все типы бактерий (ключи таблицы `types`; нужен для таблицы волн — она описана раньше, чем сам список типов). */
+export type KindId = 'coccus' | 'rod' | 'splitter' | 'armored' | 'spore' | 'swarm' | 'runner' | 'healer' | 'slick' | 'regen' | 'commander' | 'brood' | 'giant';
 /** Куда смотрит башня: любых в радиусе, только «вперёд» (ещё не дошли до башни) или только «назад» (уже прошли). */
 export type TowerSide = 'both' | 'forward' | 'back';
 
@@ -215,23 +217,37 @@ export const CONFIG = {
   //                                       секунд (каждую башню одна бактерия глушит один раз)
   //   healRadius, healPerSec            — ЛЕЧЕНИЕ: бактерии в радиусе healRadius пикселей лечатся на healPerSec HP в секунду
   //   spawnGapSec                       — ПАЧКА: бактерии этого типа выходят подряд с такой паузой (секунд) и по одному входу
+  //   regenPerSec                       — САМОЛЕЧЕНИЕ: сколько HP в секунду бактерия восстанавливает сама (не выше полного)
+  //   hasteRadius, hasteFactor          — УСКОРЕНИЕ: остальные бактерии в радиусе hasteRadius пикселей идут в hasteFactor раз быстрее
+  //   slowImmune                        — 1: лужа Сиропа на эту бактерию не действует
+  //   brewEverySec, brewCount           — РОЖДЕНИЕ: раз в brewEverySec секунд рожает brewCount бактерий роя на своём месте
   types: {
     /** Кокк — зелёный круг. Базовый: 2 HP, медленный. */
-    coccus: { hp: 2, speedFactor: 0.8, reward: 5, lifeDamage: 1, radius: 30, length: 0, armor: 0, dashEverySec: 0, dashSec: 0, dashFactor: 1, splitCount: 0, splitGapPx: 0, disableSec: 0, disableRadius: 0, healRadius: 0, healPerSec: 0, spawnGapSec: 0 },
+    coccus: { hp: 2, speedFactor: 0.8, reward: 5, lifeDamage: 1, radius: 30, length: 0, armor: 0, dashEverySec: 0, dashSec: 0, dashFactor: 1, splitCount: 0, splitGapPx: 0, disableSec: 0, disableRadius: 0, healRadius: 0, healPerSec: 0, spawnGapSec: 0, regenPerSec: 0, hasteRadius: 0, hasteFactor: 1, slowImmune: 0, brewEverySec: 0, brewCount: 0 },
     /** Палочка — синяя вытянутая капсула. 5 HP, идёт быстрее кокка и делает рывки. */
-    rod: { hp: 5, speedFactor: 1, reward: 6, lifeDamage: 1, radius: 22, length: 104, armor: 0, dashEverySec: 3, dashSec: 1, dashFactor: 2.5, splitCount: 0, splitGapPx: 0, disableSec: 0, disableRadius: 0, healRadius: 0, healPerSec: 0, spawnGapSec: 0 },
+    rod: { hp: 5, speedFactor: 1, reward: 6, lifeDamage: 1, radius: 22, length: 104, armor: 0, dashEverySec: 3, dashSec: 1, dashFactor: 2.5, splitCount: 0, splitGapPx: 0, disableSec: 0, disableRadius: 0, healRadius: 0, healPerSec: 0, spawnGapSec: 0, regenPerSec: 0, hasteRadius: 0, hasteFactor: 1, slowImmune: 0, brewEverySec: 0, brewCount: 0 },
     /** Делящаяся — жёлтая, с перетяжкой посередине. 4 HP. Уничтожена — на этом месте появляются два кокка. */
-    splitter: { hp: 4, speedFactor: 0.9, reward: 8, lifeDamage: 1, radius: 27, length: 0, armor: 0, dashEverySec: 0, dashSec: 0, dashFactor: 1, splitCount: 2, splitGapPx: 64, disableSec: 0, disableRadius: 0, healRadius: 0, healPerSec: 0, spawnGapSec: 0 },
+    splitter: { hp: 4, speedFactor: 0.9, reward: 8, lifeDamage: 1, radius: 27, length: 0, armor: 0, dashEverySec: 0, dashSec: 0, dashFactor: 1, splitCount: 2, splitGapPx: 64, disableSec: 0, disableRadius: 0, healRadius: 0, healPerSec: 0, spawnGapSec: 0, regenPerSec: 0, hasteRadius: 0, hasteFactor: 1, slowImmune: 0, brewEverySec: 0, brewCount: 0 },
     /** Бронированная — фиолетовая, с толстой оболочкой. 20 HP, броня 2, медленная, отнимает 2 жизни. Таблетка (урон 1) почти не берёт — нужен сильный удар. */
-    armored: { hp: 20, speedFactor: 0.6, reward: 20, lifeDamage: 2, radius: 48, length: 0, armor: 2, dashEverySec: 0, dashSec: 0, dashFactor: 1, splitCount: 0, splitGapPx: 0, disableSec: 0, disableRadius: 0, healRadius: 0, healPerSec: 0, spawnGapSec: 0 },
+    armored: { hp: 20, speedFactor: 0.6, reward: 20, lifeDamage: 2, radius: 48, length: 0, armor: 2, dashEverySec: 0, dashSec: 0, dashFactor: 1, splitCount: 0, splitGapPx: 0, disableSec: 0, disableRadius: 0, healRadius: 0, healPerSec: 0, spawnGapSec: 0, regenPerSec: 0, hasteRadius: 0, hasteFactor: 1, slowImmune: 0, brewEverySec: 0, brewCount: 0 },
     /** Спора — маленькая красная. 3 HP, быстрая; проходя рядом с башней, глушит её на 3 секунды. */
-    spore: { hp: 3, speedFactor: 1.4, reward: 12, lifeDamage: 1, radius: 18, length: 0, armor: 0, dashEverySec: 0, dashSec: 0, dashFactor: 1, splitCount: 0, splitGapPx: 0, disableSec: 3, disableRadius: 150, healRadius: 0, healPerSec: 0, spawnGapSec: 0 },
+    spore: { hp: 3, speedFactor: 1.4, reward: 12, lifeDamage: 1, radius: 18, length: 0, armor: 0, dashEverySec: 0, dashSec: 0, dashFactor: 1, splitCount: 0, splitGapPx: 0, disableSec: 3, disableRadius: 150, healRadius: 0, healPerSec: 0, spawnGapSec: 0, regenPerSec: 0, hasteRadius: 0, hasteFactor: 1, slowImmune: 0, brewEverySec: 0, brewCount: 0 },
     /** Рой — крошечные бирюзовые, быстрые, выходят плотной пачкой по одному входу. 2 HP. Против кучи — Шипучка. */
-    swarm: { hp: 2, speedFactor: 1.3, reward: 2, lifeDamage: 0.25, radius: 14, length: 0, armor: 0, dashEverySec: 0, dashSec: 0, dashFactor: 1, splitCount: 0, splitGapPx: 0, disableSec: 0, disableRadius: 0, healRadius: 0, healPerSec: 0, spawnGapSec: 0.15 },
+    swarm: { hp: 2, speedFactor: 1.3, reward: 2, lifeDamage: 0.25, radius: 14, length: 0, armor: 0, dashEverySec: 0, dashSec: 0, dashFactor: 1, splitCount: 0, splitGapPx: 0, disableSec: 0, disableRadius: 0, healRadius: 0, healPerSec: 0, spawnGapSec: 0.15, regenPerSec: 0, hasteRadius: 0, hasteFactor: 1, slowImmune: 0, brewEverySec: 0, brewCount: 0 },
     /** Бегун — оранжевая «капля» со следом, очень быстрый (×2,2). 4 HP. Башни не успевают — нужна лужа Сиропа. */
-    runner: { hp: 4, speedFactor: 2.2, reward: 8, lifeDamage: 1, radius: 20, length: 52, armor: 0, dashEverySec: 0, dashSec: 0, dashFactor: 1, splitCount: 0, splitGapPx: 0, disableSec: 0, disableRadius: 0, healRadius: 0, healPerSec: 0, spawnGapSec: 0 },
+    runner: { hp: 4, speedFactor: 2.2, reward: 8, lifeDamage: 1, radius: 20, length: 52, armor: 0, dashEverySec: 0, dashSec: 0, dashFactor: 1, splitCount: 0, splitGapPx: 0, disableSec: 0, disableRadius: 0, healRadius: 0, healPerSec: 0, spawnGapSec: 0, regenPerSec: 0, hasteRadius: 0, hasteFactor: 1, slowImmune: 0, brewEverySec: 0, brewCount: 0 },
     /** Лекарь — белый с розовым крестом и кольцом-аурой. 6 HP; пока жив, лечит всех рядом на 0,8 HP/с — одиночные Таблетки не справляются. Против него — линия Шприца и взрыв Шипучки. */
-    healer: { hp: 6, speedFactor: 0.9, reward: 14, lifeDamage: 1, radius: 24, length: 0, armor: 0, dashEverySec: 0, dashSec: 0, dashFactor: 1, splitCount: 0, splitGapPx: 0, disableSec: 0, disableRadius: 0, healRadius: 140, healPerSec: 0.8, spawnGapSec: 0 },
+    healer: { hp: 6, speedFactor: 0.9, reward: 14, lifeDamage: 1, radius: 24, length: 0, armor: 0, dashEverySec: 0, dashSec: 0, dashFactor: 1, splitCount: 0, splitGapPx: 0, disableSec: 0, disableRadius: 0, healRadius: 140, healPerSec: 0.8, spawnGapSec: 0, regenPerSec: 0, hasteRadius: 0, hasteFactor: 1, slowImmune: 0, brewEverySec: 0, brewCount: 0 },
+    /** Слизень — лаймовый, скользкий: лужа Сиропа на него не действует (slowImmune). 12 HP. Нужен чистый урон — поэтому Сироп против него бесполезен. */
+    slick: { hp: 12, speedFactor: 0.9, reward: 12, lifeDamage: 1, radius: 28, length: 0, armor: 0, dashEverySec: 0, dashSec: 0, dashFactor: 1, splitCount: 0, splitGapPx: 0, disableSec: 0, disableRadius: 0, healRadius: 0, healPerSec: 0, spawnGapSec: 0, regenPerSec: 0, hasteRadius: 0, hasteFactor: 1, slowImmune: 1, brewEverySec: 0, brewCount: 0 },
+    /** Регенератор — тёмно-зелёный с белой стрелкой-кольцом. 10 HP, сам лечится на 1,5 HP/с: слабые одиночные удары не добивают, нужен сильный урон разом. */
+    regen: { hp: 10, speedFactor: 0.85, reward: 14, lifeDamage: 1, radius: 30, length: 0, armor: 0, dashEverySec: 0, dashSec: 0, dashFactor: 1, splitCount: 0, splitGapPx: 0, disableSec: 0, disableRadius: 0, healRadius: 0, healPerSec: 0, spawnGapSec: 0, regenPerSec: 1.5, hasteRadius: 0, hasteFactor: 1, slowImmune: 0, brewEverySec: 0, brewCount: 0 },
+    /** Командир — тёмно-синий с золотой звездой и красным кольцом. 8 HP; все бактерии в кольце радиуса 150 идут в 1,5 раза быстрее. Убить первым или замедлить лужей. */
+    commander: { hp: 8, speedFactor: 0.9, reward: 16, lifeDamage: 1, radius: 26, length: 0, armor: 0, dashEverySec: 0, dashSec: 0, dashFactor: 1, splitCount: 0, splitGapPx: 0, disableSec: 0, disableRadius: 0, healRadius: 0, healPerSec: 0, spawnGapSec: 0, regenPerSec: 0, hasteRadius: 150, hasteFactor: 1.5, slowImmune: 0, brewEverySec: 0, brewCount: 0 },
+    /** Матка — бежевая, в яйцах. 24 HP, медленная; каждые 4 с рожает на ходу двух бактерий роя. Убить быстро (луч Шприца), детей — взрывом Шипучки. */
+    brood: { hp: 24, speedFactor: 0.7, reward: 18, lifeDamage: 1, radius: 38, length: 0, armor: 0, dashEverySec: 0, dashSec: 0, dashFactor: 1, splitCount: 0, splitGapPx: 0, disableSec: 0, disableRadius: 0, healRadius: 0, healPerSec: 0, spawnGapSec: 0, regenPerSec: 0, hasteRadius: 0, hasteFactor: 1, slowImmune: 0, brewEverySec: 4, brewCount: 2 },
+    /** Гигант — босс: огромный, тёмно-бордовый, в шипах. 100 HP, броня 1, очень медленный; дошёл — отнимает все 3 жизни. Выходит редко (волны 21, 24, 27, 30). */
+    giant: { hp: 100, speedFactor: 0.5, reward: 80, lifeDamage: 3, radius: 66, length: 0, armor: 1, dashEverySec: 0, dashSec: 0, dashFactor: 1, splitCount: 0, splitGapPx: 0, disableSec: 0, disableRadius: 0, healRadius: 0, healPerSec: 0, spawnGapSec: 0, regenPerSec: 0, hasteRadius: 0, hasteFactor: 1, slowImmune: 0, brewEverySec: 0, brewCount: 0 },
   },
   combat: {
     /** Броня не может свести удар меньше, чем эта доля от удара: Таблетка (урон 1) против брони 2 наносит 0,25, а не 0. */
@@ -251,11 +267,13 @@ export const CONFIG = {
   // ------------------------------------------------------------
   waves: {
     /** Сколько волн идёт на уровне (не больше, чем строк в списке ниже). Все отбиты (никого не осталось на карте) — победа. */
-    total: 12,
+    total: 30,
     /** Пауза между выходом бактерий в первой волне, секунд … */
     intervalStartSec: 1.8,
-    /** … и в последней (между ними меняется плавно). Меньше — гуще. */
+    /** … и в волне intervalRampWaves и во всех следующих (между ними меняется плавно). Меньше — гуще. */
     intervalEndSec: 0.6,
+    /** К какой волне пауза между бактериями доходит до intervalEndSec (дальше остаётся такой). Волны длиннее — а гуще они не становятся. */
+    intervalRampWaves: 12,
     /** Сколько секунд до первой волны: игрок успевает поставить башню. */
     firstDelaySec: 8,
     /** Пауза между волнами (после того, как вышла последняя бактерия волны), секунд. */
@@ -266,7 +284,10 @@ export const CONFIG = {
     skipBonusPerSec: 1,
     /** Состав волн: одна строка — одна волна, числа — сколько бактерий каждого типа. Типы выходят в случайном порядке.
      *  Новый тип в первую свою волну выходит ОДИН и первым (игра подсказывает сигналом и сообщением): кокк — волна 1,
-     *  палочка — 3, рой — 4, бегун — 5, делящаяся — 6, бронированная — 7, лекарь — 8, спора — 9. */
+     *  палочка — 3, рой — 4, бегун — 5, делящаяся — 6, бронированная — 7, лекарь — 8, спора — 9, слизень — 13, регенератор — 15,
+     *  командир — 17, матка — 19, гигант (босс) — 21. Волны 1–12 — как были; с 13-й число бактерий растёт на ≈ 4,5 % за волну, а «акцент»
+     *  волны меняется по кругу: больше роя / больше бронированных и лекарей / больше бегунов и спор / больше делящихся и палочек.
+     *  Гиганты: волны 21 и 24 — по одному, 27 — два, 30 — три. */
     list: [
       { coccus: 4 },
       { coccus: 6 },
@@ -280,7 +301,25 @@ export const CONFIG = {
       { coccus: 8, rod: 6, swarm: 16, runner: 5, splitter: 4, armored: 3, healer: 2, spore: 3 },
       { coccus: 8, rod: 7, swarm: 18, runner: 6, splitter: 5, armored: 3, healer: 3, spore: 4 },
       { coccus: 10, rod: 8, swarm: 20, runner: 8, splitter: 6, armored: 4, healer: 3, spore: 6 },
-    ] as Partial<Record<'coccus' | 'rod' | 'splitter' | 'armored' | 'spore' | 'swarm' | 'runner' | 'healer', number>>[],
+      { coccus: 10, rod: 8, swarm: 21, runner: 8, splitter: 6, armored: 7, healer: 4, spore: 6, slick: 1 },
+      { coccus: 11, rod: 9, swarm: 22, runner: 14, splitter: 7, armored: 4, healer: 3, spore: 9, slick: 1 },
+      { coccus: 11, rod: 12, swarm: 23, runner: 9, splitter: 10, armored: 5, healer: 3, spore: 7, slick: 1, regen: 1 },
+      { coccus: 12, rod: 9, swarm: 35, runner: 9, splitter: 7, armored: 5, healer: 4, spore: 7, slick: 2, regen: 1 },
+      { coccus: 12, rod: 10, swarm: 24, runner: 10, splitter: 7, armored: 8, healer: 5, spore: 7, slick: 2, regen: 1, commander: 1 },
+      { coccus: 13, rod: 10, swarm: 25, runner: 16, splitter: 8, armored: 5, healer: 4, spore: 11, slick: 2, regen: 1, commander: 1 },
+      { coccus: 13, rod: 14, swarm: 26, runner: 11, splitter: 12, armored: 5, healer: 4, spore: 8, slick: 3, regen: 2, commander: 1, brood: 1 },
+      { coccus: 14, rod: 11, swarm: 41, runner: 11, splitter: 8, armored: 5, healer: 4, spore: 8, slick: 3, regen: 2, commander: 1, brood: 1 },
+      { coccus: 14, rod: 11, swarm: 28, runner: 11, splitter: 8, armored: 9, healer: 6, spore: 8, slick: 3, regen: 2, commander: 1, brood: 1, giant: 1 },
+      { coccus: 14, rod: 12, swarm: 29, runner: 19, splitter: 9, armored: 6, healer: 4, spore: 12, slick: 4, regen: 2, commander: 2, brood: 1 },
+      { coccus: 15, rod: 16, swarm: 30, runner: 12, splitter: 13, armored: 6, healer: 4, spore: 9, slick: 4, regen: 3, commander: 2, brood: 1 },
+      { coccus: 15, rod: 12, swarm: 46, runner: 12, splitter: 9, armored: 6, healer: 5, spore: 9, slick: 4, regen: 3, commander: 2, brood: 1, giant: 1 },
+      { coccus: 16, rod: 13, swarm: 32, runner: 13, splitter: 10, armored: 10, healer: 7, spore: 10, slick: 5, regen: 3, commander: 2, brood: 2 },
+      { coccus: 16, rod: 13, swarm: 33, runner: 21, splitter: 10, armored: 7, healer: 5, spore: 14, slick: 5, regen: 3, commander: 2, brood: 2 },
+      { coccus: 17, rod: 17, swarm: 34, runner: 13, splitter: 15, armored: 7, healer: 5, spore: 10, slick: 5, regen: 4, commander: 3, brood: 2, giant: 2 },
+      { coccus: 17, rod: 14, swarm: 52, runner: 14, splitter: 10, armored: 7, healer: 5, spore: 10, slick: 6, regen: 4, commander: 3, brood: 2 },
+      { coccus: 18, rod: 14, swarm: 35, runner: 14, splitter: 11, armored: 11, healer: 7, spore: 11, slick: 6, regen: 4, commander: 3, brood: 2 },
+      { coccus: 18, rod: 14, swarm: 36, runner: 23, splitter: 11, armored: 7, healer: 5, spore: 15, slick: 6, regen: 4, commander: 3, brood: 2, giant: 3 },
+    ] as Partial<Record<KindId, number>>[],
   },
 
   // ------------------------------------------------------------

@@ -42,6 +42,11 @@ const ru = {
   newTypeSwarm: 'Новая бактерия! Рой — мелкие и быстрые, идут пачкой',
   newTypeRunner: 'Новая бактерия! Бегун — очень быстрый: замедлите его лужей',
   newTypeHealer: 'Новая бактерия! Лекарь — лечит бактерий вокруг себя',
+  newTypeSlick: 'Новая бактерия! Слизень — скользкий: лужа Сиропа на него не действует',
+  newTypeRegen: 'Новая бактерия! Регенератор — сам быстро лечится: бейте сильно и разом',
+  newTypeCommander: 'Новая бактерия! Командир — ускоряет бактерий вокруг себя',
+  newTypeBrood: 'Новая бактерия! Матка — на ходу рожает мелких бактерий',
+  newTypeGiant: 'БОСС! Гигант — огромный и прочный, отнимает все 3 жизни',
   coinsPopup: '+{n}',
 };
 
@@ -82,6 +87,11 @@ const en: Record<TextKey, string> = {
   newTypeSwarm: 'New bacterium! Swarm — small and fast, they come in a pack',
   newTypeRunner: 'New bacterium! Runner — very fast: slow it with a puddle',
   newTypeHealer: 'New bacterium! Healer — heals the bacteria around it',
+  newTypeSlick: "New bacterium! Slick — slippery: Syrup puddles don't work on it",
+  newTypeRegen: 'New bacterium! Regenerator — heals itself fast: hit hard and all at once',
+  newTypeCommander: 'New bacterium! Commander — speeds up the bacteria around it',
+  newTypeBrood: 'New bacterium! Broodmother — gives birth to small bacteria on the move',
+  newTypeGiant: 'BOSS! Giant — huge and tough, costs all 3 lives',
   coinsPopup: '+{n}',
 };
 

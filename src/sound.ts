@@ -100,12 +100,12 @@ class Sfx {
   }
 
   /** Попадание, не добившее бактерию: короткий «тик». Тон зависит от типа (бронированная — глухой «клац»). */
-  hit(kind: 'coccus' | 'rod' | 'splitter' | 'armored' | 'spore' | 'swarm' | 'runner' | 'healer'): void {
-    if (kind === 'armored') {
+  hit(kind: string): void {
+    if (kind === 'armored' || kind === 'giant') {
       this.tone({ from: 260, to: 170, ms: 90, type: 'square', gain: 0.5 });
       return;
     }
-    const pitch = { coccus: 520, rod: 430, splitter: 480, spore: 720, swarm: 880, runner: 640, healer: 360 }[kind];
+    const pitch = ({ coccus: 520, rod: 430, splitter: 480, spore: 720, swarm: 880, runner: 640, healer: 360, slick: 400, regen: 340, commander: 560, brood: 300 } as Record<string, number>)[kind] ?? 500;
     this.tone({ from: pitch, to: pitch * 0.6, ms: 70, type: 'triangle', gain: 0.8 });
   }
 

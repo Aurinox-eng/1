@@ -6,7 +6,7 @@
  *
  * Запуск (сначала `npm run build:qa`; если src новее dist-qa, скрипт остановится сам):
  *   node qa/bot.mjs [--profile=novice|average|strong|expert|all] [--runs=N] [--speed=2] [--exclude=syrup,fizz,syringe,pill]
- *                   [--cfg=путь:число,...] [--tag=имя] [--seed=N] [--max-game-sec=1200] [--verbose] [--shots] [--help]
+ *                   [--cfg=путь:число,...] [--tag=имя] [--seed=N] [--max-game-sec=2400] [--verbose] [--shots] [--help]
  *
  * Профили («игроки»; порядок покупок и выбор клеток — в makePlayer ниже):
  *   novice  («новичок»)  только Таблетки, клетки наугад (где хоть что-то видно с дорожки), не больше 6 башен, покупает, как только хватает.
@@ -93,7 +93,7 @@ const HELP = `Бот-замерщик баланса: играет целые п
                                         (бот сам учтёт подмену цен и радиусов; непонятная запись останавливает замер)
   --tag=имя                             имя файла результата qa/bot-results/<имя>.json (по умолчанию latest)
   --seed=N                              зерно генератора случайных чисел бота (по умолчанию случайное; печатается в начале)
-  --max-game-sec=1200                   потолок игрового времени одной партии; дольше — результат «timeout»
+  --max-game-sec=2400                   потолок игрового времени одной партии (30 волн ≈ 1400 с); дольше — результат «timeout»
   --max-real-sec=3600                   потолок реального времени одной партии (страховка); дольше — «timeout»
   --verbose                             печатать каждую покупку и раз в 30 с — где идёт партия
   --shots                               снимок экрана в конце партии: qa/bot-results/<tag>-shots/
@@ -101,7 +101,7 @@ const HELP = `Бот-замерщик баланса: играет целые п
                                         Логика игры та же; для замеров баланса годится (картинка не важна)
   --help                                эта справка
 
-Сначала соберите тестовую игру: npm run build:qa. Партии идут по одной подряд. Одна партия на 12 волн при speed 2 — около 5 минут реального времени в облачном контейнере (при speed 4 — 2,5–4 минуты).`;
+Сначала соберите тестовую игру: npm run build:qa. Партии идут по одной подряд. Одна партия на 30 волн (≈ 1400 игровых секунд) при speed 2 — около 12 минут реального времени в облачном контейнере (с --canvas быстрее), при speed 4 — вдвое меньше.`;
 
 const args = parseArgs(process.argv.slice(2));
 const die = (message, code = 2) => {
@@ -130,7 +130,7 @@ const PROFILES = profileArg === 'all' ? PROFILE_IDS : [profileArg];
 const RUNS = numArg('runs', 10, { min: 1, max: 1000, int: true });
 const SPEED = numArg('speed', 2, { min: 0.1, max: 4 });
 if (args.speed !== undefined && SPEED > 4) die('--speed не выше 4.');
-const MAX_GAME_SEC = numArg('max-game-sec', 1200, { min: 30, max: 100000 });
+const MAX_GAME_SEC = numArg('max-game-sec', 2400, { min: 30, max: 100000 });
 const MAX_REAL_SEC = numArg('max-real-sec', 3600, { min: 30, max: 100000 });
 const SEED = args.seed === undefined ? Math.floor(Math.random() * 1e9) : numArg('seed', 0, { min: 0, max: 4294967295, int: true });
 const TAG = args.tag === undefined ? 'latest' : String(args.tag);

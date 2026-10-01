@@ -41,6 +41,10 @@ export class Bacterium {
   readonly disabledTowers = new Set<unknown>();
   /** Радиус описанного круга, пикселей. */
   readonly radius: number;
+  /** Ускорение от командира рядом (1 — нет); сцена выставляет его каждый кадр. */
+  haste = 1;
+  /** Сколько секунд прошло с последнего рождения (у матки). */
+  brewClock = 0;
 
   private readonly baseSpeed: number;
   /** Замедление от «Сиропа»: сколько секунд ещё действует и во сколько раз медленнее идёт (1 — не замедлена). */
@@ -81,9 +85,13 @@ export class Bacterium {
 
     this.gfx = scene.add.graphics();
     this.container = scene.add.container(0, 0, [this.gfx]);
-    // Лекарь: кольцо-аура радиуса лечения (под телом)
+    // Лекарь: кольцо-аура радиуса лечения, командир — радиуса ускорения (под телом)
     if (cfg.healRadius > 0) {
       const aura = scene.add.circle(0, 0, cfg.healRadius, COLORS.aura, 0.07).setStrokeStyle(3, COLORS.aura, 0.38);
+      this.container.addAt(aura, 0);
+    }
+    if (cfg.hasteRadius > 0) {
+      const aura = scene.add.circle(0, 0, cfg.hasteRadius, COLORS.haste, 0.06).setStrokeStyle(3, COLORS.haste, 0.42);
       this.container.addAt(aura, 0);
     }
     layer.add(this.container);
@@ -107,7 +115,7 @@ export class Bacterium {
    * и продлевает время до `seconds`, но не суммируется.
    */
   slow(factor: number, seconds: number): void {
-    if (factor >= 1 || seconds <= 0 || this.hp <= 0) return;
+    if (factor >= 1 || seconds <= 0 || this.hp <= 0 || CONFIG.types[this.kind].slowImmune > 0) return;
     this.slowBy = this.slowLeft > 0 ? Math.min(this.slowBy, factor) : factor;
     this.slowLeft = Math.max(this.slowLeft, seconds);
     if (!this.slowRing) {
@@ -140,7 +148,8 @@ export class Bacterium {
       }
       if (dashing) factor *= cfg.dashFactor;
     }
-    this.advance(this.baseSpeed * factor * dt);
+    if (cfg.regenPerSec > 0) this.heal(cfg.regenPerSec * dt);
+    this.advance(this.baseSpeed * factor * this.haste * dt);
   }
 
   /** Попадание. Броня вычитается из удара (но не меньше доли `combat.armorMinShare`). Возвращает true, если бактерия уничтожена. */
