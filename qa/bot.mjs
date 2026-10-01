@@ -18,7 +18,9 @@
  *                        решает каждые 2 с. ЭТО БЫВШИЙ «сильный» из кругов замеров 1–2 (до коммита с профилем expert): те же числа и поведение.
  *   strong  («сильный»)  тот же порядок и та же оценка клеток, но с человеческими несовершенствами: решает реже (раз в 3 с), копит на
  *                        дорогую башню только 8 с (потом берёт то, что по карману — больше дешёвых Таблеток), клетку берёт не самую лучшую,
- *                        а наугад из лучших четырёх (не хуже 70 % от лучшей), оценка клеток «шумнее» (12 % вместо 3 %).
+ *                        а наугад из лучших четырёх (не хуже 70 % от лучшей), оценка клеток «шумнее» (12 % вместо 3 %) и главное —
+ *                        НЕ ЗНАЕТ приёмов: ставит Шипучку без упора на узлы слияния и Шприц без выбора лучшей прямой линии (оценивает их
+ *                        обычным охватом, как любую башню). Это тот навык, что отличает «особо сильного».
  *
  * Все решения принимаются не чаще, чем раз в 2 секунды ИГРОВОГО времени (как человек). Состояние опрашивается каждые ~120 мс реального времени.
  * Генератор случайных чисел бота — с --seed (игра сама случайна: путь на развилках выбирается наугад, поэтому нужно ≥ 10 партий на профиль).
@@ -298,7 +300,7 @@ function buildWorld(graph, map, cols, rows) {
      * Оценка клетки для «сильного»: охват с весом «сколько бактерий здесь ходит» и скидкой за уже накрытое другими башнями (covCount);
      * Шипучка — вдвое ценнее участки у узлов слияния; Шприц — плюс двойная длина лучшей прямой (игла бьёт по линии, до radius).
      */
-    strongScore(type, cell, covCount) {
+    strongScore(type, cell, covCount, smart = true) {
       const T = TABLE[type];
       const discount = type === 'syrup' ? SYRUP_OVERLAP : OVERLAP_DISCOUNT;
       const list = inRange(T.range)[cell.idx];
@@ -308,11 +310,11 @@ function buildWorld(graph, map, cols, rows) {
         const sg = segs[si];
         if (!sideOk(T, cell, sg)) continue;
         let v = sg.len * sg.w * Math.pow(discount, covCount[si]);
-        if (T.targeting === 'area' && sg.merge) v *= MERGE_FACTOR;
+        if (smart && T.targeting === 'area' && sg.merge) v *= MERGE_FACTOR;
         sum += v;
         values.push([sg, v]);
       }
-      if (T.targeting === 'line') {
+      if (smart && T.targeting === 'line') {
         let bestRay = 0;
         for (const [dx, dy] of dirs) {
           let ray = 0;
@@ -416,7 +418,7 @@ function makePlayer(profile, { world, rng, buttons }) {
       if (!chosen) return null;
       const candidates = [];
       for (const c of view.free) {
-        let v = world.strongScore(chosen.type, c, view.covCount);
+        let v = world.strongScore(chosen.type, c, view.covCount, !imperfect);
         if (view.towers.some((tw) => Math.abs(tw.col - c.col) <= 1 && Math.abs(tw.row - c.row) <= 1)) v *= ADJACENT_FACTOR;
         v *= 1 + noise * rng(); // небольшой шум: идеально одинаковых партий не бывает
         if (v > 0) candidates.push({ c, v });
