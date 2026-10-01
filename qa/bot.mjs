@@ -13,14 +13,16 @@
  *   average («средний»)  по кругу [Таблетка, Таблетка, Сироп, Таблетка, Шипучка, Шприц], ждёт монет на очередную; клетка — наугад
  *                        из лучших 15 % по охвату дорожки (длина дорожки в радиусе башни).
  *   expert  («особо сильный»)  по кругу [Таблетка, Сироп, Шипучка, Шприц, Таблетка, Шипучка, Сироп, Шприц]; клетка — лучшая именно для
- *                        этой башни (охват с учётом того, сколько бактерий там проходит; Шипучка — где сходятся ветки; Шприц — длинные
- *                        прямые участки «впереди»), башни расставляет по всей сети, а не кучкой, копит на дорогую башню до 30 игровых секунд,
+ *                        этой башни (охват с учётом того, сколько бактерий там проходит; Шипучка — где сходятся ветки; Шприц — клетка и
+ *                        направление луча, под которым лежит больше всего дорожки с бактериями; после постановки бот поворачивает башню тапами
+ *                        на лучшее направление), башни расставляет по всей сети, а не кучкой, копит на дорогую башню до 30 игровых секунд,
  *                        решает каждые 2 с. ЭТО БЫВШИЙ «сильный» из кругов замеров 1–2 (до коммита с профилем expert): те же числа и поведение.
  *   strong  («сильный»)  тот же порядок и та же оценка клеток, но с человеческими несовершенствами: решает реже (раз в 3 с), копит на
  *                        дорогую башню только 8 с (потом берёт то, что по карману — больше дешёвых Таблеток), клетку берёт не самую лучшую,
  *                        а наугад из лучших 15 % клеток (≈ 19 из 123), оценка клеток «шумнее» (12 % вместо 3 %) и главное —
- *                        НЕ ЗНАЕТ приёмов: ставит Шипучку без упора на узлы слияния и Шприц без выбора лучшей прямой линии (оценивает их
- *                        обычным охватом, как любую башню). Это тот навык, что отличает «особо сильного».
+ *                        НЕ ЗНАЕТ приёмов: ставит Шипучку без упора на узлы слияния, а Шприц — без учёта, сколько бактерий идёт по каждой ветке,
+ *                        и не поворачивает его (остаётся направление, которое игра выбирает при постановке сама). Это тот навык, что отличает
+ *                        «особо сильного».
  *
  * Все решения принимаются не чаще, чем раз в 2 секунды ИГРОВОГО времени (как человек). Состояние опрашивается каждые ~120 мс реального времени.
  * Генератор случайных чисел бота — с --seed (игра сама случайна: путь на развилках выбирается наугад, поэтому нужно ≥ 10 партий на профиль).
@@ -61,7 +63,8 @@ const SYRUP_OVERLAP = 0.8; // …но замедляющей башне выго
 const ADJACENT_FACTOR = 0.3; // «сильный»: клетка рядом (в том числе по диагонали) с уже стоящей башней ценится в столько раз
 const NOVICE_MAX_TOWERS = 6;
 const AVERAGE_TOP_SHARE = 0.15; // «средний» выбирает наугад из лучших 15 % клеток по охвату
-const RAY_WIDTH_PX = 45; // «Шприц»: насколько близко к линии выстрела должна лежать дорожка, чтобы игла её задела
+const AIM_STEPS = 8; // «Шприц»: сколько направлений луча (тап по башне — шаг 45°; как AIM_STEPS в src/level.ts; 0 — вправо, дальше по часовой стрелке)
+const BEAM_MARGIN_PX = 22; // «Шприц»: насколько дальше полуширины луча от линии выстрела может лежать середина дорожки, чтобы луч её задел (как в игре)
 const MERGE_ZONE_PX = 170; // «Шипучка»: участки дорожки ближе этого к узлу слияния считаются «кучей»
 const MERGE_FACTOR = 2; // … и ценятся вдвое
 const STALL_SEC = 30; // игровое время не идёт столько реальных секунд подряд — партия зависла
@@ -279,7 +282,39 @@ function buildWorld(graph, map, cols, rows) {
     return rangeCache.get(range);
   };
   const byKey = new Map(cells.map((c) => [c.key, c]));
-  const dirs = Array.from({ length: 24 }, (_, i) => [Math.cos((i * Math.PI) / 12), Math.sin((i * Math.PI) / 12)]);
+  const dirs = Array.from({ length: AIM_STEPS }, (_, i) => [Math.cos((i * 2 * Math.PI) / AIM_STEPS), Math.sin((i * 2 * Math.PI) / AIM_STEPS)]);
+  /** Отрезки дорожки под лучом «Шприца» из клетки в направлении dir (номер 0…7): середина отрезка в полосе длины beamLengthPx (кэш). */
+  const rayCache = new Map();
+  const rayOf = (type, cell, dir) => {
+    const key = `${type}|${cell.idx}|${dir}`;
+    if (!rayCache.has(key)) {
+      const T = TABLE[type];
+      const [dx, dy] = dirs[dir];
+      const half = T.beamHalfWidthPx + BEAM_MARGIN_PX;
+      const list = [];
+      for (let i = 0; i < segs.length; i++) {
+        const px = segs[i].x - cell.x;
+        const py = segs[i].y - cell.y;
+        const along = px * dx + py * dy;
+        if (along >= 0 && along <= T.beamLengthPx && Math.abs(-px * dy + py * dx) <= half) list.push(i);
+      }
+      rayCache.set(key, list);
+    }
+    return rayCache.get(key);
+  };
+  /** Лучшее направление луча из клетки: weighted — с весом «сколько бактерий идёт по ветке» и скидкой за уже накрытое (covCount). Возвращает { dir, value }. */
+  const bestAim = (type, cell, weighted, covCount) => {
+    let best = { dir: 0, value: -1 };
+    for (let dir = 0; dir < AIM_STEPS; dir++) {
+      let value = 0;
+      for (const si of rayOf(type, cell, dir)) {
+        const sg = segs[si];
+        value += weighted ? sg.len * sg.w * Math.pow(OVERLAP_DISCOUNT, covCount ? covCount[si] : 0) : sg.len;
+      }
+      if (value > best.value) best = { dir, value };
+    }
+    return best;
+  };
 
   /** Подходит ли отрезок башне по стороне («вперёд» — бактериям до организма дальше, чем башне; «назад» — ближе). */
   const sideOk = (T, cell, sg) => (T.side === 'forward' ? sg.rem > cell.rem : T.side === 'back' ? sg.rem < cell.rem : true);
@@ -288,20 +323,24 @@ function buildWorld(graph, map, cols, rows) {
     cells,
     segs,
     byKey,
+    bestAim,
     freeCount: cells.filter((c) => !c.path).length,
     /** «Охват» клетки для башни type: сколько длины дорожки (px) попадает в радиус (для «вперёд/назад» — только нужная сторона). */
     cover(type, cell) {
       const T = TABLE[type];
+      if (T.targeting === 'beam') return bestAim(type, cell, false).value;
       let sum = 0;
       for (const si of inRange(T.range)[cell.idx]) if (sideOk(T, cell, segs[si])) sum += segs[si].len;
       return sum;
     },
     /**
      * Оценка клетки для «сильного»: охват с весом «сколько бактерий здесь ходит» и скидкой за уже накрытое другими башнями (covCount);
-     * Шипучка — вдвое ценнее участки у узлов слияния; Шприц — плюс двойная длина лучшей прямой (игла бьёт по линии, до radius).
+     * Шипучка — вдвое ценнее участки у узлов слияния; Шприц — ценность лучшего направления луча (длина дорожки под лучом: у «умного» с весом
+     * веток и скидкой за уже накрытое, у остальных — просто длина).
      */
     strongScore(type, cell, covCount, smart = true) {
       const T = TABLE[type];
+      if (T.targeting === 'beam') return bestAim(type, cell, smart, covCount).value;
       const discount = type === 'syrup' ? SYRUP_OVERLAP : OVERLAP_DISCOUNT;
       const list = inRange(T.range)[cell.idx];
       let sum = 0;
@@ -314,20 +353,6 @@ function buildWorld(graph, map, cols, rows) {
         sum += v;
         values.push([sg, v]);
       }
-      if (smart && T.targeting === 'line') {
-        let bestRay = 0;
-        for (const [dx, dy] of dirs) {
-          let ray = 0;
-          for (const [sg, v] of values) {
-            const px = sg.x - cell.x;
-            const py = sg.y - cell.y;
-            const t = px * dx + py * dy;
-            if (t >= 0 && t <= T.range && Math.abs(-px * dy + py * dx) <= RAY_WIDTH_PX) ray += v;
-          }
-          bestRay = Math.max(bestRay, ray);
-        }
-        sum += 2 * bestRay;
-      }
       return sum;
     },
     /** Сколько башен уже накрывает каждый отрезок дорожки (по радиусам стоящих башен). */
@@ -337,7 +362,8 @@ function buildWorld(graph, map, cols, rows) {
         const cell = byKey.get(`${tw.col},${tw.row}`);
         const T = TABLE[tw.id];
         if (!cell || !T) continue;
-        for (const si of inRange(T.range)[cell.idx]) counts[si]++;
+        const list = T.targeting === 'beam' ? rayOf(tw.id, cell, tw.aim ?? 0) : inRange(T.range)[cell.idx];
+        for (const si of list) counts[si]++;
       }
       return counts;
     },
@@ -537,6 +563,20 @@ async function playGame(browser, baseUrl, profile, run) {
       }
       return false;
     };
+    /** «Особо сильный» после постановки Шприца поворачивает его (тап по башне — шаг 45°) на лучшее направление луча. */
+    const aimTower = async (st, tower, cell) => {
+      const others = st.towers.filter((tw) => !(tw.col === cell.col && tw.row === cell.row));
+      const best = WORLD.bestAim(tower.id, cell, true, WORLD.coverCounts(others));
+      const steps = (best.dir - tower.aim + AIM_STEPS) % AIM_STEPS;
+      for (let k = 0; k < steps; k++) {
+        await input.tap(await cellPos(cell.col, cell.row));
+        await sleep(60);
+      }
+      if (steps === 0) return;
+      const after = await pollUntil(page, (x) => x.towers.find((tw) => tw.col === cell.col && tw.row === cell.row)?.aim === best.dir || x.state !== 'playing', 1500);
+      const now = after.towers.find((tw) => tw.col === cell.col && tw.row === cell.row);
+      if (after.state === 'playing' && now?.aim !== best.dir) record.anomalies.push(`Шприц в ${cell.key}: ждали направление ${best.dir}, в игре ${now?.aim}`);
+    };
     const buy = async (choice) => {
       const { type, cell } = choice;
       let st = await getState(page);
@@ -561,6 +601,7 @@ async function playGame(browser, baseUrl, profile, run) {
         const drop = coinsBefore - st.coins;
         if (drop > TABLE[type].price + 0.5) record.anomalies.push(`монеты упали на ${drop}, а цена ${type} по таблице ${TABLE[type].price}`);
         record.spent += TABLE[type].price;
+        if (tower && TABLE[type].targeting === 'beam' && profile === 'expert') await aimTower(st, tower, cell);
         return { ok: true, tower };
       }
       if (st.state !== 'playing') return { ok: false, ended: true };

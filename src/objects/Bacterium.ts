@@ -10,7 +10,7 @@ export type BacteriumKind = keyof typeof CONFIG.types;
 /** Радиус описанного круга типа (от центра до самой дальней точки). */
 export function extentOf(kind: BacteriumKind): number {
   const { radius, length } = CONFIG.types[kind];
-  if (kind === 'rod') return length / 2;
+  if (kind === 'rod' || kind === 'runner') return length / 2;
   if (kind === 'splitter') return radius * (1 + SPLITTER_LOBE_OFFSET);
   return radius;
 }
@@ -47,6 +47,8 @@ export class Bacterium {
   private slowLeft = 0;
   private slowBy = 1;
   private slowRing: Phaser.GameObjects.Arc | null = null;
+  /** Какое HP показано на теле (перерисовываем при заметном изменении: лечение идёт каждый кадр). */
+  private drawnHp: number;
   private readonly scene: Phaser.Scene;
   private readonly container: Phaser.GameObjects.Container;
   private readonly gfx: Phaser.GameObjects.Graphics;
@@ -79,7 +81,13 @@ export class Bacterium {
 
     this.gfx = scene.add.graphics();
     this.container = scene.add.container(0, 0, [this.gfx]);
+    // Лекарь: кольцо-аура радиуса лечения (под телом)
+    if (cfg.healRadius > 0) {
+      const aura = scene.add.circle(0, 0, cfg.healRadius, COLORS.aura, 0.07).setStrokeStyle(3, COLORS.aura, 0.38);
+      this.container.addAt(aura, 0);
+    }
     layer.add(this.container);
+    this.drawnHp = this.hp;
     this.place();
     this.redraw();
   }
@@ -135,11 +143,26 @@ export class Bacterium {
     this.advance(this.baseSpeed * factor * dt);
   }
 
-  /** Попадание. Возвращает true, если бактерия уничтожена. */
+  /** Попадание. Броня вычитается из удара (но не меньше доли `combat.armorMinShare`). Возвращает true, если бактерия уничтожена. */
   hit(damage: number): boolean {
-    this.hp = Math.max(0, this.hp - damage);
+    const { armor } = CONFIG.types[this.kind];
+    const dealt = armor > 0 ? Math.max(damage * CONFIG.combat.armorMinShare, damage - armor) : damage;
+    this.hp = Math.max(0, this.hp - dealt);
     this.redraw();
     return this.hp <= 0;
+  }
+
+  /** Лечение (от лекаря рядом): не выше полного HP; тело перерисовывается, когда HP изменилось заметно. */
+  heal(amount: number): void {
+    if (this.hp <= 0 || this.hp >= this.maxHp) return;
+    this.hp = Math.min(this.maxHp, this.hp + amount);
+    if (Math.abs(this.hp - this.drawnHp) >= 0.5 || this.hp >= this.maxHp) this.redraw();
+  }
+
+  /** Точка дорожки впереди на distance пикселей, но не дальше конца текущего ребра (развилку не пересекаем: дальше путь случаен). */
+  pointAhead(distance: number): { x: number; y: number } {
+    const p = pointAt(this.edge, Math.min(this.edge.length, this.s + Math.max(0, distance)));
+    return { x: p.x, y: p.y };
   }
 
   get lifeDamage(): number {
@@ -186,10 +209,11 @@ export class Bacterium {
     this.y = p.y;
     this.container.setPosition(p.x, p.y);
     // Палочка вытянута вдоль движения
-    if (this.kind === 'rod') this.container.setRotation(p.angle + Math.PI / 2);
+    if (this.kind === 'rod' || this.kind === 'runner') this.container.setRotation(p.angle + Math.PI / 2);
   }
 
   private redraw(): void {
+    this.drawnHp = this.hp;
     drawBody(this.gfx, this.kind, { hp: this.hp, maxHp: this.maxHp, spread: 0, seed: this.seed });
   }
 }

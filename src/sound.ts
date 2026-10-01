@@ -77,6 +77,22 @@ class Sfx {
     else this.tone({ from: 300, to: 180, ms: 60, type: 'triangle', gain: 0.35 });
   }
 
+  /** Лужа сиропа шлёпнулась на дорожку: короткое «плюх». */
+  splash(): void {
+    this.tone({ from: 260, to: 120, ms: 140, type: 'sine', gain: 0.5 });
+    this.tone({ from: 480, to: 200, ms: 90, type: 'triangle', gain: 0.25, delayMs: 30 });
+  }
+
+  /** Башню с лучом повернули на 45°: короткий «щёлк». */
+  rotate(): void {
+    this.tone({ from: 900, to: 1200, ms: 50, type: 'square', gain: 0.25 });
+  }
+
+  /** Удар луча шприца: быстрый высокий «вжик» (на каждый удар очереди). */
+  zap(): void {
+    this.tone({ from: 2200, to: 700, ms: 110, type: 'sawtooth', gain: 0.22 });
+  }
+
   /** Взрыв шипучки: низкий «бум» с шипением. */
   blast(): void {
     this.tone({ from: 140, to: 50, ms: 220, type: 'sawtooth', gain: 0.6 });
@@ -84,12 +100,12 @@ class Sfx {
   }
 
   /** Попадание, не добившее бактерию: короткий «тик». Тон зависит от типа (бронированная — глухой «клац»). */
-  hit(kind: 'coccus' | 'rod' | 'splitter' | 'armored' | 'spore'): void {
+  hit(kind: 'coccus' | 'rod' | 'splitter' | 'armored' | 'spore' | 'swarm' | 'runner' | 'healer'): void {
     if (kind === 'armored') {
       this.tone({ from: 260, to: 170, ms: 90, type: 'square', gain: 0.5 });
       return;
     }
-    const pitch = { coccus: 520, rod: 430, splitter: 480, spore: 720 }[kind];
+    const pitch = { coccus: 520, rod: 430, splitter: 480, spore: 720, swarm: 880, runner: 640, healer: 360 }[kind];
     this.tone({ from: pitch, to: pitch * 0.6, ms: 70, type: 'triangle', gain: 0.8 });
   }
 

@@ -17,7 +17,15 @@ export const COLORS = {
     splitter: { body: 0xffe066, shell: 0xc9981b, crack: 0x7a5800 },
     armored: { body: 0xb99af0, shell: 0x5b3596, crack: 0x2a1650 },
     spore: { body: 0xff7a7a, shell: 0xb02a2a, crack: 0x6a1010 },
+    /** Рой — бирюзовый; бегун — оранжевый; лекарь — белый с розовым. */
+    swarm: { body: 0x5fe0c8, shell: 0x1f8f7c, crack: 0x0f5a4e },
+    runner: { body: 0xffa24d, shell: 0xc2621a, crack: 0x7a3a08 },
+    healer: { body: 0xfff0f5, shell: 0xe05a8a, crack: 0x8a2a50 },
   } satisfies Record<Kind, { body: number; shell: number; crack: number }>,
+  /** Крест лекаря, аура лекаря, лужа сиропа и луч шприца. */
+  cross: 0xe0457a,
+  aura: 0x7dffb0,
+  puddle: 0xff9f43,
   /** Перегородка «перетяжки» у делящейся. */
   septum: 0x8a6510,
   /** Таблетка (снаряд и ствол башни): белая половина и голубая. */

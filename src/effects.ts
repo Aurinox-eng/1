@@ -20,6 +20,8 @@ export class Effects {
   lifeLosses = 0;
   zaps = 0;
   blasts = 0;
+  beams = 0;
+  splats = 0;
 
   constructor(
     private readonly scene: Phaser.Scene,
@@ -98,6 +100,25 @@ export class Effects {
     this.layer.add([disc, ring]);
     this.scene.tweens.add({ targets: disc, scale: 1.12, alpha: 0, duration: 320, onComplete: () => disc.destroy() });
     this.scene.tweens.add({ targets: ring, scale: 1.25, alpha: 0, duration: 380, onComplete: () => ring.destroy() });
+  }
+
+  /** Удар луча шприца: яркая бирюзовая линия от башни на длину луча быстро гаснет. */
+  beam(x: number, y: number, angle: number, length: number): void {
+    this.beams++;
+    const line = this.scene.add.graphics().setBlendMode(Phaser.BlendModes.ADD);
+    line.lineStyle(14, COLORS.needle, 0.35).lineBetween(0, 0, length, 0);
+    line.lineStyle(5, 0xffffff, 0.95).lineBetween(0, 0, length, 0);
+    line.setPosition(x, y).setRotation(angle);
+    this.layer.add(line);
+    this.scene.tweens.add({ targets: line, alpha: 0, duration: 200, onComplete: () => line.destroy() });
+  }
+
+  /** Лужа сиропа шлёпнулась на дорожку: оранжевое кольцо расходится от места падения. */
+  splat(x: number, y: number, radius: number): void {
+    this.splats++;
+    const ring = this.scene.add.circle(x, y, radius * 0.6).setStrokeStyle(5, COLORS.puddle, 1).setFillStyle();
+    this.layer.add(ring);
+    this.scene.tweens.add({ targets: ring, scale: 1.7, alpha: 0, duration: 340, onComplete: () => ring.destroy() });
   }
 
   /** Спора заглушила башню: красное кольцо расходится от башни. */
