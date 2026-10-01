@@ -181,14 +181,14 @@ export const CONFIG = {
   types: {
     /** Кокк — зелёный круг. Базовый: 1 HP, медленный. */
     coccus: { hp: 1, speedFactor: 0.8, reward: 8, lifeDamage: 1, radius: 30, length: 0, dashEverySec: 0, dashSec: 0, dashFactor: 1, splitCount: 0, splitGapPx: 0, disableSec: 0, disableRadius: 0 },
-    /** Палочка — синяя вытянутая капсула. 3 HP, идёт быстрее кокка и делает рывки. */
-    rod: { hp: 3, speedFactor: 1, reward: 10, lifeDamage: 1, radius: 22, length: 104, dashEverySec: 3, dashSec: 1, dashFactor: 2.5, splitCount: 0, splitGapPx: 0, disableSec: 0, disableRadius: 0 },
-    /** Делящаяся — жёлтая, с перетяжкой посередине. 2 HP. Уничтожена — на этом месте появляются два кокка. */
-    splitter: { hp: 2, speedFactor: 0.9, reward: 12, lifeDamage: 1, radius: 27, length: 0, dashEverySec: 0, dashSec: 0, dashFactor: 1, splitCount: 2, splitGapPx: 64, disableSec: 0, disableRadius: 0 },
-    /** Бронированная — фиолетовая, с толстой оболочкой. 8 HP, медленная, отнимает 2 жизни. */
-    armored: { hp: 8, speedFactor: 0.6, reward: 30, lifeDamage: 2, radius: 48, length: 0, dashEverySec: 0, dashSec: 0, dashFactor: 1, splitCount: 0, splitGapPx: 0, disableSec: 0, disableRadius: 0 },
-    /** Спора — маленькая красная. 1 HP, быстрая; проходя рядом с башней, глушит её на 3 секунды. */
-    spore: { hp: 1, speedFactor: 1.4, reward: 20, lifeDamage: 1, radius: 18, length: 0, dashEverySec: 0, dashSec: 0, dashFactor: 1, splitCount: 0, splitGapPx: 0, disableSec: 3, disableRadius: 150 },
+    /** Палочка — синяя вытянутая капсула. 4 HP, идёт быстрее кокка и делает рывки. */
+    rod: { hp: 4, speedFactor: 1, reward: 10, lifeDamage: 1, radius: 22, length: 104, dashEverySec: 3, dashSec: 1, dashFactor: 2.5, splitCount: 0, splitGapPx: 0, disableSec: 0, disableRadius: 0 },
+    /** Делящаяся — жёлтая, с перетяжкой посередине. 3 HP. Уничтожена — на этом месте появляются два кокка. */
+    splitter: { hp: 3, speedFactor: 0.9, reward: 12, lifeDamage: 1, radius: 27, length: 0, dashEverySec: 0, dashSec: 0, dashFactor: 1, splitCount: 2, splitGapPx: 64, disableSec: 0, disableRadius: 0 },
+    /** Бронированная — фиолетовая, с толстой оболочкой. 14 HP, медленная, отнимает 2 жизни. */
+    armored: { hp: 14, speedFactor: 0.6, reward: 30, lifeDamage: 2, radius: 48, length: 0, dashEverySec: 0, dashSec: 0, dashFactor: 1, splitCount: 0, splitGapPx: 0, disableSec: 0, disableRadius: 0 },
+    /** Спора — маленькая красная. 2 HP, быстрая; проходя рядом с башней, глушит её на 3 секунды. */
+    spore: { hp: 2, speedFactor: 1.4, reward: 20, lifeDamage: 1, radius: 18, length: 0, dashEverySec: 0, dashSec: 0, dashFactor: 1, splitCount: 0, splitGapPx: 0, disableSec: 3, disableRadius: 150 },
   },
   bacteria: {
     /** Базовая скорость бактерий, пикселей в секунду (у каждого типа умножается на speedFactor).
@@ -224,11 +224,11 @@ export const CONFIG = {
       { coccus: 6, rod: 3, splitter: 1, armored: 0, spore: 0 },
       { coccus: 8, rod: 4, splitter: 3, armored: 0, spore: 0 },
       { coccus: 10, rod: 5, splitter: 3, armored: 2, spore: 0 },
-      { coccus: 12, rod: 6, splitter: 4, armored: 3, spore: 0 },
-      { coccus: 14, rod: 7, splitter: 5, armored: 4, spore: 2 },
-      { coccus: 16, rod: 9, splitter: 7, armored: 5, spore: 5 },
-      { coccus: 18, rod: 10, splitter: 8, armored: 6, spore: 7 },
-      { coccus: 22, rod: 12, splitter: 10, armored: 8, spore: 10 },
+      { coccus: 12, rod: 7, splitter: 4, armored: 3, spore: 0 },
+      { coccus: 14, rod: 8, splitter: 5, armored: 4, spore: 2 },
+      { coccus: 18, rod: 10, splitter: 7, armored: 6, spore: 5 },
+      { coccus: 20, rod: 12, splitter: 9, armored: 7, spore: 7 },
+      { coccus: 24, rod: 14, splitter: 11, armored: 9, spore: 11 },
     ] as Partial<Record<'coccus' | 'rod' | 'splitter' | 'armored' | 'spore', number>>[],
   },
 
