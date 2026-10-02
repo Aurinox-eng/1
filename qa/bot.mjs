@@ -12,7 +12,7 @@
  *   novice  («новичок»)  только Таблетки, клетки наугад (где хоть что-то видно с дорожки), не больше 6 башен, покупает, как только хватает.
  *   average («средний»)  по кругу [Таблетка, Таблетка, Сироп, Таблетка, Шипучка, Шприц], ждёт монет на очередную; клетка — наугад
  *                        из лучших 15 % по охвату дорожки (длина дорожки в радиусе башни).
- *   (начало партии у expert и strong: пока башен с уроном меньше трёх — только самая дешёвая башня с уроном (Таблетка); копят монеты на дорогую башню,
+ *   (начало партии у expert и strong: пока башен с уроном меньше двух — только самая дешёвая башня с уроном (Таблетка); дальше по кругу, Шипучка первая; копят монеты на дорогую башню,
  *    только если жизни целы и на карте ≤ 8 бактерий — иначе берут первую доступную. Раньше они вторым покупали Сироп и 30 с копили на Шипучку — и проигрывали на 4–5-й волне.)
  *   expert  («особо сильный»)  по кругу [Таблетка, Сироп, Шипучка, Шприц, Таблетка, Шипучка, Сироп, Шприц]; клетка — лучшая именно для
  *                        этой башни (охват с учётом того, сколько бактерий там проходит; Шипучка — где сходятся ветки; Шприц — клетка и
@@ -63,8 +63,10 @@ const DECIDE_EVERY = { novice: 2, average: 2, strong: 3, expert: 2 }; // как 
 const OVERLAP_DISCOUNT = 0.5; // «сильный»: охват, уже накрытый другой башней, ценится в столько раз (расставляет по сети, а не кучкой)
 const SYRUP_OVERLAP = 0.8; // …но замедляющей башне выгодно стоять там, где уже стреляют: скидка мягче
 const ADJACENT_FACTOR = 0.3; // «сильный»: клетка рядом (в том числе по диагонали) с уже стоящей башней ценится в столько раз
+const EXPERT_OVERLAP = 0.9; // «особо сильный» знает, что все дорожки сходятся у «ствола» у организма: охват, уже накрытый другой башней, почти не обесценивается (башни кучкой у ствола бьют ВСЕХ бактерий)
+const EXPERT_ADJACENT_FACTOR = 1; // … и соседство с другой башней ему не мешает
 const NOVICE_MAX_TOWERS = 6;
-const OPENING_DAMAGE_TOWERS = 3; // «сильный» и «особо сильный»: пока башен с уроном меньше стольких, покупают самую дешёвую башню с уроном (Таблетку), а не Сироп/дорогую по списку
+const OPENING_DAMAGE_TOWERS = 2; // «сильный» и «особо сильный»: пока башен с уроном меньше стольких, покупают самую дешёвую башню с уроном (Таблетку), а не Сироп/дорогую по списку
 const CALM_MAX_BACTERIA = 8; // они копят монеты на дорогую башню только в спокойной обстановке: жизни целы и на карте не больше стольких бактерий; иначе берут первую доступную
 const AVERAGE_TOP_SHARE = 0.15; // «средний» выбирает наугад из лучших 15 % клеток по охвату
 const AIM_STEPS = 8; // «Шприц»: сколько направлений луча (тап по башне — шаг 45°; как AIM_STEPS в src/level.ts; 0 — вправо, дальше по часовой стрелке)
@@ -78,7 +80,7 @@ const SHORT = { pill: 'Таб', syrup: 'Сир', fizz: 'Шип', syringe: 'Шп�
 const PROFILE_TITLES = { novice: 'новичок', average: 'средний', strong: 'сильный', expert: 'особо сильный' };
 const PROFILE_IDS = Object.keys(PROFILE_TITLES);
 const AVERAGE_CYCLE = ['pill', 'pill', 'syrup', 'pill', 'fizz', 'syringe'];
-const STRONG_CYCLE = ['pill', 'syrup', 'fizz', 'syringe', 'pill', 'fizz', 'syrup', 'syringe'];
+const STRONG_CYCLE = ['fizz', 'pill', 'syrup', 'syringe', 'pill', 'fizz', 'syringe', 'syrup', 'pill']; // после «начала партии» (две Таблетки); рой с 4-й волны требует Шипучку — она первая
 
 // шум видеодрайвера контейнера (как в smoke.mjs): к игре не относится
 const ENV_NOISE = /GL Driver Message|GPU stall|swiftshader|SwiftShader|Automatic fallback to software WebGL/i;
@@ -345,7 +347,7 @@ function buildWorld(graph, map, cols, rows) {
     strongScore(type, cell, covCount, smart = true) {
       const T = TABLE[type];
       if (T.targeting === 'beam') return bestAim(type, cell, smart, covCount).value;
-      const discount = type === 'syrup' ? SYRUP_OVERLAP : OVERLAP_DISCOUNT;
+      const discount = type === 'syrup' ? SYRUP_OVERLAP : smart ? EXPERT_OVERLAP : OVERLAP_DISCOUNT;
       const list = inRange(T.range)[cell.idx];
       let sum = 0;
       const values = [];
@@ -457,7 +459,7 @@ function makePlayer(profile, { world, rng, buttons }) {
       const candidates = [];
       for (const c of view.free) {
         let v = world.strongScore(chosen.type, c, view.covCount, !imperfect);
-        if (view.towers.some((tw) => Math.abs(tw.col - c.col) <= 1 && Math.abs(tw.row - c.row) <= 1)) v *= ADJACENT_FACTOR;
+        if (view.towers.some((tw) => Math.abs(tw.col - c.col) <= 1 && Math.abs(tw.row - c.row) <= 1)) v *= imperfect ? ADJACENT_FACTOR : EXPERT_ADJACENT_FACTOR;
         v *= 1 + noise * rng(); // небольшой шум: идеально одинаковых партий не бывает
         if (v > 0) candidates.push({ c, v });
       }
