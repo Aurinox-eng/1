@@ -129,7 +129,11 @@ export class Panel {
         .zone(r.x + r.w / 2, cy, r.w, r.h)
         .setDepth(D.item + 2)
         .setInteractive({ useHandCursor: true })
-        .on('pointerdown', () => callbacks.onTower(id));
+        .on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+          // Карточка выбранной башни лежит поверх кнопок башен: нажатие, попавшее сюда сквозь неё, — это нажатие по карточке
+          if (this.card.visible) this.card.pressAt(pointer.x, pointer.y);
+          else callbacks.onTower(id);
+        });
     });
 
     // Карточка выбранной башни — поверх кнопок башен (скрыта, пока башня не выбрана)

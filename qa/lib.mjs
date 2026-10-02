@@ -341,9 +341,9 @@ export function createInput(page, cdp, isTouch) {
     async wobbleTap(p, dx) {
       const q = { x: p.x + dx, y: p.y };
       if (isTouch) {
-        await touch('touchStart', [p]);
-        await touch('touchMove', [q]);
-        await touch('touchEnd', []);
+        // Три события уходят разом: если ждать подтверждения каждого, на медленной странице (программная графика, телефон с плотностью ×2) нажатие
+        // «длится» больше tapMaxMs и игра справедливо не считает его тапом (в журнале игры: dt = 516…587 мс против 1 мс при отправке разом)
+        await Promise.all([touch('touchStart', [p]), touch('touchMove', [q]), touch('touchEnd', [])]);
       } else {
         await page.mouse.move(p.x, p.y);
         await page.mouse.down();

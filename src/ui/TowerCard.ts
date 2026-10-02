@@ -79,7 +79,7 @@ export class TowerCard {
     private readonly scene: Phaser.Scene,
     private readonly area: Rect,
     private readonly depth: number,
-    callbacks: CardCallbacks,
+    private readonly callbacks: CardCallbacks,
   ) {
     const d = depth;
     this.bg = scene.add.graphics().setDepth(d);
@@ -95,7 +95,12 @@ export class TowerCard {
     this.mergeText = this.text(0, 0, '', 18, TEXT_COLORS.main);
     this.sellText = this.text(0, 0, '', 18, TEXT_COLORS.main);
     this.closeText = this.text(0, 0, '✕', 22, TEXT_COLORS.soft);
-    this.blocker = scene.add.zone(area.x + area.w / 2, area.y + area.h / 2, area.w, area.h).setDepth(d + 1).setInteractive();
+    // Подложка ловит нажатия мимо кнопок (иначе они дошли бы до кнопок башен под карточкой) и на всякий случай передаёт их карточке
+    this.blocker = scene.add
+      .zone(area.x + area.w / 2, area.y + area.h / 2, area.w, area.h)
+      .setDepth(d + 1)
+      .setInteractive()
+      .on('pointerdown', (pointer: Phaser.Input.Pointer) => this.pressAt(pointer.x, pointer.y));
     this.all.push(this.blocker);
     const zone = (w: number, h: number, handler: () => void): Phaser.GameObjects.Zone => {
       const z = scene.add.zone(0, 0, w, h).setDepth(d + 3).setInteractive({ useHandCursor: true }).on('pointerdown', handler);
@@ -209,6 +214,28 @@ export class TowerCard {
     this.sellText.setText(t('cardSell', { n: m.sell })).setPosition(left + bw / 2, sellY + BTN_H / 2);
     this.zones.sell.setPosition(left + bw / 2, sellY + BTN_H / 2);
     this.rects.sell = { x: left + bw / 2, y: sellY + BTN_H / 2, w: bw, h: BTN_H };
+  }
+
+  /**
+   * Нажатие в точке (x, y) экрана игры: если там кнопка карточки — выполняет её. Нужно, потому что нажатие, которое Phaser отдал не кнопке карточки,
+   * а лежащей под ней кнопке башни (только что показанная карточка иногда не успевает стать «верхней»), иначе пропало бы.
+   */
+  pressAt(x: number, y: number): boolean {
+    if (!this.shown) return false;
+    const hit = (key: string): boolean => {
+      const r = this.rects[key];
+      return Boolean(r) && Math.abs(x - r.x) <= r.w / 2 && Math.abs(y - r.y) <= r.h / 2;
+    };
+    if (hit('close')) this.callbacks.onClose();
+    else if (this.pickVisible[0] && hit('pick0')) this.callbacks.onPick(0);
+    else if (this.pickVisible[1] && hit('pick1')) this.callbacks.onPick(1);
+    else if (this.rotVisible && hit('rotL')) this.callbacks.onRotate(-1);
+    else if (this.rotVisible && hit('rotR')) this.callbacks.onRotate(1);
+    else if (hit('merge')) {
+      if (this.mergeEnabled) this.callbacks.onMerge();
+    } else if (hit('sell')) this.callbacks.onSell();
+    else return false;
+    return true;
   }
 
   /** Где кнопки карточки на экране игры (для проверок и бота); когда карточка скрыта, visible = false. */
