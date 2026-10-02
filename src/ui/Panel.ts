@@ -240,11 +240,18 @@ export class Panel {
     this.chip.setAlpha(danger ? 0.65 + 0.35 * Math.sin(timeSec * 9) : 0.92);
   }
 
+  /** Кладёт текст в плашку и, если он не помещается в окно карты, уменьшает его (до 0,5): так длинные сообщения не уходят за край и под панель. */
+  private fitPlate(text: Phaser.GameObjects.Text, plate: Phaser.GameObjects.Graphics, y: number): void {
+    const scale = Math.min(1, (VIEW_W - 40) / (text.width + 48));
+    text.setScale(scale);
+    drawPlate(plate, VIEW_W / 2, y, text.width * scale + 48, text.height * scale + 18);
+  }
+
   /** Всплывающее сообщение сверху экрана. */
   toast(message: string, ms: number = CONFIG.ui.toastMs): void {
     this.toastTween?.stop();
     this.toastText.setText(message).setAlpha(1);
-    drawPlate(this.toastPlate, VIEW_W / 2, 46, this.toastText.width + 48, this.toastText.height + 18);
+    this.fitPlate(this.toastText, this.toastPlate, 46);
     this.toastPlate.setAlpha(1);
     this.toastTween = this.scene.tweens.add({
       targets: [this.toastText, this.toastPlate],
@@ -260,7 +267,7 @@ export class Panel {
     this.hintPlate.setVisible(message !== null);
     if (message !== null) {
       this.hintText.setText(message);
-      drawPlate(this.hintPlate, VIEW_W / 2, H - 38, this.hintText.width + 48, this.hintText.height + 18);
+      this.fitPlate(this.hintText, this.hintPlate, H - 38);
     }
   }
 

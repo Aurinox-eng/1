@@ -12,6 +12,8 @@
  *   novice  («новичок»)  только Таблетки, клетки наугад (где хоть что-то видно с дорожки), не больше 6 башен, покупает, как только хватает.
  *   average («средний»)  по кругу [Таблетка, Таблетка, Сироп, Таблетка, Шипучка, Шприц], ждёт монет на очередную; клетка — наугад
  *                        из лучших 15 % по охвату дорожки (длина дорожки в радиусе башни).
+ *   (начало партии у expert и strong: пока башен с уроном меньше трёх — только самая дешёвая башня с уроном (Таблетка); копят монеты на дорогую башню,
+ *    только если жизни целы и на карте ≤ 8 бактерий — иначе берут первую доступную. Раньше они вторым покупали Сироп и 30 с копили на Шипучку — и проигрывали на 4–5-й волне.)
  *   expert  («особо сильный»)  по кругу [Таблетка, Сироп, Шипучка, Шприц, Таблетка, Шипучка, Сироп, Шприц]; клетка — лучшая именно для
  *                        этой башни (охват с учётом того, сколько бактерий там проходит; Шипучка — где сходятся ветки; Шприц — клетка и
  *                        направление луча, под которым лежит больше всего дорожки с бактериями; после постановки бот поворачивает башню тапами
@@ -62,6 +64,8 @@ const OVERLAP_DISCOUNT = 0.5; // «сильный»: охват, уже накр
 const SYRUP_OVERLAP = 0.8; // …но замедляющей башне выгодно стоять там, где уже стреляют: скидка мягче
 const ADJACENT_FACTOR = 0.3; // «сильный»: клетка рядом (в том числе по диагонали) с уже стоящей башней ценится в столько раз
 const NOVICE_MAX_TOWERS = 6;
+const OPENING_DAMAGE_TOWERS = 3; // «сильный» и «особо сильный»: пока башен с уроном меньше стольких, покупают самую дешёвую башню с уроном (Таблетку), а не Сироп/дорогую по списку
+const CALM_MAX_BACTERIA = 8; // они копят монеты на дорогую башню только в спокойной обстановке: жизни целы и на карте не больше стольких бактерий; иначе берут первую доступную
 const AVERAGE_TOP_SHARE = 0.15; // «средний» выбирает наугад из лучших 15 % клеток по охвату
 const AIM_STEPS = 8; // «Шприц»: сколько направлений луча (тап по башне — шаг 45°; как AIM_STEPS в src/level.ts; 0 — вправо, дальше по часовой стрелке)
 const BEAM_MARGIN_PX = 22; // «Шприц»: насколько дальше полуширины луча от линии выстрела может лежать середина дорожки, чтобы луч её задел (как в игре)
@@ -432,15 +436,23 @@ function makePlayer(profile, { world, rng, buttons }) {
         lastPtr = ptr;
         headSince = now;
       }
-      const order = [];
+      let order = [];
       for (let k = 0; k < STRONG_CYCLE.length; k++) {
         const idx = (ptr + k) % STRONG_CYCLE.length;
         if (available(STRONG_CYCLE[idx])) order.push({ idx, type: STRONG_CYCLE[idx] });
       }
+      // Начало партии: пока башен с уроном мало, главное — урон: берётся самая дешёвая башня с уроном (вне списка по кругу; Сироп без урона ничего не убьёт)
+      const damageCount = view.towers.filter((tw) => TABLE[tw.id]?.damage > 0).length;
+      const opening = damageCount < OPENING_DAMAGE_TOWERS;
+      if (opening) {
+        const cheapest = KNOWN_TOWERS.filter((id) => available(id) && TABLE[id].damage > 0).sort((a, b) => TABLE[a].price - TABLE[b].price)[0];
+        order = cheapest ? [{ idx: -1, type: cheapest }] : order.filter((o) => TABLE[o.type].damage > 0);
+      }
       if (!order.length) return null;
+      const calm = view.s.lives >= view.s.maxLives && view.s.bacteria.length <= CALM_MAX_BACTERIA;
       let chosen = null;
       if (view.coins >= TABLE[order[0].type].price) chosen = order[0];
-      else if (now - headSince >= patience) chosen = order.find((o) => view.coins >= TABLE[o.type].price) ?? null;
+      else if (!opening && now - headSince >= (calm ? patience : 0)) chosen = order.find((o) => view.coins >= TABLE[o.type].price) ?? null;
       if (!chosen) return null;
       const candidates = [];
       for (const c of view.free) {
@@ -456,13 +468,13 @@ function makePlayer(profile, { world, rng, buttons }) {
         best = pool[Math.floor(rng() * pool.length)];
       }
       if (!best) {
-        ptr = chosen.idx + 1; // клеток для этой башни нет — переходит к следующей в списке
+        if (chosen.idx >= 0) ptr = chosen.idx + 1; // клеток для этой башни нет — переходит к следующей в списке
         return null;
       }
       return { type: chosen.type, cell: best.c, cycleIdx: chosen.idx };
     },
     bought(choice) {
-      ptr = (choice.cycleIdx + 1) % STRONG_CYCLE.length;
+      if (choice.cycleIdx >= 0) ptr = (choice.cycleIdx + 1) % STRONG_CYCLE.length; // покупка «начала партии» (cycleIdx -1) место в списке не двигает
     },
   };
 }
