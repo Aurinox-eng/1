@@ -34,12 +34,24 @@
  *                          выбора, цвет цен, нижняя подсказка целиком в окне — у Шприца она шире окна, это известная ошибка игры); кнопки скорости ×1/×2/×3 и
  *                          «Начать волну»; цены (списывается ровно price, при нехватке не ставится); Сироп — ЛУЖА (капля летит в точку дорожки впереди бактерии,
  *                          лужа живёт puddleSec, в ней идут ×slowFactor, после выхода ещё slowSec, поверх старой лужи новая не кладётся, слизень не замедляется);
- *                          Шипучка (малый взрыв: задевает всех в круге blastRadius и никого дальше, 1 взрыв за выстрел, монеты); Шприц — ЛУЧ (range 0, поворот
- *                          тапом по правой/левой половине башни на компьютере и телефоне, очередь beamPulses ударов по всем на линии издалека и по диагонали,
+ *                          Шипучка (малый взрыв: задевает всех в круге blastRadius и никого дальше, 1 взрыв за выстрел, монеты); Шприц — ЛУЧ (range 0, первый тап по башне выбирает её, поворот —
+ *                          стрелками карточки или тапом по правой/левой половине выбранной башни на компьютере и телефоне, очередь beamPulses ударов по всем на линии издалека и по диагонали,
  *                          урон с учётом брони, молчит, пока на линии никого нет); Таблетка (цель — ближайшая к организму); все четыре вместе. Бактерии: рой (пачка,
  *                          дробный урон жизням — lifePool), бегун, лекарь, регенератор, командир, матка, гигант. Числа читаются из config.ts (readConfigNumber),
  *                          баланс боя фиксируется через ?cfg=. QA_TOWERS_ONLY=syrup,fizz — только эти части (texts, panel, controls, prices, syrup, fizz,
  *                          syringe, pill, mixed, swarm, runner, healer, regen, commander, brood, giant)
+ *   card                   этап 4, карточка башни (компьютер и телефон): тап по поставленной башне выбирает её и открывает карточку поверх кнопок башен (при выбранной на
+ *                          панели башне — тоже, ничего не ставя), ✕ и тап по пустой клетке закрывают, сдвиг карты не закрывает, стрелки поворота только у Шприца; руками:
+ *                          слить двух Таблеток → выбрать мутацию → продать; тексты карточки и 16 мутаций (ru/en, числа в описаниях = config.ts); конец игры закрывает карточку,
+ *                          перезапуск обнуляет счётчики
+ *   merge                  слияние: «Слить» доступна только при паре того же вида и уровня, режим выбора пары и отмена (кнопка, тап мимо, ✕), пара из разных видов не сливается,
+ *                          результат — в клетке второй башни и бесплатно, мутации цели сохраняются, числа уровней 1…4 по towerLevels; две башни высшего уровня не сливаются
+ *   mutations              мутации: pending, видимость вариантов в карточке и числа башни (towers[].stats) по towerLevels и mutations для каждой из 16 мутаций на настоящих
+ *                          порогах (уровни 2 и 4); выбор окончателен
+ *   sell                   продажа: возврат round(цена × 2^(уровень−1) × sellRefund) на всех уровнях и у всех видов, клетка свободна, продажа в режиме слияния,
+ *                          проданный Шприц обрывает очередь луча
+ *   special                особые мутации в бою (с контролем без мутации): «Бронебойная» Таблетка (урон по брони), «Двойной выстрел» (прирост выстрелов по 2), «Едкая» лужа Сиропа
+ *                          убивает сама, «Цепная» Шипучка (взрывов больше выстрелов), «Второй луч» Шприца (вспышек вдвое больше). QA_SPECIAL_ONLY=pierce,double,caustic,chain,twin
  *   danger                 подсказка «◀ Организм» краснеет, когда бактерия близко к организму (проверка по цвету пикселей)
  *   rotate                 телефон вертикально ↔ горизонтально (на ru и en): вертикально — подсказка «Поверните телефон», время стоит, тапы
  *                          игре не мешают; обратно — подсказка пропала, время идёт; на компьютере подсказки нет ни в каком окне
@@ -95,7 +107,7 @@ if (['stage-1', 'stage-1b', 'stage-1b-qa', 'td-1-mockup', 'tmp'].includes(tag)) 
   process.exit(2);
 }
 
-const SCENARIOS = ['desktop-ru', 'phone-ru', 'desktop-en', 'phone-en', 'rules', 'graph', 'combat', 'dash', 'split', 'spore', 'armored', 'intro', 'lose-ru', 'lose-en', 'win-ru', 'win-en', 'towers', 'danger', 'rotate', 'production', 'fullgame']
+const SCENARIOS = ['desktop-ru', 'phone-ru', 'desktop-en', 'phone-en', 'rules', 'graph', 'combat', 'dash', 'split', 'spore', 'armored', 'intro', 'lose-ru', 'lose-en', 'win-ru', 'win-en', 'towers', 'card', 'merge', 'mutations', 'sell', 'special', 'danger', 'rotate', 'production', 'fullgame']
 const only = args.only === undefined ? null : String(args.only);
 if (only !== null && !SCENARIOS.includes(only)) {
   console.error(`Неизвестный сценарий --only=${only}. Есть: ${SCENARIOS.join(', ')}`);
@@ -776,10 +788,13 @@ async function profilePlacement(c) {
   s = await st();
   const t0 = s.towers[0];
   check(`${p} короткий тап (дрожание пальца 8 px на стекле) ставит башню: башен 1, монет −${price}, кольцо постановки`, s.towers.length === 1 && t0.col === FREE.a[0] && t0.row === FREE.a[1] && s.coins === coins0 - price && s.effects.placements === 1, `башен ${s.towers.length}, монет ${s.coins}, placements ${s.effects.placements}`);
-  // занятая клетка
+  // занятая клетка: этап 4 — тап по поставленной башне выбирает её и открывает карточку; новая башня не ставится, монеты не тратятся, выбор башни на панели снимается
   await game.tapCell(...FREE.a);
   s = await st();
-  check(`${p} тап по занятой клетке ничего не меняет`, s.towers.length === 1 && s.coins === coins0 - price && s.effects.placements === 1, `башен ${s.towers.length}, монет ${s.coins}`);
+  check(`${p} тап по занятой клетке башню не ставит и монет не тратит: он выбирает поставленную башню (открывается карточка), выбор на панели снимается`, s.towers.length === 1 && s.coins === coins0 - price && s.effects.placements === 1 && selectedIs(s, FREE.a) && s.ui.card.visible && s.selected === null, `башен ${s.towers.length}, монет ${s.coins}, выбрана ${JSON.stringify(s.selectedTower)}, на панели ${s.selected}`);
+  // карточка лежит поверх кнопок башен: закрываем её (✕) и снова выбираем башню на панели
+  await tapCard(game, 'close');
+  await game.towerButton();
   // вторая башня
   await game.tapCell(...FREE.b);
   s = await st();
@@ -826,6 +841,9 @@ async function profilePlacement(c) {
     await game.tapCell(...FREE.d); // занятая клетка
     const afterNo = await st();
     check(`${p} при минимальном приближении клетка дорожки и занятая клетка по-прежнему не ставят башню, монеты не тратятся`, afterNo.towers.length === beforeNo.towers.length && afterNo.coins === beforeNo.coins && afterNo.effects.placements === beforeNo.effects.placements, `башен ${beforeNo.towers.length} → ${afterNo.towers.length}, монет ${beforeNo.coins} → ${afterNo.coins}`);
+    // тап по занятой клетке выбрал башню и снял выбор на панели: закрываем карточку и снова выбираем башню
+    await tapCard(game, 'close');
+    await game.towerButton();
     await sleep(400);
     await shot(page, `${name}-14-towers-min-zoom`);
 
@@ -1371,7 +1389,7 @@ async function runRotate(browser, baseUrl) {
     let m = await measureCanvas(page);
     let info = await rotateInfo(page);
     const e0 = (await getState(page)).elapsed;
-    await sleep(1200);
+    await sleep(2200); // на медленной машине (≈ 3 кадра/с при программной графике) за секунду игровое время сдвигается меньше 0,3 с
     const e1 = (await getState(page)).elapsed;
     check(`${q}, горизонтально 844×390: подсказки «Поверните телефон» нет, игровое время идёт`, info.display === 'none' && e1 > e0 + 0.3 && layoutOk(m), `display=${info.display}, pointer:coarse=${info.coarse}, время ${f2(e0)} → ${f2(e1)}`);
     // вертикально: подсказка на весь экран, текст на нужном языке, время и бактерии стоят, касания в игру не попадают
@@ -1408,7 +1426,7 @@ async function runRotate(browser, baseUrl) {
     }
     if (back.selected) await towerTap(game);
     const c0 = (await getState(page)).elapsed;
-    await sleep(1200);
+    await sleep(2200);
     const c1 = (await getState(page)).elapsed;
     check(`${q}, снова горизонтально: подсказка пропала, экран перестроился, игровое время пошло дальше`, info.display === 'none' && layoutOk(m) && c1 > c0 + 0.3, `display=${info.display}, время ${f2(c0)} → ${f2(c1)}`);
     check(`${q}, снова горизонтально: тап по кнопке башни попадает в кнопку (выбор и снятие выбора)`, (await towerTap(game)) === 'pill' && (await towerTap(game)) === null);
@@ -1430,7 +1448,7 @@ async function runRotate(browser, baseUrl) {
     const m = await measureCanvas(game.page);
     const info = await rotateInfo(game.page);
     const e0 = (await getState(game.page)).elapsed;
-    await sleep(800);
+    await sleep(2000);
     const e1 = (await getState(game.page)).elapsed;
     check(`${p} компьютер, окно ${w}×${h}${h > w ? ' (вертикальное)' : ''}: экран 16:9 перестроился, подсказки «Поверните телефон» нет, время идёт`, layoutOk(m) && info.display === 'none' && !info.coarse && e1 > e0 + 0.2, `пропорции ${m.ratio.toFixed(3)}, помещается ${m.fits}, по центру ${m.centred}, display=${info.display}, pointer:coarse=${info.coarse}`);
     if (w === 1600) {
@@ -2399,9 +2417,14 @@ async function tapTowerHalf(game, col, row, dir) {
   await game.input.tap({ x: c.x + dir * dx, y: c.y });
   await settle();
 }
-/** Поворачивает Шприц в клетке к направлению target самым коротким путём (тапами); возвращает последнее состояние. */
+/** Поворачивает Шприц в клетке к направлению target самым коротким путём (тапами); возвращает последнее состояние.
+ *  Этап 4: первый тап по башне только выбирает её, поворачивают тапы по половинкам уже выбранной башни, поэтому сначала башню выбирают. */
 async function turnSyringeTo(game, col, row, target) {
   let s = await game.state();
+  if (!(s.selectedTower && s.selectedTower.col === col && s.selectedTower.row === row)) {
+    await game.tapCell(col, row);
+    s = await game.state();
+  }
   const tw = s.towers.find((t) => t.col === col && t.row === row);
   const { steps, dir } = aimTurn(tw.aim, target);
   for (let i = 0; i < steps; i++) await tapTowerHalf(game, col, row, dir);
@@ -2786,7 +2809,8 @@ function slowSemantics(log, tl, slowSec) {
       if (cover(b, 0) && maybeAlive(b.e)) out.insideSamples++;
       if (i > 0) {
         const a = tr[i - 1];
-        if (strictAlive(a.e) && strictAlive(b.e) && cover(a, -12)) {
+        // замеры с одним и тем же игровым временем (страница не успела нарисовать кадр) ничего не говорят: игра ещё не считала замедление для этой лужи
+        if (strictAlive(a.e) && strictAlive(b.e) && b.e > a.e + 1e-9 && cover(a, -12)) {
           out.inside++;
           if (!b.slowed) out.violA.push(`#${id} на ${f2(b.e)} с`);
         }
@@ -2812,7 +2836,8 @@ async function towersSyrup(browser, baseUrl) {
   const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
 
   // ---- S1: один выстрел за партию (пауза 60 с): капля летит и оставляет лужу впереди бактерии; лужа живёт puddleSec; в луже все идут в slowFactor раз медленнее
-  const r1 = await syrupPlay(context, baseUrl, p, { cfg: ['towers.syrup.cooldownMs:60000', 'types.coccus.hp:99'], count: 2, interval: 12, shotName: 'towers-08-syrup-puddle' });
+  // скорость 2, а не 3: кадр игры не длиннее 50 мс × скорость, а на медленной машине (≈ 3 кадра/с) при ×3 капля (≈ 0,14 с полёта) долетает в том же кадре, где вылетела, и «в воздухе» её не поймать
+  const r1 = await syrupPlay(context, baseUrl, p, { cfg: ['towers.syrup.cooldownMs:60000', 'types.coccus.hp:99'], count: 2, interval: 12, speed: 2, timeoutMs: 450000, shotName: 'towers-08-syrup-puddle' });
   const L = r1.log;
   const tl = puddleTimeline(L);
   const maxPuddles = Math.max(...L.map((s) => s.puddles.length));
@@ -3110,6 +3135,8 @@ function beamSpot(state, mode) {
  * уже не меньше needOn бактерий, пауза Шприца 60 с — очередь одна. Состояние ДО постановки и ПОСЛЕ очереди: у каждой бактерии, которая в обоих состояниях
  * «точно на луче» (с запасом 4 px), HP упало ровно на beamPulses × perPulse; у каждой «точно вне луча» — не изменилось.
  */
+/** Сколько реальных секунд ждём, пока на луче накопится нужное число бактерий (медленные бронированные на машине с 3 кадрами/с идут дольше 150 с). */
+const BEAM_WAIT_MS = 420000;
 async function beamBurst(context, baseUrl, p, { wave, mode, needOn, extraCfg = [], shotName = null }) {
   const cfg = [...wave, 'waves.intervalStartSec:0.3', 'waves.intervalEndSec:0.3', 'waves.firstDelaySec:2', ...FIXED_NO_TOWERS, 'bacteria.baseSpeed:20', 'towers.syringe.cooldownMs:60000', `economy.startCoins:${TW.syringe.price}`, NO_LIFE_LOSS, ...extraCfg].join(',');
   const game = await openGame(context, baseUrl, p, { speed: 2, cfg });
@@ -3127,9 +3154,14 @@ async function beamBurst(context, baseUrl, p, { wave, mode, needOn, extraCfg = [
   await game.selectTower('syringe');
   let pre = null;
   const started = Date.now();
-  while (Date.now() - started < 150000) {
+  let lastTrace = 0;
+  while (Date.now() - started < BEAM_WAIT_MS) {
     const st = await game.state();
     if (st.state !== 'playing') break;
+    if (process.env.QA_TRACE && Date.now() - lastTrace > 5000) {
+      lastTrace = Date.now();
+      console.log(`   · ${p}: игровое время ${f1(st.elapsed)}, волна ${st.wave}, вышло ${st.spawned}, бактерий ${st.bacteria.length}, на луче ${st.bacteria.filter((b) => onBeam(b, twPos, spot.k, 4)).length}, башня (${f1(twPos.x)};${f1(twPos.y)}) направление ${spot.k}, первая бактерия ${st.bacteria[0] ? `(${f1(st.bacteria[0].x)};${f1(st.bacteria[0].y)}) ${st.bacteria[0].kind}` : '—'}`);
+    }
     if (st.bacteria.filter((b) => onBeam(b, twPos, spot.k, 4)).length >= needOn) {
       pre = st;
       break;
@@ -3188,7 +3220,10 @@ function beamPulseTimes(log) {
   return times;
 }
 
-/** Поворот Шприца тапами (компьютер и телефон): правая половина башни — на шаг по часовой, левая — против; тап по другой башне не поворачивает. */
+/**
+ * Поворот Шприца (компьютер и телефон). Этап 4: первый тап по башне только выбирает её (открывается карточка со стрелками поворота), дальше луч поворачивают стрелками карточки
+ * или тапом по правой (по часовой) / левой (против) половине уже выбранной башни; тап по другой башне не поворачивает и не ставит ничего.
+ */
 async function syringeRotate(browser, baseUrl, deviceKey) {
   const device = VIEWPORTS[deviceKey];
   const p = `[башни: Шприц, поворот, ${device.label}]`;
@@ -3203,34 +3238,56 @@ async function syringeRotate(browser, baseUrl, deviceKey) {
   await game.placeTowersOf('pill', [cb]);
   s = await game.state();
   check(`${p} Шприц и Таблетка стоят, монет ${s.coins} (поворот и тапы по башням ничего не стоят)`, s.towers.length === 2 && s.coins === 0, `башен ${s.towers.length}, монет ${s.coins}`);
-  await game.selectTower('pill'); // снять выбор Таблетки (она осталась выбранной после постановки)
+  await game.selectTower('pill'); // снять выбор Таблетки на панели (она осталась выбранной после постановки)
   s = await game.state();
   const a0 = s.towers[0].aim;
+
+  // ---- первый тап по правой половине ещё не выбранного Шприца только выбирает его
+  await tapTowerHalf(game, ca[0], ca[1], 1);
+  s = await game.state();
+  check(`${p} первый тап по ПРАВОЙ половине ещё не выбранного Шприца только выбирает его: направление ${a0} → ${s.towers[0].aim} (не изменилось), открыта карточка со стрелками поворота`, selectedIs(s, ca) && s.towers[0].aim === a0 && s.ui.card.visible && s.ui.card.rotateLeft.visible && s.ui.card.rotateRight.visible, `выбрана ${JSON.stringify(s.selectedTower)}, aim ${s.towers[0].aim}, стрелки ${s.ui.card.rotateLeft.visible}/${s.ui.card.rotateRight.visible}`);
+
+  // ---- тап по половинам выбранной башни
   const right = [];
   for (let i = 0; i < AIM_STEPS; i++) {
     await tapTowerHalf(game, ca[0], ca[1], 1);
     right.push((await game.state()).towers[0].aim);
     if (i === 0) await shot(game.page, `towers-07-syringe-aim-${deviceKey}`);
   }
-  check(`${p} тап по ПРАВОЙ половине башни поворачивает луч на шаг (45°) по часовой стрелке: ${a0} → ${right.join(' → ')}; за ${AIM_STEPS} тапов — полный круг`, right.every((a, i) => a === (a0 + i + 1) % AIM_STEPS) && right[AIM_STEPS - 1] === a0, right.join(','));
+  check(`${p} тап по ПРАВОЙ половине выбранного Шприца поворачивает луч на шаг (45°) по часовой стрелке: ${a0} → ${right.join(' → ')}; за ${AIM_STEPS} тапов — полный круг`, right.every((a, i) => a === (a0 + i + 1) % AIM_STEPS) && right[AIM_STEPS - 1] === a0, right.join(','));
   const left = [];
   for (let i = 0; i < AIM_STEPS; i++) {
     await tapTowerHalf(game, ca[0], ca[1], -1);
     left.push((await game.state()).towers[0].aim);
   }
   check(`${p} тап по ЛЕВОЙ половине поворачивает на шаг против часовой стрелки (через 0 по кругу): ${a0} → ${left.join(' → ')}`, left.every((a, i) => a === (((a0 - i - 1) % AIM_STEPS) + AIM_STEPS) % AIM_STEPS) && left[AIM_STEPS - 1] === a0, left.join(','));
-  // выбрана другая башня — тап по Шприцу всё равно поворачивает его и ничего не ставит
+
+  // ---- стрелки карточки
+  const arrowRight = [];
+  for (let i = 0; i < AIM_STEPS; i++) arrowRight.push((await tapCard(game, 'rotateRight')).towers[0].aim);
+  check(`${p} правая стрелка карточки поворачивает луч на шаг по часовой стрелке: ${a0} → ${arrowRight.join(' → ')}; за ${AIM_STEPS} нажатий — полный круг`, arrowRight.every((a, i) => a === (a0 + i + 1) % AIM_STEPS) && arrowRight[AIM_STEPS - 1] === a0, arrowRight.join(','));
+  const arrowLeft = [];
+  for (let i = 0; i < AIM_STEPS; i++) arrowLeft.push((await tapCard(game, 'rotateLeft')).towers[0].aim);
+  check(`${p} левая стрелка карточки поворачивает на шаг против часовой стрелки: ${a0} → ${arrowLeft.join(' → ')}`, arrowLeft.every((a, i) => a === (((a0 - i - 1) % AIM_STEPS) + AIM_STEPS) % AIM_STEPS) && arrowLeft[AIM_STEPS - 1] === a0, arrowLeft.join(','));
+  s = await game.state();
+  check(`${p} стрелки карточки не закрывают её и ничего не стоят: карточка открыта (${s.ui.card.visible}), монет ${s.coins}, башен ${s.towers.length}`, s.ui.card.visible && selectedIs(s, ca) && s.coins === 0 && s.towers.length === 2);
+
+  // ---- выбрана на панели другая башня: тап по Шприцу выбирает его, не поворачивает и ничего не ставит
+  await tapCard(game, 'close'); // карточка лежит поверх кнопок башен
   await game.selectTower('pill');
   const before = await game.state();
   await tapTowerHalf(game, ca[0], ca[1], 1);
   s = await game.state();
-  check(`${p} при выбранной Таблетке тап по Шприцу поворачивает его (${before.towers[0].aim} → ${s.towers[0].aim}), башен по-прежнему 2, монет ${s.coins}, выбор «${s.selected}» остался`, s.towers[0].aim === (before.towers[0].aim + 1) % AIM_STEPS && s.towers.length === 2 && s.coins === 0 && s.selected === 'pill', `башен ${s.towers.length}, монет ${s.coins}, выбрано ${s.selected}`);
-  // тап по Таблетке: она не поворачивается, ничего не меняется
+  check(`${p} при выбранной на панели Таблетке тап по Шприцу выбирает Шприц (выбор на панели снят: «${s.selected}»), луч не поворачивается (${before.towers[0].aim} → ${s.towers[0].aim}), башен по-прежнему 2, монет ${s.coins}`, selectedIs(s, ca) && s.selected === null && s.towers[0].aim === before.towers[0].aim && s.towers.length === 2 && s.coins === 0, `башен ${s.towers.length}, монет ${s.coins}, на панели ${s.selected}`);
+
+  // ---- тап по Таблетке: она выбирается, не поворачивается; и стрелок у неё нет
   const aimsBefore = s.towers.map((t) => t.aim).join();
+  await tapTowerHalf(game, cb[0], cb[1], 1);
+  const pillSelected = selectedIs(await game.state(), cb);
   await tapTowerHalf(game, cb[0], cb[1], 1);
   await tapTowerHalf(game, cb[0], cb[1], -1);
   s = await game.state();
-  check(`${p} тап по правой и левой половине Таблетки её не поворачивает и ничего не ставит (направления ${aimsBefore} → ${s.towers.map((t) => t.aim).join()}, башен ${s.towers.length}, монет ${s.coins})`, s.towers.map((t) => t.aim).join() === aimsBefore && s.towers[1].aim === 0 && s.towers.length === 2 && s.coins === 0, `башен ${s.towers.length}`);
+  check(`${p} тапы по правой и левой половине Таблетки выбирают её, но не поворачивают и ничего не ставят (направления ${aimsBefore} → ${s.towers.map((t) => t.aim).join()}, башен ${s.towers.length}, монет ${s.coins}); стрелок поворота в её карточке нет`, pillSelected && s.towers.map((t) => t.aim).join() === aimsBefore && s.towers[1].aim === 0 && s.towers.length === 2 && s.coins === 0 && !s.ui.card.rotateLeft.visible && !s.ui.card.rotateRight.visible, `башен ${s.towers.length}`);
   await context.close();
 }
 
@@ -3245,7 +3302,7 @@ async function towersSyringe(browser, baseUrl) {
   const coccusWave = ['waves.total:1', 'waves.list.0.coccus:40'];
   const burstChecks = (q, r, perPulse, { needOn, needOff, far = false }) => {
     if (!r.pre) {
-      check(`${q} на луче накопилось ≥ ${needOn} бактерий и башня поставлена (дождались за 150 с)`, false, 'не накопилось');
+      check(`${q} на луче накопилось ≥ ${needOn} бактерий и башня поставлена (дождались за ${BEAM_WAIT_MS / 1000} с)`, false, 'не накопилось');
       return;
     }
     const aim = r.tw?.aim ?? r.spot.k;
@@ -3274,7 +3331,8 @@ async function towersSyringe(browser, baseUrl) {
   const armor = readConfigNumber('armored', 'armor');
   const share = readConfigNumber('combat', 'armorMinShare');
   const perPulse = Math.max(damage * share, damage - armor);
-  const arm = await beamBurst(context, baseUrl, `${p} броня`, { wave: wavesOnly({ armored: 12 }), mode: 'far', needOn: 3 });
+  // бактерии выбирают один из трёх входов случайно, на луче — один из них: при 12 бронированных в ≈ 18 % прогонов на нужном входе их набиралось меньше трёх, поэтому 30
+  const arm = await beamBurst(context, baseUrl, `${p} броня`, { wave: wavesOnly({ armored: 30 }), mode: 'far', needOn: 3 });
   burstChecks(`${p} броня`, arm, perPulse, { needOn: 3, needOff: 3 });
   await context.close();
   await syringeBlind(browser, baseUrl);
@@ -3750,6 +3808,827 @@ async function typesGiant(browser, baseUrl) {
   await context.close();
 }
 
+// ================================================================== этап 4: карточка башни, слияние, мутации, продажа, особые мутации
+
+/** Разбор записи вида `id: 'pillRapid', cooldownMul: 0.65, armorPierce: true` из config.ts в объект. */
+const parseKv = (text) =>
+  Object.fromEntries([...text.matchAll(/(\w+):\s*('([^']*)'|true|false|-?[\d.]+)/g)].map(([, key, raw, str]) => [key, str !== undefined ? str : raw === 'true' ? true : raw === 'false' ? false : Number(raw)]));
+
+/**
+ * Таблицы этапа 4 из src/config.ts: уровни башен (`towerLevels`), пороги мутаций (`mutationLevels`), мутации по башням (`mutations`: башня → порог → два варианта)
+ * и доля возврата при продаже. Проверки сверяют игру с этими таблицами, а не с числами в тексте проверки, поэтому подбор баланса их не ломает.
+ */
+function readStage4Tables() {
+  const src = fs.readFileSync(path.join(ROOT, 'src', 'config.ts'), 'utf8');
+  const lf = src.indexOf('towerLevels: [');
+  if (lf < 0) throw new Error('В config.ts нет таблицы towerLevels');
+  const levels = [...src.slice(lf, src.indexOf('\n  ],', lf)).matchAll(/\{([^}]*)\}/g)].map((m) => parseKv(m[1]));
+  const ml = /mutationLevels:\s*\[([^\]]*)\]/.exec(src);
+  if (!ml) throw new Error('В config.ts нет mutationLevels');
+  const mutationLevels = ml[1].split(',').map((x) => Number(x.trim()));
+  const mf = src.indexOf('mutations: {', src.indexOf('mutationLevels'));
+  const block = src.slice(mf + 'mutations: {'.length, src.indexOf('} as Record<string, MutationSpec[][]>', mf));
+  const mutations = {};
+  for (const m of block.matchAll(/(\w+):\s*\[\s*\n([\s\S]*?)\n\s{4}\],/g)) {
+    mutations[m[1]] = m[2]
+      .split('\n')
+      .filter((line) => line.trim().startsWith('['))
+      .map((line) => [...line.matchAll(/\{([^}]*)\}/g)].map((x) => parseKv(x[1])));
+  }
+  for (const id of TOWER_IDS) {
+    if (!mutations[id] || mutations[id].length !== mutationLevels.length || mutations[id].some((tier) => tier.length !== 2)) throw new Error(`В таблице mutations config.ts для «${id}» не два варианта на каждый порог`);
+  }
+  return { levels, mutationLevels, mutations, sellRefund: readConfigNumber('economy', 'sellRefund') };
+}
+let S4 = null;
+const prepareStage4 = () => {
+  TW = towerTable();
+  S4 = readStage4Tables();
+};
+
+/**
+ * Числа башни по таблицам config.ts (так же, как src/towerStats.ts: строка таблицы × строка уровня × мутации по порядку порогов):
+ * то, что игра должна отдать в getState().towers[].stats.
+ */
+function expectedStats(id, level, picks) {
+  const base = TW[id];
+  const lv = S4.levels[level - 1];
+  const b = { damage: base.damage, cooldownMs: base.cooldownMs, range: base.range, blastRadius: base.blastRadius ?? 0, puddleRadius: base.puddleRadius ?? 0, slowFactor: base.slowFactor ?? 1, beamPulses: base.beamPulses ?? 0 };
+  const s = {
+    damage: b.damage * lv.damageMul,
+    cooldownMs: b.cooldownMs * lv.cooldownMul,
+    range: b.range * lv.reachMul,
+    blastRadius: b.blastRadius * lv.reachMul,
+    puddleRadius: b.puddleRadius * lv.reachMul,
+    slowFactor: b.slowFactor < 1 ? b.slowFactor ** lv.slowPower : 1,
+    beamPulses: b.beamPulses > 0 ? b.beamPulses + lv.pulsesAdd : 0,
+  };
+  picks.forEach((pickId, tier) => {
+    const spec = S4.mutations[id][tier].find((m) => m.id === pickId);
+    if (!spec) return;
+    if (spec.damageMul) s.damage *= spec.damageMul;
+    if (spec.cooldownMul) s.cooldownMs *= spec.cooldownMul;
+    if (spec.blastMul) s.blastRadius *= spec.blastMul;
+    if (spec.puddleRadiusMul) s.puddleRadius *= spec.puddleRadiusMul;
+    if (spec.slowFactor !== undefined) s.slowFactor = Math.min(s.slowFactor, spec.slowFactor);
+    if (spec.pulsesAdd && s.beamPulses > 0) s.beamPulses += spec.pulsesAdd;
+  });
+  return s;
+}
+/** Чем числа башни из игры отличаются от ожидаемых по таблицам (пустой список — совпали). */
+function statsDiff(got, want) {
+  return Object.keys(want)
+    .filter((k) => !(Math.abs(got[k] - want[k]) <= 1e-6 * Math.max(1, Math.abs(want[k]))))
+    .map((k) => `${k} ${f2(got[k])} вместо ${f2(want[k])}`);
+}
+
+/** Конфиг для проверок этапа 4: много монет, ожидание волны долгое (волну запускает проверка кнопкой), числа башен — из config.ts. */
+const s4Cfg = (extra = [], { coins = 100000, delay = 600 } = {}) => [`economy.startCoins:${coins}`, `waves.firstDelaySec:${delay}`, ...FIXED_NO_TOWERS, NO_LIFE_LOSS, ...extra].join(',');
+
+const cellEq = (t, cell) => t.col === cell[0] && t.row === cell[1];
+const towerIn = (s, cell) => s.towers.find((t) => cellEq(t, cell));
+const selectedIs = (s, cell) => s.selectedTower !== null && s.selectedTower.col === cell[0] && s.selectedTower.row === cell[1];
+const inGameBox = (r, s) => r.x - r.w / 2 >= s.viewW - 1 && r.x + r.w / 2 <= W + 1 && r.y - r.h / 2 >= -1 && r.y + r.h / 2 <= H + 1;
+
+/** Отпечаток того, что меняют кнопки карточки и тапы по башням: если после тапа он не изменился за 0,6 с, считаем, что тап ничего не сделал (так проверки не зависят от загрузки машины). */
+const cardPrint = (s) => JSON.stringify([s.mergeMode, s.selectedTower, s.ui.card.visible, s.ui.card.picks.map((r) => r.visible), s.sells, s.merges, s.mutationsPicked, s.towers.map((t) => [t.col, t.row, t.level, t.picks.length, t.aim])]);
+async function settleAfter(game, before, what = '') {
+  await settle();
+  let s = await game.state();
+  const started = Date.now();
+  while (cardPrint(s) === cardPrint(before) && Date.now() - started < 600) {
+    await sleep(50);
+    s = await game.state();
+  }
+  if (process.env.QA_TRACE) console.log(`   · ${what}: выбрана ${JSON.stringify(s.selectedTower)}, карточка ${s.ui.card.visible}, режим слияния ${s.mergeMode}, на панели ${s.selected}, ждали ${Date.now() - started} мс`);
+  return s;
+}
+/**
+ * Ждёт n отрисованных кадров игры. Перед тапом по кнопке карточки это обязательно: Phaser 3.90 выбирает верхний объект под пальцем по списку объектов, нарисованных в ПРОШЛОМ кадре
+ * (`camera.renderList`), и только что показанная кнопка карточки до первого кадра считается «самой нижней» — тап уходит на кнопку башни под карточкой. Человеку это не мешает
+ * (кадр — 16…70 мс), а проверка бьёт быстрее и на нагруженной машине промахивается.
+ */
+const frames = (page, n = 3) =>
+  page.evaluate(
+    (k) =>
+      new Promise((resolve) => {
+        let left = k;
+        const tick = () => (--left <= 0 ? resolve() : requestAnimationFrame(tick));
+        requestAnimationFrame(tick);
+      }),
+    n,
+  );
+/** Тап по кнопке карточки (which: merge, sell, close, rotateLeft, rotateRight или pick с номером варианта i); возвращает состояние. */
+async function tapCard(game, which, i = 0) {
+  await frames(game.page, 3);
+  const s = await game.state();
+  const r = which === 'pick' ? s.ui.card.picks[i] : s.ui.card[which];
+  await game.input.tap(game.g(r.x, r.y));
+  return settleAfter(game, s, `карточка: ${which}`);
+}
+/** Выбирает башню на панели (если ещё не выбрана) и ставит её в клетку; бросает ошибку, если башня не встала. */
+async function placeAt(game, id, cell) {
+  let s = await game.state();
+  // открытая карточка лежит поверх кнопок башен: сначала её закрывают (✕), иначе тап по кнопке башни ничего не выберет
+  if (s.ui.card.visible) await tapCard(game, 'close');
+  s = await game.state();
+  if (s.selected !== id) await game.selectTower(id);
+  await game.tapCell(...cell);
+  s = await game.state();
+  for (let k = 0; k < 20 && !towerIn(s, cell); k++) {
+    await sleep(50);
+    s = await game.state();
+  }
+  const tw = towerIn(s, cell);
+  if (!tw || tw.id !== id) throw new Error(`не удалось поставить «${id}» в клетку ${cell.join(';')} (башен ${s.towers.length}, монет ${s.coins})`);
+  return s;
+}
+/** Тап по поставленной башне: она выбирается, открывается карточка. */
+async function selectPlaced(game, cell) {
+  const before = await game.state();
+  await game.input.tap(await game.cell(...cell));
+  return settleAfter(game, before, `тап по башне ${cell.join(';')}`);
+}
+/** Слияние через интерфейс: тап по башне-источнику, кнопка «Слить», тап по башне-цели (результат остаётся в клетке цели). Бросает ошибку, если слияние не удалось. */
+async function mergeInto(game, src, dst) {
+  let s = await selectPlaced(game, src);
+  if (!selectedIs(s, src) || !s.ui.card.visible || !s.ui.card.merge.enabled) throw new Error(`слияние: у башни в клетке ${src.join(';')} нет доступной кнопки «Слить» (карточка ${s.ui.card.visible}, merge.enabled ${s.ui.card.merge.enabled})`);
+  const pre = s;
+  s = await tapCard(game, 'merge');
+  if (!s.mergeMode) await shot(game.page, `fail-merge-${Date.now() % 100000}`);
+  if (!s.mergeMode) throw new Error(`слияние: режим выбора пары не включился (до тапа ${JSON.stringify(pre.ui.card)} (выбрана башня ${JSON.stringify(s.selectedTower)}, кнопка ${JSON.stringify(s.ui.card.merge)}, башен ${s.towers.length}, камера ${f1(s.camera.cx)};${f1(s.camera.cy)})`);
+  const before = s.merges;
+  await game.input.tap(await game.cell(...dst));
+  s = await settleAfter(game, s, `тап по цели ${dst.join(';')}`);
+  if (s.merges !== before + 1 || s.mergeMode) throw new Error(`слияние ${src.join(';')} → ${dst.join(';')} не состоялось (слияний ${before} → ${s.merges}, режим ${s.mergeMode})`);
+  return s;
+}
+/**
+ * Поднимает башню вида id в клетке cell до уровня top слияниями: нужные «помощники» ставятся в клетки pool (нужно top−1 клеток) и вливаются в неё — результат остаётся в cell,
+ * потому что тапается вторым. onLevel(уровень, состояние) вызывается после каждого уровня (в том числе первого): там проверка чисел и выбор мутаций.
+ */
+async function growTo(game, id, top, cell, pool, onLevel = null) {
+  await placeAt(game, id, cell);
+  if (onLevel) await onLevel(1, await game.state());
+  for (let level = 2; level <= top; level++) {
+    const helper = pool[0];
+    await growTo(game, id, level - 1, helper, pool.slice(1));
+    const s = await mergeInto(game, helper, cell);
+    const tw = towerIn(s, cell);
+    if (!tw || tw.level !== level || towerIn(s, helper)) throw new Error(`после слияния в клетке ${cell.join(';')} ждали уровень ${level} и свободную клетку помощника, получили уровень ${tw?.level}`);
+    if (onLevel) await onLevel(level, s);
+  }
+  return game.state();
+}
+/** Запускает волну кнопкой «Начать волну» (ожидание отсчёта пропускается). */
+async function startWave(game) {
+  const s = await game.state();
+  if (!s.ui.waveButton.visible) throw new Error('кнопки «Начать волну» нет');
+  await game.input.tap(game.g(s.ui.waveButton.x, s.ui.waveButton.y));
+  await settle();
+  return game.state();
+}
+
+// ---------------------------------------------------------------- карточка: тексты
+
+/** Строки карточки, слияния, продажи и всех мутаций есть на обоих языках; тексты мутаций называют те же числа, что config.ts. */
+function cardTexts() {
+  const p = '[карточка: тексты]';
+  const cap = (id) => id.charAt(0).toUpperCase() + id.slice(1);
+  const ids = TOWER_IDS.flatMap((tw) => S4.mutations[tw].flat().map((m) => m.id));
+  const keys = [
+    'cardLevel', 'cardMerge', 'cardMergeCancel', 'cardNoPair', 'cardMaxLevel', 'cardSell', 'cardPick', 'cardMutations', 'statDamage', 'statCooldown', 'statRange', 'statPuddle', 'statSlow',
+    'statBlast', 'statBeam', 'statBeams', 'hintMerge', 'toastMerged', 'toastPickMutation', 'toastSold',
+    ...ids.flatMap((id) => [`mut${cap(id)}`, `mutd${cap(id)}`]),
+  ];
+  const rows = keys.map((k) => {
+    try {
+      const [ru, en] = readI18n(k);
+      return { k, ru, en, ok: true };
+    } catch {
+      return { k, ru: '', en: '', ok: false };
+    }
+  });
+  const missing = rows.filter((r) => !r.ok).map((r) => r.k);
+  check(`${p} в i18n.ts есть все ${keys.length} строк карточки и ${ids.length} мутаций на обоих языках`, missing.length === 0, missing.length ? `нет: ${missing.join(', ')}` : '');
+  const cyr = /[А-Яа-яЁё]/;
+  const bad = rows.filter((r) => r.ok && (!r.ru.trim() || !r.en.trim() || r.ru === r.en || !cyr.test(r.ru) || cyr.test(r.en)));
+  check(`${p} русские строки по-русски, английские по-английски, не пустые и различаются`, bad.length === 0, bad.map((r) => `${r.k}: «${r.ru}» / «${r.en}»`).join('; '));
+  const holes = {
+    cardLevel: ['{n}', '{max}'], cardSell: ['{n}'], toastMerged: ['{n}'], toastSold: ['{n}'], statDamage: ['{n}'], statCooldown: ['{n}'], statRange: ['{n}'], statPuddle: ['{r}', '{s}'], statSlow: ['{n}'], statBlast: ['{r}'], statBeam: ['{n}'], statBeams: ['{n}'],
+  };
+  const noHole = rows.filter((r) => r.ok && holes[r.k] && !holes[r.k].every((h) => r.ru.includes(h) && r.en.includes(h))).map((r) => r.k);
+  check(`${p} строки со вставками (${Object.keys(holes).join(', ')}) содержат вставки на обоих языках`, noHole.length === 0, noHole.join(', '));
+  // тексты мутаций называют числа из config.ts: если баланс поменяли, а текст нет — красно
+  const ru = (n) => String(n).replace('.', ',');
+  const M = (id) => Object.values(S4.mutations).flat(2).find((m) => m.id === id);
+  const mentions = [
+    ['pillRapid', 'cooldownMul', (v) => String(Math.round((1 - v) * 100))],
+    ['fizzFast', 'cooldownMul', (v) => String(Math.round((1 - v) * 100))],
+    ['pillHunter', 'damageMul', (v) => ru(v)],
+    ['syrupWide', 'puddleRadiusMul', (v) => ru(v)],
+    ['syrupCaustic', 'poisonPerSec', (v) => ru(v)],
+    ['fizzBig', 'blastMul', (v) => ru(v)],
+    ['fizzAcid', 'acidMul', (v) => String(Math.round((v - 1) * 100))],
+    ['fizzAcid', 'acidSec', (v) => String(v)],
+    ['syringeMore', 'pulsesAdd', (v) => `+${v}`],
+    ['syringePierce', 'damageMul', (v) => ru(v)],
+    ['syringeSpiral', 'spiral', (v) => String(v)],
+  ];
+  const stale = [];
+  for (const [id, field, fmt] of mentions) {
+    const spec = M(id);
+    if (!spec || spec[field] === undefined) {
+      stale.push(`${id}: в config.ts нет поля ${field}`);
+      continue;
+    }
+    const [ruText] = readI18n(`mutd${cap(id)}`);
+    const enText = readI18n(`mutd${cap(id)}`)[1];
+    const want = fmt(spec[field]);
+    if (!ruText.includes(want)) stale.push(`${id} (ru «${ruText}») не называет ${want}`);
+    if (!enText.includes(want.replace(',', '.'))) stale.push(`${id} (en «${enText}») не называет ${want.replace(',', '.')}`);
+  }
+  check(`${p} описания мутаций называют те же числа, что config.ts (${mentions.length} описаний)`, stale.length === 0, stale.join('; '));
+}
+
+// ---------------------------------------------------------------- карточка: выбор, закрытие, кнопки
+
+/** Тап по башне выбирает её и открывает карточку (на панели поверх кнопок башен); закрытие, переключение, сдвиг карты; короткий путь «слить → мутация → продать» руками (мышь или касания). */
+async function cardBasics(browser, baseUrl, deviceKey) {
+  const device = VIEWPORTS[deviceKey];
+  const p = `[карточка башни, ${device.label}]`;
+  const context = await newDeviceContext(browser, device, 'ru');
+  const game = await openGame(context, baseUrl, p, { speed: 1, isTouch: device.hasTouch, cfg: s4Cfg() });
+  const [ca, cb, cc, cd, ce] = [FREE.a, FREE.b, FREE.c, FREE.d, FREE.e];
+  if (!ce) throw new Error('на карте не нашлось пяти свободных клеток');
+  await placeAt(game, 'pill', ca);
+  await placeAt(game, 'syringe', cb);
+  await placeAt(game, 'syrup', cc);
+  let s = await game.state();
+  const coins0 = s.coins;
+  const placements0 = s.effects.placements;
+  check(`${p} три башни стоят (Таблетка, Шприц, Сироп), карточка закрыта, поставленная башня не выбрана (selectedTower = ${JSON.stringify(s.selectedTower)}); на панели остался выбор «${s.selected}»`, s.towers.length === 3 && !s.ui.card.visible && s.selectedTower === null && s.selected === 'syrup', `башен ${s.towers.length}, карточка ${s.ui.card.visible}`);
+
+  // ---- тап по башне при выбранной на панели: выбирает башню, ничего не ставит
+  await game.tapCell(...ca);
+  s = await game.state();
+  check(`${p} тап по поставленной Таблетке при выбранном на панели Сиропе выбирает именно её (клетка ${ca.join(';')}), снимает выбор на панели (selected = ${s.selected}) и открывает карточку; башня не ставится (башен ${s.towers.length}, монет ${s.coins} из ${coins0}, постановок ${s.effects.placements})`, selectedIs(s, ca) && s.selected === null && s.ui.card.visible && s.towers.length === 3 && s.coins === coins0 && s.effects.placements === placements0, `selectedTower ${JSON.stringify(s.selectedTower)}, selected ${s.selected}, карточка ${s.ui.card.visible}`);
+  const c = s.ui.card;
+  const btns = s.ui.towerButtons;
+  const top = btns[0].y - btns[0].h / 2;
+  const bottom = btns[btns.length - 1].y + btns[btns.length - 1].h / 2;
+  const inside = [c.merge, c.sell, c.close].every((r) => inGameBox(r, s)) && c.merge.y - c.merge.h / 2 >= top && c.sell.y + c.sell.h / 2 <= bottom;
+  check(`${p} кнопки карточки («Слить» y=${f1(c.merge.y)}, «Продать» y=${f1(c.sell.y)}, ✕) лежат в панели справа на месте кнопок башен (они занимают y от ${f1(top)} до ${f1(bottom)})`, inside, `слить ${JSON.stringify(c.merge)}, продать ${JSON.stringify(c.sell)}`);
+  check(`${p} у Таблетки без пары «Слить» недоступна, вариантов мутации и стрелок поворота нет (мутация ждёт уровня ${S4.mutationLevels[0]})`, !c.merge.enabled && c.picks.every((r) => !r.visible) && !c.rotateLeft.visible && !c.rotateRight.visible, JSON.stringify({ merge: c.merge.enabled, picks: c.picks.map((r) => r.visible), rot: [c.rotateLeft.visible, c.rotateRight.visible] }));
+  await sleep(250);
+  await shot(game.page, `card-01-pill-${deviceKey}`);
+
+  // ---- карточка закрывает кнопки башен: тап в то место, где была кнопка «Таблетка», ничего не выбирает
+  const pb = btns[0];
+  await game.input.tap(game.g(pb.x, pb.y));
+  await settle();
+  s = await game.state();
+  check(`${p} карточка лежит поверх кнопок башен: тап в то место, где была кнопка «Таблетка», не выбирает башню для постройки (selected = ${s.selected}) и не закрывает карточку`, s.selected === null && s.ui.card.visible && selectedIs(s, ca), `selected ${s.selected}, карточка ${s.ui.card.visible}`);
+
+  // ---- повторный тап по той же башне оставляет её выбранной
+  await game.tapCell(...ca);
+  s = await game.state();
+  check(`${p} повторный тап по уже выбранной Таблетке не снимает выбор (карточка осталась)`, selectedIs(s, ca) && s.ui.card.visible);
+
+  // ---- другая башня: карточка переключается; у Шприца есть стрелки поворота, у остальных нет
+  s = await selectPlaced(game, cb);
+  check(`${p} тап по Шприцу переключает выбор на него (клетка ${cb.join(';')}), карточка показывает обе стрелки поворота, вариантов мутации нет`, selectedIs(s, cb) && s.ui.card.visible && s.ui.card.rotateLeft.visible && s.ui.card.rotateRight.visible && s.ui.card.picks.every((r) => !r.visible), JSON.stringify({ sel: s.selectedTower, rot: [s.ui.card.rotateLeft.visible, s.ui.card.rotateRight.visible] }));
+  await sleep(250);
+  await shot(game.page, `card-02-syringe-${deviceKey}`);
+  s = await selectPlaced(game, cc);
+  check(`${p} тап по Сиропу: выбран он, стрелок поворота нет, «Слить» недоступна (пары нет)`, selectedIs(s, cc) && !s.ui.card.rotateLeft.visible && !s.ui.card.rotateRight.visible && !s.ui.card.merge.enabled);
+
+  // ---- ✕ закрывает карточку; потом кнопки башен снова работают
+  s = await tapCard(game, 'close');
+  check(`${p} ✕ закрывает карточку: башня не выбрана (${JSON.stringify(s.selectedTower)}), карточки нет, башен ${s.towers.length}, монет ${s.coins}`, s.selectedTower === null && !s.ui.card.visible && s.towers.length === 3 && s.coins === coins0);
+  await game.selectTower('pill');
+  s = await game.state();
+  const afterClose = s.selected === 'pill' && !s.ui.card.visible;
+  await game.selectTower('pill');
+  check(`${p} после закрытия карточки кнопка «Таблетка» на панели снова выбирает башню для постройки`, afterClose, `selected ${s.selected}`);
+
+  // ---- тап по пустой клетке (без выбора на панели) закрывает карточку и ничего не ставит
+  await game.tapCell(...ca);
+  s = await game.state();
+  const opened = s.ui.card.visible;
+  await game.tapCell(...cd);
+  s = await game.state();
+  check(`${p} при открытой карточке тап по пустой клетке (на панели ничего не выбрано) закрывает карточку и башню не ставит (башен ${s.towers.length}, монет ${s.coins})`, opened && !s.ui.card.visible && s.selectedTower === null && s.towers.length === 3 && s.coins === coins0, `карточка до тапа ${opened}, после ${s.ui.card.visible}`);
+
+  // ---- сдвиг карты карточку не закрывает
+  await game.tapCell(...ca);
+  const camBefore = (await game.state()).camera;
+  await game.input.drag(game.g(300, 360), game.g(420, 360));
+  await settle();
+  s = await game.state();
+  const moved = Math.abs(s.camera.cx - camBefore.cx) > 20;
+  check(`${p} сдвиг карты пальцем/мышью (камера ${f1(camBefore.cx)} → ${f1(s.camera.cx)}) не закрывает карточку и не меняет выбор башни`, moved && s.ui.card.visible && selectedIs(s, ca), `камера сдвинулась ${moved}, карточка ${s.ui.card.visible}`);
+  await game.input.drag(game.g(420, 360), game.g(300, 360));
+  await settle();
+
+  // ---- руками: слить две Таблетки, выбрать мутацию, продать
+  await placeAt(game, 'pill', cd);
+  s = await game.state();
+  const coinsBeforeMerge = s.coins;
+  s = await mergeInto(game, ca, cd);
+  const tw = towerIn(s, cd);
+  check(`${p} слияние двух Таблеток (тап по башне → «Слить» → тап по второй): одна башня уровня ${tw?.level} в клетке второй, первая клетка свободна, монет не потрачено (${coinsBeforeMerge} → ${s.coins}), слияний ${s.merges}`, tw?.level === 2 && !towerIn(s, ca) && s.towers.length === 3 && s.coins === coinsBeforeMerge && s.merges === 1 && selectedIs(s, cd), `уровень ${tw?.level}, башен ${s.towers.length}`);
+  check(`${p} на втором уровне карточка предлагает выбрать мутацию: pending = ${tw?.pending}, видны оба варианта`, tw?.pending === 0 && s.ui.card.picks.every((r) => r.visible), `pending ${tw?.pending}, варианты ${s.ui.card.picks.map((r) => r.visible).join(',')}`);
+  await sleep(250);
+  await shot(game.page, `card-03-pick-${deviceKey}`);
+  s = await tapCard(game, 'pick', 1);
+  const t2 = towerIn(s, cd);
+  const wantId = S4.mutations.pill[0][1].id;
+  check(`${p} тап по второму варианту выбирает мутацию «${wantId}»: picks = [${t2?.picks.join(', ')}], выбор больше не ждёт (pending ${t2?.pending}), кнопки вариантов исчезли, выборов за партию ${s.mutationsPicked}`, JSON.stringify(t2?.picks) === JSON.stringify([wantId]) && t2.pending === null && s.ui.card.picks.every((r) => !r.visible) && s.mutationsPicked === 1, `picks ${t2?.picks}`);
+  const coinsBeforeSell = s.coins;
+  s = await tapCard(game, 'sell');
+  const refund = Math.round(TW.pill.price * 2 * S4.sellRefund);
+  check(`${p} «Продать» на втором уровне возвращает ${refund} монет (цена ${TW.pill.price} × 2 × ${S4.sellRefund}): ${coinsBeforeSell} → ${s.coins}; башня исчезла (башен ${s.towers.length}), клетка свободна, карточка закрыта, продаж ${s.sells}`, s.coins === coinsBeforeSell + refund && s.towers.length === 2 && !towerIn(s, cd) && s.selectedTower === null && !s.ui.card.visible && s.sells === 1, `монет ${coinsBeforeSell} → ${s.coins}`);
+  await context.close();
+}
+
+/** Конец игры закрывает карточку и выключает режим слияния; после перезапуска карточки нет, башен нет, счётчики слияний, продаж и мутаций обнулены. */
+async function cardGameOver(browser, baseUrl) {
+  const p = '[карточка: конец игры]';
+  const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
+  const cfg = s4Cfg(['waves.total:1', 'waves.list.0.coccus:4', 'lives.start:1', 'bacteria.baseSpeed:250', 'types.coccus.lifeDamage:1', 'towers.pill.damage:0'], { delay: 3 });
+  const game = await openGame(context, baseUrl, p, { speed: 4, cfg });
+  const [ca, cb] = [FREE.a, FREE.b];
+  await placeAt(game, 'pill', ca);
+  await placeAt(game, 'pill', cb);
+  let s = await mergeInto(game, ca, cb);
+  const merged = s.merges === 1 && s.ui.card.visible && selectedIs(s, cb);
+  s = await tapCard(game, 'merge');
+  const end = await pollUntil(game, (st) => st.state === 'lost', WAIT_MS, 40);
+  check(`${p} до проигрыша было: слияние (${merged}), у выбранной башни открыта карточка, жизней ${end.maxLives}; игра проиграна: состояние «${end.state}»`, merged && end.state === 'lost', `состояние ${end.state}, жизней ${end.lives}`);
+  check(`${p} проигрыш закрывает карточку и снимает выбор башни: карточка ${end.ui.card.visible}, выбрана ${JSON.stringify(end.selectedTower)}, режим слияния ${end.mergeMode}`, !end.ui.card.visible && end.selectedTower === null && !end.mergeMode, `карточка ${end.ui.card.visible}, режим ${end.mergeMode}`);
+  await sleep(CFG.restartLockMs + 300);
+  await tapToRestart(game);
+  s = await waitFor(game.page, (x) => x.state === 'playing' && x.towers.length === 0, 15000, 'перезапуск после проигрыша');
+  check(`${p} после перезапуска: башен ${s.towers.length}, карточки нет, выбора нет, слияний ${s.merges}, продаж ${s.sells}, выборов мутаций ${s.mutationsPicked}, режим слияния ${s.mergeMode}`, s.towers.length === 0 && !s.ui.card.visible && s.selectedTower === null && s.merges === 0 && s.sells === 0 && s.mutationsPicked === 0 && !s.mergeMode, `башен ${s.towers.length}, слияний ${s.merges}`);
+  await context.close();
+}
+
+async function runCard(browser, baseUrl) {
+  prepareStage4();
+  cardTexts();
+  await safe('[карточка: компьютер]', () => cardBasics(browser, baseUrl, 'desktop'));
+  await safe('[карточка: телефон]', () => cardBasics(browser, baseUrl, 'phone'));
+  await safe('[карточка: конец игры]', () => cardGameOver(browser, baseUrl));
+}
+
+// ---------------------------------------------------------------- слияние
+
+/** Слияние: выбор пары, режим и отмена, пара из разных видов не сливается, уровни не смешиваются, мутации цели сохраняются, бесплатно; до высшего уровня и после него. */
+async function mergeFlow(browser, baseUrl) {
+  const p = '[слияние]';
+  const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
+  let game = await openGame(context, baseUrl, p, { speed: 1, cfg: s4Cfg() });
+  const [A, B, C, D, E, F] = ['a', 'b', 'c', 'd', 'e', 'f'].map((k) => FREE[k]);
+  if (!F) throw new Error('на карте не нашлось шести свободных клеток');
+  const price = TW.pill.price;
+  await placeAt(game, 'pill', A);
+  await placeAt(game, 'pill', B);
+  await placeAt(game, 'fizz', C);
+  let s = await game.state();
+  const coins0 = s.coins;
+  const placements0 = s.effects.placements;
+
+  s = await selectPlaced(game, A);
+  check(`${p} у Таблетки при другой Таблетке того же уровня «Слить» доступна`, s.ui.card.visible && s.ui.card.merge.enabled);
+  s = await selectPlaced(game, C);
+  check(`${p} у Шипучки (другого вида пары нет: Таблетка ей не пара) «Слить» недоступна`, s.ui.card.visible && !s.ui.card.merge.enabled);
+  s = await tapCard(game, 'merge');
+  check(`${p} тап по недоступной «Слить» режим слияния не включает (mergeMode = ${s.mergeMode}), слияний ${s.merges}`, !s.mergeMode && s.merges === 0);
+
+  await selectPlaced(game, A);
+  s = await tapCard(game, 'merge');
+  check(`${p} «Слить» включает режим выбора пары (mergeMode), кнопка остаётся нажимаемой (теперь «Отмена»)`, s.mergeMode && s.ui.card.merge.enabled && selectedIs(s, A));
+  await sleep(250);
+  await shot(game.page, 'merge-01-mode');
+  s = await tapCard(game, 'merge');
+  check(`${p} повторный тап по той же кнопке («Отмена») выключает режим; башня осталась выбранной`, !s.mergeMode && selectedIs(s, A) && s.merges === 0);
+  await tapCard(game, 'merge');
+  await game.tapCell(...C);
+  s = await game.state();
+  check(`${p} в режиме слияния тап по башне другого вида (Шипучка) пары не образует: режим выключен, слияний ${s.merges}, башен ${s.towers.length}, уровни Таблеток ${s.towers.filter((t) => t.id === 'pill').map((t) => t.level).join(', ')}`, !s.mergeMode && s.merges === 0 && s.towers.length === 3 && s.towers.every((t) => t.level === 1), `режим ${s.mergeMode}, слияний ${s.merges}`);
+  s = await selectPlaced(game, A);
+  await tapCard(game, 'merge');
+  await game.tapCell(...D);
+  s = await game.state();
+  check(`${p} в режиме слияния тап по пустой клетке отменяет режим и башню не ставит (башен ${s.towers.length}, постановок ${s.effects.placements} из ${placements0})`, !s.mergeMode && s.towers.length === 3 && s.effects.placements === placements0 && s.merges === 0);
+  s = await selectPlaced(game, A);
+  await tapCard(game, 'merge');
+  s = await tapCard(game, 'close');
+  check(`${p} ✕ в режиме слияния закрывает карточку и выключает режим`, !s.mergeMode && !s.ui.card.visible && s.selectedTower === null && s.merges === 0);
+
+  // ---- слияние A → B: результат в клетке B, A свободна, бесплатно
+  s = await mergeInto(game, A, B);
+  let tb = towerIn(s, B);
+  check(`${p} слияние двух Таблеток: в клетке второй (тапнутой) — башня уровня ${tb?.level}, клетка первой свободна, башен ${s.towers.length}, слияний ${s.merges}, монет не потрачено (${coins0} → ${s.coins})`, tb?.level === 2 && !towerIn(s, A) && s.towers.length === 2 && s.merges === 1 && s.coins === coins0, `уровень ${tb?.level}, башен ${s.towers.length}, монет ${s.coins}`);
+  check(`${p} после слияния результат выбран (карточка открыта), ждёт мутацию (pending ${tb?.pending}), оба варианта видны`, selectedIs(s, B) && s.ui.card.visible && tb?.pending === 0 && s.ui.card.picks.every((r) => r.visible));
+  const d2 = statsDiff(tb.stats, expectedStats('pill', 2, []));
+  check(`${p} числа Таблетки второго уровня совпадают с таблицей towerLevels (урон ${f2(tb.stats.damage)}, пауза ${f1(tb.stats.cooldownMs)} мс, радиус ${f1(tb.stats.range)})`, d2.length === 0, d2.join('; '));
+  await sleep(250);
+  await shot(game.page, 'merge-02-level2');
+
+  // ---- освободившаяся клетка снова годится для постройки; уровни не смешиваются
+  await placeAt(game, 'pill', A);
+  s = await game.state();
+  check(`${p} освободившаяся после слияния клетка принимает новую башню (монет ${s.coins}, ждали ${coins0 - price})`, towerIn(s, A)?.level === 1 && s.coins === coins0 - price, `монет ${s.coins}`);
+  s = await selectPlaced(game, B);
+  const lvl2NoPair = !s.ui.card.merge.enabled;
+  s = await selectPlaced(game, A);
+  check(`${p} Таблетка уровня 2 и Таблетка уровня 1 не пара: у обеих «Слить» недоступна`, lvl2NoPair && !s.ui.card.merge.enabled, `у ур.2 ${!lvl2NoPair}, у ур.1 ${s.ui.card.merge.enabled}`);
+
+  // ---- второй уровень на A (D → A), затем уровень 3: B → A; мутация не выбрана, pending остаётся
+  await placeAt(game, 'pill', D);
+  s = await mergeInto(game, D, A);
+  check(`${p} ещё одно слияние: уровень 2 в клетке ${A.join(';')}, клетка ${D.join(';')} свободна`, towerIn(s, A)?.level === 2 && !towerIn(s, D));
+  s = await selectPlaced(game, B);
+  check(`${p} две Таблетки уровня 2: «Слить» доступна`, s.ui.card.merge.enabled);
+  s = await mergeInto(game, B, A);
+  const t3 = towerIn(s, A);
+  const d3 = statsDiff(t3.stats, expectedStats('pill', 3, []));
+  check(`${p} слияние двух уровней 2 даёт уровень ${t3?.level}; клетка ${B.join(';')} свободна; мутация первого порога не выбрана, поэтому pending по-прежнему ${t3?.pending}; числа совпадают с таблицей (${d3.join('; ') || 'ошибок нет'})`, t3?.level === 3 && !towerIn(s, B) && t3.pending === 0 && d3.length === 0, `уровень ${t3?.level}, pending ${t3?.pending}`);
+
+  // ---- мутации цели сохраняются, источника — пропадают
+  s = await game.state();
+  await game.page.close();
+  game = await openGame(context, baseUrl, p, { speed: 1, cfg: s4Cfg() });
+  await growTo(game, 'pill', 2, D, [E]);
+  s = await tapCard(game, 'pick', 0);
+  const pickD = S4.mutations.pill[0][0].id;
+  await growTo(game, 'pill', 2, B, [E]);
+  s = await tapCard(game, 'pick', 1);
+  const pickB = S4.mutations.pill[0][1].id;
+  s = await game.state();
+  const sourcePicks = towerIn(s, B).picks.join();
+  s = await mergeInto(game, B, D);
+  const td = towerIn(s, D);
+  const dm = statsDiff(td.stats, expectedStats('pill', 3, [pickD]));
+  check(`${p} при слиянии двух Таблеток уровня 2 с разными мутациями (цель «${pickD}», источник «${sourcePicks}») у результата остаются мутации цели — той, по которой тапнули вторым: picks [${td.picks.join(', ')}], уровень ${td.level}, pending ${td.pending} (выбор третьего уровня не нужен); числа ${dm.join('; ') || 'совпадают с таблицей'}`, td.level === 3 && JSON.stringify(td.picks) === JSON.stringify([pickD]) && td.pending === null && dm.length === 0 && pickB !== pickD, `picks ${td.picks}, уровень ${td.level}`);
+  await game.page.close();
+
+  // ---- до высшего уровня: две Таблетки четвёртого уровня, слияние между ними невозможно
+  game = await openGame(context, baseUrl, p, { speed: 1, cfg: s4Cfg() });
+  const top = S4.levels.length;
+  const pool = [C, D, E];
+  const diffs = [];
+  const started = Date.now();
+  for (const main of [A, B]) {
+    await growTo(game, 'pill', top, main, pool, async (level, st) => {
+      const tw = towerIn(st, main);
+      const bad = statsDiff(tw.stats, expectedStats('pill', level, []));
+      if (bad.length) diffs.push(`ур.${level}: ${bad.join(', ')}`);
+    });
+  }
+  s = await game.state();
+  const placed = 2 * 2 ** (top - 1);
+  check(`${p} двумя башнями уровня ${top} (на каждую ушло ${2 ** (top - 1)} Таблеток и ${2 ** (top - 1) - 1} слияний; ${Math.round((Date.now() - started) / 1000)} с): башен ${s.towers.length}, слияний ${s.merges} (ждали ${2 * (2 ** (top - 1) - 1)}), монет ${s.coins} (ждали ${100000 - placed * price}: слияния бесплатны), maxTowerLevel ${s.maxTowerLevel}`, s.towers.length === 2 && s.towers.every((t) => t.level === top) && s.merges === 2 * (2 ** (top - 1) - 1) && s.coins === 100000 - placed * price && s.maxTowerLevel === top, `башен ${s.towers.length}, слияний ${s.merges}, монет ${s.coins}`);
+  check(`${p} на каждом уровне 1…${top} числа Таблетки совпали с таблицей towerLevels (урон, пауза, радиус)`, diffs.length === 0, diffs.slice(0, 4).join(' | '));
+  s = await selectPlaced(game, A);
+  const blockedA = !s.ui.card.merge.enabled;
+  s = await tapCard(game, 'merge');
+  check(`${p} две башни высшего уровня друг с другом не сливаются: «Слить» недоступна у обеих, тап по ней режим не включает (mergeMode ${s.mergeMode})`, blockedA && !s.mergeMode, `merge.enabled у первой ${!blockedA}`);
+  s = await selectPlaced(game, B);
+  const blockedB = !s.ui.card.merge.enabled;
+  await sleep(250);
+  await shot(game.page, 'merge-03-max-level');
+  check(`${p} у второй башни высшего уровня «Слить» тоже недоступна, слияний по-прежнему ${s.merges}`, blockedB && s.merges === 2 * (2 ** (top - 1) - 1));
+  await context.close();
+}
+
+// ---------------------------------------------------------------- мутации
+
+/**
+ * Один проход по башне: вырастить её до высшего уровня (помощники — в клетки pool), на втором уровне выбрать вариант o0 первого порога, на четвёртом — o1 второго;
+ * на каждом шаге сверить с таблицами config.ts, что ждёт выбора (pending), видны ли варианты и какие числа у башни (towers[].stats).
+ */
+async function mutationPass(game, id, o0, o1, main, pool) {
+  const issues = [];
+  const note1 = (what, ok, detail) => {
+    if (!ok) issues.push(`${what}: ${detail}`);
+  };
+  const [t0, t1] = [S4.mutations[id][0][o0].id, S4.mutations[id][1][o1].id];
+  const top = S4.levels.length;
+  const [l0, l1] = S4.mutationLevels;
+  const picks = [];
+  await growTo(game, id, top, main, pool, async (level, st) => {
+    let tw = towerIn(st, main);
+    const tiers = S4.mutationLevels.filter((l) => level >= l).length;
+    const want = tiers > picks.length ? picks.length : null;
+    note1(`ур.${level}: что ждёт выбора`, tw.pending === want, `pending ${tw.pending}, ждали ${want}`);
+    if (level > 1) note1(`ур.${level}: карточка`, st.ui.card.visible && selectedIs(st, main) && st.ui.card.picks.every((r) => r.visible === (want !== null)), `карточка ${st.ui.card.visible}, варианты ${st.ui.card.picks.map((r) => r.visible).join(',')}`);
+    let bad = statsDiff(tw.stats, expectedStats(id, level, picks));
+    note1(`ур.${level} до выбора: числа`, bad.length === 0, bad.join(', '));
+    if ((level === l0 || level === l1) && want !== null) {
+      const index = want === 0 ? o0 : o1;
+      const after = await tapCard(game, 'pick', index);
+      picks.push(S4.mutations[id][want][index].id);
+      tw = towerIn(after, main);
+      note1(`ур.${level}: выбор «${picks.at(-1)}»`, JSON.stringify(tw.picks) === JSON.stringify(picks) && tw.pending === null && after.ui.card.picks.every((r) => !r.visible), `picks ${tw.picks}, pending ${tw.pending}`);
+      bad = statsDiff(tw.stats, expectedStats(id, level, picks));
+      note1(`ур.${level} после выбора «${picks.at(-1)}»: числа`, bad.length === 0, bad.join(', '));
+      const again = await tapCard(game, 'pick', 1 - index);
+      note1(`ур.${level}: повторный тап по месту кнопки выбора ничего не меняет`, JSON.stringify(towerIn(again, main).picks) === JSON.stringify(picks), `picks ${towerIn(again, main).picks}`);
+    }
+  });
+  const end = towerIn(await game.state(), main);
+  note1('итог', JSON.stringify(end.picks) === JSON.stringify([t0, t1]) && end.level === top && end.pending === null, `picks ${end.picks}, уровень ${end.level}, pending ${end.pending}`);
+  return { issues, t0, t1 };
+}
+
+async function mutationsFlow(browser, baseUrl) {
+  const p = '[мутации]';
+  const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
+  for (const id of TOWER_IDS) {
+    const started = Date.now();
+    const game = await openGame(context, baseUrl, `${p} ${id}`, { speed: 1, cfg: s4Cfg() });
+    const [a, b, c, d, e] = [FREE.a, FREE.b, FREE.c, FREE.d, FREE.e];
+    const results = [];
+    // два прохода: варианты (1-й, 1-й) и (2-й, 2-й) — так каждая из четырёх мутаций башни хотя бы раз выбрана на своём уровне
+    for (const [main, o] of [[a, 0], [b, 1]]) results.push(await mutationPass(game, id, o, o, main, [c, d, e]));
+    for (const r of results) {
+      check(`${p} «${id}»: выбор «${r.t0}» на уровне ${S4.mutationLevels[0]} и «${r.t1}» на уровне ${S4.mutationLevels[1]}: pending, карточка, числа (урон, пауза, радиус, взрыв, лужа, замедление, удары) совпали с towerLevels и mutations на каждом уровне 1…${S4.levels.length}; выбор окончателен`, r.issues.length === 0, r.issues.slice(0, 4).join(' | '));
+    }
+    const s = await game.state();
+    check(`${p} «${id}»: башен ${s.towers.length} (две высшего уровня), выборов мутаций за партию ${s.mutationsPicked} (ждали 4)`, s.towers.length === 2 && s.mutationsPicked === 4, `башен ${s.towers.length}, выборов ${s.mutationsPicked}`);
+    if (id === 'syringe') await shot(game.page, 'mutations-01-syringe-max');
+    await game.page.close();
+    console.log(`⏱  ${p} ${id}: ${Math.round((Date.now() - started) / 1000)} с`);
+  }
+  await context.close();
+}
+
+// ---------------------------------------------------------------- продажа
+
+/** Продажа: возврат долей цены на каждом уровне, свободная клетка, продажа в режиме слияния, очередь луча проданного Шприца обрывается. */
+async function sellFlow(browser, baseUrl) {
+  const p = '[продажа]';
+  const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
+  let game = await openGame(context, baseUrl, p, { speed: 1, cfg: s4Cfg() });
+  const cells = ['a', 'b', 'c', 'd'].map((k) => FREE[k]);
+  if (!cells[3]) throw new Error('на карте не нашлось четырёх свободных клеток');
+  // ---- уровень 1: все четыре башни, возврат round(цена × доля)
+  const rows = [];
+  for (let i = 0; i < TOWER_IDS.length; i++) {
+    const id = TOWER_IDS[i];
+    await placeAt(game, id, cells[i]);
+    let s = await game.state();
+    const before = s.coins;
+    await selectPlaced(game, cells[i]);
+    s = await tapCard(game, 'sell');
+    const refund = Math.round(TW[id].price * S4.sellRefund);
+    rows.push({ id, refund, got: s.coins - before, ok: s.coins - before === refund && !towerIn(s, cells[i]) && s.towers.length === 0 && s.selectedTower === null && !s.ui.card.visible && s.sells === i + 1 });
+  }
+  check(`${p} продажа башни первого уровня возвращает округлённую долю цены (${S4.sellRefund}): ${rows.map((r) => `${r.id} +${r.got} (ждали +${r.refund})`).join('; ')}; башня исчезает, выбор и карточка снимаются`, rows.every((r) => r.ok), rows.filter((r) => !r.ok).map((r) => `${r.id}: +${r.got} вместо +${r.refund}`).join('; '));
+  let s = await game.state();
+  check(`${p} после четырёх продаж башен нет, продаж ${s.sells}`, s.towers.length === 0 && s.sells === 4);
+
+  // ---- клетка после продажи свободна
+  const coinsBefore = (await game.state()).coins;
+  await placeAt(game, 'fizz', cells[2]);
+  s = await game.state();
+  check(`${p} клетка проданной башни свободна: в ней снова ставится башня (монет ${coinsBefore} → ${s.coins}, цена ${TW.fizz.price})`, towerIn(s, cells[2])?.id === 'fizz' && s.coins === coinsBefore - TW.fizz.price);
+  await selectPlaced(game, cells[2]);
+  await tapCard(game, 'sell');
+
+  // ---- уровни 2…высший: возврат растёт вдвое с каждым уровнем (в башню «вложено» 2^(L−1) обычных)
+  const top = S4.levels.length;
+  await growTo(game, 'pill', top, cells[0], [cells[1], cells[2], cells[3]]);
+  s = await game.state();
+  const coinsTop = s.coins;
+  s = await selectPlaced(game, cells[0]);
+  s = await tapCard(game, 'sell');
+  const refundTop = Math.round(TW.pill.price * 2 ** (top - 1) * S4.sellRefund);
+  check(`${p} башня высшего уровня ${top} (вложено ${2 ** (top - 1)} Таблеток) продаётся за ${refundTop} (цена ${TW.pill.price} × ${2 ** (top - 1)} × ${S4.sellRefund}): получено ${s.coins - coinsTop}; башен ${s.towers.length}`, s.coins - coinsTop === refundTop && s.towers.length === 0, `получено ${s.coins - coinsTop}`);
+  const levelRows = [];
+  for (let level = 2; level < top; level++) {
+    await growTo(game, 'pill', level, cells[0], cells.slice(1));
+    s = await game.state();
+    const before = s.coins;
+    await selectPlaced(game, cells[0]);
+    s = await tapCard(game, 'sell');
+    const refund = Math.round(TW.pill.price * 2 ** (level - 1) * S4.sellRefund);
+    levelRows.push({ level, refund, got: s.coins - before, ok: s.coins - before === refund && s.towers.length === 0 });
+  }
+  check(`${p} продажа башен промежуточных уровней: ${levelRows.map((r) => `ур.${r.level} +${r.got} (ждали +${r.refund})`).join('; ')}`, levelRows.every((r) => r.ok), levelRows.filter((r) => !r.ok).map((r) => `ур.${r.level}: +${r.got} вместо +${r.refund}`).join('; '));
+
+  // ---- продажа в режиме слияния: режим выключается, вторая башня остаётся и больше не подсвечена
+  await placeAt(game, 'pill', cells[0]);
+  await placeAt(game, 'pill', cells[1]);
+  await selectPlaced(game, cells[0]);
+  s = await tapCard(game, 'merge');
+  const inMode = s.mergeMode;
+  const beforeSell = s.coins;
+  s = await tapCard(game, 'sell');
+  check(`${p} продажа в режиме слияния: режим выключился (было ${inMode}, стало ${s.mergeMode}), продана выбранная (+${s.coins - beforeSell}), вторая Таблетка осталась (башен ${s.towers.length}), `, inMode && !s.mergeMode && s.towers.length === 1 && cellEq(s.towers[0], cells[1]) && s.coins - beforeSell === Math.round(TW.pill.price * S4.sellRefund) && !s.ui.card.visible);
+  s = await selectPlaced(game, cells[1]);
+  check(`${p} у оставшейся Таблетки пары больше нет: «Слить» недоступна`, !s.ui.card.merge.enabled);
+  await game.page.close();
+
+  // ---- проданный Шприц обрывает очередь: удары прекращаются сразу
+  const gap = 2500;
+  const cfg = s4Cfg([`towers.syringe.beamGapMs:${gap}`, 'waves.total:1', 'waves.list.0.coccus:40', 'waves.intervalStartSec:0.3', 'waves.intervalEndSec:0.3', 'types.coccus.hp:99'], { delay: 5 });
+  game = await openGame(context, baseUrl, p, { speed: 1, cfg });
+  for (let i = 0; i < 3; i++) await game.input.wheel(game.g(540, 360), 500);
+  await settle();
+  const spot = beamSpot(await game.state(), 'far');
+  const cell = [spot.col, spot.row];
+  await placeAt(game, 'syringe', cell);
+  const first = await pollUntil(game, (st) => st.effects.beams >= 1 || st.state !== 'playing', 120000, 25);
+  if (first.effects.beams < 1) {
+    check(`${p} Шприц у входа начал очередь (дождались за 120 с)`, false, `ударов ${first.effects.beams}, состояние ${first.state}`);
+  } else {
+    await selectPlaced(game, cell);
+    const sale = await tapCard(game, 'sell');
+    const atSale = sale.effects.beams;
+    await sleep(gap * 2 + 500);
+    const late = await game.state();
+    check(`${p} проданный Шприц очередь не продолжает: ударов в момент продажи ${atSale} (в очереди ${TW.syringe.beamPulses}), через ${(gap * 2 + 500) / 1000} с — ${late.effects.beams}; башен ${late.towers.length}, снарядов и очередей в игре ${late.projectiles}`, late.towers.length === 0 && late.effects.beams === atSale && atSale < TW.syringe.beamPulses && late.projectiles === 0, `ударов ${atSale} → ${late.effects.beams}`);
+  }
+  await game.page.close();
+  await context.close();
+}
+
+// ---------------------------------------------------------------- особые мутации
+
+/** Номер варианта (0/1) на пороге tier башни id, у которого есть поле field (armorPierce, extraTargets, chain, poisonPerSec, secondBeam…). */
+function pickIndex(id, tier, field) {
+  const i = S4.mutations[id][tier].findIndex((m) => m[field]);
+  if (i < 0) throw new Error(`В таблице mutations нет варианта с полем «${field}» (башня ${id}, порог ${tier + 1})`);
+  return i;
+}
+/**
+ * Для проверок боя пороги мутаций сближены (`mutationLevels.1:2`): второй порог открывается на втором уровне, и башню с двумя мутациями собирают одним слиянием, а не пятнадцатью.
+ * Сами пороги (2 и 4) проверяет сценарий `mutations`: там башня растёт до высшего уровня по-настоящему. Мутация «Бронебойная» — первого порога, её проверка идёт на настоящих порогах.
+ */
+const SPECIAL_SHORTCUT = 'mutationLevels.1:2';
+
+/** Башня вида id уровня 2 в клетке cell (помощник — в helper) с выбранными вариантами picks (по порогам); бросает ошибку, если мутации не те. */
+async function specialTower(game, id, cell, helper, picks) {
+  await growTo(game, id, 2, cell, [helper]);
+  let s = await game.state();
+  for (let tier = 0; tier < picks.length; tier++) s = await tapCard(game, 'pick', picks[tier]);
+  const tw = towerIn(s, cell);
+  const want = picks.map((index, tier) => S4.mutations[id][tier][index].id);
+  if (JSON.stringify(tw.picks) !== JSON.stringify(want)) throw new Error(`мутации башни «${id}»: ${tw.picks.join(', ') || 'нет'} вместо ${want.join(', ')}`);
+  return tw;
+}
+/** Игра с башней у «ствола» (через него идут все бактерии): башня собрана, ожидание волны долгое (волну запускает проверка). */
+async function trunkGame(context, baseUrl, p, { id, picks, extra, speed }) {
+  const game = await openGame(context, baseUrl, p, { speed, cfg: s4Cfg([...(picks.length > 1 ? [SPECIAL_SHORTCUT] : []), ...extra]) });
+  await panTo(game, 'left');
+  const [cell, helper] = trunkCells(2);
+  const tw = await specialTower(game, id, cell, helper, picks);
+  return { game, tw, cell };
+}
+const denseWave = (count, gap) => ['waves.total:1', `waves.list.0.coccus:${count}`, `waves.intervalStartSec:${gap}`, `waves.intervalEndSec:${gap}`];
+
+/** «Цепная» Шипучка: после взрыва — второй, поэтому взрывов больше выстрелов (у «Кислоты» — поровну). */
+async function specialChain(context, baseUrl) {
+  const p = '[особые мутации: Шипучка «Цепная»]';
+  const tier1 = [pickIndex('fizz', 1, 'chain'), 1 - pickIndex('fizz', 1, 'chain')];
+  const run = async (index, label) => {
+    const { game } = await trunkGame(context, baseUrl, `${p} ${label}`, { id: 'fizz', picks: [0, index], extra: [...denseWave(50, 0.3), 'types.coccus.hp:60'], speed: 3 });
+    await startWave(game);
+    const log = [];
+    const end = await pollUntil(game, (st) => {
+      log.push(st);
+      return st.state !== 'playing' || (st.shots >= 6 && st.projectiles === 0);
+    }, 150000, 20);
+    await game.page.close();
+    return { log, end, spare: Math.max(...log.map((st) => st.effects.blasts - st.shots)) };
+  };
+  const chain = await run(tier1[0], 'цепная');
+  const plain = await run(tier1[1], 'без цепной (контроль)');
+  check(`${p} с мутацией «${S4.mutations.fizz[1][tier1[0]].id}» взрывов больше выстрелов: выстрелов ${chain.end.shots}, взрывов ${chain.end.effects.blasts} (лишних до ${chain.spare}); каждый выстрел даёт не больше одного лишнего взрыва`, chain.end.shots >= 5 && chain.spare >= 1 && chain.end.effects.blasts <= 2 * chain.end.shots, `выстрелов ${chain.end.shots}, взрывов ${chain.end.effects.blasts}`);
+  check(`${p} контроль: с «${S4.mutations.fizz[1][tier1[1]].id}» взрывов не больше выстрелов (выстрелов ${plain.end.shots}, взрывов ${plain.end.effects.blasts}, лишних не было)`, plain.end.shots >= 5 && plain.spare <= 0, `выстрелов ${plain.end.shots}, взрывов ${plain.end.effects.blasts}, лишних до ${plain.spare}`);
+}
+
+/** «Второй луч» Шприца: каждая очередь вспыхивает на двух линиях — вспышек вдвое больше (у «Спирали» — по числу ударов). */
+async function specialTwin(context, baseUrl) {
+  const p = '[особые мутации: Шприц «Второй луч»]';
+  const idx = pickIndex('syringe', 1, 'secondBeam');
+  const run = async (index, label) => {
+    const game = await openGame(context, baseUrl, `${p} ${label}`, { speed: 2, cfg: s4Cfg([SPECIAL_SHORTCUT, ...denseWave(30, 0.5), 'types.coccus.hp:99', 'towers.syringe.cooldownMs:60000']) });
+    for (let i = 0; i < 3; i++) await game.input.wheel(game.g(540, 360), 500);
+    await settle();
+    const st0 = await game.state();
+    const spot = beamSpot(st0, 'far');
+    const helper = farVisibleCell(st0);
+    const tw = await specialTower(game, 'syringe', [spot.col, spot.row], [helper.col, helper.row], [pickIndex('syringe', 0, 'armorPierce'), index]);
+    await startWave(game);
+    const end = await pollUntil(game, (st) => st.state !== 'playing' || (st.shots >= 1 && st.projectiles === 0), 150000, 20);
+    await game.page.close();
+    return { end, pulses: tw.stats.beamPulses };
+  };
+  const twin = await run(idx, 'второй луч');
+  const plain = await run(1 - idx, 'без второго луча (контроль)');
+  check(`${p} с мутацией «${S4.mutations.syringe[1][idx].id}» очередь из ${twin.pulses} ударов даёт ${twin.end.effects.beams} вспышек луча — вдвое больше, чем ударов (${2 * twin.pulses}); выстрелов ${twin.end.shots}`, twin.end.shots === 1 && twin.end.effects.beams === 2 * twin.pulses, `выстрелов ${twin.end.shots}, вспышек ${twin.end.effects.beams}, ударов ${twin.pulses}`);
+  check(`${p} контроль: с «${S4.mutations.syringe[1][1 - idx].id}» вспышек ровно по числу ударов (${plain.pulses}): ${plain.end.effects.beams}; выстрелов ${plain.end.shots}`, plain.end.shots === 1 && plain.end.effects.beams === plain.pulses, `выстрелов ${plain.end.shots}, вспышек ${plain.end.effects.beams}, ударов ${plain.pulses}`);
+}
+
+/** «Едкая» лужа Сиропа: бактерии в ней теряют HP — лужа убивает сама (у Сиропа урона нет); без «Едкой» никто не гибнет. */
+async function specialCaustic(context, baseUrl) {
+  const p = '[особые мутации: Сироп «Едкая»]';
+  const idx = pickIndex('syrup', 1, 'poisonPerSec');
+  const run = async (index, label) => {
+    const { game } = await trunkGame(context, baseUrl, `${p} ${label}`, { id: 'syrup', picks: [pickIndex('syrup', 0, 'puddleRadiusMul'), index], extra: [...denseWave(24, 0.5), 'types.coccus.hp:3'], speed: 3 });
+    await startWave(game);
+    const end = await pollUntil(game, (st) => st.state !== 'playing', 150000, 25);
+    await game.page.close();
+    return end;
+  };
+  const caustic = await run(idx, 'едкая');
+  const plain = await run(1 - idx, 'без едкой (контроль)');
+  check(`${p} с мутацией «${S4.mutations.syrup[1][idx].id}» бактерии гибнут в луже без выстрелов (у Сиропа урона нет): убито ${caustic.kills} из ${caustic.spawned} вышедших, бактерий замедлено ${caustic.slows}; состояние «${caustic.state}»`, caustic.kills >= 3 && caustic.slows > 0 && caustic.kills + caustic.leaked === caustic.spawned, `убито ${caustic.kills}, дошло ${caustic.leaked}, вышло ${caustic.spawned}`);
+  check(`${p} контроль: с «${S4.mutations.syrup[1][1 - idx].id}» лужа никого не убивает (убито ${plain.kills}), все ${plain.spawned} дошли до организма (${plain.leaked}); лужи работали (замедлено ${plain.slows})`, plain.kills === 0 && plain.leaked === plain.spawned && plain.slows > 0, `убито ${plain.kills}, дошло ${plain.leaked}, вышло ${plain.spawned}, замедлено ${plain.slows}`);
+}
+
+/** «Двойной выстрел» Таблетки: за один выстрел бьёт две цели (прирост счётчика выстрелов — по два); без него — по одной. */
+async function specialDouble(context, baseUrl) {
+  const p = '[особые мутации: Таблетка «Двойной выстрел»]';
+  const idx = pickIndex('pill', 1, 'extraTargets');
+  const run = async (index, label) => {
+    const { game } = await trunkGame(context, baseUrl, `${p} ${label}`, { id: 'pill', picks: [pickIndex('pill', 0, 'armorPierce'), index], extra: [...denseWave(40, 0.4), 'types.coccus.hp:99'], speed: 2 });
+    await startWave(game);
+    const log = [];
+    const end = await pollUntil(game, (st) => {
+      log.push(st);
+      return st.state !== 'playing' || st.shots >= 10;
+    }, 150000, 20);
+    await game.page.close();
+    const jumps = [];
+    for (let i = 1; i < log.length; i++) if (log[i].shots > log[i - 1].shots) jumps.push(log[i].shots - log[i - 1].shots);
+    return { end, jumps };
+  };
+  const double = await run(idx, 'двойной');
+  const plain = await run(1 - idx, 'без двойного (контроль)');
+  check(`${p} с мутацией «${S4.mutations.pill[1][idx].id}» за один выстрел башня бьёт две цели: приросты счётчика выстрелов [${double.jumps.join(', ')}] — есть двойные (${double.jumps.filter((x) => x === 2).length}) и нет тройных; всего выстрелов ${double.end.shots}`, double.jumps.filter((x) => x === 2).length >= 2 && Math.max(...double.jumps) === 2, `приросты ${double.jumps.join(',')}`);
+  check(`${p} контроль: с «${S4.mutations.pill[1][1 - idx].id}» каждый выстрел — одна цель: приросты [${plain.jumps.join(', ')}], выстрелов ${plain.end.shots}`, plain.jumps.length >= 5 && Math.max(...plain.jumps) === 1, `приросты ${plain.jumps.join(',')}`);
+}
+
+/** «Бронебойная» Таблетка: удар по бронированной бактерии не ослабляется бронёй (без мутации — max(урон·доля, урон − броня)). Первый порог — настоящий второй уровень. */
+async function specialPierce(context, baseUrl) {
+  const p = '[особые мутации: Таблетка «Бронебойная»]';
+  const idx = pickIndex('pill', 0, 'armorPierce');
+  const armor = readConfigNumber('armored', 'armor');
+  const share = readConfigNumber('combat', 'armorMinShare');
+  const run = async (index, label) => {
+    const { game, tw } = await trunkGame(context, baseUrl, `${p} ${label}`, { id: 'pill', picks: [index], extra: [...wavesOnly({ armored: 1 }), 'towers.pill.cooldownMs:60000', 'types.armored.hp:200'], speed: 2 });
+    await startWave(game);
+    let hit = null;
+    const end = await pollUntil(game, (st) => {
+      const b = st.bacteria.find((x) => x.kind === 'armored' && x.hp < x.maxHp);
+      if (b) hit = { drop: b.maxHp - b.hp };
+      return hit !== null || st.state !== 'playing';
+    }, 150000, 15);
+    await game.page.close();
+    return { hit, damage: tw.stats.damage, end };
+  };
+  const pierce = await run(idx, 'бронебойная');
+  const plain = await run(1 - idx, 'без бронебойной (контроль)');
+  check(`${p} с «${S4.mutations.pill[0][idx].id}» первый удар по бронированной (броня ${armor}) снимает полный урон башни ${f2(pierce.damage)}: снято ${pierce.hit ? f2(pierce.hit.drop) : 'ничего'}`, pierce.hit !== null && Math.abs(pierce.hit.drop - pierce.damage) < 1e-6, `снято ${pierce.hit?.drop}`);
+  const want = Math.max(plain.damage * share, plain.damage - armor);
+  check(`${p} контроль: с «${S4.mutations.pill[0][1 - idx].id}» тот же удар ${f2(plain.damage)} снимает max(урон × ${share}, урон − ${armor}) = ${f2(want)}: снято ${plain.hit ? f2(plain.hit.drop) : 'ничего'}`, plain.hit !== null && Math.abs(plain.hit.drop - want) < 1e-6, `снято ${plain.hit?.drop}`);
+  check(`${p} бронебойный удар сильнее обычного (${pierce.hit ? f2(pierce.hit.drop) : '—'} против ${plain.hit ? f2(plain.hit.drop) : '—'})`, pierce.hit !== null && plain.hit !== null && pierce.hit.drop > plain.hit.drop);
+}
+
+/** QA_SPECIAL_ONLY=chain,twin — только эти части (chain, twin, caustic, double, pierce). */
+const specialOnly = process.env.QA_SPECIAL_ONLY ? process.env.QA_SPECIAL_ONLY.split(',') : null;
+async function runSpecial(browser, baseUrl) {
+  prepareStage4();
+  const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
+  const part = (key, label, fn) => (specialOnly === null || specialOnly.includes(key) ? safe(label, () => fn(context, baseUrl)) : null);
+  await part('pierce', '[особые мутации: Бронебойная]', specialPierce);
+  await part('double', '[особые мутации: Двойной выстрел]', specialDouble);
+  await part('caustic', '[особые мутации: Едкая]', specialCaustic);
+  await part('chain', '[особые мутации: Цепная]', specialChain);
+  await part('twin', '[особые мутации: Второй луч]', specialTwin);
+  await context.close();
+}
+
+async function runMerge(browser, baseUrl) {
+  prepareStage4();
+  await safe('[слияние]', () => mergeFlow(browser, baseUrl));
+}
+async function runMutations(browser, baseUrl) {
+  prepareStage4();
+  await safe('[мутации]', () => mutationsFlow(browser, baseUrl));
+}
+async function runSell(browser, baseUrl) {
+  prepareStage4();
+  await safe('[продажа]', () => sellFlow(browser, baseUrl));
+}
+
+
 /** QA_TOWERS_ONLY=syrup,fizz — только эти части сценария (для проверки самих проверок: быстрее, чем весь сценарий).
  *  Части: texts, panel, controls, prices, syrup, fizz, syringe, pill, mixed, swarm, runner, healer, regen, commander, brood, giant. */
 const towersOnly = process.env.QA_TOWERS_ONLY ? process.env.QA_TOWERS_ONLY.split(',') : null;
@@ -3826,6 +4705,11 @@ try {
   if (wants('win-ru')) await safe('[победа ru]', () => runWin(browser, qaServer.url, 'ru', 'desktop', true));
   if (wants('win-en')) await safe('[победа en]', () => runWin(browser, qaServer.url, 'en', 'phone', false));
   if (wants('towers')) await safe('[башни]', () => runTowers(browser, qaServer.url));
+  if (wants('card')) await runCard(browser, qaServer.url);
+  if (wants('merge')) await runMerge(browser, qaServer.url);
+  if (wants('mutations')) await runMutations(browser, qaServer.url);
+  if (wants('sell')) await runSell(browser, qaServer.url);
+  if (wants('special')) await runSpecial(browser, qaServer.url);
   if (wants('danger')) await safe('[тревога]', () => runDanger(browser, qaServer.url));
   if (wants('rotate')) await safe('[поворот]', () => runRotate(browser, qaServer.url));
   if (wants('production')) await safe('[игровая сборка]', () => runProduction(browser, prodServer.url, qaServer.url));
