@@ -63,6 +63,7 @@ const DECIDE_EVERY = { novice: 2, average: 2, strong: 3, expert: 2 }; // как 
 const OVERLAP_DISCOUNT = 0.5; // «сильный»: охват, уже накрытый другой башней, ценится в столько раз (расставляет по сети, а не кучкой)
 const SYRUP_OVERLAP = 0.8; // …но замедляющей башне выгодно стоять там, где уже стреляют: скидка мягче
 const ADJACENT_FACTOR = 0.3; // «сильный»: клетка рядом (в том числе по диагонали) с уже стоящей башней ценится в столько раз
+const FIZZ_BY_WAVE = 4; // «особо сильный» копит на первую Шипучку, пока идёт не позже этой волны (рой — с 4-й)
 const EXPERT_OVERLAP = 0.9; // «особо сильный» знает, что все дорожки сходятся у «ствола» у организма: охват, уже накрытый другой башней, почти не обесценивается (башни кучкой у ствола бьют ВСЕХ бактерий)
 const EXPERT_ADJACENT_FACTOR = 1; // … и соседство с другой башней ему не мешает
 const NOVICE_MAX_TOWERS = 6;
@@ -450,11 +451,14 @@ function makePlayer(profile, { world, rng, buttons }) {
         const cheapest = KNOWN_TOWERS.filter((id) => available(id) && TABLE[id].damage > 0).sort((a, b) => TABLE[a].price - TABLE[b].price)[0];
         order = cheapest ? [{ idx: -1, type: cheapest }] : order.filter((o) => TABLE[o.type].damage > 0);
       }
+      // «Особо сильный» знает, что с 4-й волны идёт рой, а одними Таблетками он не остановим: до 5-й волны копит монеты на первую Шипучку и ничего другого не покупает (пока целы хотя бы две жизни)
+      const needFizz = !imperfect && !opening && available('fizz') && !view.towers.some((tw) => tw.id === 'fizz') && view.s.wave <= FIZZ_BY_WAVE && view.s.lives >= 2;
+      if (needFizz) order = [{ idx: STRONG_CYCLE.indexOf('fizz'), type: 'fizz' }];
       if (!order.length) return null;
       const calm = view.s.lives >= view.s.maxLives && view.s.bacteria.length <= CALM_MAX_BACTERIA;
       let chosen = null;
       if (view.coins >= TABLE[order[0].type].price) chosen = order[0];
-      else if (!opening && now - headSince >= (calm ? patience : 0)) chosen = order.find((o) => view.coins >= TABLE[o.type].price) ?? null;
+      else if (!opening && !needFizz && now - headSince >= (calm ? patience : 0)) chosen = order.find((o) => view.coins >= TABLE[o.type].price) ?? null;
       if (!chosen) return null;
       const candidates = [];
       for (const c of view.free) {
