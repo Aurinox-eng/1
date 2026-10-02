@@ -1,15 +1,17 @@
 /**
  * Проверка игры в браузере (Playwright). Запуск: npm run qa -- --tag=td-1
- * (сначала сама собирает игровую и тестовую версии игры). Длится около четверти часа.
+ * (сначала сама собирает игровую и тестовую версии игры). Весь набор — больше часа; сценарии по одному: --only=<имя>.
  *
  * Игра — tower defense: экран 1280×720 (16:9), слева карта с камерой (сдвиг, щипок, колесо мыши), справа панель.
  * Дорожки — граф «корневая система» (18 рёбер-кривых, 3 входа, 3 выхода, 4 развилки, 5 слияний); сеть проверки берут у самой
  * игры (window.__pvb.getGraph()), клетки для башен выбирают по ней, а числа баланса — из src/config.ts.
+ * Состав волн подменяется помощником wavesOnly(): через ?cfg= можно менять только числа, которые уже есть в строке таблицы волн, а в начале таблицы
+ * строки короткие, поэтому проверки обнуляют прежние волны и ставят нужный состав в первую строку, где есть все нужные типы.
  *
  * ТЕСТОВАЯ сборка (dist-qa, с режимом ?qa), компьютер 1280×720 (мышь) и телефон 844×390 в горизонтальном
  * положении (касания), русский и английский (язык — настройкой браузера, как у настоящего игрока).
  * Сценарии (имена — для --only=):
- *   desktop-ru, phone-ru   полный набор: экран и начальное состояние, карта (252 клетки: 94 задеты дорожкой, 158 свободны),
+ *   desktop-ru, phone-ru   полный набор: экран и начальное состояние, карта (252 клетки: 94 задеты дорожкой, остальные свободны или закрыты как далёкие),
  *                          камера (сдвиг, границы, колесо / щипок, подсказка «◀ Организм»), тап и сдвиг, постановка башни
  *                          (дорожка, занятая клетка, монеты; при любом приближении: 0.7, минимум, максимум), бой на этом
  *                          экране, пауза, «не завис ли»
@@ -20,28 +22,31 @@
  *                          все входы, выходы и ребра используются, на развилках выбор случайный и не вырожденный
  *   combat                 бой на компьютере: выстрелы, убийства, монеты, отклик, учёт «убитые + дошедшие = вышедшие»
  *   dash                   палочка: рывки (×2,5 скорости на 1 с каждые 3 с), у каждой свои часы, у кокка рывков нет
- *   split                  делящаяся: при гибели 2 кокка на том же ребре в 64 px друг от друга, награда 25 и 10+10, без убийства не делится
+ *   split                  делящаяся: при гибели 2 кокка на том же ребре в 64 px друг от друга, награда 8 и 10+10, без убийства не делится
  *   spore                  спора: глушит башню при подходе ближе 150 px на 3 с (выстрелы стоят), один раз; дальняя башня не глушится
- *   armored                бронированная: 6 HP (6 выстрелов), без башен отнимает 2 жизни
- *   intro                  порядок появления типов по волнам (1, 3, 5, 7, 9), новый тип один и первым; сообщение «Новая бактерия!»
- *                          и звук (ru и en), текст целиком в окне
+ *   armored                бронированная: броня (урон − броня, не меньше доли armorMinShare от удара: удары 5, 3 и 1), 20 HP, награда, без башен отнимает 2 жизни
+ *   intro                  порядок появления всех 13 типов по таблице волн (новый тип один и первым); сообщение «Новая бактерия!» и звук для
+ *                          12 типов (ru и en), текст целиком в окне
  *   lose-ru, lose-en       потеря жизней, проигрыш (в том числе при работающих башнях: снарядов в полёте не остаётся), блокировка
  *                          перезапуска, перезапуск, утечки (lose-ru — компьютер, lose-en — телефон)
  *   win-ru, win-en         победа (снарядов в полёте не остаётся) и перезапуск (win-ru — компьютер, win-en — телефон)
- *   towers                 четыре башни из таблицы (Таблетка, Сироп, Шипучка, Шприц): тексты i18n; панель на компьютере и телефоне, ru и en
- *                          (четыре кнопки по порядку, выбор и снятие выбора, цвет цен, нижняя подсказка целиком в окне); цены (списывается ровно
- *                          price, при нехватке не ставится); Сироп (скорость × slowFactor на ≈ slowSec, повторное попадание продлевает и не усиливает,
- *                          вне радиуса не замедляет); Шипучка (взрыв задевает всех в круге blastRadius и никого дальше, 1 взрыв за выстрел, монеты);
- *                          Шприц (игла насквозь по линии; «только вперёд»: по прошедшим башню не стреляет); Таблетка (цель — ближайшая к организму);
- *                          все четыре вместе. Числа читаются из config.ts (readConfigNumber), баланс боя фиксируется через ?cfg=.
- *                          QA_TOWERS_ONLY=syrup,fizz — только эти части (texts, panel, prices, syrup, fizz, syringe, pill, mixed)
+ *   towers                 четыре башни и новые бактерии. Башни: тексты i18n; панель на компьютере и телефоне, ru и en (четыре кнопки по порядку, выбор и снятие
+ *                          выбора, цвет цен, нижняя подсказка целиком в окне — у Шприца она шире окна, это известная ошибка игры); кнопки скорости ×1/×2/×3 и
+ *                          «Начать волну»; цены (списывается ровно price, при нехватке не ставится); Сироп — ЛУЖА (капля летит в точку дорожки впереди бактерии,
+ *                          лужа живёт puddleSec, в ней идут ×slowFactor, после выхода ещё slowSec, поверх старой лужи новая не кладётся, слизень не замедляется);
+ *                          Шипучка (малый взрыв: задевает всех в круге blastRadius и никого дальше, 1 взрыв за выстрел, монеты); Шприц — ЛУЧ (range 0, поворот
+ *                          тапом по правой/левой половине башни на компьютере и телефоне, очередь beamPulses ударов по всем на линии издалека и по диагонали,
+ *                          урон с учётом брони, молчит, пока на линии никого нет); Таблетка (цель — ближайшая к организму); все четыре вместе. Бактерии: рой (пачка,
+ *                          дробный урон жизням — lifePool), бегун, лекарь, регенератор, командир, матка, гигант. Числа читаются из config.ts (readConfigNumber),
+ *                          баланс боя фиксируется через ?cfg=. QA_TOWERS_ONLY=syrup,fizz — только эти части (texts, panel, controls, prices, syrup, fizz,
+ *                          syringe, pill, mixed, swarm, runner, healer, regen, commander, brood, giant)
  *   danger                 подсказка «◀ Организм» краснеет, когда бактерия близко к организму (проверка по цвету пикселей)
  *   rotate                 телефон вертикально ↔ горизонтально (на ru и en): вертикально — подсказка «Поверните телефон», время стоит, тапы
  *                          игре не мешают; обратно — подсказка пропала, время идёт; на компьютере подсказки нет ни в каком окне
  *   production             ИГРОВАЯ сборка (dist, та, что уйдёт на Яндекс): режима проверки, подмены чисел и языка из адреса нет; игра при этом работает (башня ставится тапом)
- *   fullgame               ПОЛНАЯ партия на настоящих числах: 12 волн, скорость ×8, 40 башен вдоль сети (QA_FULL_TOWERS=N — другое число; башен много нарочно:
- *                          проверка не должна краснеть от подбора баланса);
- *                          ждёт «победу», печатает заметку о реальном времени и потерях (ориентир баланса, не замер)
+ *   fullgame               ПОЛНАЯ партия: настоящие волны и бактерии (30 волн, 13 типов), скорость ×8, 40 Таблеток со сверхсильным уроном и без потери жизней
+ *                          (проверка не должна краснеть от подбора баланса); ждёт «победу», проверяет состав волн, порядок появления типов и учёт, печатает
+ *                          заметку о реальном времени (≈ 10–25 минут)
  * Дополнительно: --only=combat (или любое другое имя из списка) запускает один сценарий; для production нужна свежая
  * `npm run build`, для остальных — `npm run build:qa`.
  *
@@ -50,9 +55,10 @@
  *
  * Проверка самих проверок: QA_EXTRA_CFG=types.rod.dashFactor:1 node qa/smoke.mjs --tag=mut --only=dash подмешивает «поломку»
  * в адрес игры — соответствующая проверка обязана покраснеть (так проверяли, что проверки не пустые). Примеры: types.rod.dashFactor:1,
- * types.splitter.splitCount:0, types.spore.disableSec:0, types.armored.hp:3, waves.list.0.coccus:0, camera.tapMaxMovePx:14.
- * Для башен: QA_EXTRA_CFG=towers.syrup.slowFactor:0.9 (Сироп), towers.syrup.slowSec:1, towers.fizz.blastRadius:30 или :300 (Шипучка),
- * towers.syringe.range:120 (Шприц), towers.fizz.price:10 (цены), towers.pill.damage:0 (Таблетка) — с QA_TOWERS_ONLY=<часть> нужная проверка краснеет.
+ * types.splitter.splitCount:0, types.spore.disableSec:0, types.armored.armor:0, camera.tapMaxMovePx:14.
+ * Для башен: QA_EXTRA_CFG=towers.syrup.slowFactor:0.9 или towers.syrup.puddleSec:3 (Сироп), towers.fizz.blastRadius:30 или :300 (Шипучка),
+ * towers.syringe.beamPulses:1 или towers.syringe.beamHalfWidthPx:60 (Шприц), towers.fizz.price:10 (цены), towers.pill.damage:0 (Таблетка) —
+ * с QA_TOWERS_ONLY=<часть> нужная проверка краснеет.
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -66,6 +72,7 @@ import {
   parseArgs,
   readConfigNumber,
   readI18n,
+  readKinds,
   readLevel,
   readTitles,
   readWaveList,
@@ -122,7 +129,11 @@ const check = (name, ok, details = '') => {
 const LEVEL = readLevel();
 const MAP = { orgW: readConfigNumber('map', 'orgW'), tile: readConfigNumber('map', 'tile'), pathWidth: readConfigNumber('map', 'pathWidth') };
 const WAVE_LIST = readWaveList();
-const KINDS = ['coccus', 'rod', 'splitter', 'armored', 'spore'];
+/** Все 13 типов бактерий в порядке таблицы `types` config.ts (в этом порядке игра выпускает новые типы в волне). */
+const KINDS = readKinds();
+/** Первая волна (с 1), где тип есть в таблице волн, и порядок, в котором типы впервые появляются по таблице (при равных волнах — по порядку таблицы типов). */
+const FIRST_WAVE = Object.fromEntries(KINDS.map((k) => [k, WAVE_LIST.findIndex((row) => (row[k] ?? 0) > 0) + 1]));
+const INTRO_ORDER = KINDS.filter((k) => FIRST_WAVE[k] > 0).sort((a, b) => FIRST_WAVE[a] - FIRST_WAVE[b] || KINDS.indexOf(a) - KINDS.indexOf(b));
 const CFG = {
   startCoins: readConfigNumber('economy', 'startCoins'),
   lives: readConfigNumber('lives', 'start'),
@@ -216,6 +227,9 @@ async function shot(page, name) {
   screenshots.push(path.relative(ROOT, file));
   return buffer;
 }
+
+/** Сделан ли скриншот с таким именем в этом прогоне. */
+const existsShot = (name) => fs.existsSync(path.join(shotsDir, `${name}.png`));
 
 /**
  * Предупреждения самой среды: в контейнере нет видеокарты, и Chromium рисует программно. Эти строки к игре не относятся
@@ -1144,7 +1158,8 @@ async function runDanger(browser, baseUrl) {
   const { page } = game;
   const chipRed = async () => {
     const png = await page.screenshot();
-    const c = game.g(132, 345);
+    // Плашка «◀ Организм» — прямоугольник x 0…128, y 328…362 (src/ui/Panel.ts); берём точку заливки над текстом, внутри плашки
+    const c = game.g(70, 331);
     const [[r]] = await samplePixels(page, png, [[c.x, c.y]]);
     return { r, png };
   };
@@ -1185,6 +1200,16 @@ async function loseWithTowers(context, baseUrl, p, name, device) {
   const game = await openGame(context, baseUrl, p, { speed: 4, cfg, isTouch: device.hasTouch });
   await game.placeTowers([FREE.f, FREE.e]);
   let s = await game.state();
+  // Изредка (в одном прогоне из пяти) первый тап по кнопке башни на только что открытой странице не доходил до игры — башен 0. До появления бактерий у организма
+  // остаётся время, поэтому ставим ещё раз и пишем заметку, чтобы такие случаи были видны, а не прятались
+  let retries = 0;
+  while (s.towers.length < 2 && retries < 3 && s.state === 'playing') {
+    retries++;
+    if (s.selected !== 'pill') await game.selectTower('pill');
+    for (const cell of [FREE.f, FREE.e]) if (!s.towers.some((t) => t.col === cell[0] && t.row === cell[1])) await game.tapCell(...cell);
+    s = await game.state();
+  }
+  if (retries > 0) note(`${p} в проверке «проигрыш с башнями» башни пришлось ставить повторно (попыток ${retries}): первый тап по кнопке башни на только что открытой странице не дошёл до игры`);
   check(`${p} проигрыш с башнями: обе башни поставлены до появления бактерий у организма`, s.towers.length === 2 && s.state === 'playing', `башен ${s.towers.length}, состояние ${s.state}, монет ${s.coins}, выстрелов ${s.shots}`);
   let maxShots = 0;
   const started = Date.now();
@@ -1505,9 +1530,10 @@ async function runProduction(browser, prodUrl, qaUrl) {
   await play.touchscreen.tap(cellPt.x, cellPt.y);
   await sleep(900);
   const afterPx = await samplePixels(play, await play.screenshot(), ring.map((q) => [q.x, q.y]));
+  // Цвет основания башни (0x2c4a7c). Пустая клетка карты теперь почти того же цвета (≈ 35, 67, 119), поэтому допуск узкий: 3 из 255 на канал
   const TOWER = [44, 74, 124];
-  const before = beforePx.filter((c) => near(c, TOWER, 12)).length;
-  const after = afterPx.filter((c) => near(c, TOWER, 12)).length;
+  const before = beforePx.filter((c) => near(c, TOWER, 3)).length;
+  const after = afterPx.filter((c) => near(c, TOWER, 3)).length;
   check(`${p} игра работает: выбрать башню на панели и тапнуть по клетке — башня появляется (цвет основания вокруг клетки)`, before === 0 && after >= 6, `точек цвета башни: было ${before}, стало ${after} из ${ring.length}`);
   await shot(play, 'production-tower');
   await play.close();
@@ -1547,6 +1573,23 @@ async function pollUntil(game, fn, timeoutMs = WAIT_MS, pollMs = 30) {
 
 /** Без потери жизней: все типы бактерий с нулевым уроном организму (партия не кончается проигрышем). */
 const NO_LIFE_LOSS = KINDS.map((k) => `types.${k}.lifeDamage:0`).join(',');
+
+/**
+ * Подмена состава волн для проверок. Подменять через ?cfg= можно только числа, которые уже есть в строке таблицы волн, а в начале таблицы строки
+ * короткие (в волне 1 одни кокки, палочка — с волны 3 и т. д.). Поэтому нужный состав `counts` ({тип: сколько}) ставится в первую строку, где есть все
+ * нужные типы, остальные типы этой строки обнуляются, а все прежние волны — тоже (пустая волна проходит за `pauseSec` секунд). Партия идёт до этой волны
+ * включительно (`waves.total` = её номер): в ней выходят только заказанные бактерии. Возвращает список подмен для ?cfg= (без запятых между ними).
+ * Новые типы в первой (и единственной непустой) волне выходят «первыми и по одному», как в игре: порядок — как в таблице типов.
+ */
+function wavesOnly(counts, { pauseSec = 0.1 } = {}) {
+  const kinds = Object.keys(counts);
+  const idx = WAVE_LIST.findIndex((row) => kinds.every((k) => k in row));
+  if (idx < 0) throw new Error(`В таблице волн нет строки, где есть все типы: ${kinds.join(', ')}`);
+  const out = [`waves.total:${idx + 1}`, `waves.pauseSec:${pauseSec}`];
+  for (let i = 0; i <= idx; i++) for (const k of Object.keys(WAVE_LIST[i])) out.push(`waves.list.${i}.${k}:${i === idx ? (counts[k] ?? 0) : 0}`);
+  return out;
+}
+const wavesOnlyCfg = (counts, opts) => wavesOnly(counts, opts).join(',');
 
 async function runGraph(browser, baseUrl) {
   const p = '[граф дорожек]';
@@ -1638,7 +1681,7 @@ async function runDash(browser, baseUrl) {
   const factor = readConfigNumber('rod', 'dashFactor');
   const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
   const RODS = 6;
-  const cfg = `waves.total:1,waves.list.0.coccus:3,waves.list.0.rod:${RODS},waves.intervalStartSec:1.5,waves.intervalEndSec:1.5,waves.firstDelaySec:1,${FIXED_BALANCE.join(',')},types.rod.speedFactor:1,${NO_LIFE_LOSS}`;
+  const cfg = `${wavesOnlyCfg({ coccus: 3, rod: RODS })},waves.intervalStartSec:1.5,waves.intervalEndSec:1.5,waves.firstDelaySec:1,${FIXED_BALANCE.join(',')},types.rod.speedFactor:1,${NO_LIFE_LOSS}`;
   const game = await openGame(context, baseUrl, p, { speed: 4, cfg });
   const traces = new Map();
   const final = await pollUntil(game, (x) => {
@@ -1701,7 +1744,7 @@ async function runDash(browser, baseUrl) {
 
   // скриншот палочки в рывке (отдельный прогон: нужна палочка в кадре)
   const c2 = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
-  const g2 = await openGame(c2, baseUrl, p, { speed: 2, cfg: `waves.total:1,waves.list.0.coccus:0,waves.list.0.rod:3,waves.intervalStartSec:1,waves.intervalEndSec:1,waves.firstDelaySec:1,${FIXED_BALANCE.join(',')},${NO_LIFE_LOSS}` });
+  const g2 = await openGame(c2, baseUrl, p, { speed: 2, cfg: `${wavesOnlyCfg({ rod: 3 })},waves.intervalStartSec:1,waves.intervalEndSec:1,waves.firstDelaySec:1,${FIXED_BALANCE.join(',')},${NO_LIFE_LOSS}` });
   let got = false;
   const t0 = Date.now();
   while (!got && Date.now() - t0 < 60000) {
@@ -1745,7 +1788,7 @@ async function runSplit(browser, baseUrl) {
   const gap = readConfigNumber('splitter', 'splitGapPx');
   const reward = readConfigNumber('splitter', 'reward');
   const SPL = 4;
-  const base = `waves.total:1,waves.list.0.coccus:0,waves.list.0.splitter:${SPL},waves.intervalStartSec:3,waves.intervalEndSec:3,waves.firstDelaySec:1,${FIXED_BALANCE.join(',')},${NO_LIFE_LOSS}`;
+  const base = `${wavesOnlyCfg({ splitter: SPL })},waves.intervalStartSec:3,waves.intervalEndSec:3,waves.firstDelaySec:1,${FIXED_BALANCE.join(',')},${NO_LIFE_LOSS}`;
   const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
 
   // ---- A. башня убивает делящихся: на месте гибели появляются кокки
@@ -1815,7 +1858,7 @@ async function runSplit(browser, baseUrl) {
 
   // ---- C. регрессия: много распадов подряд, ни в одном кокки не слипаются (раньше у конца ребра было 25 и 34 px вместо 44)
   const MANY = 40;
-  game = await openGame(context, baseUrl, p, { speed: 4, cfg: `waves.total:1,waves.list.0.coccus:0,waves.list.0.splitter:${MANY},waves.intervalStartSec:0.8,waves.intervalEndSec:0.8,waves.firstDelaySec:1,${FIXED_BALANCE.join(',')},${NO_LIFE_LOSS},towers.pill.range:1400,towers.pill.cooldownMs:300,economy.startCoins:${BASE.price * 7}` });
+  game = await openGame(context, baseUrl, p, { speed: 4, cfg: `${wavesOnlyCfg({ splitter: MANY })},waves.intervalStartSec:0.8,waves.intervalEndSec:0.8,waves.firstDelaySec:1,${FIXED_BALANCE.join(',')},${NO_LIFE_LOSS},towers.pill.range:1400,towers.pill.cooldownMs:300,towers.pill.damage:20,economy.startCoins:${BASE.price * 7}` });
   await game.placeTowers(Object.values(FREE));
   const seenC = new Set();
   const pairs = [];
@@ -1839,7 +1882,7 @@ async function runSplit(browser, baseUrl) {
   const alongs = pairs.map((q) => q.along);
   const minChord = Math.min(...chords);
   const crossed = pairs.filter((q) => q.crossed).length;
-  check(`${p} регрессия: ${pairs.length} распадов подряд (башни с дальностью 1400), ни в одном кокки не слипаются: наименьшее прямое расстояние ${f1(minChord)} px ≥ 38 (раньше было 25 и 34)`, pairs.length >= 20 && minChord >= 38, `распадов ${pairs.length}, прямые расстояния: ${chords.map((c) => Math.round(c)).join(',')}`);
+  check(`${p} регрессия: ${pairs.length} распадов подряд (башни с дальностью 1400 и уроном 20: убивают с одного выстрела при любом HP), ни в одном кокки не слипаются: наименьшее прямое расстояние ${f1(minChord)} px ≥ 38 (раньше было 25 и 34)`, pairs.length >= 20 && minChord >= 38, `распадов ${pairs.length}, прямые расстояния: ${chords.map((c) => Math.round(c)).join(',')}`);
   check(`${p} регрессия: во всех ${pairs.length} распадах второй кокк ровно на ${gap} px вперёд по дорожке (вдоль дорожки ${f1(Math.min(...alongs))}…${f1(Math.max(...alongs))}, допуск ±8); на следующем ребре оказался в ${crossed} распадах`, pairs.length >= 20 && alongs.every((a) => a !== null && Math.abs(a - gap) <= 8), `вдоль дорожки: ${alongs.map((a) => (a === null ? '—' : Math.round(a))).join(',')}`);
   const orgLimit = MAP.orgW + readConfigNumber('coccus', 'radius') + gap + 20;
   check(`${p} регрессия: если делящаяся погибла у самого организма (ближе ${gap} px до красной линии), второй кокк сразу доходит до организма — таких распадов ${singles.length}, у всех первый кокк правее линии не дальше x = ${orgLimit}`, singles.every((k) => k.x <= orgLimit), singles.map((k) => Math.round(k.x)).join(','));
@@ -1882,7 +1925,7 @@ function farCell() {
 
 async function sporeGame(context, baseUrl, p, { radius = null, far = false, minZoom = false }) {
   const extra = radius ? `,types.spore.disableRadius:${radius}` : '';
-  const cfg = `waves.total:1,waves.list.0.coccus:6,waves.list.0.spore:1,waves.intervalStartSec:1.2,waves.intervalEndSec:1.2,waves.firstDelaySec:1,${FIXED_BALANCE.join(',')},towers.pill.damage:0,economy.startCoins:${BASE.price * (far ? 2 : 1)},${NO_LIFE_LOSS}${extra}`;
+  const cfg = `${wavesOnlyCfg({ coccus: 6, spore: 1 })},waves.intervalStartSec:1.2,waves.intervalEndSec:1.2,waves.firstDelaySec:1,${FIXED_BALANCE.join(',')},towers.pill.damage:0,economy.startCoins:${BASE.price * (far ? 2 : 1)},${NO_LIFE_LOSS}${extra}`;
   const game = await openGame(context, baseUrl, p, { speed: 2, cfg });
   if (minZoom) {
     for (let i = 0; i < 3; i++) await game.input.wheel(game.g(540, 360), 500);
@@ -1965,17 +2008,40 @@ async function runSpore(browser, baseUrl) {
 async function runArmored(browser, baseUrl) {
   const p = '[бронированная]';
   const hp = readConfigNumber('armored', 'hp');
+  const armor = readConfigNumber('armored', 'armor');
   const damage = readConfigNumber('armored', 'lifeDamage');
   const reward = readConfigNumber('armored', 'reward');
+  const minShare = readConfigNumber('combat', 'armorMinShare');
   const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
-  const base = `waves.total:1,waves.list.0.coccus:0,waves.list.0.armored:1,waves.firstDelaySec:1,${FIXED_BALANCE.join(',')}`;
+  const base = `${wavesOnlyCfg({ armored: 1 })},waves.firstDelaySec:1,${FIXED_BALANCE.join(',')}`;
+  /** Сколько HP снимает удар башни: урон минус броня, но не меньше доли armorMinShare от удара (как в `Bacterium.hit`). */
+  const dealt = (hit) => Math.max(hit * minShare, hit - armor);
 
-  // ---- A. башня: нужно hp выстрелов
-  let game = await openGame(context, baseUrl, p, { speed: 4, cfg: `${base},towers.pill.range:650,economy.startCoins:${BASE.price * 2}` });
+  // ---- A. броня: одна башня, удары разной силы; HP падает ровно на «урон − броня», но не меньше доли armorMinShare от удара
+  for (const hit of [5, armor + 1, 1]) {
+    const want = dealt(hit);
+    const g = await openGame(context, baseUrl, p, { speed: 4, cfg: `${base},towers.pill.range:650,towers.pill.damage:${hit},economy.startCoins:${BASE.price}` });
+    await g.placeTowers([FREE.a]);
+    const steps = [];
+    let last = hp;
+    await pollUntil(g, (s) => {
+      const a = s.bacteria.find((b) => b.kind === 'armored');
+      if (a && a.hp !== last) {
+        steps.push(last - a.hp);
+        last = a.hp;
+      }
+      return s.state === 'won' || s.state === 'lost' || steps.length >= 5;
+    }, 240000, 20);
+    const bad = steps.filter((d) => Math.abs(d - want) > 1e-6);
+    check(`${p} удар ${hit} по броне ${armor} (минимум ${minShare} от удара): HP бронированной падает на ${f2(want)} за выстрел (замерено ${steps.length} ударов: ${steps.map(f2).join(', ')})`, steps.length >= 4 && bad.length === 0, bad.length ? `не ${f2(want)}: ${bad.map(f2).join(', ')}` : `ударов ${steps.length}`);
+    await g.page.close();
+  }
+
+  // ---- B. две башни с ударом armor + 1 (снимает ровно 1 HP): убивают бронированную; HP падают по одному
+  let game = await openGame(context, baseUrl, p, { speed: 4, cfg: `${base},towers.pill.range:650,towers.pill.damage:${armor + 1},economy.startCoins:${BASE.price * 2}` });
   await game.placeTowers([FREE.a, FREE.b]);
   const hps = [];
   let shotTaken = false;
-  let shotsAtKill = 0;
   const end = await pollUntil(game, async (s) => {
     const a = s.bacteria.find((b) => b.kind === 'armored');
     if (a) {
@@ -1986,14 +2052,14 @@ async function runArmored(browser, baseUrl) {
         await shot(game.page, 'armored-01-cracked');
         shotTaken = true;
       }
-    } else if (!shotsAtKill && hps.length) shotsAtKill = s.shots;
+    }
     return s.state === 'won' || s.state === 'lost';
   }, 240000, 25);
-  check(`${p} у бронированной ${hp} HP: по ходу боя HP падали по одному ${hps.join(' → ')}`, hps[0] === hp && hps.every((v, i) => i === 0 || v === hps[i - 1] - 1 || v < hps[i - 1]) && hps.length >= 3, hps.join(' → '));
-  check(`${p} башня убила бронированную: убито 1, выстрелов не меньше ${hp} (выстрелов ${end.shots}), награда ${reward} монет`, end.kills === 1 && end.shots >= hp && end.coins === reward, `убито ${end.kills}, выстрелов ${end.shots}, монет ${end.coins}`);
+  check(`${p} у бронированной ${hp} HP: по ходу боя HP падали ${hps.slice(0, 6).join(' → ')} …`, hps[0] === hp && hps.length >= 5 && hps.every((v, i) => i === 0 || v < hps[i - 1]), hps.join(' → '));
+  check(`${p} башни убили бронированную: убито 1, выстрелов не меньше ${hp} (выстрелов ${end.shots}), награда ${reward} монет`, end.kills === 1 && end.shots >= hp && end.coins === reward, `убито ${end.kills}, выстрелов ${end.shots}, монет ${end.coins}`);
   await game.page.close();
 
-  // ---- B. без башен: одна бронированная отнимает 2 жизни
+  // ---- C. без башен: одна бронированная отнимает 2 жизни
   game = await openGame(context, baseUrl, p, { speed: 4, cfg: base });
   const endB = await pollUntil(game, (s) => s.state === 'won' || s.state === 'lost', 240000, 25);
   check(`${p} дойдя до организма, одна бронированная отнимает ${damage} жизни (жизни ${CFG.lives} → ${endB.lives}), красная вспышка сработала`, endB.leaked === 1 && endB.lives === CFG.lives - damage && endB.effects.lifeLosses === 1, `дошло ${endB.leaked}, жизни ${endB.lives}, вспышек ${endB.effects.lifeLosses}`);
@@ -2029,39 +2095,42 @@ async function toastPixels(game, png) {
 
 async function runIntro(browser, baseUrl) {
   const p = '[порядок появления типов]';
-  const FIRST_WAVE = { coccus: 1, rod: 3, splitter: 5, armored: 7, spore: 9 };
-  // ---- A. по волнам: кокк — 1, палочка — 3, делящаяся — 5, бронированная — 7, спора — 9; новый тип выходит один
-  const TOTAL = 9;
+  // ---- A. по волнам: каждый тип впервые выходит в своей волне (по таблице config.ts), один и первым; кокк — с 1-й
+  const TOTAL = Math.max(...INTRO_ORDER.map((k) => FIRST_WAVE[k]));
   const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
-  // кокков в каждой волне — по 2 (чтобы партия была короче); остальные типы — как в таблице config.ts
-  const COCCI = 2;
-  const cocciCfg = Array.from({ length: TOTAL }, (_, i) => `waves.list.${i}.coccus:${COCCI}`).join(',');
-  const cfg = `waves.total:${TOTAL},${cocciCfg},waves.firstDelaySec:1,waves.pauseSec:1,waves.intervalStartSec:0.5,waves.intervalEndSec:0.5,${FIXED_BALANCE.join(',')},${NO_LIFE_LOSS}`;
+  // Волны короче настоящих (партия быстрее): в первую волну типа — сколько в таблице, в остальные — не больше CAP каждого типа
+  const CAP = 3;
+  const sizeOf = (row, i) => Object.entries(row).reduce((sum, [k, n]) => sum + (FIRST_WAVE[k] === i + 1 ? n : Math.min(n, CAP)), 0);
+  const trimCfg = WAVE_LIST.slice(0, TOTAL)
+    .flatMap((row, i) => Object.entries(row).map(([k, n]) => `waves.list.${i}.${k}:${FIRST_WAVE[k] === i + 1 ? n : Math.min(n, CAP)}`))
+    .join(',');
+  const cfg = `waves.total:${TOTAL},${trimCfg},waves.firstDelaySec:1,waves.pauseSec:1,waves.intervalStartSec:0.5,waves.intervalEndSec:0.5,${FIXED_BALANCE.join(',')},${NO_LIFE_LOSS}`;
   const game = await openGame(context, baseUrl, p, { speed: 4, cfg });
   const events = [];
   let prev = await game.state();
   const end = await pollUntil(game, (s) => {
     if (s.introduced.length > prev.introduced.length) {
       const kind = s.introduced[s.introduced.length - 1];
-      const before = WAVE_LIST.slice(0, s.wave - 1).reduce((sum, row) => sum + KINDS.reduce((x, k) => x + (k === 'coccus' ? COCCI : (row[k] ?? 0)), 0), 0);
+      const before = WAVE_LIST.slice(0, s.wave - 1).reduce((sum, row, i) => sum + sizeOf(row, i), 0);
       events.push({ kind, wave: s.wave, onMap: s.bacteria.filter((b) => b.kind === kind).length, inWave: s.spawned - before });
     }
     prev = s;
     return s.state === 'won' || s.state === 'lost';
-  }, 240000, 20);
-  const rowSum = (row) => KINDS.reduce((x, k) => x + (k === 'coccus' ? COCCI : (row[k] ?? 0)), 0);
-  const planned = WAVE_LIST.slice(0, TOTAL).reduce((sum, row) => sum + rowSum(row), 0);
-  check(`${p} типы появляются по одному в порядке ${KINDS.join(' → ')}: introduced = [${end.introduced.join(', ')}]`, end.introduced.join() === KINDS.join(), `итог ${end.introduced.join(', ')}`);
-  check(`${p} каждый тип впервые выходит в своей волне: ${events.map((e) => `${e.kind} — волна ${e.wave}`).join(', ')} (ждали ${KINDS.map((k) => `${k} — ${FIRST_WAVE[k]}`).join(', ')})`, events.length === 5 && events.every((e) => e.wave === FIRST_WAVE[e.kind]), events.map((e) => `${e.kind}:${e.wave}`).join(' '));
-  check(`${p} новый тип выходит один и первым в своей волне: на карте в момент появления ${events.map((e) => `${e.kind}×${e.onMap}`).join(', ')}; до него в волне вышло ${events.map((e) => e.inWave - 1).join(', ')}`, events.every((e) => e.onMap === 1 && e.inWave === 1), events.map((e) => `${e.kind}: на карте ${e.onMap}, по счёту в волне ${e.inWave}`).join('; '));
-  check(`${p} состав волн из config.ts: вышло ${end.spawned} бактерий (ждали ${planned}), волн ${end.wave} из ${end.waveTotal}, партия окончена победой`, end.spawned === planned && end.wave === TOTAL && end.waveTotal === TOTAL && end.state === 'won' && end.leaked === planned, `вышло ${end.spawned}, дошло ${end.leaked}, состояние ${end.state}`);
+  }, 400000, 20);
+  const planned = WAVE_LIST.slice(0, TOTAL).reduce((sum, row, i) => sum + sizeOf(row, i), 0);
+  check(`${p} типы появляются по одному в порядке первых волн из таблицы: ${INTRO_ORDER.join(' → ')}; introduced = [${end.introduced.join(', ')}]`, end.introduced.join() === INTRO_ORDER.join(), `итог ${end.introduced.join(', ')}`);
+  check(`${p} каждый тип впервые выходит в своей волне: ${events.map((e) => `${e.kind} — ${e.wave}`).join(', ')}`, events.length === INTRO_ORDER.length && events.every((e) => e.wave === FIRST_WAVE[e.kind]), `ждали ${INTRO_ORDER.map((k) => `${k}:${FIRST_WAVE[k]}`).join(' ')}; было ${events.map((e) => `${e.kind}:${e.wave}`).join(' ')}`);
+  check(`${p} новый тип выходит один и первым в своей волне (на карте в момент появления ${events.map((e) => `${e.kind}×${e.onMap}`).join(', ')}; до него в волне вышло ${events.map((e) => e.inWave - 1).join(', ')})`, events.length === INTRO_ORDER.length && events.every((e) => e.onMap === 1 && e.inWave === 1), events.map((e) => `${e.kind}: на карте ${e.onMap}, по счёту в волне ${e.inWave}`).join('; '));
+  check(`${p} состав волн из config.ts: вышло ${end.spawned} бактерий (ждали ${planned}), волн ${end.wave} из ${end.waveTotal}, партия окончена победой (без башен все дошли до организма: дошло ${end.leaked}, у матки рождённые на ходу не входят в «вышли»)`, end.spawned === planned && end.wave === TOTAL && end.waveTotal === TOTAL && end.state === 'won' && end.kills === 0 && end.leaked >= planned, `вышло ${end.spawned}, дошло ${end.leaked}, убито ${end.kills}, состояние ${end.state}`);
   await context.close();
 
-  // ---- B. сообщение «Новая бактерия!» и звук при первом появлении (ru и en): все четыре типа подряд
+  // ---- B. сообщение «Новая бактерия!» и звук при первом появлении (ru и en): все типы, кроме кокка, подряд
+  const toastKinds = INTRO_ORDER.filter((k) => k !== 'coccus');
+  const only = Object.fromEntries(toastKinds.map((k) => [k, 1]));
   for (const lang of ['ru', 'en']) {
     const q = `${p} ${lang}`;
     const ctx = await newDeviceContext(browser, VIEWPORTS.desktop, lang);
-    const g = await openGame(ctx, baseUrl, q, { speed: 1, cfg: `waves.total:1,waves.list.0.coccus:0,waves.list.0.rod:1,waves.list.0.splitter:1,waves.list.0.armored:1,waves.list.0.spore:1,waves.intervalStartSec:2.5,waves.intervalEndSec:2.5,waves.firstDelaySec:1,${FIXED_BALANCE.join(',')},${NO_LIFE_LOSS}` });
+    const g = await openGame(ctx, baseUrl, q, { speed: 2, cfg: `${wavesOnlyCfg(only)},waves.intervalStartSec:3,waves.intervalEndSec:3,waves.firstDelaySec:1,${FIXED_BALANCE.join(',')},${NO_LIFE_LOSS}` });
     await g.input.tap(g.g(540, 560)); // касание включает звук (как у настоящего игрока)
     let last = await g.state();
     const seen = [];
@@ -2073,11 +2142,11 @@ async function runIntro(browser, baseUrl) {
         seen.push({ kind, t, playedDelta: s.sound.played - last.sound.played, soundState: s.sound.state });
       }
       last = s;
-      return seen.length >= 4;
-    }, 60000, 25);
-    check(`${q} при первом появлении каждого нового типа вверху сообщение «Новая бактерия!…» (жёлтые точки текста ${seen.map((x) => `${x.kind}: ${x.t.count}`).join(', ')})`, seen.length === 4 && seen.every((x) => x.t.count >= 120), seen.map((x) => `${x.kind}: ${x.t.count}`).join(', '));
-    check(`${q} текст сообщения целиком в окне карты (от ${Math.min(...seen.map((x) => x.t.minX))} до ${Math.max(...seen.map((x) => x.t.maxX))} px из 1080)`, seen.length === 4 && seen.every((x) => x.t.minX >= 10 && x.t.maxX <= 1074), seen.map((x) => `${x.kind}: ${x.t.minX}…${x.t.maxX}`).join('; '));
-    check(`${q} при первом появлении нового типа играет звук (аудио запущено, sound.played растёт на каждом появлении)`, seen.length === 4 && seen.every((x) => x.soundState === 'running' && x.playedDelta >= 1), seen.map((x) => `${x.kind}: +${x.playedDelta}`).join(', '));
+      return seen.length >= toastKinds.length;
+    }, 150000, 25);
+    check(`${q} при первом появлении каждого из ${toastKinds.length} новых типов вверху сообщение «Новая бактерия!…» (жёлтые точки текста: ${seen.map((x) => `${x.kind} ${x.t.count}`).join(', ')})`, seen.length === toastKinds.length && seen.every((x) => x.t.count >= 120), seen.map((x) => `${x.kind}: ${x.t.count}`).join(', '));
+    check(`${q} текст каждого сообщения целиком в окне карты (от ${Math.min(...seen.map((x) => x.t.minX))} до ${Math.max(...seen.map((x) => x.t.maxX))} px из 1080)`, seen.length === toastKinds.length && seen.every((x) => x.t.minX >= 10 && x.t.maxX <= 1074), seen.map((x) => `${x.kind}: ${x.t.minX}…${x.t.maxX}`).join('; '));
+    check(`${q} при первом появлении нового типа играет звук (аудио запущено, sound.played растёт на каждом появлении)`, seen.length === toastKinds.length && seen.every((x) => x.soundState === 'running' && x.playedDelta >= 1), seen.map((x) => `${x.kind}: +${x.playedDelta}`).join(', '));
     await ctx.close();
   }
 }
@@ -2115,45 +2184,56 @@ async function runFullGame(browser, baseUrl) {
   const p = '[полная партия]';
   const TOWERS = Number(process.env.QA_FULL_TOWERS) || 40;
   const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
-  // Настоящие числа игры; подменяем только стартовые монеты: на все башни сразу
-  const game = await openGame(context, baseUrl, p, { speed: 8, cfg: `economy.startCoins:${BASE.price * TOWERS}` });
+  // Настоящие волны и бактерии (все 30 волн, 13 типов). Подменяем: монеты на старте — на все башни сразу по настоящей цене; башня Таблетка — сверхсильная
+  // (урон 200, пауза 300 мс), чтобы проверка не краснела от подбора баланса; жизни не отнимаются (NO_LIFE_LOSS): партия идёт до конца при любой обороне
+  const cfg = `economy.startCoins:${CFG.pillPrice * TOWERS},towers.pill.damage:200,towers.pill.cooldownMs:300,${NO_LIFE_LOSS}`;
+  const game = await openGame(context, baseUrl, p, { speed: 8, cfg });
   for (let i = 0; i < 3; i++) await game.input.wheel(game.g(540, 360), 500); // минимальное приближение: видна вся карта
   await settle();
   const cells = spreadCells(TOWERS);
   await game.placeTowers(cells);
   const placed = await game.state();
-  check(`${p} ${TOWERS} башен поставлены вдоль всей сети при минимальном приближении`, placed.towers.length === TOWERS && placed.coins === 0, `башен ${placed.towers.length}, монет ${placed.coins}`);
+  // пока ставились башни, игра шла (первая волна через 8 с игрового времени), так что остаток монет — награды за первых убитых, а не недостача
+  check(`${p} ${TOWERS} башен поставлены вдоль всей сети при минимальном приближении (монет осталось ${placed.coins}: стартовых хватило ровно на башни, остаток — награды за первых убитых)`, placed.towers.length === TOWERS && placed.coins >= 0 && placed.coins < CFG.pillPrice * 2, `башен ${placed.towers.length}, монет ${placed.coins}`);
   const started = Date.now();
-  let minLives = placed.lives;
   let maxBacteria = 0;
   let midShot = false;
+  let giantShot = false;
   let lastWave = 0;
+  let maxPuddles = 0;
   const end = await pollUntil(game, async (s) => {
-    minLives = Math.min(minLives, s.lives);
     maxBacteria = Math.max(maxBacteria, s.bacteria.length);
     if (s.wave !== lastWave) {
       lastWave = s.wave;
-      console.log(`   … волна ${s.wave}/${s.waveTotal}, убито ${s.kills}, дошло ${s.leaked}, жизни ${s.lives}, монет ${s.coins}, прошло ${Math.round((Date.now() - started) / 1000)} с`);
+      console.log(`   … волна ${s.wave}/${s.waveTotal}, убито ${s.kills}, дошло ${s.leaked}, на карте ${s.bacteria.length}, прошло ${Math.round((Date.now() - started) / 1000)} с`);
     }
-    if (!midShot && s.wave >= 7 && s.bacteria.length >= 2 && new Set(s.bacteria.map((b) => b.kind)).size >= 2) {
-      await shot(game.page, 'fullgame-01-battle-all-types');
+    if (!midShot && s.wave >= 12 && new Set(s.bacteria.map((b) => b.kind)).size >= 5) {
+      await shot(game.page, 'fullgame-01-battle-many-types');
       midShot = true;
     }
+    if (!giantShot && s.bacteria.some((b) => b.kind === 'giant')) {
+      await shot(game.page, 'fullgame-03-giant');
+      giantShot = true;
+    }
+    maxPuddles = Math.max(maxPuddles, s.puddles.length);
     return s.state === 'won' || s.state === 'lost';
-  }, 900000, 40);
+  }, 1500000, 40);
   const seconds = Math.round((Date.now() - started) / 1000);
   await sleep(300);
   await shot(game.page, `fullgame-02-${end.state}`);
-  const planned = WAVE_LIST.slice(0, 12).reduce((sum, row) => sum + KINDS.reduce((x, k) => x + (row[k] ?? 0), 0), 0);
+  const total = WAVE_LIST.length;
+  const planned = WAVE_LIST.slice(0, total).reduce((sum, row) => sum + Object.values(row).reduce((x, n) => x + n, 0), 0);
   const splitCount = readConfigNumber('splitter', 'splitCount');
-  check(`${p} все 12 волн пройдены при ${TOWERS} башнях: состояние «победа», волна ${end.wave} из ${end.waveTotal}`, end.state === 'won' && end.wave === 12 && end.waveTotal === 12 && end.lives > 0, `состояние ${end.state}, волна ${end.wave}/${end.waveTotal}, жизни ${end.lives}`);
-  check(`${p} вышло ${planned} бактерий по таблице волн, все пять типов появились по порядку`, end.spawned === planned && end.introduced.join() === KINDS.join(), `вышло ${end.spawned} (ждали ${planned}), типы ${end.introduced.join(', ')}`);
-  check(`${p} учёт: убитые + дошедшие = вышедшие + ${splitCount}·распады (${end.kills} + ${end.leaked} = ${end.spawned} + ${splitCount}·${end.splits})`, end.kills + end.leaked === end.spawned + splitCount * end.splits, `убито ${end.kills}, дошло ${end.leaked}, вышло ${end.spawned}, распадов ${end.splits}`);
-  note(`Полная партия (настоящие числа, скорость ×8, ${TOWERS} башен по ${BASE.price} монет, поставленных до начала вдоль всей сети): итог «${end.state}» за ${seconds} с реального времени (${f1(end.elapsed)} с игрового); убито ${end.kills}, дошло до организма ${end.leaked}, жизни ${CFG.lives} → ${end.lives} (минимум ${minLives}), заглушений башен спорами ${end.disables}, распадов ${end.splits}, одновременно на карте до ${maxBacteria} бактерий, монет в конце ${end.coins} (то есть зарабатывается в партии ≈ ${end.coins} сверх ${BASE.price * TOWERS} потраченных).`);
+  check(`${p} все ${CFG.waves} волн пройдены при ${TOWERS} башнях: состояние «победа», волна ${end.wave} из ${end.waveTotal}`, end.state === 'won' && end.wave === CFG.waves && end.waveTotal === CFG.waves && CFG.waves === total, `состояние ${end.state}, волна ${end.wave}/${end.waveTotal}, в таблице ${total} волн`);
+  check(`${p} вышло ${planned} бактерий по таблице волн, все ${INTRO_ORDER.length} типов появились по порядку: ${INTRO_ORDER.join(', ')}`, end.spawned === planned && end.introduced.join() === INTRO_ORDER.join(), `вышло ${end.spawned} (ждали ${planned}), типы ${end.introduced.join(', ')}`);
+  const born = end.kills + end.leaked - end.spawned - splitCount * end.splits;
+  check(`${p} учёт: убитые + дошедшие = вышедшие + ${splitCount}·распады + рождённые маткой (${end.kills} + ${end.leaked} = ${end.spawned} + ${splitCount}·${end.splits} + ${born}); рождённых не меньше 0, но ограничено: ≤ ${planned} (никто не пропал и не посчитан дважды)`, born >= 0 && born <= planned, `лишних ${born}`);
+  check(`${p} оборона работает: убито ${end.kills} из ${end.spawned} вышедших (не меньше половины), монеты растут (в конце ${end.coins})`, end.kills >= end.spawned / 2 && end.coins > 0, `убито ${end.kills}, монет ${end.coins}`);
+  note(`Полная партия (настоящие волны и бактерии, скорость ×8, ${TOWERS} Таблеток по ${CFG.pillPrice} монет со сверхсильным уроном, жизни не отнимаются): итог «${end.state}» за ${seconds} с реального времени (${f1(end.elapsed)} с игрового); убито ${end.kills}, дошло до организма ${end.leaked}, заглушений башен спорами ${end.disables}, распадов ${end.splits}, одновременно на карте до ${maxBacteria} бактерий, монет в конце ${end.coins}.`);
   await context.close();
 }
 
-// ================================================================== четыре башни (этап 3): панель, цены, Сироп, Шипучка, Шприц, Таблетка
+// ================================================================== четыре башни и новые бактерии (этап 3б): панель, цены, Сироп-лужа, Шипучка, Шприц-луч, Таблетка, типы бактерий
 
 const TOWER_IDS = ['pill', 'syrup', 'fizz', 'syringe'];
 /** Фиксированный баланс для проверок башен: числа самих башен НЕ подменяются (их читаем из config.ts), остальное — как в соседних сценариях. */
@@ -2166,18 +2246,168 @@ function towerTable() {
     range: readConfigNumber(id, 'range'),
     damage: readConfigNumber(id, 'damage'),
     cooldownMs: readConfigNumber(id, 'cooldownMs'),
+    projectileSpeed: readConfigNumber(id, 'projectileSpeed'),
   });
   return {
     pill: row('pill'),
-    syrup: { ...row('syrup'), slowFactor: readConfigNumber('syrup', 'slowFactor'), slowSec: readConfigNumber('syrup', 'slowSec') },
+    syrup: {
+      ...row('syrup'),
+      slowFactor: readConfigNumber('syrup', 'slowFactor'),
+      slowSec: readConfigNumber('syrup', 'slowSec'),
+      puddleRadius: readConfigNumber('syrup', 'puddleRadius'),
+      puddleSec: readConfigNumber('syrup', 'puddleSec'),
+      puddleLeadPx: readConfigNumber('syrup', 'puddleLeadPx'),
+    },
     fizz: { ...row('fizz'), blastRadius: readConfigNumber('fizz', 'blastRadius') },
-    syringe: row('syringe'),
+    syringe: {
+      ...row('syringe'),
+      beamPulses: readConfigNumber('syringe', 'beamPulses'),
+      beamGapMs: readConfigNumber('syringe', 'beamGapMs'),
+      beamLengthPx: readConfigNumber('syringe', 'beamLengthPx'),
+      beamHalfWidthPx: readConfigNumber('syringe', 'beamHalfWidthPx'),
+    },
   };
 }
 const medianOf = (a) => (a.length ? [...a].sort((x, y) => x - y)[Math.floor(a.length / 2)] : NaN);
 const byIdMap = (s) => new Map(s.bacteria.map((b) => [b.id, b]));
 /** Достаёт ли башня до бактерии (как в игре: центр не дальше радиуса башни + радиус бактерии); slack — запас, px. */
 const inReach = (tw, b, slack = 0) => Math.hypot(b.x - tw.x, b.y - tw.y) <= tw.range + b.r + slack;
+
+// ---------------------------------------------------------------- геометрия луча Шприца и расстояние до организма (по сети дорожек из getGraph)
+
+/** Сколько направлений у луча (src/level.ts: AIM_STEPS): шаг поворота 360° / AIM_STEPS. */
+const AIM_STEPS = (() => {
+  const found = /AIM_STEPS\s*=\s*(\d+)/.exec(fs.readFileSync(path.join(ROOT, 'src', 'level.ts'), 'utf8'));
+  if (!found) throw new Error('В src/level.ts нет AIM_STEPS');
+  return Number(found[1]);
+})();
+/** Угол направления с номером k: 0 — вправо, дальше по часовой стрелке (как на экране игры, где ось y смотрит вниз), радианы. */
+const aimAngleOf = (k) => ((((k % AIM_STEPS) + AIM_STEPS) % AIM_STEPS) / AIM_STEPS) * Math.PI * 2;
+/** Кратчайший поворот от направления a к b: сколько шагов и в какую сторону (+1 — по часовой стрелке, −1 — против). */
+function aimTurn(a, b) {
+  const d = (((b - a) % AIM_STEPS) + AIM_STEPS) % AIM_STEPS;
+  return d <= AIM_STEPS / 2 ? { steps: d, dir: 1 } : { steps: AIM_STEPS - d, dir: -1 };
+}
+/** Где точка относительно луча из башни tw (мир, px) в направлении k: расстояние вдоль луча и до его оси. */
+function beamGeom(b, tw, k) {
+  const a = aimAngleOf(k);
+  const ux = Math.cos(a);
+  const uy = Math.sin(a);
+  const dx = b.x - tw.x;
+  const dy = b.y - tw.y;
+  return { along: dx * ux + dy * uy, across: Math.abs(-dx * uy + dy * ux) };
+}
+/** Полуширина попадания луча по бактерии радиуса r (как в Tower.beamHits): половина луча плюс 0,7 радиуса бактерии. */
+const beamReachOf = (r) => TW.syringe.beamHalfWidthPx + 0.7 * r;
+/** Бактерия «точно на луче» (с запасом m пикселей): впереди башни и ближе к оси, чем нужно для попадания. */
+const onBeam = (b, tw, k, m) => {
+  const g = beamGeom(b, tw, k);
+  return g.along >= m && g.across <= beamReachOf(b.r) - m;
+};
+/** Бактерия «точно вне луча»: позади башни или дальше от оси, чем нужно для попадания, на запас m. */
+const offBeam = (b, tw, k, m) => {
+  const g = beamGeom(b, tw, k);
+  return g.along < -m || g.across > beamReachOf(b.r) + m;
+};
+/**
+ * Сколько пикселей дорожек накрывает полоса луча из точки (x, y) в направлении k (как beamCoverage в src/level.ts: середины кусочков рёбер, попавшие
+ * в полосу). only — только эти рёбра (номера), minAlong — не ближе этого расстояния от башни.
+ */
+function beamCoverageAt(x, y, k, halfW, { only = null, minAlong = 0 } = {}) {
+  const a = aimAngleOf(k);
+  const ux = Math.cos(a);
+  const uy = Math.sin(a);
+  let total = 0;
+  for (const e of GRAPH.edges) {
+    if (only && !only.has(e.id)) continue;
+    for (let i = 1; i < e.pts.length; i++) {
+      const mx = (e.pts[i][0] + e.pts[i - 1][0]) / 2 - x;
+      const my = (e.pts[i][1] + e.pts[i - 1][1]) / 2 - y;
+      const along = mx * ux + my * uy;
+      if (along < minAlong || along > 3000) continue;
+      if (Math.abs(-mx * uy + my * ux) > halfW) continue;
+      total += Math.hypot(e.pts[i][0] - e.pts[i - 1][0], e.pts[i][1] - e.pts[i - 1][1]);
+    }
+  }
+  return total;
+}
+/** Направление луча, которое игра выбирает при постановке башни (где под лучом больше всего дорожки; запас к полуширине — как BEAM_COVER_MARGIN в src/objects/Tower.ts). */
+function defaultAimAt(x, y) {
+  let best = 0;
+  let bestValue = -1;
+  for (let k = 0; k < AIM_STEPS; k++) {
+    const v = beamCoverageAt(x, y, k, TW.syringe.beamHalfWidthPx + 22);
+    if (v > bestValue) {
+      bestValue = v;
+      best = k;
+    }
+  }
+  return { k: best, coverage: bestValue };
+}
+
+/** Точка на ребре графа на расстоянии s от его начала (по ломаной из getGraph). */
+function pointOnEdge(edgeId, s) {
+  const pts = GEO.byId.get(edgeId).pts;
+  let acc = 0;
+  for (let i = 1; i < pts.length; i++) {
+    const d = Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]);
+    if (acc + d >= s || i === pts.length - 1) {
+      const u = d > 0 ? Math.max(0, Math.min(1, (s - acc) / d)) : 0;
+      return { x: pts[i - 1][0] + (pts[i][0] - pts[i - 1][0]) * u, y: pts[i - 1][1] + (pts[i][1] - pts[i - 1][1]) * u };
+    }
+    acc += d;
+  }
+  return { x: pts[0][0], y: pts[0][1] };
+}
+let REMAINING_TABLE = null;
+/** Сколько пикселей до организма по дорожкам от точки мира: берётся ближайшая точка сети (как remainingNear в src/level.ts) — расстояние до конца её ребра плюс самый короткий путь от конца ребра. */
+function remainingAtPoint(x, y) {
+  if (!REMAINING_TABLE) {
+    const memo = new Map();
+    const nodeRemaining = (node) => {
+      if (memo.has(node)) return memo.get(node);
+      const next = GRAPH.edges.filter((e) => e.from === node);
+      const v = next.length ? Math.min(...next.map((e) => e.length + nodeRemaining(e.to))) : 0;
+      memo.set(node, v);
+      return v;
+    };
+    REMAINING_TABLE = GRAPH.edges.map((e) => {
+      const cum = [0];
+      for (let i = 1; i < e.pts.length; i++) cum.push(cum[i - 1] + Math.hypot(e.pts[i][0] - e.pts[i - 1][0], e.pts[i][1] - e.pts[i - 1][1]));
+      return { e, cum, end: nodeRemaining(e.to) };
+    });
+  }
+  let best = Infinity;
+  let value = 0;
+  for (const { e, cum, end } of REMAINING_TABLE) {
+    for (let i = 0; i < e.pts.length; i++) {
+      const d = Math.hypot(e.pts[i][0] - x, e.pts[i][1] - y);
+      if (d < best) {
+        best = d;
+        value = e.length - cum[i] + end;
+      }
+    }
+  }
+  return value;
+}
+
+/** Тап по левой (dir −1) или правой (+1) половине башни в клетке: так поворачивается Шприц. Смещение — четверть клетки на экране. */
+async function tapTowerHalf(game, col, row, dir) {
+  const s = await game.state();
+  const c = await game.cell(col, row);
+  const dx = 0.25 * s.map.tile * s.camera.zoom * game.screen.scale;
+  await game.input.tap({ x: c.x + dir * dx, y: c.y });
+  await settle();
+}
+/** Поворачивает Шприц в клетке к направлению target самым коротким путём (тапами); возвращает последнее состояние. */
+async function turnSyringeTo(game, col, row, target) {
+  let s = await game.state();
+  const tw = s.towers.find((t) => t.col === col && t.row === row);
+  const { steps, dir } = aimTurn(tw.aim, target);
+  for (let i = 0; i < steps; i++) await tapTowerHalf(game, col, row, dir);
+  s = await game.state();
+  return s;
+}
 
 /** Сдвигает карту до левого (виден «ствол» у организма) или правого (видны входы) края. */
 async function panTo(game, side) {
@@ -2292,12 +2522,13 @@ async function priceColors(game, png, btn) {
   return { gold, red, kind: gold >= 12 && red < 4 ? 'gold' : red >= 12 && gold < 4 ? 'red' : 'unclear' };
 }
 
-/** Подсказка внизу окна карты: сколько белых точек текста и где он начинается и кончается по горизонтали (экран игры, px). */
+/** Подсказка внизу окна карты: сколько белых точек текста и где он начинается и кончается по горизонтали (экран игры, px). Сканируется только окно карты
+ *  (x до 1078): правее начинается панель, и белые цифры кнопки скорости «×1» не должны считаться текстом подсказки. */
 async function hintExtent(game, png) {
   const points = [];
   const xs = [];
   for (let gy = 664; gy <= 702; gy += 2) {
-    for (let gx = 0; gx <= 1140; gx += 3) {
+    for (let gx = 0; gx <= 1078; gx += 3) {
       const c = game.screen.g2c(gx, gy);
       points.push([c.x, c.y]);
       xs.push(gx);
@@ -2321,7 +2552,7 @@ async function hintExtent(game, png) {
 
 function towersTexts() {
   const p = '[башни: тексты]';
-  const keys = ['towerPill', 'towerSyrup', 'towerFizz', 'towerSyringe', 'tagPill', 'tagSyrup', 'tagFizz', 'tagSyringe', 'infoSyrup', 'infoFizz', 'infoSyringe'];
+  const keys = ['towerPill', 'towerSyrup', 'towerFizz', 'towerSyringe', 'tagPill', 'tagSyrup', 'tagFizz', 'tagSyringe', 'infoSyrup', 'infoFizz', 'infoSyringe', 'hintRotate', 'startWave'];
   const rows = keys.map((k) => {
     try {
       const [ru, en] = readI18n(k);
@@ -2336,7 +2567,7 @@ function towersTexts() {
   const bad = rows.filter((r) => r.ok && (!r.ru.trim() || !r.en.trim() || r.ru === r.en || !cyr.test(r.ru) || cyr.test(r.en)));
   check(`${p} русские строки по-русски, английские по-английски, обе не пустые и различаются`, bad.length === 0, bad.map((r) => `${r.k}: «${r.ru}» / «${r.en}»`).join('; '));
   const syrup = rows.find((r) => r.k === 'infoSyrup');
-  check(`${p} подсказка Сиропа на обоих языках содержит вставки {pct} и {sec} (проценты и секунды берутся из config.ts)`, Boolean(syrup?.ok) && ['ru', 'en'].every((l) => syrup[l].includes('{pct}') && syrup[l].includes('{sec}')), syrup ? `${syrup.ru} / ${syrup.en}` : '');
+  check(`${p} подсказка Сиропа на обоих языках содержит вставку {pct} (на сколько процентов лужа замедляет — из config.ts)`, Boolean(syrup?.ok) && ['ru', 'en'].every((l) => syrup[l].includes('{pct}')), syrup ? `${syrup.ru} / ${syrup.en}` : '');
   const names = rows.filter((r) => r.k.startsWith('tower') && r.ok).map((r) => r.ru);
   check(`${p} названия четырёх башен различаются: ${names.join(', ')}`, new Set(names).size === 4);
 }
@@ -2399,8 +2630,9 @@ async function towersPanel(browser, baseUrl, deviceKey, lang, { full = false } =
   check(`${p} тап по другой кнопке переключает выбор (Сироп → Шипучка: selected = ${s.selected})`, s.selected === 'fizz');
   await game.selectTower('fizz');
   // подсказка внизу есть у каждой башни и целиком внутри окна карты (не залезает на панель)
-  const hintBad = hints.filter((h) => h.count < 100 || h.minX < 8 || h.maxX > 1074);
-  check(`${p} нижняя подсказка у каждой из башен видна и целиком в окне карты: ${hints.map((h) => `${h.id} ${h.minX}…${h.maxX}`).join('; ')} (из 1080)`, hintBad.length === 0, hintBad.map((h) => `${h.id}: точек ${h.count}, ${h.minX}…${h.maxX}`).join('; '));
+  for (const h of hints) {
+    check(`${p} нижняя подсказка при выборе башни «${h.id}» видна и целиком в окне карты (текст от ${h.minX} до ${h.maxX} px из 1080, точек текста ${h.count})`, h.count >= 100 && h.minX >= 8 && h.maxX <= 1074, `точек ${h.count}, ${h.minX}…${h.maxX}`);
+  }
   // тап по пустой клетке без башни по-прежнему ничего не ставит
   await game.tapCell(...FREE.a);
   s = await game.state();
@@ -2461,35 +2693,44 @@ async function towersPrices(browser, baseUrl) {
   await context.close();
 }
 
-// ---------------------------------------------------------------- Сироп
+// ---------------------------------------------------------------- Сироп: лужа на дорожке
+
+/** Записи по бактериям из журнала состояний: id → список замеров { …бактерия, e: игровое время }. */
+function tracesOf(log) {
+  const traces = new Map();
+  for (const s of log) {
+    for (const b of s.bacteria) {
+      if (!traces.has(b.id)) traces.set(b.id, []);
+      traces.get(b.id).push({ ...b, e: s.elapsed });
+    }
+  }
+  return traces;
+}
 
 /**
- * Один прогон Сиропа у «ствола» (через него идут все бактерии): башня, кокки с запасом HP, запись замеров.
- * cooldownMs большой — Сироп стреляет один раз за партию; маленький — стреляет по каждой бактерии подряд.
+ * Один прогон Сиропа: башня в клетке (по умолчанию у «ствола» — через него идут все бактерии; minZoom — вся карта, клетка дальше всех от дорожек), волна,
+ * журнал состояний (кадр за кадром). wave — подмена состава волн (по умолчанию `count` кокков), cfg — прочие подмены, stopWhen(состояние, журнал) — когда закончить
+ * (кроме победы и проигрыша).
  */
-async function syrupRun(context, baseUrl, p, { cooldownMs, hp, count, interval, shotName = null, speed = 3, stopWhen = null }) {
-  const cfg = [
-    'waves.total:1',
-    `waves.list.0.coccus:${count}`,
-    `waves.intervalStartSec:${interval}`,
-    `waves.intervalEndSec:${interval}`,
-    'waves.firstDelaySec:2',
-    ...FIXED_NO_TOWERS,
-    `types.coccus.hp:${hp}`,
-    `towers.syrup.cooldownMs:${cooldownMs}`,
-    `economy.startCoins:${TW.syrup.price}`,
-    NO_LIFE_LOSS,
-  ].join(',');
-  const game = await openGame(context, baseUrl, p, { speed, cfg });
-  await panTo(game, 'left');
-  const near = nearTrunkCell();
-  const placed = await game.placeTowersOf('syrup', [[near.col, near.row]]);
-  const tower = placed.towers[0];
-  const traces = new Map();
+async function syrupPlay(context, baseUrl, p, { cfg = [], count = 2, interval, wave = null, speed = 3, minZoom = false, stopWhen = null, shotName = null, timeoutMs = 150000 }) {
+  const waveTokens = wave ?? ['waves.total:1', `waves.list.0.coccus:${count}`];
+  const all = [...waveTokens, `waves.intervalStartSec:${interval}`, `waves.intervalEndSec:${interval}`, 'waves.firstDelaySec:2', ...FIXED_NO_TOWERS, `economy.startCoins:${TW.syrup.price}`, NO_LIFE_LOSS, ...cfg].join(',');
+  const game = await openGame(context, baseUrl, p, { speed, cfg: all });
+  let cell;
+  if (minZoom) {
+    for (let i = 0; i < 3; i++) await game.input.wheel(game.g(540, 360), 500);
+    await settle();
+    cell = farVisibleCell(await game.state());
+  } else {
+    await panTo(game, 'left');
+    cell = nearTrunkCell();
+  }
+  const placed = await game.placeTowersOf('syrup', [[cell.col, cell.row]]);
+  const log = [];
   let shotDone = false;
   const end = await pollUntil(game, async (st) => {
-    recordFull(traces, st);
-    if (shotName && !shotDone) {
+    log.push(st);
+    if (shotName && !shotDone && st.puddles.length > 0) {
       const slowed = st.bacteria.find((b) => b.slowed);
       if (slowed) {
         const sx = st.viewW / 2 + (slowed.x - st.camera.cx) * st.camera.zoom;
@@ -2500,103 +2741,177 @@ async function syrupRun(context, baseUrl, p, { cooldownMs, hp, count, interval, 
         }
       }
     }
-    return st.state === 'won' || st.state === 'lost' || (stopWhen !== null && stopWhen(st));
-  }, 150000, 20);
+    return st.state === 'won' || st.state === 'lost' || (stopWhen !== null && stopWhen(st, log));
+  }, timeoutMs, 20);
   await game.page.close();
-  return { traces, end, tower, placedCount: placed.towers.length, shotDone };
+  return { log, end, tower: placed.towers[0], placedCount: placed.towers.length, shotDone, cell };
 }
 
-/** Описание отрезка замедления: начало и конец по серединам между замерами и допуск на шаг замеров. */
-function runTimes(tr, run) {
-  const gapA = run.a > 0 ? tr[run.a].e - tr[run.a - 1].e : 0.3;
-  const start = run.a > 0 ? (tr[run.a - 1].e + tr[run.a].e) / 2 : tr[run.a].e;
-  const hasEnd = run.b + 1 < tr.length;
-  const gapC = hasEnd ? tr[run.b + 1].e - tr[run.b].e : 0;
-  const stop = hasEnd ? (tr[run.b].e + tr[run.b + 1].e) / 2 : null;
-  return { start, stop, gapA, gapC, dur: stop === null ? null : stop - start, tol: 0.25 + (gapA + gapC) / 2 };
+/** Когда лужа появилась и исчезла (по журналу; в этих прогонах луж не больше одной одновременно): номера замеров, её центр и радиус, оценка времён. */
+function puddleTimeline(log) {
+  const first = log.findIndex((s) => s.puddles.length > 0);
+  if (first < 0) return null;
+  let last = first;
+  while (last + 1 < log.length && log[last + 1].puddles.length > 0) last++;
+  const gone = last + 1 < log.length ? last + 1 : -1;
+  return {
+    first,
+    last,
+    gone,
+    pud: log[first].puddles[0],
+    e1: log[first].elapsed,
+    ePrev: first > 0 ? log[first - 1].elapsed : log[first].elapsed,
+    eLast: log[last].elapsed,
+    e2: gone >= 0 ? log[gone].elapsed : null,
+  };
+}
+
+/**
+ * Замедление и лужа, по замерам: (А) бактерия, которая на прошлом замере была внутри лужи (с запасом 12 px) и лужа жила, на этом замере замедлена;
+ * (Б) замедленная бактерия не бывает вдали от лужи: в последние slowSec секунд (плюс шаг замеров) она была внутри лужи (с запасом 14 px), пока лужа жила.
+ * Бактерия «внутри», если её центр не дальше радиуса лужи плюс 0,35 радиуса бактерии (как Puddle.covers).
+ */
+function slowSemantics(log, tl, slowSec) {
+  const traces = tracesOf(log);
+  const R = tl.pud.r;
+  const strictAlive = (e) => e >= tl.e1 && e <= tl.eLast;
+  const maybeAlive = (e) => e >= tl.ePrev && (tl.e2 === null || e <= tl.e2);
+  const cover = (b, margin) => Math.hypot(b.x - tl.pud.x, b.y - tl.pud.y) <= R + 0.35 * b.r + margin;
+  const out = { inside: 0, slowedSamples: 0, violA: [], violB: [], runs: 0, insideSamples: 0 };
+  for (const [id, tr] of traces) {
+    out.runs += slowRuns(tr).length;
+    for (let i = 0; i < tr.length; i++) {
+      const b = tr[i];
+      if (b.slowed) out.slowedSamples++;
+      if (cover(b, 0) && maybeAlive(b.e)) out.insideSamples++;
+      if (i > 0) {
+        const a = tr[i - 1];
+        if (strictAlive(a.e) && strictAlive(b.e) && cover(a, -12)) {
+          out.inside++;
+          if (!b.slowed) out.violA.push(`#${id} на ${f2(b.e)} с`);
+        }
+      }
+      if (b.slowed) {
+        let ok = false;
+        for (let j = i; j >= 0 && b.e - tr[j].e <= slowSec + 0.4; j--) {
+          if (maybeAlive(tr[j].e) && cover(tr[j], 14)) {
+            ok = true;
+            break;
+          }
+        }
+        if (!ok) out.violB.push(`#${id} на ${f2(b.e)} с`);
+      }
+    }
+  }
+  return out;
 }
 
 async function towersSyrup(browser, baseUrl) {
   const p = '[башни: Сироп]';
-  const { slowFactor, slowSec } = TW.syrup;
+  const { slowFactor, slowSec, puddleRadius, puddleSec, puddleLeadPx, range, projectileSpeed } = TW.syrup;
   const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
 
-  // ---- S1: один выстрел за партию: замедление в slowFactor раз на ≈ slowSec секунд, остальные бактерии не тронуты
-  const r1 = await syrupRun(context, baseUrl, p, { cooldownMs: 60000, hp: 6, count: 2, interval: 3, shotName: 'towers-08-syrup-slowed' });
-  const all = [...r1.traces.values()];
-  const hitOnes = all.filter((tr) => tr.some((q) => q.hp < q.maxHp));
-  const untouched = all.filter((tr) => tr.every((q) => q.hp === q.maxHp));
-  check(`${p} Сироп поставлен у «ствола» и сделал ровно один выстрел (cooldown 60 с): выстрелов ${r1.end.shots}, замедлений ${r1.end.slows}, задета ${hitOnes.length} бактерия из ${all.length}`, r1.placedCount === 1 && r1.end.shots === 1 && r1.end.slows === 1 && hitOnes.length === 1 && all.length === 2, `выстрелов ${r1.end.shots}, slows ${r1.end.slows}, бактерий ${all.length}`);
-  const tr = hitOnes[0] ?? [];
-  const sp = segmentSpeeds(tr);
-  const vSlow = medianOf(sp.slow);
-  const vNorm = medianOf(sp.norm);
-  const ratio = vSlow / vNorm;
-  check(`${p} попавшая бактерия идёт в ${slowFactor} раза от обычной скорости: ${f1(vSlow)} px/с против ${f1(vNorm)} px/с, отношение ${f2(ratio)} (ждали ${slowFactor} ±0,03; замеров ${sp.slow.length} и ${sp.norm.length})`, sp.slow.length >= 4 && sp.norm.length >= 15 && Math.abs(ratio - slowFactor) <= 0.03, `отношение ${f2(ratio)}`);
-  const runs = slowRuns(tr);
-  const t1 = runs.length === 1 ? runTimes(tr, runs[0]) : null;
-  check(`${p} замедление держится ≈ ${slowSec} с и один непрерывный отрезок: замерено ${t1?.dur === null || !t1 ? '—' : f2(t1.dur)} с (допуск ±${t1 ? f2(t1.tol) : '—'}), отрезков ${runs.length}`, Boolean(t1) && t1.dur !== null && Math.abs(t1.dur - slowSec) <= t1.tol, t1 ? `начало ${f2(t1.start)}, конец ${t1.stop === null ? '—' : f2(t1.stop)}` : `отрезков ${runs.length}`);
-  const slowedUntouched = untouched.filter((t) => t.some((q) => q.slowed)).length;
-  const touchedNormal = untouched.every((t) => {
-    const v = segmentSpeeds(t);
-    return v.slow.length === 0 && v.norm.length >= 10;
-  });
-  const tw = r1.tower;
-  const untouchedNear = untouched.every((t) => Math.min(...t.map((q) => Math.hypot(q.x - tw.x, q.y - tw.y) - q.r)) <= TW.syrup.range);
-  check(`${p} бактерия, в которую Сироп не попал (${untouched.length} шт.; она проходила и в радиусе башни ${TW.syrup.range} px, но башня была на паузе), не замедлена ни в одном замере и идёт с обычной скоростью`, untouched.length === 1 && untouchedNear && slowedUntouched === 0 && touchedNormal, `замедлены: ${slowedUntouched} из ${untouched.length}, в радиусе была: ${untouchedNear}`);
-  const nearest = tr.length ? Math.min(...tr.map((q) => Math.hypot(q.x - tw.x, q.y - tw.y) - q.r)) : Infinity;
-  check(`${p} замедлена только бактерия, подошедшая к башне ближе радиуса ${TW.syrup.range} px (ближайший замер ${f1(nearest)} px от края до башни)`, nearest <= TW.syrup.range + 40, `ближайший ${f1(nearest)} px`);
-  check(`${p} снимок с оранжевым кольцом замедления сделан`, r1.shotDone);
-
-  // ---- S2: повторные попадания: не усиливают замедление, а продлевают его
-  const COOL = 1000;
-  let sawSlowedAfter = false;
-  const r2 = await syrupRun(context, baseUrl, p, { cooldownMs: COOL, hp: 60, count: 1, interval: 1, stopWhen: (st) => {
-    // всё нужное записано, когда после серии попаданий замедление кончилось
-    const slowedNow = st.bacteria.some((b) => b.slowed);
-    if (slowedNow && st.slows >= 5) sawSlowedAfter = true;
-    return sawSlowedAfter && !slowedNow;
-  } });
-  const tr2 = [...r2.traces.values()][0] ?? [];
-  const sp2 = segmentSpeeds(tr2);
-  const vNorm2 = medianOf(sp2.norm);
-  const segRatios = [];
-  for (let i = 1; i < tr2.length; i++) {
-    const a = tr2[i - 1];
-    const b = tr2[i];
-    if (!(a.slowed && b.slowed) || b.e - a.e < 0.05) continue;
-    const d = progressBetween(a, b);
-    if (d !== null) segRatios.push(d / (b.e - a.e) / vNorm2);
-  }
-  const lo = Math.min(...segRatios);
-  const hi = Math.max(...segRatios);
-  const hits2 = r2.end.slows;
-  check(`${p} при выстреле раз в ${COOL / 1000} с Сироп попадает много раз подряд (замедлений ${hits2}, ждали ≥ 4), бактерия жива (HP ${tr2.at(-1)?.hp} из ${tr2[0]?.maxHp})`, hits2 >= 4 && (tr2.at(-1)?.hp ?? 0) > 0, `slows ${hits2}`);
-  check(`${p} повторные попадания не усиливают замедление: во всех ${segRatios.length} замерах скорость ${f2(lo)}…${f2(hi)} от обычной (ждали ${slowFactor} ±0,03; при сложении было бы ${f2(slowFactor * slowFactor)})`, segRatios.length >= 12 && lo >= slowFactor - 0.03 && hi <= slowFactor + 0.03, `${f2(lo)}…${f2(hi)}`);
-  const runs2 = slowRuns(tr2);
-  const longest = runs2.reduce((best, r) => (r.b - r.a > (best ? best.b - best.a : -1) ? r : best), null);
-  let lastHit = null;
-  let firstHit = null;
-  for (let i = 1; i < tr2.length; i++) {
-    if (tr2[i].slows > tr2[i - 1].slows) {
-      if (firstHit === null) firstHit = i;
-      lastHit = i;
-    }
-  }
-  const tt = longest ? runTimes(tr2, longest) : null;
-  if (tt && lastHit !== null && firstHit !== null && tt.stop !== null) {
-    const hitMid = (tr2[lastHit - 1].e + tr2[lastHit].e) / 2;
-    const expectedStop = hitMid + slowSec;
-    const tol = tt.tol + (tr2[lastHit].e - tr2[lastHit - 1].e) / 2 + 0.15;
-    const firstMid = (tr2[firstHit - 1].e + tr2[firstHit].e) / 2;
-    check(`${p} повторное попадание продлевает замедление: оно кончилось через ${f2(tt.stop - hitMid)} с после последнего попадания (ждали ${slowSec} ±${f2(tol)}), а всего длилось ${f2(tt.dur)} с вместо ${slowSec} (первое попадание на ${f2(firstMid)} с, последнее на ${f2(hitMid)} с)`, Math.abs(tt.stop - expectedStop) <= tol && tt.dur >= slowSec + (hitMid - firstMid) - tol, `отрезков замедления ${runs2.length}`);
+  // ---- S1: один выстрел за партию (пауза 60 с): капля летит и оставляет лужу впереди бактерии; лужа живёт puddleSec; в луже все идут в slowFactor раз медленнее
+  const r1 = await syrupPlay(context, baseUrl, p, { cfg: ['towers.syrup.cooldownMs:60000', 'types.coccus.hp:99'], count: 2, interval: 12, shotName: 'towers-08-syrup-puddle' });
+  const L = r1.log;
+  const tl = puddleTimeline(L);
+  const maxPuddles = Math.max(...L.map((s) => s.puddles.length));
+  check(`${p} Сироп поставлен у «ствола» и сделал ровно один выстрел (пауза 60 с): выстрелов ${r1.end.shots}, всплесков луж ${r1.end.effects.splats}, одновременно луж не больше ${maxPuddles}`, r1.placedCount === 1 && r1.end.shots === 1 && r1.end.effects.splats === 1 && maxPuddles === 1 && tl !== null, `выстрелов ${r1.end.shots}, всплесков ${r1.end.effects.splats}, луж ${maxPuddles}`);
+  if (!tl) {
+    check(`${p} лужа появилась (без неё остальные проверки Сиропа невозможны)`, false, 'лужи не было');
   } else {
-    check(`${p} повторное попадание продлевает замедление (замедление и его конец видны в записи)`, false, `отрезков ${runs2.length}, последнее попадание ${lastHit}`);
+    const tw = r1.tower;
+    const iShot = L.findIndex((s) => s.shots >= 1);
+    const air = iShot >= 0 && iShot < tl.first && L[iShot].puddles.length === 0 && L[iShot].projectiles >= 1;
+    const cand = (L[iShot]?.bacteria ?? []).filter((b) => b.hp > 0 && Math.hypot(b.x - tw.x, b.y - tw.y) <= range + b.r).sort((a, b) => a.remaining - b.remaining);
+    const target = cand[0];
+    const flight = tl.e1 - (L[iShot]?.elapsed ?? 0);
+    const expectFlight = (Math.hypot(tl.pud.x - tw.x, tl.pud.y - tw.y) - 36) / projectileSpeed;
+    check(`${p} капля летит к дорожке, а не появляется сразу: на первом замере после выстрела она в воздухе, лужи ещё нет; до лужи ${f2(flight)} с (по расстоянию и скорости капли ${projectileSpeed} px/с ждали ≈ ${f2(expectFlight)} с, допуск ±0,35)`, air && Math.abs(flight - expectFlight) <= 0.35, `в воздухе ${air}, замеров между выстрелом и лужей ${tl.first - iShot}`);
+    const dPath = GEO.distToAnyCurve({ x: tl.pud.x, y: tl.pud.y });
+    const dTower = Math.hypot(tl.pud.x - tw.x, tl.pud.y - tw.y);
+    check(`${p} лужа лежит на дорожке (до кривой ${f2(dPath)} px ≤ 2), радиус ${tl.pud.r} px (в таблице ${puddleRadius}), в пределах досягаемости башни (до башни ${f1(dTower)} px ≤ радиус ${range} + полрадиуса лужи ${puddleRadius / 2})`, dPath <= 2 && Math.abs(tl.pud.r - puddleRadius) < 0.01 && dTower <= range + puddleRadius / 2 + 1, `до кривой ${f2(dPath)}, радиус ${tl.pud.r}, до башни ${f1(dTower)}`);
+    const diff = target ? target.remaining - remainingAtPoint(tl.pud.x, tl.pud.y) : NaN;
+    check(`${p} лужа лежит ВПЕРЕДИ бактерии, в которую целилась башня (ближайшей к организму в радиусе): до организма у бактерии на ${f1(diff)} px больше, чем у лужи (ждали от 20 до ${puddleLeadPx} + 45 px)`, Boolean(target) && diff >= 20 && diff <= puddleLeadPx + 45, target ? `бактерия #${target.id}` : 'цели в радиусе не было');
+    // при первом замере лужа жива меньше четверти секунды: её left чуть меньше puddleSec; исчезает она, когда left кончился
+    const left1 = tl.pud.left;
+    check(`${p} лужа живёт ${puddleSec} с: на первом замере после падения капли ей осталось ${f2(left1)} с (ждали ${f2(puddleSec - 0.45)}…${puddleSec}); видна была ${f2(tl.eLast - tl.e1)} с после этого замера, к следующему замеру её уже нет (${tl.e2 === null ? '—' : f2(tl.e2 - tl.e1)} с); исчезла вовремя (допуск ±0,15)`, tl.e2 !== null && left1 <= puddleSec + 0.01 && left1 >= puddleSec - 0.45 && tl.eLast - tl.e1 <= left1 + 0.15 && tl.e2 - tl.e1 >= left1 - 0.15, `left ${f2(left1)}, видна ${f2(tl.eLast - tl.e1)}…${tl.e2 === null ? '—' : f2(tl.e2 - tl.e1)} с`);
+    const sem = slowSemantics(L, tl, slowSec);
+    check(`${p} бактерия внутри лужи замедлена всегда (проверено ${sem.inside} замеров, не замедлена в ${sem.violA.length}); замедленная бактерия не бывает вдали от лужи: замедленных замеров ${sem.slowedSamples}, без причины ${sem.violB.length}`, sem.inside >= 6 && sem.violA.length === 0 && sem.violB.length === 0 && sem.slowedSamples >= 6, [...sem.violA, ...sem.violB].slice(0, 4).join('; ') || `внутри ${sem.inside}, замедленных ${sem.slowedSamples}`);
+    const traces = tracesOf(L);
+    const slowest = [...traces.values()].sort((a, b) => b.filter((q) => q.slowed).length - a.filter((q) => q.slowed).length)[0] ?? [];
+    const sp = segmentSpeeds(slowest);
+    const ratio = medianOf(sp.slow) / medianOf(sp.norm);
+    check(`${p} в луже бактерия идёт в ${slowFactor} раза от обычной скорости: ${f1(medianOf(sp.slow))} px/с против ${f1(medianOf(sp.norm))} px/с, отношение ${f2(ratio)} (ждали ${slowFactor} ±0,03; замеров ${sp.slow.length} и ${sp.norm.length})`, sp.slow.length >= 4 && sp.norm.length >= 8 && Math.abs(ratio - slowFactor) <= 0.03, `отношение ${f2(ratio)}`);
+    // выход из лужи: замедление держится ещё ≈ slowSec секунд
+    let i1 = -1;
+    for (let i = 0; i < slowest.length; i++) if (slowest[i].slowed && Math.hypot(slowest[i].x - tl.pud.x, slowest[i].y - tl.pud.y) <= tl.pud.r + 0.35 * slowest[i].r) i1 = i;
+    const i2 = i1 >= 0 ? slowest.findIndex((q, i) => i > i1 && !q.slowed) : -1;
+    if (i1 >= 0 && i2 > i1 && i1 + 1 < slowest.length) {
+      const lo = slowest[i2 - 1].e - slowest[i1 + 1].e;
+      const hi = slowest[i2].e - slowest[i1].e;
+      check(`${p} после выхода из лужи замедление держится ещё ≈ ${slowSec} с (по замерам от ${f2(lo)} до ${f2(hi)} с, допуск ±0,1)`, slowSec >= lo - 0.1 && slowSec <= hi + 0.1, `последний замер в луже на ${f2(slowest[i1].e)} с, первый без замедления на ${f2(slowest[i2].e)} с`);
+    } else {
+      check(`${p} после выхода из лужи замедление держится ещё ≈ ${slowSec} с (выход из лужи виден в записи)`, false, `i1 ${i1}, i2 ${i2}`);
+    }
+    check(`${p} счётчик замедлений игры совпадает с записью: ${r1.end.slows} вхождений в замедление, в записи ${sem.runs} непрерывных отрезков замедления`, r1.end.slows === sem.runs && sem.runs >= 1, `slows ${r1.end.slows}, отрезков ${sem.runs}`);
+  }
+  check(`${p} снимок лужи Сиропа с замедленной бактерией сделан`, r1.shotDone);
+
+  // ---- S2: поверх старой лужи новая не кладётся. Лужа почти останавливает бактерию (slowFactor 0,02), выстрел «в точку под ней» (puddleLeadPx 0), пауза 1 с
+  const COOL = 1000;
+  const r2 = await syrupPlay(context, baseUrl, p, {
+    cfg: [`towers.syrup.cooldownMs:${COOL}`, 'towers.syrup.puddleLeadPx:0', 'towers.syrup.slowFactor:0.02', 'types.coccus.hp:99'],
+    count: 1,
+    interval: 1,
+    stopWhen: (st, log) => {
+      const i = log.findIndex((q) => q.puddles.length > 0);
+      return i >= 0 && st.elapsed >= log[i].elapsed + 5.2;
+    },
+  });
+  const L2 = r2.log;
+  const tl2 = puddleTimeline(L2);
+  if (!tl2) {
+    check(`${p} Сироп с паузой ${COOL} мс положил лужу (без неё проверка «поверх старой» невозможна)`, false, 'лужи не было');
+  } else {
+    const win = L2.filter((s) => s.elapsed >= tl2.e1 && s.elapsed <= tl2.e1 + 5);
+    const span = win.length ? win[win.length - 1].elapsed - win[0].elapsed : 0;
+    const extra = win.length ? win[win.length - 1].shots - L2[tl2.first].shots : 99;
+    const near = win.every((s) => s.bacteria.some((b) => b.hp > 0 && inReach({ ...r2.tower, range }, b)));
+    check(`${p} поверх старой лужи новая не кладётся: за ${f1(span)} с после первой лужи (пауза ${COOL / 1000} с, бактерия всё время в радиусе башни и почти стоит) выстрелов ещё ${extra} (≤ 1; без запрета было бы ≥ 4)`, span >= 4.5 && near && extra <= 1, `окно ${f1(span)} с, в радиусе всё время: ${near}`);
   }
 
-  // ---- S3: башня далеко от дорожек — никто не замедлен
-  const far = await syrupFar(context, baseUrl, p);
-  check(`${p} Сироп вдали от дорожек (клетка ${far.cell}, до ближайшей дорожки ${Math.round(far.dp)} px > радиус ${TW.syrup.range} + 30): не стреляет, замедлений 0, ни одна бактерия не замедлена`, far.placed && far.dp > TW.syrup.range + 30 + 40 && far.end.shots === 0 && far.end.slows === 0 && far.slowedSamples === 0 && far.end.spawned === 2, `башня стоит ${far.placed}, выстрелов ${far.end.shots}, slows ${far.end.slows}, замедленных замеров ${far.slowedSamples}, вышло ${far.end.spawned}`);
+  // ---- S2б: обычная лужа и пауза 1 с: Сироп кладёт лужи цепочкой вперёд по дорожке, но никогда ближе 0,8 радиуса к уже лежащей, и не чаще паузы
+  const r2b = await syrupPlay(context, baseUrl, p, {
+    cfg: [`towers.syrup.cooldownMs:${COOL}`, 'types.coccus.hp:99'],
+    count: 1,
+    interval: 1,
+    stopWhen: (st) => st.shots >= 5,
+  });
+  const L2b = r2b.log;
+  const maxP = Math.max(...L2b.map((q) => q.puddles.length));
+  let minPair = Infinity;
+  for (const q of L2b) for (let i = 0; i < q.puddles.length; i++) for (let j = i + 1; j < q.puddles.length; j++) minPair = Math.min(minPair, Math.hypot(q.puddles[i].x - q.puddles[j].x, q.puddles[i].y - q.puddles[j].y));
+  check(`${p} при паузе ${COOL / 1000} с Сироп кладёт несколько луж цепочкой (выстрелов ${r2b.end.shots}, одновременно до ${maxP} луж), и две лужи никогда не ближе 0,8 радиуса (${f1(0.8 * puddleRadius)} px): наименьшее расстояние ${minPair === Infinity ? '—' : f1(minPair)} px`, r2b.end.shots >= 3 && maxP >= 2 && minPair >= 0.8 * puddleRadius - 0.5, `выстрелов ${r2b.end.shots}, луж ${maxP}, расстояние ${f1(minPair)}`);
+  const at = [];
+  for (let i = 1; i < L2b.length; i++) for (let k = L2b[i - 1].shots; k < L2b[i].shots; k++) at.push(L2b[i].elapsed);
+  const gaps = at.slice(1).map((e, i) => e - at[i]);
+  check(`${p} между выстрелами Сиропа не меньше паузы ${COOL / 1000} с: выстрелов ${at.length}, промежутки ${gaps.map(f2).join(', ')} (допуск шага замеров 0,2)`, at.length >= 3 && gaps.every((g) => g >= COOL / 1000 - 0.2), gaps.map(f2).join(', '));
+
+  // ---- S3: радиус башни. Башня в самой далёкой от дорожек клетке и радиус 100 (подмена): до бактерий не достаёт — не бросает капли, ничего не замедляется
+  const FAR_RANGE = 100;
+  const r3 = await syrupPlay(context, baseUrl, p, { cfg: [`towers.syrup.range:${FAR_RANGE}`, 'types.coccus.hp:3'], count: 2, interval: 1, speed: 4, minZoom: true });
+  const dp3 = Math.min(...GRAPH.edges.map((e) => GEO.distToEdge(GEO.center(r3.cell.col, r3.cell.row), e.id)));
+  const slowedSamples = r3.log.reduce((sum, s) => sum + s.bacteria.filter((b) => b.slowed).length, 0);
+  check(`${p} Сироп вдали от дорожек (клетка ${r3.cell.col};${r3.cell.row}, до ближайшей дорожки ${Math.round(dp3)} px) при радиусе ${FAR_RANGE} px: не стреляет, луж нет, ни одна бактерия не замедлена`, r3.placedCount === 1 && dp3 > FAR_RANGE + 30 + 40 && r3.end.shots === 0 && r3.end.effects.splats === 0 && r3.log.every((s) => s.puddles.length === 0) && slowedSamples === 0 && r3.end.spawned === 2, `башня стоит ${r3.placedCount === 1}, выстрелов ${r3.end.shots}, всплесков ${r3.end.effects.splats}, замедленных замеров ${slowedSamples}, вышло ${r3.end.spawned}`);
+
+  // ---- S4: слизень (slowImmune) лужей не замедляется: Сироп бросает лужу ему под ноги, он проходит через неё с обычной скоростью
+  const slickRow = KINDS.includes('slick') ? { slick: 1 } : null;
+  const r4 = await syrupPlay(context, baseUrl, p, { wave: wavesOnly(slickRow ?? { coccus: 1 }), cfg: ['towers.syrup.cooldownMs:60000'], interval: 2, speed: 4 });
+  const tl4 = puddleTimeline(r4.log);
+  const slickTrace = [...tracesOf(r4.log).values()][0] ?? [];
+  const insideSlick = tl4 ? slickTrace.filter((q) => Math.hypot(q.x - tl4.pud.x, q.y - tl4.pud.y) <= tl4.pud.r - 5 && q.e >= tl4.e1 && q.e <= tl4.eLast).length : 0;
+  check(`${p} слизень не замедляется лужей: башня бросила ей лужу (выстрелов ${r4.end.shots}, луж ${r4.end.effects.splats}), слизень прошёл через неё (замеров внутри ${insideSlick} ≥ 4), замедлений 0, замедленных замеров ${slickTrace.filter((q) => q.slowed).length}`, r4.end.shots === 1 && r4.end.effects.splats === 1 && insideSlick >= 4 && r4.end.slows === 0 && slickTrace.every((q) => !q.slowed), `выстрелов ${r4.end.shots}, slows ${r4.end.slows}`);
   await context.close();
 }
 
@@ -2615,22 +2930,6 @@ function farVisibleCell(state) {
     }
   }
   return best;
-}
-
-async function syrupFar(context, baseUrl, p) {
-  const cfg = `waves.total:1,waves.list.0.coccus:2,waves.intervalStartSec:1,waves.intervalEndSec:1,waves.firstDelaySec:2,${FIXED_NO_TOWERS.join(',')},types.coccus.hp:3,economy.startCoins:${TW.syrup.price},${NO_LIFE_LOSS}`;
-  const game = await openGame(context, baseUrl, p, { speed: 4, cfg });
-  for (let i = 0; i < 3; i++) await game.input.wheel(game.g(540, 360), 500);
-  await settle();
-  const cell = farVisibleCell(await game.state());
-  const placed = await game.placeTowersOf('syrup', [[cell.col, cell.row]]);
-  let slowedSamples = 0;
-  const end = await pollUntil(game, (st) => {
-    slowedSamples += st.bacteria.filter((b) => b.slowed).length;
-    return st.state === 'won' || st.state === 'lost';
-  }, 120000, 25);
-  await game.page.close();
-  return { cell: `${cell.col};${cell.row}`, dp: cell.dp, placed: placed.towers.length === 1 && placed.towers[0].col === cell.col && placed.towers[0].row === cell.row, end, slowedSamples };
 }
 
 // ---------------------------------------------------------------- Шипучка
@@ -2774,196 +3073,242 @@ async function towersFizz(browser, baseUrl) {
   await context.close();
 }
 
-// ---------------------------------------------------------------- Шприц
+// ---------------------------------------------------------------- Шприц: луч
 
 /**
- * Разбор игл по записи состояний: на каждый выстрел цель — «вперёд» бактерия, ближайшая к организму из достижимых (как у башни);
- * игла идёт от башни через цель. Бактерия «точно на линии» (расстояние до линии ≤ её радиус − запас, до конца дальности далеко) обязана быть задета,
- * «точно вне линии» (дальше радиус + запас) — не задета. Запас учитывает смещение бактерии за время полёта иглы.
+ * Клетка для башни с лучом (карта видна целиком, клетка не ближе 70 px к краю окна). Направление — то, которое игра выберет сама при постановке
+ * (поворачивать не нужно: башня с полной паузой стреляет, как только на линии кто-то есть, и до тапа по ней лучше не доходить).
+ *  mode 'far'   — клетка, где этот луч дольше всего идёт вдоль дорожек-входов, не ближе 450 px от башни (проверка «радиуса нет, луч до края карты»);
+ *  mode 'blind' — клетка, где есть ещё и направление, в котором луч не задевает ни одной дорожки (даже с запасом 45 px), а выбранное игрой задевает вход.
  */
-function analyzeNeedles(log, tw, damage, margin) {
-  const out = { reasons: [], shots: 0, analyzed: 0, skipped: 0, hitsList: [], hitsMax: 0, sureOn: 0, sureOff: 0, onNotHit: [], offHit: [], wrongDamage: 0, hitTotal: 0 };
-  for (let j = 1; j < log.length; j++) {
-    if (log[j].shots <= log[j - 1].shots) continue;
-    out.shots++;
-    if (log[j].shots - log[j - 1].shots !== 1) {
-      out.skipped++;
-      out.reasons.push('два выстрела между замерами');
-      continue;
-    }
-    const cand = log[j].bacteria.filter((b) => b.hp > 0 && inReach(tw, b) && b.remaining > tw.remaining).sort((a, b) => a.remaining - b.remaining);
-    const target = cand[0];
-    // окно: пока игла в полёте (снарядов нет → игла погасла), но не дольше до следующего выстрела
-    let k = j;
-    while (k + 1 < log.length && log[k + 1].shots === log[j].shots && !(log[k].projectiles === 0 && k > j)) k++;
-    if (!target || !(log[k].projectiles === 0 && k > j)) {
-      out.skipped++;
-      out.reasons.push(!target ? 'нет цели «вперёд»' : 'игла не погасла до конца записи');
-      continue;
-    }
-    const pre = byIdMap(log[j - 1]);
-    const post = byIdMap(log[k]);
-    const ref = byIdMap(log[j]);
-    const t0 = pre.get(target.id);
-    const t1 = post.get(target.id);
-    if (!t0 || !t1 || !(t1.hp < t0.hp)) {
-      out.skipped++;
-      out.reasons.push(`цель #${target.id} не потеряла HP`);
-      continue;
-    }
-    out.analyzed++;
-    const dx = target.x - tw.x;
-    const dy = target.y - tw.y;
-    const len = Math.hypot(dx, dy);
-    const ux = dx / len;
-    const uy = dy / len;
-    let hits = 0;
-    for (const [id, b1] of post) {
-      const b0 = pre.get(id);
-      const r = ref.get(id);
-      if (!b0 || !r) continue;
-      const hit = b1.hp < b0.hp;
-      if (hit) {
-        hits++;
-        if (b0.hp - b1.hp !== damage) out.wrongDamage++;
+function beamSpot(state, mode) {
+  const entr = new Set(GRAPH.entrances);
+  const coccusR = readConfigNumber('coccus', 'radius');
+  let best = null;
+  for (let col = 0; col < LEVEL.cols; col++) {
+    for (let row = 0; row < LEVEL.rows; row++) {
+      if (GEO.isPathCell(col, row)) continue;
+      const c = GEO.center(col, row);
+      const sx = state.viewW / 2 + (c.x - state.camera.cx) * state.camera.zoom;
+      const sy = state.height / 2 + (c.y - state.camera.cy) * state.camera.zoom;
+      if (sx < 70 || sx > state.viewW - 70 || sy < 70 || sy > state.height - 70) continue;
+      const def = defaultAimAt(c.x, c.y);
+      const value = beamCoverageAt(c.x, c.y, def.k, beamReachOf(coccusR), { only: entr, minAlong: mode === 'far' ? 450 : 0 });
+      let blind = [];
+      if (mode === 'blind') {
+        for (let k = 0; k < AIM_STEPS; k++) if (beamCoverageAt(c.x, c.y, k, beamReachOf(coccusR) + 45) === 0) blind.push(k);
+        if (!blind.length) continue;
       }
-      if (id === target.id) continue;
-      const vx = r.x - tw.x;
-      const vy = r.y - tw.y;
-      const along = vx * ux + vy * uy;
-      const across = Math.abs(vx * uy - vy * ux);
-      if (across <= r.r - margin && along >= margin && along <= tw.range + r.r - margin) {
-        out.sureOn++;
-        if (!hit) out.onNotHit.push(`#${id}: до линии ${f1(across)} px, вдоль ${f1(along)}`);
-      }
-      if (across > r.r + margin || along > tw.range + r.r + margin) {
-        out.sureOff++;
-        if (hit) out.offHit.push(`#${id}: до линии ${f1(across)} px, вдоль ${f1(along)}`);
-      }
+      if (!best || value > best.value) best = { col, row, k: def.k, value, blind };
     }
-    out.hitsList.push(hits);
-    out.hitTotal += hits;
-    out.hitsMax = Math.max(out.hitsMax, hits);
+  }
+  return best;
+}
+
+/**
+ * Один удар очереди луча по плотной цепочке бактерий. Кокки (или другие бактерии из `wave`) идут медленно и плотно; башню ставят, когда на её луче
+ * уже не меньше needOn бактерий, пауза Шприца 60 с — очередь одна. Состояние ДО постановки и ПОСЛЕ очереди: у каждой бактерии, которая в обоих состояниях
+ * «точно на луче» (с запасом 4 px), HP упало ровно на beamPulses × perPulse; у каждой «точно вне луча» — не изменилось.
+ */
+async function beamBurst(context, baseUrl, p, { wave, mode, needOn, extraCfg = [], shotName = null }) {
+  const cfg = [...wave, 'waves.intervalStartSec:0.3', 'waves.intervalEndSec:0.3', 'waves.firstDelaySec:2', ...FIXED_NO_TOWERS, 'bacteria.baseSpeed:20', 'towers.syringe.cooldownMs:60000', `economy.startCoins:${TW.syringe.price}`, NO_LIFE_LOSS, ...extraCfg].join(',');
+  const game = await openGame(context, baseUrl, p, { speed: 2, cfg });
+  let spot;
+  if (mode === 'entrance') {
+    await panTo(game, 'right');
+    const e = entranceCell();
+    spot = { col: e.col, row: e.row, k: defaultAimAt(GEO.center(e.col, e.row).x, GEO.center(e.col, e.row).y).k };
+  } else {
+    for (let i = 0; i < 3; i++) await game.input.wheel(game.g(540, 360), 500);
+    await settle();
+    spot = beamSpot(await game.state(), mode);
+  }
+  const twPos = GEO.center(spot.col, spot.row);
+  await game.selectTower('syringe');
+  let pre = null;
+  const started = Date.now();
+  while (Date.now() - started < 150000) {
+    const st = await game.state();
+    if (st.state !== 'playing') break;
+    if (st.bacteria.filter((b) => onBeam(b, twPos, spot.k, 4)).length >= needOn) {
+      pre = st;
+      break;
+    }
+    await sleep(30);
+  }
+  if (!pre) {
+    await game.page.close();
+    return { spot, pre: null };
+  }
+  // тап без паузы после него: первый удар очереди приходится на ближайший кадр, и журнал должен успеть его увидеть
+  await game.input.tap(await game.cell(spot.col, spot.row));
+  const log = [pre];
+  const t1 = Date.now();
+  const post = await pollUntil(game, async (st) => {
+    log.push(st);
+    if (shotName && st.effects.beams === 1) {
+      await shot(game.page, shotName);
+      shotName = null;
+    }
+    return st.state !== 'playing' || (st.shots >= 1 && st.projectiles === 0) || Date.now() - t1 > 40000;
+  }, 60000, 15);
+  await game.page.close();
+  const placed = log.find((st) => st.towers.length > 0) ?? null;
+  return { spot, pre, post, log, placed, tw: placed?.towers[0] ?? null, twPos };
+}
+
+/**
+ * Разбор очереди луча: у бактерии «точно на луче» и до, и после очереди, HP упало ровно на perPulse × beamPulses; у «точно вне луча» — не упало.
+ * perPulse — сколько HP снимает один удар по такой бактерии (урон башни с учётом брони).
+ */
+function analyzeBeamBurst(pre, post, twPos, aim, perPulse, margin = 4) {
+  const out = { sureOn: 0, sureOff: 0, onWrong: [], offWrong: [], maxAlong: 0, onLosses: [] };
+  const postMap = byIdMap(post);
+  for (const b0 of pre.bacteria) {
+    const b1 = postMap.get(b0.id);
+    if (!b1) continue;
+    const loss = b0.hp - b1.hp;
+    if (onBeam(b0, twPos, aim, margin) && onBeam(b1, twPos, aim, margin)) {
+      out.sureOn++;
+      out.onLosses.push(loss);
+      out.maxAlong = Math.max(out.maxAlong, beamGeom(b1, twPos, aim).along);
+      if (Math.abs(loss - TW.syringe.beamPulses * perPulse) > 1e-6) out.onWrong.push(`#${b0.id}: −${f2(loss)} HP (ждали −${f2(TW.syringe.beamPulses * perPulse)})`);
+    } else if (offBeam(b0, twPos, aim, margin) && offBeam(b1, twPos, aim, margin)) {
+      out.sureOff++;
+      if (Math.abs(loss) > 1e-6) out.offWrong.push(`#${b0.id}: −${f2(loss)} HP вне луча`);
+    }
   }
   return out;
 }
 
-/**
- * «Только вперёд»: бактерии в радиусе делятся на «вперёд» (remaining больше, чем у башни) и «назад». Пока в радиусе есть только «назад» (с запасом на
- * шаг замеров), выстрелов быть не должно; пока есть «вперёд» — должны быть. Кулдаун маленький (300 мс), поэтому тишина дольше секунды — не отдых башни.
- */
-function analyzeSides(log, tw, slack) {
-  const out = { backOnlyTime: 0, backOnlyShots: 0, fwdTime: 0, fwdShots: 0, backOnlyPairs: 0, fwdPairs: 0 };
-  const fwdNear = (st) => st.bacteria.some((b) => b.hp > 0 && b.remaining > tw.remaining && inReach(tw, b, slack));
-  const fwdSure = (st) => st.bacteria.some((b) => b.hp > 0 && b.remaining > tw.remaining && inReach(tw, b, -slack));
-  const backSure = (st) => st.bacteria.some((b) => b.hp > 0 && b.remaining < tw.remaining && inReach(tw, b, -slack));
-  for (let i = 1; i < log.length; i++) {
-    const prev = log[i - 1];
-    const cur = log[i];
-    const dt = Math.min(0.5, cur.elapsed - prev.elapsed);
-    if (!fwdNear(prev) && !fwdNear(cur) && backSure(prev) && backSure(cur)) {
-      out.backOnlyPairs++;
-      out.backOnlyTime += dt;
-      out.backOnlyShots += cur.shots - prev.shots;
-    } else if (fwdSure(prev) && fwdSure(cur)) {
-      out.fwdPairs++;
-      out.fwdTime += dt;
-      out.fwdShots += cur.shots - prev.shots;
-    }
+/** Моменты ударов очереди: игровое время каждого прироста effects.beams по журналу. */
+function beamPulseTimes(log) {
+  const times = [];
+  for (let i = 1; i < log.length; i++) for (let k = log[i - 1].effects.beams; k < log[i].effects.beams; k++) times.push(log[i].elapsed);
+  return times;
+}
+
+/** Поворот Шприца тапами (компьютер и телефон): правая половина башни — на шаг по часовой, левая — против; тап по другой башне не поворачивает. */
+async function syringeRotate(browser, baseUrl, deviceKey) {
+  const device = VIEWPORTS[deviceKey];
+  const p = `[башни: Шприц, поворот, ${device.label}]`;
+  const context = await newDeviceContext(browser, device, 'ru');
+  const game = await openGame(context, baseUrl, p, { speed: 1, isTouch: device.hasTouch, cfg: `economy.startCoins:${TW.syringe.price + TW.pill.price},waves.firstDelaySec:600,${FIXED_NO_TOWERS.join(',')}` });
+  const [ca, cb] = [FREE.a, FREE.b];
+  let s = await game.placeTowersOf('syringe', [ca]);
+  const tw = s.towers[0];
+  const def = defaultAimAt(tw.x, tw.y);
+  const gotCoverage = beamCoverageAt(tw.x, tw.y, tw.aim, TW.syringe.beamHalfWidthPx + 22);
+  check(`${p} только что поставленный Шприц смотрит туда, где под лучом больше всего дорожки: направление ${tw.aim} (покрытие ${Math.round(gotCoverage)} px), лучшее ${def.k} (${Math.round(def.coverage)} px)`, tw.id === 'syringe' && gotCoverage >= 0.9 * def.coverage && def.coverage > 0, `aim ${tw.aim}`);
+  await game.placeTowersOf('pill', [cb]);
+  s = await game.state();
+  check(`${p} Шприц и Таблетка стоят, монет ${s.coins} (поворот и тапы по башням ничего не стоят)`, s.towers.length === 2 && s.coins === 0, `башен ${s.towers.length}, монет ${s.coins}`);
+  await game.selectTower('pill'); // снять выбор Таблетки (она осталась выбранной после постановки)
+  s = await game.state();
+  const a0 = s.towers[0].aim;
+  const right = [];
+  for (let i = 0; i < AIM_STEPS; i++) {
+    await tapTowerHalf(game, ca[0], ca[1], 1);
+    right.push((await game.state()).towers[0].aim);
+    if (i === 0) await shot(game.page, `towers-07-syringe-aim-${deviceKey}`);
   }
-  return out;
+  check(`${p} тап по ПРАВОЙ половине башни поворачивает луч на шаг (45°) по часовой стрелке: ${a0} → ${right.join(' → ')}; за ${AIM_STEPS} тапов — полный круг`, right.every((a, i) => a === (a0 + i + 1) % AIM_STEPS) && right[AIM_STEPS - 1] === a0, right.join(','));
+  const left = [];
+  for (let i = 0; i < AIM_STEPS; i++) {
+    await tapTowerHalf(game, ca[0], ca[1], -1);
+    left.push((await game.state()).towers[0].aim);
+  }
+  check(`${p} тап по ЛЕВОЙ половине поворачивает на шаг против часовой стрелки (через 0 по кругу): ${a0} → ${left.join(' → ')}`, left.every((a, i) => a === (((a0 - i - 1) % AIM_STEPS) + AIM_STEPS) % AIM_STEPS) && left[AIM_STEPS - 1] === a0, left.join(','));
+  // выбрана другая башня — тап по Шприцу всё равно поворачивает его и ничего не ставит
+  await game.selectTower('pill');
+  const before = await game.state();
+  await tapTowerHalf(game, ca[0], ca[1], 1);
+  s = await game.state();
+  check(`${p} при выбранной Таблетке тап по Шприцу поворачивает его (${before.towers[0].aim} → ${s.towers[0].aim}), башен по-прежнему 2, монет ${s.coins}, выбор «${s.selected}» остался`, s.towers[0].aim === (before.towers[0].aim + 1) % AIM_STEPS && s.towers.length === 2 && s.coins === 0 && s.selected === 'pill', `башен ${s.towers.length}, монет ${s.coins}, выбрано ${s.selected}`);
+  // тап по Таблетке: она не поворачивается, ничего не меняется
+  const aimsBefore = s.towers.map((t) => t.aim).join();
+  await tapTowerHalf(game, cb[0], cb[1], 1);
+  await tapTowerHalf(game, cb[0], cb[1], -1);
+  s = await game.state();
+  check(`${p} тап по правой и левой половине Таблетки её не поворачивает и ничего не ставит (направления ${aimsBefore} → ${s.towers.map((t) => t.aim).join()}, башен ${s.towers.length}, монет ${s.coins})`, s.towers.map((t) => t.aim).join() === aimsBefore && s.towers[1].aim === 0 && s.towers.length === 2 && s.coins === 0, `башен ${s.towers.length}`);
+  await context.close();
 }
 
 async function towersSyringe(browser, baseUrl) {
   const p = '[башни: Шприц]';
-  const dmg = TW.syringe.damage;
+  const { range, damage, beamPulses, beamGapMs, beamLengthPx } = TW.syringe;
+  const diag = Math.hypot(MAP.orgW + LEVEL.cols * MAP.tile, LEVEL.rows * MAP.tile);
+  check(`${p} у Шприца нет радиуса (range ${range}), луч длиннее диагонали карты (${beamLengthPx} > ${Math.round(diag)} px): он идёт до её края`, range === 0 && beamLengthPx > diag, `range ${range}, длина ${beamLengthPx}`);
+  await syringeRotate(browser, baseUrl, 'desktop');
+  await syringeRotate(browser, baseUrl, 'phone');
   const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
+  const coccusWave = ['waves.total:1', 'waves.list.0.coccus:40'];
+  const burstChecks = (q, r, perPulse, { needOn, needOff, far = false }) => {
+    if (!r.pre) {
+      check(`${q} на луче накопилось ≥ ${needOn} бактерий и башня поставлена (дождались за 150 с)`, false, 'не накопилось');
+      return;
+    }
+    const aim = r.tw?.aim ?? r.spot.k;
+    const a = analyzeBeamBurst(r.pre, r.post, r.twPos, aim, perPulse);
+    check(`${q} Шприц поставлен (клетка ${r.spot.col};${r.spot.row}, направление ${aim}) и бьёт одной очередью: выстрелов ${r.post.shots}, ударов луча ${r.post.effects.beams} (ждали ${beamPulses})`, r.placed !== null && r.placed.towers.length === 1 && r.post.shots === 1 && r.post.effects.beams === beamPulses, `выстрелов ${r.post.shots}, ударов ${r.post.effects.beams}`);
+    const times = beamPulseTimes(r.log);
+    const span = times.length ? times[times.length - 1] - times[0] : NaN;
+    const want = ((beamPulses - 1) * beamGapMs) / 1000;
+    check(`${q} удары очереди идут с паузой ${beamGapMs} мс: от первого до последнего ${f2(span)} с (ждали ${f2(want)} с, допуск −0,15…+0,25 на шаг замеров)`, times.length === beamPulses && span >= want - 0.15 && span <= want + 0.25, `моменты ударов: ${times.map(f2).join(', ')}`);
+    check(`${q} каждая бактерия «точно на луче» (до оси ≤ полуширина + 0,7 радиуса − 4 px, впереди башни) теряет ровно ${f2(beamPulses * perPulse)} HP за очередь (${beamPulses} × ${f2(perPulse)}): проверено ${a.sureOn}, ошибок ${a.onWrong.length}`, a.sureOn >= Math.max(2, needOn - 3) && a.onWrong.length === 0, a.onWrong.slice(0, 4).join('; ') || `проверено ${a.sureOn}`);
+    check(`${q} бактерии вне луча (позади башни или дальше от оси на 4 px) НЕ задеты: проверено ${a.sureOff}, задето лишних ${a.offWrong.length}`, a.sureOff >= needOff && a.offWrong.length === 0, a.offWrong.slice(0, 4).join('; ') || `проверено ${a.sureOff}`);
+    check(`${q} по каждой «точно на луче» бактерии урон одинаковый (по линии всех, не «первого»): потери ${[...new Set(a.onLosses.map(f2))].join(', ')}`, new Set(a.onLosses.map(f2)).size === 1);
+    if (far) check(`${q} луч достаёт далеко: самая дальняя задетая бактерия на ${Math.round(a.maxAlong)} px от башни (у Таблетки радиус ${TW.pill.range} px; ждали ≥ 600)`, a.maxAlong >= 600, `${Math.round(a.maxAlong)} px`);
+  };
 
-  // ---- A. у входа, медленные плотные кокки: игла бьёт насквозь, строго по линии
-  const cell = entranceCell();
-  const cfgA = [
-    'waves.total:1',
-    'waves.list.0.coccus:40',
-    'waves.intervalStartSec:0.3',
-    'waves.intervalEndSec:0.3',
-    'waves.firstDelaySec:4',
-    ...FIXED_NO_TOWERS,
-    'bacteria.baseSpeed:20',
-    'types.coccus.hp:99',
-    'towers.syringe.projectileSpeed:500',
-    `economy.startCoins:${TW.syringe.price}`,
-    NO_LIFE_LOSS,
-  ].join(',');
-  let game = await openGame(context, baseUrl, p, { speed: 2, cfg: cfgA });
-  await panTo(game, 'right');
-  const placed = await game.placeTowersOf('syringe', [[cell.col, cell.row]]);
-  const tw = { ...placed.towers[0], range: TW.syringe.range };
-  const log = [];
+  // ---- A. вдоль прямого входа, издалека (клетка, где луч, выбранный игрой, идёт вдоль входа): бьёт на 1000 px, радиус не нужен
+  const far = await beamBurst(context, baseUrl, `${p} вдоль входа`, { wave: coccusWave, mode: 'far', needOn: 8, extraCfg: ['types.coccus.hp:99'], shotName: 'towers-06-syringe-beam' });
+  burstChecks(`${p} вдоль входа`, far, damage, { needOn: 8, needOff: 8, far: true });
+  check(`${p} снимок удара луча Шприца сделан`, existsShot('towers-06-syringe-beam'));
+
+  // ---- B. по диагонали у входа (направление, выбранное игрой, не вдоль осей)
+  const diagRun = await beamBurst(context, baseUrl, `${p} у входа`, { wave: coccusWave, mode: 'entrance', needOn: 5, extraCfg: ['types.coccus.hp:99'] });
+  burstChecks(`${p} у входа`, diagRun, damage, { needOn: 5, needOff: 8 });
+
+  // ---- C. броня: бронированная (настоящая, броня из таблицы) теряет за удар max(урон × доля, урон − броня)
+  const armor = readConfigNumber('armored', 'armor');
+  const share = readConfigNumber('combat', 'armorMinShare');
+  const perPulse = Math.max(damage * share, damage - armor);
+  const arm = await beamBurst(context, baseUrl, `${p} броня`, { wave: wavesOnly({ armored: 12 }), mode: 'far', needOn: 3 });
+  burstChecks(`${p} броня`, arm, perPulse, { needOn: 3, needOff: 3 });
+  await context.close();
+  await syringeBlind(browser, baseUrl);
+}
+
+/** Шприц стреляет, только когда на линии кто-то есть: направленный «в пустоту», он молчит, пока мимо идут бактерии; повернули на дорожку — заработал. */
+async function syringeBlind(browser, baseUrl) {
+  const p = '[башни: Шприц, пустая линия]';
+  const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
+  const cfg = ['waves.total:1', 'waves.list.0.coccus:30', 'waves.intervalStartSec:1', 'waves.intervalEndSec:1', 'waves.firstDelaySec:6', ...FIXED_NO_TOWERS, 'types.coccus.hp:99', 'towers.syringe.cooldownMs:500', `economy.startCoins:${TW.syringe.price}`, NO_LIFE_LOSS].join(',');
+  const game = await openGame(context, baseUrl, p, { speed: 2, cfg });
+  for (let i = 0; i < 3; i++) await game.input.wheel(game.g(540, 360), 500);
+  await settle();
+  const spot = beamSpot(await game.state(), 'blind');
+  const twPos = GEO.center(spot.col, spot.row);
+  await game.placeTowersOf('syringe', [[spot.col, spot.row]]);
+  const blindK = spot.blind.map((k) => ({ k, ...aimTurn(spot.k, k) })).sort((a, b) => a.steps - b.steps)[0].k;
+  let s = await turnSyringeTo(game, spot.col, spot.row, blindK);
+  check(`${p} Шприц (клетка ${spot.col};${spot.row}) повёрнут тапами в направление ${blindK}, где луч не задевает ни одной дорожки (выбранное игрой было ${spot.k})`, s.towers[0].aim === blindK, `aim ${s.towers[0].aim}`);
+  // ждём, пока мимо пройдёт не меньше 4 бактерий через ту линию, куда луч смотрел бы по умолчанию
+  const wasOnDefault = new Set();
   const startedAt = Date.now();
-  await pollUntil(game, (st) => {
-    log.push(st);
-    return st.state !== 'playing' || (st.shots >= 8 && st.projectiles === 0) || Date.now() - startedAt > 100000;
-  }, 120000, 20);
-  await game.page.close();
-  const a = analyzeNeedles(log, tw, dmg, 14);
-  const last = log.at(-1);
-  check(`${p} Шприц поставлен у входа (клетка ${cell.col};${cell.row}) и стреляет: выстрелов ${last.shots}, разобрано игл ${a.analyzed} из ${a.shots}`, placed.towers.length === 1 && placed.towers[0].id === 'syringe' && last.shots >= 6 && a.analyzed >= 4, `выстрелов ${last.shots}, пропущено ${a.skipped}${a.reasons.length ? ` (${a.reasons.join('; ')})` : ''}`);
-  check(`${p} игла бьёт насквозь: один выстрел задевает несколько бактерий на линии (в самой удачной игле ${a.hitsMax}, ждали ≥ 2; по иглам: ${a.hitsList.join(', ')}); задето за партию ${a.hitTotal} при ${a.analyzed} выстрелах (больше, чем выстрелов)`, a.hitsMax >= 2 && a.hitTotal > a.analyzed, `макс. ${a.hitsMax}, сумма ${a.hitTotal}, выстрелов ${a.analyzed}`);
-  check(`${p} каждая бактерия «точно на линии» иглы (до линии ≤ радиус − 14 px, вдоль не дальше дальности ${TW.syringe.range} px + радиус) задета: проверено ${a.sureOn}, не задето ${a.onNotHit.length}`, a.sureOn >= 3 && a.onNotHit.length === 0, a.onNotHit.slice(0, 4).join('; '));
-  check(`${p} бактерии вне линии (дальше радиус + 14 px от неё или дальше конца иглы) НЕ задеты: проверено ${a.sureOff}, задето лишних ${a.offHit.length}`, a.sureOff >= 10 && a.offHit.length === 0, a.offHit.slice(0, 4).join('; '));
-  check(`${p} каждая задетая бактерия теряет ровно ${dmg} HP за иглу (отклонений ${a.wrongDamage})`, a.analyzed >= 4 && a.wrongDamage === 0);
-
-  // ---- B. у «ствола», редкие кокки, пауза 300 мс: только вперёд
-  const COOL = 300;
-  const cfgB = [
-    'waves.total:1',
-    'waves.list.0.coccus:6',
-    'waves.intervalStartSec:6',
-    'waves.intervalEndSec:6',
-    'waves.firstDelaySec:1',
-    ...FIXED_NO_TOWERS,
-    'types.coccus.hp:99',
-    `towers.syringe.cooldownMs:${COOL}`,
-    'towers.syringe.projectileSpeed:300',
-    `economy.startCoins:${TW.syringe.price}`,
-    NO_LIFE_LOSS,
-  ].join(',');
-  game = await openGame(context, baseUrl, p, { speed: 3, cfg: cfgB });
-  await panTo(game, 'left');
-  const near = nearTrunkCell();
-  const placedB = await game.placeTowersOf('syringe', [[near.col, near.row]]);
-  const twB = { ...placedB.towers[0], range: TW.syringe.range };
-  const logB = [];
-  let shotDone = false;
-  let polls = 0;
-  await pollUntil(game, async (st) => {
-    logB.push(st);
-    // Тишина «после прохода» зависит от случайного пути бактерии (на длинных корешках 1 и 3 «вперёд» ещё ≈150 px после развилки), поэтому
-    // играем, пока не наберётся достаточно и «только позади», и «есть впереди» (или не кончатся бактерии)
-    if (++polls % 8 === 0) {
-      const cov = analyzeSides(logB, twB, 40);
-      if (cov.backOnlyTime >= 2.5 && cov.fwdTime >= 3 && shotDone) return true;
-    }
-    if (!shotDone && st.projectiles >= 1 && st.bacteria.some((b) => b.hp > 0 && b.remaining > twB.remaining && inReach(twB, b, -60))) {
-      const inView = st.bacteria.filter((b) => {
-        const sx = st.viewW / 2 + (b.x - st.camera.cx) * st.camera.zoom;
-        const sy = st.height / 2 + (b.y - st.camera.cy) * st.camera.zoom;
-        return sx > 60 && sx < 1000 && sy > 60 && sy < 660;
-      });
-      if (inView.length >= 1) {
-        await shot(game.page, 'towers-07-syringe-needle');
-        shotDone = true;
-      }
-    }
-    return st.state === 'won' || st.state === 'lost';
-  }, 150000, 20);
-  await game.page.close();
-  const sides = analyzeSides(logB, twB, 40);
-  const lastB = logB.at(-1);
-  check(`${p} «Только вперёд»: пока в радиусе только бактерии, уже прошедшие башню (remaining меньше, чем у башни ${f1(twB.remaining)}), выстрелов нет: ${f2(sides.backOnlyTime)} с такой тишины (≥ 1,0 с, пауза Шприца ${COOL} мс), выстрелов за это время ${sides.backOnlyShots}`, sides.backOnlyTime >= 1.0 && sides.backOnlyShots === 0, `пар замеров ${sides.backOnlyPairs}, выстрелов ${sides.backOnlyShots}`);
-  const expectMin = Math.max(2, Math.floor(sides.fwdTime / 0.6) - 1);
-  check(`${p} пока в радиусе есть бактерия «впереди» (remaining больше), Шприц стреляет: за ${f2(sides.fwdTime)} с — ${sides.fwdShots} выстрелов (ждали ≥ ${expectMin}, пауза ${COOL} мс), всего за партию ${lastB.shots}`, sides.fwdTime >= 1.5 && sides.fwdShots >= expectMin, `пар замеров ${sides.fwdPairs}`);
-  check(`${p} снимок иглы Шприца в полёте сделан`, shotDone);
+  while (Date.now() - startedAt < 120000) {
+    s = await game.state();
+    for (const b of s.bacteria) if (onBeam(b, twPos, spot.k, 0)) wasOnDefault.add(b.id);
+    if (wasOnDefault.size >= 4 || s.state !== 'playing') break;
+    await sleep(30);
+  }
+  const shotsBlind = s.shots;
+  check(`${p} пока луч смотрит в пустоту, Шприц молчит: мимо прошло ${wasOnDefault.size} бактерий через линию его прежнего направления, выстрелов ${shotsBlind}, ударов луча ${s.effects.beams}`, wasOnDefault.size >= 4 && shotsBlind === 0 && s.effects.beams === 0, `выстрелов ${shotsBlind}`);
+  // поворачиваем обратно на дорожку — стреляет, когда бактерия на линии
+  s = await turnSyringeTo(game, spot.col, spot.row, spot.k);
+  const end = await pollUntil(game, (st) => st.shots >= 1 && st.projectiles === 0 || st.state !== 'playing', 120000, 25);
+  check(`${p} после поворота на дорожку (направление ${spot.k}) Шприц стреляет, как только на линии кто-то есть: выстрелов ${end.shots}, ударов луча ${end.effects.beams}`, end.shots >= 1 && end.effects.beams >= TW.syringe.beamPulses, `выстрелов ${end.shots}, ударов ${end.effects.beams}, состояние ${end.state}`);
   await context.close();
 }
 
@@ -3057,19 +3402,356 @@ async function towersMixed(browser, baseUrl) {
   check(`${p} четыре башни разных видов стоят рядом с дорожкой (${s.towers.map((t) => t.id).join(', ')}), монет 0`, s.towers.map((t) => t.id).join() === TOWER_IDS.join() && s.coins === 0, `монет ${s.coins}`);
   let shotDone = false;
   const end = await pollUntil(game, async (st) => {
-    if (!shotDone && st.effects.blasts >= 1 && st.slows >= 1 && st.bacteria.length >= 4 && st.projectiles >= 1) {
+    // снимок для владельца: бой в разгаре (несколько бактерий, снаряды в воздухе, уже было замедление или взрыв); условие без жёсткого совпадения всех эффектов в одном кадре
+    if (!shotDone && (st.effects.blasts >= 1 || st.slows >= 1) && st.bacteria.length >= 3 && st.projectiles >= 1) {
       await shot(game.page, 'towers-09-four-battle');
       shotDone = true;
     }
     return st.state === 'won' || st.state === 'lost';
   }, 150000, 25);
-  check(`${p} вместе работают все четыре: замедлений ${end.slows} (Сироп), взрывов ${end.effects.blasts} (Шипучка), убито ${end.kills} из ${end.spawned}, выстрелов ${end.shots}; убитые + дошедшие = вышедшие (${end.kills} + ${end.leaked} = ${end.spawned})`, end.state === 'won' && end.slows >= 1 && end.effects.blasts >= 1 && end.kills >= 6 && end.kills + end.leaked === end.spawned && end.spawned === 16, `состояние ${end.state}`);
+  check(`${p} вместе работают все четыре: замедлений ${end.slows} (Сироп), взрывов ${end.effects.blasts} (Шипучка), ударов луча ${end.effects.beams} (Шприц), убито ${end.kills} из ${end.spawned}, выстрелов ${end.shots}; убитые + дошедшие = вышедшие (${end.kills} + ${end.leaked} = ${end.spawned})`, end.state === 'won' && end.slows >= 1 && end.effects.blasts >= 1 && end.effects.beams >= 1 && end.kills >= 6 && end.kills + end.leaked === end.spawned && end.spawned === 16, `состояние ${end.state}`);
   check(`${p} монеты: ${BASE.reward} за каждого убитого (башни куплены на все монеты): монет ${end.coins} = ${BASE.reward} × ${end.kills}`, end.coins === BASE.reward * end.kills, `монет ${end.coins}`);
   check(`${p} снимок боя четырёх башен сделан`, shotDone);
   await context.close();
 }
 
-/** QA_TOWERS_ONLY=syrup,fizz — только эти части сценария (для проверки самих проверок: быстрее, чем весь сценарий). Части: texts, panel, prices, syrup, fizz, syringe, pill, mixed. */
+// ---------------------------------------------------------------- кнопки скорости и «Начать волну»
+
+/** Какие скорости игры переключает кнопка рядом с паузой (ui.speeds в config.ts). */
+const UI_SPEEDS = (() => {
+  const found = /speeds:\s*\[([^\]]*)\]/.exec(fs.readFileSync(path.join(ROOT, 'src', 'config.ts'), 'utf8'));
+  if (!found) throw new Error('В config.ts нет ui.speeds');
+  return found[1].split(',').map((x) => Number(x.trim())).filter((x) => Number.isFinite(x));
+})();
+
+async function towersControls(browser, baseUrl) {
+  const p = '[башни: кнопки скорости и «Начать волну»]';
+  const WAIT = 60;
+  const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
+  const game = await openGame(context, baseUrl, p, { speed: 1, cfg: `waves.firstDelaySec:${WAIT},${FIXED_NO_TOWERS.join(',')}` });
+  let s = await game.state();
+  check(`${p} в начале игра идёт на скорости ×${UI_SPEEDS[0]}; кнопка «Начать волну» видна и обещает ≈ ${WAIT} монет за пропуск ожидания (на кнопке +${s.ui.waveButton.bonus})`, s.speed === UI_SPEEDS[0] && s.ui.waveButton.visible && s.ui.waveButton.bonus >= WAIT - 4 && s.ui.waveButton.bonus <= WAIT, `скорость ${s.speed}, видна ${s.ui.waveButton.visible}, бонус ${s.ui.waveButton.bonus}`);
+  // кнопка скорости переключает по кругу ×1 → ×2 → ×3 → ×1; игровое время идёт во столько же раз быстрее
+  const rate = async () => {
+    const a = await game.state();
+    const t0 = Date.now();
+    await sleep(1500);
+    const b = await game.state();
+    return (b.elapsed - a.elapsed) / ((Date.now() - t0) / 1000);
+  };
+  const base = await rate();
+  const seen = [UI_SPEEDS[0]];
+  const rates = [base];
+  for (let i = 1; i <= UI_SPEEDS.length; i++) {
+    const b = s.ui.speedButton;
+    await game.input.tap(game.g(b.x, b.y));
+    await settle();
+    s = await game.state();
+    seen.push(s.speed);
+    if (i < UI_SPEEDS.length) rates.push(await rate());
+  }
+  check(`${p} кнопка скорости переключает по кругу: ${seen.map((x) => `×${x}`).join(' → ')} (ждали ${[...UI_SPEEDS, UI_SPEEDS[0]].map((x) => `×${x}`).join(' → ')})`, seen.join() === [...UI_SPEEDS, UI_SPEEDS[0]].join(), seen.join(','));
+  const ratios = rates.map((r, i) => r / (base * 1) / (UI_SPEEDS[i] / UI_SPEEDS[0]));
+  check(`${p} игровое время идёт быстрее во столько же раз: за секунду реального времени ${rates.map((r, i) => `×${UI_SPEEDS[i]}: ${f2(r)} с`).join(', ')} (отношение к ожидаемому ${ratios.map(f2).join(', ')}, допуск ±25 %)`, ratios.every((x) => x >= 0.75 && x <= 1.25), ratios.map(f2).join(', '));
+  // «Начать волну»: пропуск ожидания даёт монеты, волна начинается сразу, второй тап ничего не добавляет
+  s = await game.state();
+  const w = s.ui.waveButton;
+  const before = s.coins;
+  await game.input.tap(game.g(w.x, w.y));
+  await settle();
+  s = await game.state();
+  const gained = s.coins - before;
+  check(`${p} тап по «Начать волну» даёт монеты за пропущенные секунды (на кнопке было +${w.bonus}, получено +${gained}, допуск 12) и волна начинается сразу: волна ${s.wave}, кнопка спрятана (${!s.ui.waveButton.visible})`, gained <= w.bonus && gained >= w.bonus - 12 && s.wave === 1 && !s.ui.waveButton.visible, `получено ${gained}, волна ${s.wave}, кнопка видна ${s.ui.waveButton.visible}`);
+  const coins2 = s.coins;
+  await game.input.tap(game.g(w.x, w.y));
+  await settle();
+  s = await game.state();
+  check(`${p} повторный тап в том же месте (кнопки уже нет) монет не добавляет: ${coins2} → ${s.coins}`, s.coins === coins2);
+  await context.close();
+}
+
+// ---------------------------------------------------------------- новые бактерии
+
+/** Рой: первый выходит один (новый тип), остальные — плотной пачкой по одному входу; дробный урон жизням копится в lifePool. */
+async function typesSwarm(browser, baseUrl) {
+  const p = '[бактерии: рой]';
+  const gap = readConfigNumber('swarm', 'spawnGapSec');
+  const dmg = readConfigNumber('swarm', 'lifeDamage');
+  const N = 8;
+  const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
+  const game = await openGame(context, baseUrl, p, { speed: 3, cfg: `${wavesOnlyCfg({ swarm: N })},waves.firstDelaySec:1,${FIXED_BALANCE.join(',')}` });
+  const first = new Map();
+  const bad = [];
+  const end = await pollUntil(game, (s) => {
+    for (const b of s.bacteria) if (!first.has(b.id)) first.set(b.id, { e: s.elapsed, edge: b.edge, kind: b.kind });
+    const expectLives = CFG.lives - Math.floor(dmg * s.leaked + 1e-9);
+    const expectPool = dmg * s.leaked - Math.floor(dmg * s.leaked + 1e-9);
+    if (s.lives !== expectLives || Math.abs(s.lifePool - expectPool) > 1e-6) bad.push(`дошло ${s.leaked}: жизни ${s.lives} (ждали ${expectLives}), lifePool ${f2(s.lifePool)} (ждали ${f2(expectPool)})`);
+    return s.state === 'won' || s.state === 'lost';
+  }, 150000, 20);
+  const list = [...first.values()].sort((a, b) => a.e - b.e);
+  const rest = list.slice(1);
+  const span = rest.length ? rest[rest.length - 1].e - rest[0].e : NaN;
+  check(`${p} вышло ${N} роёв, все типа «swarm» (${list.length}); первый выходит один: следующий через ${f2(rest[0]?.e - list[0]?.e)} с (≥ 0,9, а не ${gap} с)`, list.length === N && list.every((x) => x.kind === 'swarm') && rest[0].e - list[0].e >= 0.9, `вышло ${list.length}`);
+  check(`${p} остальные ${N - 1} выходят пачкой с паузой ${gap} с по одному входу: все с ребра ${[...new Set(rest.map((x) => x.edge))].join(',')}, от первого до последнего ${f2(span)} с (≤ ${f2((N - 2) * gap + 0.7)})`, rest.length === N - 1 && new Set(rest.map((x) => x.edge)).size === 1 && span <= (N - 2) * gap + 0.7, `рёбра ${rest.map((x) => x.edge).join(',')}, ${f2(span)} с`);
+  check(`${p} дробный урон жизням копится: каждый рой отнимает ${dmg} жизни, целая жизнь списывается при накоплении 1 (во всех замерах жизни и lifePool сходятся; отклонений ${bad.length})`, bad.length === 0, bad.slice(0, 3).join('; '));
+  check(`${p} итог: дошло ${end.leaked} роёв по ${dmg} = ${f2(end.leaked * dmg)} жизни → жизни ${CFG.lives} → ${end.lives}, lifePool ${f2(end.lifePool)}, красных вспышек потери жизни ${end.effects.lifeLosses}; партия окончена победой`, end.state === 'won' && end.leaked === N && end.lives === CFG.lives - Math.floor(dmg * N) && Math.abs(end.lifePool) < 1e-6 && end.effects.lifeLosses === Math.floor(dmg * N), `состояние ${end.state}, дошло ${end.leaked}, жизни ${end.lives}, вспышек ${end.effects.lifeLosses}`);
+  await context.close();
+}
+
+/** Бегун: скорость кокка × speedFactor (в таблице), с тем же разбросом ±10 %. */
+async function typesRunner(browser, baseUrl) {
+  const p = '[бактерии: бегун]';
+  const factor = readConfigNumber('runner', 'speedFactor');
+  const lo = BASE.baseSpeed * factor * (1 - BASE.spread) - 1.5;
+  const hi = BASE.baseSpeed * factor * (1 + BASE.spread) + 1.5;
+  const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
+  const game = await openGame(context, baseUrl, p, { speed: 4, cfg: `${wavesOnlyCfg({ runner: 3 })},waves.firstDelaySec:1,waves.intervalStartSec:1.5,waves.intervalEndSec:1.5,${FIXED_BALANCE.join(',')},${NO_LIFE_LOSS}` });
+  const traces = new Map();
+  const end = await pollUntil(game, (s) => {
+    recordTraces(traces, s);
+    return s.state === 'won' || s.state === 'lost';
+  }, 150000, 20);
+  const a = analyzeTraces(traces, { speed: (kind, mode) => (kind === 'runner' && mode === 'normal' ? [lo, hi] : null), worldW: end.map.worldW });
+  check(`${p} бегун идёт в ${factor} раза быстрее базовой скорости (${BASE.baseSpeed} px/с): скорости бегунов ${f1(a.speedSeen[0])}…${f1(a.speedSeen[1])} px/с, допустимо ${f1(lo)}…${f1(hi)} (±10 % разброса); вне нормы ${a.badSpeed}`, a.bacteria === 3 && a.badSpeed === 0 && a.speedSeen[0] >= lo && a.speedSeen[1] <= hi && a.speedSeen[1] > 0 && a.backwards === 0 && a.badTransition === 0, `бактерий ${a.bacteria}, вне нормы ${a.badSpeed}`);
+  await context.close();
+}
+
+/** Пары замеров одной бактерии из журнала: { a, b, dt } для соседних замеров с dt ≥ 0,04 игровой секунды. */
+function* samplePairs(log) {
+  const traces = tracesOf(log);
+  for (const tr of traces.values()) {
+    for (let i = 1; i < tr.length; i++) {
+      const dt = tr[i].e - tr[i - 1].e;
+      if (dt >= 0.04) yield { a: tr[i - 1], b: tr[i], dt, log };
+    }
+  }
+}
+
+/**
+ * Лекарь: пока жив, лечит всех остальных в радиусе healRadius на healPerSec HP в секунду, себя не лечит. Таблетка ранит бактерий по очереди
+ * (первой в радиусе — ближайшую к организму). Лекарь у проверки медленный и очень прочный (подмена): он идёт позади кокков, не попадает под выстрелы и живёт всю
+ * партию, пока кокки ранены. «Дефицит» — HP ниже полного. Проверка по парам соседних замеров: у бактерии с дефицитом, пока лекарь жив и в радиусе,
+ * HP растёт ровно на healPerSec × dt (между ударами башни).
+ */
+async function typesHealer(browser, baseUrl) {
+  const p = '[бактерии: лекарь]';
+  const perSec = readConfigNumber('healer', 'healPerSec');
+  const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
+  const play = async (name, wave, extra, { place }) => {
+    const cfg = `${wave},waves.firstDelaySec:1,waves.intervalStartSec:1.2,waves.intervalEndSec:1.2,${FIXED_BALANCE.join(',')},${extra},towers.pill.damage:2,economy.startCoins:${BASE.price},${NO_LIFE_LOSS}`;
+    const game = await openGame(context, baseUrl, `${p} ${name}`, { speed: 4, cfg });
+    await place(game);
+    const log = [];
+    await pollUntil(game, (s) => {
+      log.push(s);
+      return s.state === 'won' || s.state === 'lost';
+    }, 250000, 20);
+    await game.page.close();
+    return log;
+  };
+  const atTrunk = async (game) => {
+    await panTo(game, 'left');
+    const near = nearTrunkCell();
+    await game.placeTowers([[near.col, near.row]]);
+  };
+  /** Пары раненых бактерий (не лекарей) при живом лекаре: прибавили HP, остались как были, потеряли (удар). */
+  const classify = (log) => {
+    const states = new Map(log.map((s) => [s.elapsed, s]));
+    const r = { deficit: 0, healed: [], stagnation: [], noHealerHealed: 0 };
+    for (const { a, b, dt } of samplePairs(log)) {
+      if (a.kind === 'healer' || a.hp >= a.maxHp - 1e-9) continue;
+      const alive = states.get(a.e).bacteria.some((x) => x.kind === 'healer') && states.get(b.e).bacteria.some((x) => x.kind === 'healer');
+      if (!alive) {
+        if (b.hp > a.hp + 1e-9) r.noHealerHealed++;
+        continue;
+      }
+      r.deficit++;
+      if (b.hp > a.hp + 1e-9) {
+        if (b.hp < b.maxHp - 1e-9) r.healed.push((b.hp - a.hp) / (dt * perSec));
+      } else if (b.hp === a.hp) r.stagnation.push(`#${a.id} на ${f2(b.e)} с`);
+    }
+    return r;
+  };
+  const wave = wavesOnlyCfg({ coccus: 6, healer: 1 });
+  const slowHealer = 'bacteria.baseSpeed:90,types.coccus.hp:12,types.healer.speedFactor:0.4,types.healer.hp:600,towers.pill.cooldownMs:2000,towers.pill.range:450';
+  // ---- A. радиус лечения огромный (подмена): лечится каждая раненая бактерия — темп точный
+  const A = classify(await play('радиус не ограничен', wave, `${slowHealer},types.healer.healRadius:3000`, { place: atTrunk }));
+  const mean = A.healed.length ? A.healed.reduce((x, y) => x + y, 0) / A.healed.length : NaN;
+  check(`${p} лекарь лечит со скоростью ${perSec} HP/с: ${A.healed.length} приростов у раненых бактерий, в среднем ${f2(mean)} от ожидаемого (ждали 0,85…1,15); замеров раненых при живом лекаре ${A.deficit}, из них без прироста и без удара ${A.stagnation.length}`, A.healed.length >= 6 && mean >= 0.85 && mean <= 1.15 && A.stagnation.length === 0, A.stagnation.slice(0, 3).join('; ') || `приростов ${A.healed.length}`);
+  // ---- B. радиус лечения 1 px (подмена): лекарь никого не достаёт — раненые не лечатся
+  const B = classify(await play('радиус 1 px', wave, `${slowHealer},types.healer.healRadius:1`, { place: atTrunk }));
+  check(`${p} радиус лечения учитывается: при радиусе 1 px раненые бактерии не лечатся (замеров раненых при живом лекаре ${B.deficit} ≥ 6, с приростом ${B.healed.length})`, B.deficit >= 6 && B.healed.length === 0, `раненых ${B.deficit}, приростов ${B.healed.length}`);
+  // ---- C. лекарь один и ранен: сам не лечится
+  const logC = await play('лекарь один', wavesOnlyCfg({ healer: 1 }), 'towers.pill.range:650,towers.pill.cooldownMs:60000,bacteria.baseSpeed:112', { place: async (g) => g.placeTowers([FREE.a]) });
+  let hit = false;
+  let afterHit = 0;
+  let up = 0;
+  for (const { a, b } of samplePairs(logC)) {
+    if (b.hp < a.hp - 1e-9) hit = true;
+    else if (hit) {
+      afterHit++;
+      if (b.hp > a.hp + 1e-9) up++;
+    }
+  }
+  check(`${p} лекарь себя не лечит: после удара по нему (−2 HP) его HP не растёт (замеров после удара ${afterHit} ≥ 20, с ростом ${up})`, hit && afterHit >= 20 && up === 0, hit ? `после удара ${afterHit}, рост ${up}` : 'удара по лекарю не было');
+  check(`${p} когда лекаря нет на карте, раненые не лечатся (приростов при отсутствии лекаря: ${A.noHealerHealed + B.noHealerHealed})`, A.noHealerHealed + B.noHealerHealed === 0);
+  await context.close();
+}
+
+/** Регенератор: сам лечится на regenPerSec HP/с (не выше полного HP), без лекаря. Одна Таблетка ранит его один раз. */
+async function typesRegen(browser, baseUrl) {
+  const p = '[бактерии: регенератор]';
+  const perSec = readConfigNumber('regen', 'regenPerSec');
+  const hp = readConfigNumber('regen', 'hp');
+  const hit = Math.min(4, hp - 1);
+  const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
+  const game = await openGame(context, baseUrl, p, { speed: 4, cfg: `${wavesOnlyCfg({ regen: 1 })},waves.firstDelaySec:1,${FIXED_BALANCE.join(',')},${NO_LIFE_LOSS},towers.pill.range:650,towers.pill.damage:${hit},towers.pill.cooldownMs:60000,economy.startCoins:${BASE.price}` });
+  await game.placeTowers([FREE.a]);
+  const log = [];
+  const end = await pollUntil(game, (s) => {
+    log.push(s);
+    return s.state === 'won' || s.state === 'lost';
+  }, 150000, 20);
+  const ratios = [];
+  const stuck = [];
+  let maxHp = 0;
+  let hitSeen = false;
+  for (const { a, b, dt } of samplePairs(log)) {
+    maxHp = Math.max(maxHp, b.hp);
+    if (b.hp < a.hp - 1e-9) hitSeen = true;
+    if (!hitSeen || a.hp >= a.maxHp - 1e-9 || b.hp < a.hp - 1e-9) continue;
+    if (b.hp > a.hp + 1e-9 && b.hp < b.maxHp - 1e-9) ratios.push((b.hp - a.hp) / (dt * perSec));
+    else if (b.hp === a.hp) stuck.push(f2(b.e));
+  }
+  const mean = ratios.length ? ratios.reduce((x, y) => x + y, 0) / ratios.length : NaN;
+  check(`${p} регенератор после удара (−${hit} из ${hp} HP) сам лечится на ${perSec} HP/с: ${ratios.length} приростов, в среднем ${f2(mean)} от ожидаемого (ждали 0,85…1,15), замеров без прироста у раненого ${stuck.length}`, hitSeen && ratios.length >= 5 && mean >= 0.85 && mean <= 1.15 && stuck.length === 0, hitSeen ? `приростов ${ratios.length}` : 'удара по регенератору не было');
+  check(`${p} лечение не поднимает HP выше полного: наибольшее HP ${f2(maxHp)} из ${hp}; партия окончена (${end.state})`, maxHp <= hp + 1e-9 && (end.state === 'won' || end.state === 'lost'), `HP ${f2(maxHp)}`);
+  await context.close();
+}
+
+/** Командир: бактерии в радиусе hasteRadius идут в hasteFactor раз быстрее (сам командир — нет). */
+async function typesCommander(browser, baseUrl) {
+  const p = '[бактерии: командир]';
+  const R = readConfigNumber('commander', 'hasteRadius');
+  const factor = readConfigNumber('commander', 'hasteFactor');
+  const base = BASE.baseSpeed * BASE.speedFactor; // скорость кокка
+  const norm = [base * (1 - BASE.spread) - 1.5, base * (1 + BASE.spread) + 1.5];
+  const fast = [norm[0] * factor - 1.5, norm[1] * factor + 1.5];
+  const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
+  const game = await openGame(context, baseUrl, p, { speed: 4, cfg: `${wavesOnlyCfg({ coccus: 12, commander: 1 })},waves.firstDelaySec:1,${FIXED_BALANCE.join(',')},${NO_LIFE_LOSS}` });
+  const log = [];
+  const end = await pollUntil(game, (s) => {
+    log.push(s);
+    return s.state === 'won' || s.state === 'lost';
+  }, 200000, 20);
+  const states = new Map(log.map((s) => [s.elapsed, s]));
+  let inside = 0;
+  let outside = 0;
+  const badIn = [];
+  const badOut = [];
+  for (const { a, b, dt } of samplePairs(log)) {
+    if (a.kind !== 'coccus') continue;
+    const prog = progressBetween(a, b);
+    if (prog === null) continue;
+    const v = prog / dt;
+    const ca = states.get(a.e).bacteria.find((x) => x.kind === 'commander');
+    const cb = states.get(b.e).bacteria.find((x) => x.kind === 'commander');
+    const da = ca ? Math.hypot(a.x - ca.x, a.y - ca.y) : Infinity;
+    const db = cb ? Math.hypot(b.x - cb.x, b.y - cb.y) : Infinity;
+    if (Math.max(da, db) <= R - 20) {
+      inside++;
+      if (v < fast[0] || v > fast[1]) badIn.push(`${f1(v)} px/с`);
+    } else if (Math.min(da, db) > R + 20) {
+      outside++;
+      if (v < norm[0] || v > norm[1]) badOut.push(`${f1(v)} px/с`);
+    }
+  }
+  check(`${p} рядом с командиром (ближе ${R} px) кокки идут в ${factor} раза быстрее: замеров внутри ${inside}, вне нормы ${badIn.length} (ждали ${f1(fast[0])}…${f1(fast[1])} px/с); вдали от него — обычная скорость: замеров ${outside}, вне нормы ${badOut.length} (ждали ${f1(norm[0])}…${f1(norm[1])})`, inside >= 6 && outside >= 20 && badIn.length === 0 && badOut.length === 0, [...badIn, ...badOut].slice(0, 4).join('; ') || `внутри ${inside}, снаружи ${outside}, состояние ${end.state}`);
+  await context.close();
+}
+
+/** Матка: раз в brewEverySec секунд рожает brewCount бактерий роя на своём месте; рождённые в «вышло за волну» не считаются. */
+async function typesBrood(browser, baseUrl) {
+  const p = '[бактерии: матка]';
+  const every = readConfigNumber('brood', 'brewEverySec');
+  const count = readConfigNumber('brood', 'brewCount');
+  const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
+  const game = await openGame(context, baseUrl, p, { speed: 4, cfg: `${wavesOnlyCfg({ brood: 1 })},waves.firstDelaySec:1,${FIXED_BALANCE.join(',')},${NO_LIFE_LOSS}` });
+  const born = [];
+  const known = new Set();
+  let motherFirst = null;
+  let maxSpawned = 0;
+  const end = await pollUntil(game, (s) => {
+    maxSpawned = Math.max(maxSpawned, s.spawned);
+    const mother = s.bacteria.find((b) => b.kind === 'brood');
+    if (mother && motherFirst === null) motherFirst = s.elapsed;
+    for (const b of s.bacteria) {
+      if (known.has(b.id)) continue;
+      known.add(b.id);
+      if (b.kind === 'swarm' && mother) born.push({ e: s.elapsed, id: b.id, dist: Math.hypot(b.x - mother.x, b.y - mother.y), edge: b.edge, motherEdge: mother.edge });
+    }
+    return s.state === 'won' || s.state === 'lost' || born.length >= 4 * count + 1;
+  }, 150000, 20);
+  born.sort((a, b) => a.e - b.e);
+  const groups = [];
+  for (const x of born) {
+    const g = groups[groups.length - 1];
+    if (g && x.e - g[g.length - 1].e <= 0.35) g.push(x);
+    else groups.push([x]);
+  }
+  const complete = groups.filter((g) => g.length === count);
+  const starts = groups.map((g) => g[0].e);
+  const gaps = starts.slice(1).map((e, i) => e - starts[i]);
+  check(`${p} матка рожает по ${count} роя разом: рождений ${groups.length} (по ${groups.map((g) => g.length).join(', ')}), первое через ${f2(starts[0] - motherFirst)} с после выхода (ждали ${every} ±0,5)`, groups.length >= 3 && groups.slice(0, 3).every((g) => g.length === count) && Math.abs(starts[0] - motherFirst - every) <= 0.5, `рождений ${groups.length}`);
+  check(`${p} рождения идут раз в ${every} с: промежутки ${gaps.map(f2).join(', ')} (допуск ±0,5)`, gaps.length >= 2 && gaps.every((g) => Math.abs(g - every) <= 0.5), gaps.map(f2).join(', '));
+  check(`${p} детёныши появляются на месте матки (расстояние до неё в момент рождения ${born.slice(0, 4).map((x) => Math.round(x.dist)).join(', ')} px ≤ 110) на её ребре`, born.length >= 4 && born.every((x) => x.dist <= 110), born.map((x) => Math.round(x.dist)).join(','));
+  check(`${p} рождённые в счёт «вышло за волну» не входят: вышло ${maxSpawned} (одна матка), а на карте побывало роёв ${born.length}`, maxSpawned === 1 && born.length >= 4, `spawned ${maxSpawned}, роёв ${born.length}, состояние ${end.state}`);
+  await context.close();
+}
+
+/** Гигант (босс): HP и броня из таблицы, Таблетка снимает минимум долю удара; дошёл — отнимает lifeDamage жизней (три — все). */
+async function typesGiant(browser, baseUrl) {
+  const p = '[бактерии: гигант]';
+  const hp = readConfigNumber('giant', 'hp');
+  const armor = readConfigNumber('giant', 'armor');
+  const dmg = readConfigNumber('giant', 'lifeDamage');
+  const share = readConfigNumber('combat', 'armorMinShare');
+  const want = Math.max(1 * share, 1 - armor);
+  const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
+  const game = await openGame(context, baseUrl, p, { speed: 6, cfg: `${wavesOnlyCfg({ giant: 1 })},waves.firstDelaySec:1,${FIXED_BALANCE.join(',')},towers.pill.range:650,economy.startCoins:${BASE.price}` });
+  await game.placeTowers([FREE.a]);
+  const steps = [];
+  let last = null;
+  let shotDone = false;
+  const end = await pollUntil(game, async (s) => {
+    const g = s.bacteria.find((b) => b.kind === 'giant');
+    if (g) {
+      if (last === null) last = g.hp;
+      if (g.hp !== last) {
+        steps.push(last - g.hp);
+        last = g.hp;
+      }
+      const sx = s.viewW / 2 + (g.x - s.camera.cx) * s.camera.zoom;
+      const sy = s.height / 2 + (g.y - s.camera.cy) * s.camera.zoom;
+      if (!shotDone && sx > 150 && sx < 950 && sy > 100 && sy < 620) {
+        await shot(game.page, 'towers-10-giant');
+        shotDone = true;
+      }
+    }
+    return s.state === 'won' || s.state === 'lost';
+  }, 200000, 20);
+  // между двумя замерами могли попасть два выстрела: шаг HP — целое число раз по want; одиночные шаги — ровно want
+  const bad = steps.filter((d) => Math.abs(d / want - Math.round(d / want)) > 1e-6 || d < want - 1e-6);
+  const singles = steps.filter((d) => Math.abs(d - want) < 1e-6).length;
+  check(`${p} гигант: ${hp} HP, броня ${armor}: Таблетка (урон 1) снимает ${f2(want)} HP за выстрел (замерено ${steps.length} изменений HP, одиночных выстрелов ${singles}, не кратных ${f2(want)}: ${bad.length})`, singles >= 5 && bad.length === 0, bad.slice(0, 3).map(f2).join(', ') || `одиночных ${singles}`);
+  check(`${p} гигант дошёл до организма: отнял ${dmg} жизни (жизни ${CFG.lives} → ${end.lives}), дошло ${end.leaked}, состояние «${end.state}»`, end.leaked === 1 && end.lives === Math.max(0, CFG.lives - dmg) && (dmg >= CFG.lives ? end.state === 'lost' : end.state === 'won'), `дошло ${end.leaked}, жизни ${end.lives}`);
+  check(`${p} снимок гиганта в кадре сделан`, shotDone);
+  await context.close();
+}
+
+/** QA_TOWERS_ONLY=syrup,fizz — только эти части сценария (для проверки самих проверок: быстрее, чем весь сценарий).
+ *  Части: texts, panel, controls, prices, syrup, fizz, syringe, pill, mixed, swarm, runner, healer, regen, commander, brood, giant. */
 const towersOnly = process.env.QA_TOWERS_ONLY ? process.env.QA_TOWERS_ONLY.split(',') : null;
 
 async function runTowers(browser, baseUrl) {
@@ -3080,12 +3762,20 @@ async function runTowers(browser, baseUrl) {
   await part('panel', '[башни: панель, компьютер, en]', () => towersPanel(browser, baseUrl, 'desktop', 'en'));
   await part('panel', '[башни: панель, телефон, ru]', () => towersPanel(browser, baseUrl, 'phone', 'ru'));
   await part('panel', '[башни: панель, телефон, en]', () => towersPanel(browser, baseUrl, 'phone', 'en'));
+  await part('controls', '[башни: кнопки скорости и «Начать волну»]', () => towersControls(browser, baseUrl));
   await part('prices', '[башни: цены]', () => towersPrices(browser, baseUrl));
   await part('syrup', '[башни: Сироп]', () => towersSyrup(browser, baseUrl));
   await part('fizz', '[башни: Шипучка]', () => towersFizz(browser, baseUrl));
   await part('syringe', '[башни: Шприц]', () => towersSyringe(browser, baseUrl));
   await part('pill', '[башни: Таблетка]', () => towersPill(browser, baseUrl));
   await part('mixed', '[башни: все четыре]', () => towersMixed(browser, baseUrl));
+  await part('swarm', '[бактерии: рой]', () => typesSwarm(browser, baseUrl));
+  await part('runner', '[бактерии: бегун]', () => typesRunner(browser, baseUrl));
+  await part('healer', '[бактерии: лекарь]', () => typesHealer(browser, baseUrl));
+  await part('regen', '[бактерии: регенератор]', () => typesRegen(browser, baseUrl));
+  await part('commander', '[бактерии: командир]', () => typesCommander(browser, baseUrl));
+  await part('brood', '[бактерии: матка]', () => typesBrood(browser, baseUrl));
+  await part('giant', '[бактерии: гигант]', () => typesGiant(browser, baseUrl));
 }
 
 async function safe(label, fn) {

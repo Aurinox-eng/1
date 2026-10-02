@@ -6,21 +6,25 @@
  *
  * Запуск (сначала `npm run build:qa`; если src новее dist-qa, скрипт остановится сам):
  *   node qa/bot.mjs [--profile=novice|average|strong|expert|all] [--runs=N] [--speed=2] [--exclude=syrup,fizz,syringe,pill]
- *                   [--cfg=путь:число,...] [--tag=имя] [--seed=N] [--max-game-sec=1200] [--verbose] [--shots] [--help]
+ *                   [--cfg=путь:число,...] [--tag=имя] [--seed=N] [--max-game-sec=2400] [--verbose] [--shots] [--help]
  *
  * Профили («игроки»; порядок покупок и выбор клеток — в makePlayer ниже):
  *   novice  («новичок»)  только Таблетки, клетки наугад (где хоть что-то видно с дорожки), не больше 6 башен, покупает, как только хватает.
  *   average («средний»)  по кругу [Таблетка, Таблетка, Сироп, Таблетка, Шипучка, Шприц], ждёт монет на очередную; клетка — наугад
  *                        из лучших 15 % по охвату дорожки (длина дорожки в радиусе башни).
+ *   (начало партии у expert и strong: пока башен с уроном меньше двух — только самая дешёвая башня с уроном (Таблетка); дальше по кругу, Шипучка первая; копят монеты на дорогую башню,
+ *    только если жизни целы и на карте ≤ 8 бактерий — иначе берут первую доступную. Раньше они вторым покупали Сироп и 30 с копили на Шипучку — и проигрывали на 4–5-й волне.)
  *   expert  («особо сильный»)  по кругу [Таблетка, Сироп, Шипучка, Шприц, Таблетка, Шипучка, Сироп, Шприц]; клетка — лучшая именно для
- *                        этой башни (охват с учётом того, сколько бактерий там проходит; Шипучка — где сходятся ветки; Шприц — длинные
- *                        прямые участки «впереди»), башни расставляет по всей сети, а не кучкой, копит на дорогую башню до 30 игровых секунд,
+ *                        этой башни (охват с учётом того, сколько бактерий там проходит; Шипучка — где сходятся ветки; Шприц — клетка и
+ *                        направление луча, под которым лежит больше всего дорожки с бактериями; после постановки бот поворачивает башню тапами
+ *                        на лучшее направление), башни расставляет по всей сети, а не кучкой, копит на дорогую башню до 30 игровых секунд,
  *                        решает каждые 2 с. ЭТО БЫВШИЙ «сильный» из кругов замеров 1–2 (до коммита с профилем expert): те же числа и поведение.
  *   strong  («сильный»)  тот же порядок и та же оценка клеток, но с человеческими несовершенствами: решает реже (раз в 3 с), копит на
  *                        дорогую башню только 8 с (потом берёт то, что по карману — больше дешёвых Таблеток), клетку берёт не самую лучшую,
  *                        а наугад из лучших 15 % клеток (≈ 19 из 123), оценка клеток «шумнее» (12 % вместо 3 %) и главное —
- *                        НЕ ЗНАЕТ приёмов: ставит Шипучку без упора на узлы слияния и Шприц без выбора лучшей прямой линии (оценивает их
- *                        обычным охватом, как любую башню). Это тот навык, что отличает «особо сильного».
+ *                        НЕ ЗНАЕТ приёмов: ставит Шипучку без упора на узлы слияния, а Шприц — без учёта, сколько бактерий идёт по каждой ветке,
+ *                        и не поворачивает его (остаётся направление, которое игра выбирает при постановке сама). Это тот навык, что отличает
+ *                        «особо сильного».
  *
  * Все решения принимаются не чаще, чем раз в 2 секунды ИГРОВОГО времени (как человек). Состояние опрашивается каждые ~120 мс реального времени.
  * Генератор случайных чисел бота — с --seed (игра сама случайна: путь на развилках выбирается наугад, поэтому нужно ≥ 10 партий на профиль).
@@ -59,11 +63,20 @@ const DECIDE_EVERY = { novice: 2, average: 2, strong: 3, expert: 2 }; // как 
 const OVERLAP_DISCOUNT = 0.5; // «сильный»: охват, уже накрытый другой башней, ценится в столько раз (расставляет по сети, а не кучкой)
 const SYRUP_OVERLAP = 0.8; // …но замедляющей башне выгодно стоять там, где уже стреляют: скидка мягче
 const ADJACENT_FACTOR = 0.3; // «сильный»: клетка рядом (в том числе по диагонали) с уже стоящей башней ценится в столько раз
+const FIZZ_BY_WAVE = 4; // «особо сильный» копит на первую Шипучку, пока идёт не позже этой волны (рой — с 4-й)
+const EXPERT_OVERLAP = 0.9; // «особо сильный» знает, что все дорожки сходятся у «ствола» у организма: охват, уже накрытый другой башней, почти не обесценивается (башни кучкой у ствола бьют ВСЕХ бактерий)
+const EXPERT_ADJACENT_FACTOR = 1; // … и соседство с другой башней ему не мешает
 const NOVICE_MAX_TOWERS = 6;
+const OPENING_DAMAGE_TOWERS = 2; // «сильный» и «особо сильный»: пока башен с уроном меньше стольких, покупают самую дешёвую башню с уроном (Таблетку), а не Сироп/дорогую по списку
+const CALM_MAX_BACTERIA = 8; // они копят монеты на дорогую башню только в спокойной обстановке: жизни целы и на карте не больше стольких бактерий; иначе берут первую доступную
 const AVERAGE_TOP_SHARE = 0.15; // «средний» выбирает наугад из лучших 15 % клеток по охвату
-const RAY_WIDTH_PX = 45; // «Шприц»: насколько близко к линии выстрела должна лежать дорожка, чтобы игла её задела
+const AIM_STEPS = 8; // «Шприц»: сколько направлений луча (тап по башне — шаг 45°; как AIM_STEPS в src/level.ts; 0 — вправо, дальше по часовой стрелке)
+const BEAM_MARGIN_PX = 22; // «Шприц»: насколько дальше полуширины луча от линии выстрела может лежать середина дорожки, чтобы луч её задел (как в игре)
 const MERGE_ZONE_PX = 170; // «Шипучка»: участки дорожки ближе этого к узлу слияния считаются «кучей»
 const MERGE_FACTOR = 2; // … и ценятся вдвое
+const MERGE_UP_TO = { novice: -1, average: -1, strong: 1, expert: 99 }; // башни какого уровня и ниже профиль сливает (−1 — не сливает совсем): «сильный» — только пары первого уровня, «особо сильный» — всё
+// Какую мутацию выбирает профиль (номер варианта 0/1 по порогам): «сильный» всегда первую; «особо сильный» — по таблице (Сироп — «Едкая» в конце, чтобы лужа ещё и убивала; Шприц — «Бронебойный», затем «Второй луч»)
+const MUTATION_PICKS = { strong: { default: [0, 0] }, expert: { pill: [0, 0], syrup: [0, 0], fizz: [0, 0], syringe: [1, 0] } };
 const STALL_SEC = 30; // игровое время не идёт столько реальных секунд подряд — партия зависла
 
 const NAMES = { pill: 'Таблетка', syrup: 'Сироп', fizz: 'Шипучка', syringe: 'Шприц' };
@@ -71,7 +84,7 @@ const SHORT = { pill: 'Таб', syrup: 'Сир', fizz: 'Шип', syringe: 'Шп�
 const PROFILE_TITLES = { novice: 'новичок', average: 'средний', strong: 'сильный', expert: 'особо сильный' };
 const PROFILE_IDS = Object.keys(PROFILE_TITLES);
 const AVERAGE_CYCLE = ['pill', 'pill', 'syrup', 'pill', 'fizz', 'syringe'];
-const STRONG_CYCLE = ['pill', 'syrup', 'fizz', 'syringe', 'pill', 'fizz', 'syrup', 'syringe'];
+const STRONG_CYCLE = ['fizz', 'pill', 'syrup', 'syringe', 'pill', 'fizz', 'syringe', 'syrup', 'pill']; // после «начала партии» (две Таблетки); рой с 4-й волны требует Шипучку — она первая
 
 // шум видеодрайвера контейнера (как в smoke.mjs): к игре не относится
 const ENV_NOISE = /GL Driver Message|GPU stall|swiftshader|SwiftShader|Automatic fallback to software WebGL/i;
@@ -90,7 +103,7 @@ const HELP = `Бот-замерщик баланса: играет целые п
                                         (бот сам учтёт подмену цен и радиусов; непонятная запись останавливает замер)
   --tag=имя                             имя файла результата qa/bot-results/<имя>.json (по умолчанию latest)
   --seed=N                              зерно генератора случайных чисел бота (по умолчанию случайное; печатается в начале)
-  --max-game-sec=1200                   потолок игрового времени одной партии; дольше — результат «timeout»
+  --max-game-sec=2400                   потолок игрового времени одной партии (30 волн ≈ 1400 с); дольше — результат «timeout»
   --max-real-sec=3600                   потолок реального времени одной партии (страховка); дольше — «timeout»
   --verbose                             печатать каждую покупку и раз в 30 с — где идёт партия
   --shots                               снимок экрана в конце партии: qa/bot-results/<tag>-shots/
@@ -98,7 +111,7 @@ const HELP = `Бот-замерщик баланса: играет целые п
                                         Логика игры та же; для замеров баланса годится (картинка не важна)
   --help                                эта справка
 
-Сначала соберите тестовую игру: npm run build:qa. Партии идут по одной подряд. Одна партия на 12 волн при speed 2 — около 5 минут реального времени в облачном контейнере (при speed 4 — 2,5–4 минуты).`;
+Сначала соберите тестовую игру: npm run build:qa. Партии идут по одной подряд. Одна партия на 30 волн (≈ 1400 игровых секунд) при speed 2 — около 12 минут реального времени в облачном контейнере (с --canvas быстрее), при speed 4 — вдвое меньше.`;
 
 const args = parseArgs(process.argv.slice(2));
 const die = (message, code = 2) => {
@@ -127,7 +140,7 @@ const PROFILES = profileArg === 'all' ? PROFILE_IDS : [profileArg];
 const RUNS = numArg('runs', 10, { min: 1, max: 1000, int: true });
 const SPEED = numArg('speed', 2, { min: 0.1, max: 4 });
 if (args.speed !== undefined && SPEED > 4) die('--speed не выше 4.');
-const MAX_GAME_SEC = numArg('max-game-sec', 1200, { min: 30, max: 100000 });
+const MAX_GAME_SEC = numArg('max-game-sec', 2400, { min: 30, max: 100000 });
 const MAX_REAL_SEC = numArg('max-real-sec', 3600, { min: 30, max: 100000 });
 const SEED = args.seed === undefined ? Math.floor(Math.random() * 1e9) : numArg('seed', 0, { min: 0, max: 4294967295, int: true });
 const TAG = args.tag === undefined ? 'latest' : String(args.tag);
@@ -279,7 +292,39 @@ function buildWorld(graph, map, cols, rows) {
     return rangeCache.get(range);
   };
   const byKey = new Map(cells.map((c) => [c.key, c]));
-  const dirs = Array.from({ length: 24 }, (_, i) => [Math.cos((i * Math.PI) / 12), Math.sin((i * Math.PI) / 12)]);
+  const dirs = Array.from({ length: AIM_STEPS }, (_, i) => [Math.cos((i * 2 * Math.PI) / AIM_STEPS), Math.sin((i * 2 * Math.PI) / AIM_STEPS)]);
+  /** Отрезки дорожки под лучом «Шприца» из клетки в направлении dir (номер 0…7): середина отрезка в полосе длины beamLengthPx (кэш). */
+  const rayCache = new Map();
+  const rayOf = (type, cell, dir) => {
+    const key = `${type}|${cell.idx}|${dir}`;
+    if (!rayCache.has(key)) {
+      const T = TABLE[type];
+      const [dx, dy] = dirs[dir];
+      const half = T.beamHalfWidthPx + BEAM_MARGIN_PX;
+      const list = [];
+      for (let i = 0; i < segs.length; i++) {
+        const px = segs[i].x - cell.x;
+        const py = segs[i].y - cell.y;
+        const along = px * dx + py * dy;
+        if (along >= 0 && along <= T.beamLengthPx && Math.abs(-px * dy + py * dx) <= half) list.push(i);
+      }
+      rayCache.set(key, list);
+    }
+    return rayCache.get(key);
+  };
+  /** Лучшее направление луча из клетки: weighted — с весом «сколько бактерий идёт по ветке» и скидкой за уже накрытое (covCount). Возвращает { dir, value }. */
+  const bestAim = (type, cell, weighted, covCount) => {
+    let best = { dir: 0, value: -1 };
+    for (let dir = 0; dir < AIM_STEPS; dir++) {
+      let value = 0;
+      for (const si of rayOf(type, cell, dir)) {
+        const sg = segs[si];
+        value += weighted ? sg.len * sg.w * Math.pow(OVERLAP_DISCOUNT, covCount ? covCount[si] : 0) : sg.len;
+      }
+      if (value > best.value) best = { dir, value };
+    }
+    return best;
+  };
 
   /** Подходит ли отрезок башне по стороне («вперёд» — бактериям до организма дальше, чем башне; «назад» — ближе). */
   const sideOk = (T, cell, sg) => (T.side === 'forward' ? sg.rem > cell.rem : T.side === 'back' ? sg.rem < cell.rem : true);
@@ -288,21 +333,25 @@ function buildWorld(graph, map, cols, rows) {
     cells,
     segs,
     byKey,
+    bestAim,
     freeCount: cells.filter((c) => !c.path).length,
     /** «Охват» клетки для башни type: сколько длины дорожки (px) попадает в радиус (для «вперёд/назад» — только нужная сторона). */
     cover(type, cell) {
       const T = TABLE[type];
+      if (T.targeting === 'beam') return bestAim(type, cell, false).value;
       let sum = 0;
       for (const si of inRange(T.range)[cell.idx]) if (sideOk(T, cell, segs[si])) sum += segs[si].len;
       return sum;
     },
     /**
      * Оценка клетки для «сильного»: охват с весом «сколько бактерий здесь ходит» и скидкой за уже накрытое другими башнями (covCount);
-     * Шипучка — вдвое ценнее участки у узлов слияния; Шприц — плюс двойная длина лучшей прямой (игла бьёт по линии, до radius).
+     * Шипучка — вдвое ценнее участки у узлов слияния; Шприц — ценность лучшего направления луча (длина дорожки под лучом: у «умного» с весом
+     * веток и скидкой за уже накрытое, у остальных — просто длина).
      */
     strongScore(type, cell, covCount, smart = true) {
       const T = TABLE[type];
-      const discount = type === 'syrup' ? SYRUP_OVERLAP : OVERLAP_DISCOUNT;
+      if (T.targeting === 'beam') return bestAim(type, cell, smart, covCount).value;
+      const discount = type === 'syrup' ? SYRUP_OVERLAP : smart ? EXPERT_OVERLAP : OVERLAP_DISCOUNT;
       const list = inRange(T.range)[cell.idx];
       let sum = 0;
       const values = [];
@@ -314,20 +363,6 @@ function buildWorld(graph, map, cols, rows) {
         sum += v;
         values.push([sg, v]);
       }
-      if (smart && T.targeting === 'line') {
-        let bestRay = 0;
-        for (const [dx, dy] of dirs) {
-          let ray = 0;
-          for (const [sg, v] of values) {
-            const px = sg.x - cell.x;
-            const py = sg.y - cell.y;
-            const t = px * dx + py * dy;
-            if (t >= 0 && t <= T.range && Math.abs(-px * dy + py * dx) <= RAY_WIDTH_PX) ray += v;
-          }
-          bestRay = Math.max(bestRay, ray);
-        }
-        sum += 2 * bestRay;
-      }
       return sum;
     },
     /** Сколько башен уже накрывает каждый отрезок дорожки (по радиусам стоящих башен). */
@@ -337,7 +372,8 @@ function buildWorld(graph, map, cols, rows) {
         const cell = byKey.get(`${tw.col},${tw.row}`);
         const T = TABLE[tw.id];
         if (!cell || !T) continue;
-        for (const si of inRange(T.range)[cell.idx]) counts[si]++;
+        const list = T.targeting === 'beam' ? rayOf(tw.id, cell, tw.aim ?? 0) : inRange(T.range)[cell.idx];
+        for (const si of list) counts[si]++;
       }
       return counts;
     },
@@ -406,20 +442,31 @@ function makePlayer(profile, { world, rng, buttons }) {
         lastPtr = ptr;
         headSince = now;
       }
-      const order = [];
+      let order = [];
       for (let k = 0; k < STRONG_CYCLE.length; k++) {
         const idx = (ptr + k) % STRONG_CYCLE.length;
         if (available(STRONG_CYCLE[idx])) order.push({ idx, type: STRONG_CYCLE[idx] });
       }
+      // Начало партии: пока башен с уроном мало, главное — урон: берётся самая дешёвая башня с уроном (вне списка по кругу; Сироп без урона ничего не убьёт)
+      const damageCount = view.towers.filter((tw) => TABLE[tw.id]?.damage > 0).length;
+      const opening = damageCount < OPENING_DAMAGE_TOWERS;
+      if (opening) {
+        const cheapest = KNOWN_TOWERS.filter((id) => available(id) && TABLE[id].damage > 0).sort((a, b) => TABLE[a].price - TABLE[b].price)[0];
+        order = cheapest ? [{ idx: -1, type: cheapest }] : order.filter((o) => TABLE[o.type].damage > 0);
+      }
+      // «Особо сильный» знает, что с 4-й волны идёт рой, а одними Таблетками он не остановим: до 5-й волны копит монеты на первую Шипучку и ничего другого не покупает (пока целы хотя бы две жизни)
+      const needFizz = !imperfect && !opening && available('fizz') && !view.towers.some((tw) => tw.id === 'fizz') && view.s.wave <= FIZZ_BY_WAVE && view.s.lives >= 2;
+      if (needFizz) order = [{ idx: STRONG_CYCLE.indexOf('fizz'), type: 'fizz' }];
       if (!order.length) return null;
+      const calm = view.s.lives >= view.s.maxLives && view.s.bacteria.length <= CALM_MAX_BACTERIA;
       let chosen = null;
       if (view.coins >= TABLE[order[0].type].price) chosen = order[0];
-      else if (now - headSince >= patience) chosen = order.find((o) => view.coins >= TABLE[o.type].price) ?? null;
+      else if (!opening && !needFizz && now - headSince >= (calm ? patience : 0)) chosen = order.find((o) => view.coins >= TABLE[o.type].price) ?? null;
       if (!chosen) return null;
       const candidates = [];
       for (const c of view.free) {
         let v = world.strongScore(chosen.type, c, view.covCount, !imperfect);
-        if (view.towers.some((tw) => Math.abs(tw.col - c.col) <= 1 && Math.abs(tw.row - c.row) <= 1)) v *= ADJACENT_FACTOR;
+        if (view.towers.some((tw) => Math.abs(tw.col - c.col) <= 1 && Math.abs(tw.row - c.row) <= 1)) v *= imperfect ? ADJACENT_FACTOR : EXPERT_ADJACENT_FACTOR;
         v *= 1 + noise * rng(); // небольшой шум: идеально одинаковых партий не бывает
         if (v > 0) candidates.push({ c, v });
       }
@@ -430,13 +477,13 @@ function makePlayer(profile, { world, rng, buttons }) {
         best = pool[Math.floor(rng() * pool.length)];
       }
       if (!best) {
-        ptr = chosen.idx + 1; // клеток для этой башни нет — переходит к следующей в списке
+        if (chosen.idx >= 0) ptr = chosen.idx + 1; // клеток для этой башни нет — переходит к следующей в списке
         return null;
       }
       return { type: chosen.type, cell: best.c, cycleIdx: chosen.idx };
     },
     bought(choice) {
-      ptr = (choice.cycleIdx + 1) % STRONG_CYCLE.length;
+      if (choice.cycleIdx >= 0) ptr = (choice.cycleIdx + 1) % STRONG_CYCLE.length; // покупка «начала партии» (cycleIdx -1) место в списке не двигает
     },
   };
 }
@@ -525,7 +572,7 @@ async function playGame(browser, baseUrl, profile, run) {
     }
 
     // 2) поставить башню: кнопка на панели (если не выбрана), при необходимости сдвинуть карту, тап по клетке; проверка по состоянию
-    const record = { builds: [], failures: [], anomalies: [], spent: 0 };
+    const record = { builds: [], failures: [], anomalies: [], spent: 0, merges: 0, picks: 0 };
     const ensureVisible = async (col, row) => {
       for (let k = 0; k < 3; k++) {
         const g = c2g(await cellPos(col, row));
@@ -534,6 +581,97 @@ async function playGame(browser, baseUrl, profile, run) {
         const dy = Math.max(-300, Math.min(300, H / 2 - g.y));
         await input.drag(g2c(VIEW_W / 2 - dx / 2, H / 2 - dy / 2), g2c(VIEW_W / 2 + dx / 2, H / 2 + dy / 2), { steps: 6, stepMs: 12 });
         await sleep(120);
+      }
+      return false;
+    };
+    const clickCard = async (rect) => {
+      await input.tap(g2c(rect.x, rect.y));
+      await sleep(120);
+    };
+    /** Выбирает поставленную башню тапом по клетке (если она уже выбрана — ничего не делает: повторный тап по Шприцу повернул бы его). Возвращает состояние или null. */
+    const selectTower = async (tw) => {
+      const st = await getState(page);
+      if (st.selectedTower && st.selectedTower.col === tw.col && st.selectedTower.row === tw.row) return st;
+      if (!(await ensureVisible(tw.col, tw.row))) return null;
+      await input.tap(await cellPos(tw.col, tw.row));
+      const after = await pollUntil(page, (x) => (x.selectedTower?.col === tw.col && x.selectedTower?.row === tw.row) || x.state !== 'playing', 1000);
+      return after.selectedTower ? after : null;
+    };
+    /** «Особо сильный» после постановки Шприца выбирает его и поворачивает кнопками-стрелками карточки (на 45° влево/вправо) на лучшее направление луча. */
+    const aimTower = async (st, tower, cell) => {
+      const others = st.towers.filter((tw) => !(tw.col === cell.col && tw.row === cell.row));
+      const best = WORLD.bestAim(tower.id, cell, true, WORLD.coverCounts(others));
+      const cw = (best.dir - tower.aim + AIM_STEPS) % AIM_STEPS;
+      const steps = Math.min(cw, AIM_STEPS - cw);
+      if (steps === 0) return;
+      const sel = await selectTower(tower);
+      const card = sel?.ui.card;
+      const button = cw <= AIM_STEPS - cw ? card?.rotateRight : card?.rotateLeft;
+      if (!button?.visible) {
+        record.anomalies.push(`Шприц в ${cell.key}: кнопок поворота в карточке нет`);
+        return;
+      }
+      for (let k = 0; k < steps; k++) await clickCard(button);
+      const after = await pollUntil(page, (x) => x.towers.find((tw) => tw.col === cell.col && tw.row === cell.row)?.aim === best.dir || x.state !== 'playing', 1500);
+      const now = after.towers.find((tw) => tw.col === cell.col && tw.row === cell.row);
+      if (after.state === 'playing' && now?.aim !== best.dir) record.anomalies.push(`Шприц в ${cell.key}: ждали направление ${best.dir}, в игре ${now?.aim}`);
+    };
+    /** Выбирает мутацию для башни, которая её ждёт (tw.pending — номер порога): выбирает башню, жмёт кнопку варианта в карточке. */
+    const pickMutation = async (tw) => {
+      const table = MUTATION_PICKS[profile];
+      const index = table ? (table[tw.id] ?? table.default)?.[tw.pending] : undefined;
+      if (index === undefined) return false;
+      const sel = await selectTower(tw);
+      const rect = sel?.ui.card.visible ? sel.ui.card.picks[index] : null;
+      if (!rect?.visible) return false;
+      const before = sel.mutationsPicked;
+      await clickCard(rect);
+      const after = await pollUntil(page, (x) => x.mutationsPicked > before || x.state !== 'playing', 1000);
+      if (after.mutationsPicked > before) {
+        record.picks++;
+        return true;
+      }
+      record.anomalies.push(`мутация в ${tw.col},${tw.row}: кнопка варианта ${index} не сработала`);
+      return false;
+    };
+    /** Одно слияние: берёт пару одинаковых башен (вид и уровень не выше предела профиля), выбирает первую («Слить»), тапает по второй (у неё остаются мутации). Возвращает true, если слилось. */
+    const mergeOnce = async (s0) => {
+      const limit = MERGE_UP_TO[profile];
+      if (limit < 1) return false;
+      const groups = new Map();
+      for (const tw of s0.towers) {
+        if (tw.level > limit || tw.level >= s0.maxTowerLevel) continue;
+        const key = `${tw.id}|${tw.level}`;
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(tw);
+      }
+      for (const list of groups.values()) {
+        if (list.length < 2) continue;
+        list.sort((a, b) => b.picks.length - a.picks.length);
+        const [target, source] = [list[0], list[1]];
+        let st = await selectTower(source);
+        if (!st || !st.ui.card.merge.enabled) return false;
+        await clickCard(st.ui.card.merge);
+        st = await pollUntil(page, (x) => x.mergeMode || x.state !== 'playing', 800);
+        if (!st.mergeMode) {
+          record.anomalies.push(`слияние не включилось (${source.id} ${source.col},${source.row})`);
+          return false;
+        }
+        const before = st.merges;
+        if (!(await ensureVisible(target.col, target.row))) {
+          await clickCard(st.ui.card.merge); // отмена: вторая башня не видна на экране
+          return false;
+        }
+        await input.tap(await cellPos(target.col, target.row));
+        st = await pollUntil(page, (x) => x.merges > before || x.state !== 'playing', 1200);
+        if (st.merges > before) {
+          record.merges++;
+          const tw = st.towers.find((x) => x.col === target.col && x.row === target.row);
+          if (tw && tw.pending !== null) await pickMutation(tw);
+          return true;
+        }
+        record.anomalies.push(`слияние не удалось: ${source.id} ${source.col},${source.row} → ${target.col},${target.row}`);
+        return false;
       }
       return false;
     };
@@ -561,6 +699,7 @@ async function playGame(browser, baseUrl, profile, run) {
         const drop = coinsBefore - st.coins;
         if (drop > TABLE[type].price + 0.5) record.anomalies.push(`монеты упали на ${drop}, а цена ${type} по таблице ${TABLE[type].price}`);
         record.spent += TABLE[type].price;
+        if (tower && TABLE[type].targeting === 'beam' && profile === 'expert') await aimTower(st, tower, cell);
         return { ok: true, tower };
       }
       if (st.state !== 'playing') return { ok: false, ended: true };
@@ -628,6 +767,17 @@ async function playGame(browser, baseUrl, profile, run) {
 
       if (s.state === 'playing' && s.elapsed >= nextDecisionAt) {
         const decisionStart = s.elapsed; // следующее решение — через 2 игровые секунды ОТ НАЧАЛА этого (тап тоже занимает время)
+        // Слияния и мутации (бесплатные) — раньше покупок: сначала башни, ждущие выбора мутации, потом одно слияние
+        const waiting = s.towers.find((tw) => tw.pending !== null);
+        if (waiting && (await pickMutation(waiting))) {
+          nextDecisionAt = decisionStart + DECIDE_EVERY[profile];
+          continue;
+        }
+        if (await mergeOnce(s)) {
+          nextDecisionAt = decisionStart + DECIDE_EVERY[profile];
+          continue;
+        }
+        s = await getState(page);
         for (let attempt = 0; attempt < 3; attempt++) {
           const occupied = new Set(s.towers.map((tw) => `${tw.col},${tw.row}`));
           const view = {
@@ -687,6 +837,9 @@ async function playGame(browser, baseUrl, profile, run) {
       gameSec: Math.round(last.elapsed * 10) / 10,
       realSec: Math.round((Date.now() - realStart) / 100) / 10,
       timeline,
+      merges: record.merges,
+      picks: record.picks,
+      levels: last.towers.reduce((acc, tw) => ((acc[tw.level] = (acc[tw.level] ?? 0) + 1), acc), {}),
       builds: record.builds,
       failures: record.failures,
       anomalies: record.anomalies,
@@ -708,7 +861,8 @@ function gameLine(g, runs) {
   const head = `[${PROFILE_TITLES[g.profile]} ${g.run}/${runs}]`;
   if (g.result === 'error') return `${head} ОШИБКА: ${g.error}`;
   const towers = KNOWN_TOWERS.map((id) => `${SHORT[id] ?? id} ${g.towers[id]}`).join(' ');
-  return `${head} ${RESULT_RU[g.result]} · волна ${g.wave}/${g.waveTotal} · жизни ${g.lives}/${g.maxLives} · убито ${g.kills}, дошло ${g.leaked} · монеты ${g.coins} · башни ${towers} · игра ${f1(g.gameSec)} с · реал. ${f1(g.realSec)} с`;
+  const merged = g.merges ? ` · слияний ${g.merges}, мутаций ${g.picks}` : '';
+  return `${head} ${RESULT_RU[g.result]} · волна ${g.wave}/${g.waveTotal} · жизни ${g.lives}/${g.maxLives} · убито ${g.kills}, дошло ${g.leaked} · монеты ${g.coins} · башни ${towers}${merged} · игра ${f1(g.gameSec)} с · реал. ${f1(g.realSec)} с`;
 }
 
 function summarize(games) {
@@ -790,7 +944,7 @@ process.on('SIGINT', () => {
 });
 
 console.log(`Бот-замерщик: профили ${PROFILES.map((p) => PROFILE_TITLES[p]).join(', ')}; партий на профиль ${RUNS}; speed ${SPEED}; потолок ${MAX_GAME_SEC} игровых с; seed ${SEED}`);
-console.log(`  башни из config.ts${CFG_STRING ? ' с подменой --cfg' : ''}: ${KNOWN_TOWERS.map((id) => `${NAMES[id] ?? id} ${TABLE[id].price}₽/${TABLE[id].range}px`).join(', ')}`);
+console.log(`  башни из config.ts${CFG_STRING ? ' с подменой --cfg' : ''}: ${KNOWN_TOWERS.map((id) => `${NAMES[id] ?? id} ${TABLE[id].price}₽/${TABLE[id].targeting === 'beam' ? 'луч' : `${TABLE[id].range}px`}`).join(', ')}`);
 if (EXCLUDE.size) console.log(`  не строят: ${[...EXCLUDE].map((id) => NAMES[id] ?? id).join(', ')}`);
 if (CFG_STRING) console.log(`  подмена чисел (--cfg): ${CFG_STRING}`);
 if (SPEED > 2) console.log(`  ⚠ speed ${SPEED} выше 2: замеры грубее (кадры крупнее, бот тратит больше игрового времени на тап). Для итоговых чисел баланса используйте speed 2.`);

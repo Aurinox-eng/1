@@ -10,7 +10,7 @@ export type BacteriumKind = keyof typeof CONFIG.types;
 /** Радиус описанного круга типа (от центра до самой дальней точки). */
 export function extentOf(kind: BacteriumKind): number {
   const { radius, length } = CONFIG.types[kind];
-  if (kind === 'rod') return length / 2;
+  if (kind === 'rod' || kind === 'runner') return length / 2;
   if (kind === 'splitter') return radius * (1 + SPLITTER_LOBE_OFFSET);
   return radius;
 }
@@ -41,12 +41,22 @@ export class Bacterium {
   readonly disabledTowers = new Set<unknown>();
   /** Радиус описанного круга, пикселей. */
   readonly radius: number;
+  /** Ускорение от командира рядом (1 — нет); сцена выставляет его каждый кадр. */
+  haste = 1;
+  /** Сколько секунд прошло с последнего рождения (у матки). */
+  brewClock = 0;
 
   private readonly baseSpeed: number;
   /** Замедление от «Сиропа»: сколько секунд ещё действует и во сколько раз медленнее идёт (1 — не замедлена). */
   private slowLeft = 0;
   private slowBy = 1;
   private slowRing: Phaser.GameObjects.Arc | null = null;
+  /** «Кислота» Шипучки: сколько секунд ещё действует и во сколько раз сильнее удары по этой бактерии. */
+  private acidLeft = 0;
+  private acidBy = 1;
+  private acidRing: Phaser.GameObjects.Arc | null = null;
+  /** Какое HP показано на теле (перерисовываем при заметном изменении: лечение идёт каждый кадр). */
+  private drawnHp: number;
   private readonly scene: Phaser.Scene;
   private readonly container: Phaser.GameObjects.Container;
   private readonly gfx: Phaser.GameObjects.Graphics;
@@ -79,7 +89,17 @@ export class Bacterium {
 
     this.gfx = scene.add.graphics();
     this.container = scene.add.container(0, 0, [this.gfx]);
+    // Лекарь: кольцо-аура радиуса лечения, командир — радиуса ускорения (под телом)
+    if (cfg.healRadius > 0) {
+      const aura = scene.add.circle(0, 0, cfg.healRadius, COLORS.aura, 0.07).setStrokeStyle(3, COLORS.aura, 0.38);
+      this.container.addAt(aura, 0);
+    }
+    if (cfg.hasteRadius > 0) {
+      const aura = scene.add.circle(0, 0, cfg.hasteRadius, COLORS.haste, 0.06).setStrokeStyle(3, COLORS.haste, 0.42);
+      this.container.addAt(aura, 0);
+    }
     layer.add(this.container);
+    this.drawnHp = this.hp;
     this.place();
     this.redraw();
   }
@@ -99,7 +119,7 @@ export class Bacterium {
    * и продлевает время до `seconds`, но не суммируется.
    */
   slow(factor: number, seconds: number): void {
-    if (factor >= 1 || seconds <= 0 || this.hp <= 0) return;
+    if (factor >= 1 || seconds <= 0 || this.hp <= 0 || CONFIG.types[this.kind].slowImmune > 0) return;
     this.slowBy = this.slowLeft > 0 ? Math.min(this.slowBy, factor) : factor;
     this.slowLeft = Math.max(this.slowLeft, seconds);
     if (!this.slowRing) {
@@ -109,9 +129,29 @@ export class Bacterium {
     this.slowRing.setVisible(true);
   }
 
+  /** Кислота: следующие `seconds` секунд любой удар по бактерии в `mul` раз сильнее (берётся сильнейшая, время продлевается). */
+  expose(mul: number, seconds: number): void {
+    if (mul <= 1 || seconds <= 0 || this.hp <= 0) return;
+    this.acidBy = this.acidLeft > 0 ? Math.max(this.acidBy, mul) : mul;
+    this.acidLeft = Math.max(this.acidLeft, seconds);
+    if (!this.acidRing) {
+      this.acidRing = this.scene.add.circle(0, 0, this.radius + 4).setStrokeStyle(3, COLORS.acid, 0.9).setFillStyle();
+      this.container.add(this.acidRing);
+    }
+    this.acidRing.setVisible(true);
+  }
+
   update(dt: number): void {
     const cfg = CONFIG.types[this.kind];
     let factor = 1;
+    if (this.acidLeft > 0) {
+      this.acidLeft -= dt;
+      if (this.acidLeft <= 0) {
+        this.acidLeft = 0;
+        this.acidBy = 1;
+        this.acidRing?.setVisible(false);
+      }
+    }
     if (this.slowLeft > 0) {
       this.slowLeft -= dt;
       if (this.slowLeft <= 0) {
@@ -132,14 +172,42 @@ export class Bacterium {
       }
       if (dashing) factor *= cfg.dashFactor;
     }
-    this.advance(this.baseSpeed * factor * dt);
+    if (cfg.regenPerSec > 0) this.heal(cfg.regenPerSec * dt);
+    this.advance(this.baseSpeed * factor * this.haste * dt);
   }
 
-  /** Попадание. Возвращает true, если бактерия уничтожена. */
-  hit(damage: number): boolean {
-    this.hp = Math.max(0, this.hp - damage);
+  /**
+   * Попадание. Броня вычитается из удара (но не меньше доли `combat.armorMinShare`); `pierce` — удар игнорирует броню (мутации).
+   * Под кислотой удар сильнее. Возвращает true, если бактерия уничтожена.
+   */
+  hit(damage: number, pierce = false): boolean {
+    const { armor } = CONFIG.types[this.kind];
+    const raw = damage * (this.acidLeft > 0 ? this.acidBy : 1);
+    const dealt = armor > 0 && !pierce ? Math.max(raw * CONFIG.combat.armorMinShare, raw - armor) : raw;
+    this.hp = Math.max(0, this.hp - dealt);
     this.redraw();
     return this.hp <= 0;
+  }
+
+  /** Постепенный урон (яд лужи): броню и кислоту не учитывает; тело перерисовывается, когда HP изменилось заметно. Возвращает true, если бактерия погибла. */
+  drain(amount: number): boolean {
+    if (this.hp <= 0) return true;
+    this.hp = Math.max(0, this.hp - amount);
+    if (Math.abs(this.hp - this.drawnHp) >= 0.5 || this.hp <= 0) this.redraw();
+    return this.hp <= 0;
+  }
+
+  /** Лечение (от лекаря рядом): не выше полного HP; тело перерисовывается, когда HP изменилось заметно. */
+  heal(amount: number): void {
+    if (this.hp <= 0 || this.hp >= this.maxHp) return;
+    this.hp = Math.min(this.maxHp, this.hp + amount);
+    if (Math.abs(this.hp - this.drawnHp) >= 0.5 || this.hp >= this.maxHp) this.redraw();
+  }
+
+  /** Точка дорожки впереди на distance пикселей, но не дальше конца текущего ребра (развилку не пересекаем: дальше путь случаен). */
+  pointAhead(distance: number): { x: number; y: number } {
+    const p = pointAt(this.edge, Math.min(this.edge.length, this.s + Math.max(0, distance)));
+    return { x: p.x, y: p.y };
   }
 
   get lifeDamage(): number {
@@ -186,10 +254,11 @@ export class Bacterium {
     this.y = p.y;
     this.container.setPosition(p.x, p.y);
     // Палочка вытянута вдоль движения
-    if (this.kind === 'rod') this.container.setRotation(p.angle + Math.PI / 2);
+    if (this.kind === 'rod' || this.kind === 'runner') this.container.setRotation(p.angle + Math.PI / 2);
   }
 
   private redraw(): void {
+    this.drawnHp = this.hp;
     drawBody(this.gfx, this.kind, { hp: this.hp, maxHp: this.maxHp, spread: 0, seed: this.seed });
   }
 }

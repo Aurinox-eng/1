@@ -17,7 +17,30 @@ export const COLORS = {
     splitter: { body: 0xffe066, shell: 0xc9981b, crack: 0x7a5800 },
     armored: { body: 0xb99af0, shell: 0x5b3596, crack: 0x2a1650 },
     spore: { body: 0xff7a7a, shell: 0xb02a2a, crack: 0x6a1010 },
+    /** Рой — бирюзовый; бегун — оранжевый; лекарь — белый с розовым. */
+    swarm: { body: 0x5fe0c8, shell: 0x1f8f7c, crack: 0x0f5a4e },
+    runner: { body: 0xffa24d, shell: 0xc2621a, crack: 0x7a3a08 },
+    healer: { body: 0xfff0f5, shell: 0xe05a8a, crack: 0x8a2a50 },
+    /** Слизень — лаймовый; регенератор — тёмно-зелёный; командир — тёмно-синий; матка — бежевая; гигант — тёмно-бордовый. */
+    slick: { body: 0xc4ee45, shell: 0x7ea516, crack: 0x4a6008 },
+    regen: { body: 0x2fbf78, shell: 0x137a47, crack: 0x084a2a },
+    commander: { body: 0x4a5aa8, shell: 0x222f6e, crack: 0x10184a },
+    brood: { body: 0xecd2a8, shell: 0xa4713f, crack: 0x5c3a18 },
+    giant: { body: 0x8a2a3a, shell: 0x3c0e18, crack: 0x1c0408 },
   } satisfies Record<Kind, { body: number; shell: number; crack: number }>,
+  /** Крест лекаря, аура лекаря, лужа сиропа и луч шприца. */
+  cross: 0xe0457a,
+  aura: 0x7dffb0,
+  /** Кольцо-аура командира (ускорение) и звезда на нём, пятна на яйцах матки, шипы гиганта. */
+  haste: 0xff6b4a,
+  /** Кислота Шипучки (кольцо на бактерии) и яд лужи Сиропа. */
+  acid: 0xb6ff3c,
+  /** Подсветка башен, с которыми можно слить выбранную. */
+  merge: 0x5dff9a,
+  star: 0xffd84d,
+  egg: 0xfff4dc,
+  spike: 0xd9b3a0,
+  puddle: 0xff9f43,
   /** Перегородка «перетяжки» у делящейся. */
   septum: 0x8a6510,
   /** Таблетка (снаряд и ствол башни): белая половина и голубая. */

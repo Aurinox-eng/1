@@ -4,6 +4,7 @@ import { t, type TextKey } from '../i18n';
 import { createTowerArt, type TowerId } from '../objects/Tower';
 import { COLORS, FONT, TEXT_COLORS } from '../theme';
 import { card, drawPlate, panelBackground, roundButton, slot as slotTexture, waveButton as waveButtonTexture } from './panelArt';
+import { TowerCard, type CardGeometry, type CardModel } from './TowerCard';
 
 const { width: W, height: H } = CONFIG.screen;
 const PANEL_W = CONFIG.map.panelW;
@@ -53,6 +54,12 @@ export interface PanelCallbacks {
   onSpeed: () => void;
   /** Тап по кнопке «Начать волну». */
   onWave: () => void;
+  /** Кнопки карточки выбранной башни: слить, продать, выбрать мутацию (0/1), повернуть луч (-1 влево, 1 вправо), закрыть. */
+  onMerge: () => void;
+  onSell: () => void;
+  onPick: (index: number) => void;
+  onRotate: (dir: 1 | -1) => void;
+  onCardClose: () => void;
 }
 
 /**
@@ -78,6 +85,7 @@ export class Panel {
   private readonly toastPlate: Phaser.GameObjects.Graphics;
   private readonly hintText: Phaser.GameObjects.Text;
   private readonly hintPlate: Phaser.GameObjects.Graphics;
+  private readonly card: TowerCard;
   private toastTween: Phaser.Tweens.Tween | null = null;
   private selected: TowerId | null = null;
   private lives = 0;
@@ -123,6 +131,14 @@ export class Panel {
         .setInteractive({ useHandCursor: true })
         .on('pointerdown', () => callbacks.onTower(id));
     });
+
+    // Карточка выбранной башни — поверх кнопок башен (скрыта, пока башня не выбрана)
+    this.card = new TowerCard(
+      scene,
+      { x: SLOT.x, y: SLOT.y0, w: SLOT.w, h: TOWER_IDS.length * SLOT.h + (TOWER_IDS.length - 1) * SLOT.gap },
+      D.item + 3,
+      { onMerge: callbacks.onMerge, onSell: callbacks.onSell, onPick: callbacks.onPick, onRotate: callbacks.onRotate, onClose: callbacks.onCardClose },
+    );
 
     // «Начать волну» (видна, пока идёт отсчёт до волны)
     const wy = WAVE_BTN.y + WAVE_BTN.h / 2;
@@ -217,6 +233,19 @@ export class Panel {
     }
   }
 
+  /** Показать карточку выбранной башни (или обновить её). */
+  showCard(model: CardModel): void {
+    this.card.show(model);
+  }
+
+  hideCard(): void {
+    this.card.hide();
+  }
+
+  get cardVisible(): boolean {
+    return this.card.visible;
+  }
+
   /** Скорость игры на кнопке: «×2»; ускорение подсвечено золотым. */
   setSpeed(n: number): void {
     this.speedText.setText(`×${n}`).setColor(n > 1 ? TEXT_COLORS.accent : TEXT_COLORS.main);
@@ -240,11 +269,18 @@ export class Panel {
     this.chip.setAlpha(danger ? 0.65 + 0.35 * Math.sin(timeSec * 9) : 0.92);
   }
 
+  /** Кладёт текст в плашку и, если он не помещается в окно карты, уменьшает его (до 0,5): так длинные сообщения не уходят за край и под панель. */
+  private fitPlate(text: Phaser.GameObjects.Text, plate: Phaser.GameObjects.Graphics, y: number): void {
+    const scale = Math.min(1, (VIEW_W - 40) / (text.width + 48));
+    text.setScale(scale);
+    drawPlate(plate, VIEW_W / 2, y, text.width * scale + 48, text.height * scale + 18);
+  }
+
   /** Всплывающее сообщение сверху экрана. */
   toast(message: string, ms: number = CONFIG.ui.toastMs): void {
     this.toastTween?.stop();
     this.toastText.setText(message).setAlpha(1);
-    drawPlate(this.toastPlate, VIEW_W / 2, 46, this.toastText.width + 48, this.toastText.height + 18);
+    this.fitPlate(this.toastText, this.toastPlate, 46);
     this.toastPlate.setAlpha(1);
     this.toastTween = this.scene.tweens.add({
       targets: [this.toastText, this.toastPlate],
@@ -260,7 +296,7 @@ export class Panel {
     this.hintPlate.setVisible(message !== null);
     if (message !== null) {
       this.hintText.setText(message);
-      drawPlate(this.hintPlate, VIEW_W / 2, H - 38, this.hintText.width + 48, this.hintText.height + 18);
+      this.fitPlate(this.hintText, this.hintPlate, H - 38);
     }
   }
 
@@ -271,6 +307,7 @@ export class Panel {
     pauseButton: { x: number; y: number };
     speedButton: { x: number; y: number };
     waveButton: { x: number; y: number; w: number; h: number; visible: boolean; bonus: number };
+    card: CardGeometry;
     lives: number;
   } {
     const towerButtons = TOWER_IDS.map((id, i) => {
@@ -284,6 +321,7 @@ export class Panel {
       pauseButton: { x: CX + CTRL.dx, y: CTRL.y },
       speedButton: { x: CX - CTRL.dx, y: CTRL.y },
       waveButton: { x: CX, y: WAVE_BTN.y + WAVE_BTN.h / 2, w: WAVE_BTN.w, h: WAVE_BTN.h, visible: this.waveBtnVisible, bonus: this.waveBtnBonusValue },
+      card: this.card.geometry(),
       lives: this.lives,
     };
   }

@@ -128,6 +128,49 @@ export const BLOCKED_TILES: ReadonlySet<string> = (() => {
   return tiles;
 })();
 
+/** Сколько направлений у луча «Шприца»: тап по башне поворачивает её на 360 / AIM_STEPS градусов (8 → шаг 45°). */
+export const AIM_STEPS = 8;
+
+/** Угол направления луча с номером `index` (0 — вправо, дальше по часовой стрелке, как на экране), радианы. */
+export function aimAngle(index: number): number {
+  return ((index % AIM_STEPS) / AIM_STEPS) * Math.PI * 2;
+}
+
+/**
+ * Сколько пикселей дорожек накрывает луч из точки (x, y) в направлении angle: луч — полоса длины `length` и полуширины
+ * `halfWidth`; считаются кусочки дорожек (их середины), попавшие в полосу. Чем больше, тем больше бактерий пройдёт «под лучом».
+ */
+export function beamCoverage(x: number, y: number, angle: number, length: number, halfWidth: number): number {
+  const ux = Math.cos(angle);
+  const uy = Math.sin(angle);
+  let total = 0;
+  for (const edge of EDGES) {
+    for (let i = 1; i < edge.pts.length; i++) {
+      const mx = (edge.pts[i].x + edge.pts[i - 1].x) / 2 - x;
+      const my = (edge.pts[i].y + edge.pts[i - 1].y) / 2 - y;
+      const along = mx * ux + my * uy;
+      if (along < 0 || along > length) continue;
+      if (Math.abs(-mx * uy + my * ux) > halfWidth) continue;
+      total += edge.cum[i] - edge.cum[i - 1];
+    }
+  }
+  return total;
+}
+
+/** Лучшее направление луча (номер 0…AIM_STEPS-1) из точки: то, где под лучом больше всего дорожки. Так новая башня сразу смотрит с толком. */
+export function bestBeamDirection(x: number, y: number, length: number, halfWidth: number): number {
+  let best = 0;
+  let bestValue = -1;
+  for (let i = 0; i < AIM_STEPS; i++) {
+    const value = beamCoverage(x, y, aimAngle(i), length, halfWidth);
+    if (value > bestValue) {
+      bestValue = value;
+      best = i;
+    }
+  }
+  return best;
+}
+
 /** Клетка под точкой мира или null, если точка вне сетки (например, в зоне организма). */
 export function worldToCell(x: number, y: number): [number, number] | null {
   const { orgW, tile } = CONFIG.map;

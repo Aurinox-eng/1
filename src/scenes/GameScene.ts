@@ -4,16 +4,18 @@ import { CONFIG } from '../config';
 import { exposeDebug, TIME_SCALE, type DebugSnapshot } from '../debug';
 import { Effects } from '../effects';
 import { num, t, type TextKey } from '../i18n';
-import { BLOCKED_TILES, EDGES, ENTRANCE_EDGES, LEVEL, PATH_TILES, WORLD, cellKey, worldToCell } from '../level';
+import { aimAngle, BLOCKED_TILES, EDGES, ENTRANCE_EDGES, LEVEL, PATH_TILES, WORLD, cellKey, worldToCell } from '../level';
 import { isPortraitPhone } from '../orientation';
 import { addMap } from '../mapArt';
 import { MapGestures } from '../mapGestures';
 import { Bacterium, type BacteriumKind } from '../objects/Bacterium';
-import { Needle } from '../objects/Needle';
+import { GroundShot } from '../objects/GroundShot';
 import { Projectile } from '../objects/Projectile';
-import { createTowerArt, Tower, type TowerId } from '../objects/Tower';
-import { tileCenter } from '../pathing';
+import { Puddle } from '../objects/Puddle';
+import { beamReach, createTowerArt, defaultAim, drawAimLine, Tower, type TowerId } from '../objects/Tower';
+import { tileCenter, type Edge } from '../pathing';
 import { sfx } from '../sound';
+import { MAX_TOWER_LEVEL, mutationOptions, type TowerStats } from '../towerStats';
 import { COLORS, FONT, TEXT_COLORS } from '../theme';
 import { Panel, VIEW_W } from '../ui/Panel';
 
@@ -22,8 +24,6 @@ const { width: W, height: H } = CONFIG.screen;
 const MAX_FRAME_MS = 50;
 /** Если кадр очень длинный, за него выйдет не больше стольких бактерий (защита от лавины). */
 const MAX_SPAWNS_PER_FRAME = 10;
-/** Строка таблицы башен. */
-type TowerCfg = (typeof CONFIG.towers)[TowerId];
 /** Все типы бактерий в порядке появления в игре. */
 const KINDS = Object.keys(CONFIG.types) as BacteriumKind[];
 /** Сообщение при первом появлении типа (у кокка нет: он с первой волны). */
@@ -32,11 +32,48 @@ const NEW_TYPE_TEXT: Partial<Record<BacteriumKind, TextKey>> = {
   splitter: 'newTypeSplitter',
   armored: 'newTypeArmored',
   spore: 'newTypeSpore',
+  swarm: 'newTypeSwarm',
+  runner: 'newTypeRunner',
+  healer: 'newTypeHealer',
+  slick: 'newTypeSlick',
+  regen: 'newTypeRegen',
+  commander: 'newTypeCommander',
+  brood: 'newTypeBrood',
+  giant: 'newTypeGiant',
 };
 /** Сколько миллисекунд держится сообщение о новом типе. */
 const NEW_TYPE_TOAST_MS = 4200;
+/** Цепной взрыв: пауза до второго взрыва, секунд; радиус поиска бактерии для него, пикселей. */
+const CHAIN_DELAY_SEC = 0.3;
+const CHAIN_REACH_PX = 160;
+/** Откуда на экране начинается вспышка луча «Шприца» (от центра башни), пикселей: чуть дальше кончика ствола. */
+const BEAM_START_PX = 50;
 /** Во что распадается делящаяся (правило игры, не число баланса). */
 const SPLITS_INTO: BacteriumKind = 'coccus';
+/** Кого рожает матка (правило игры; сколько и как часто — в таблице типов). */
+const BREWS_INTO: BacteriumKind = 'swarm';
+
+/** Кто выходит следующим в волне: тип, вход (null — случайный) и сколько секунд ждать до следующего (в пачке — короткая пауза). */
+interface SpawnItem {
+  kind: BacteriumKind;
+  edge: Edge | null;
+  gapSec: number;
+}
+/** Очередь луча «Шприца»: сколько ударов ещё осталось и сколько секунд до следующего. */
+interface BeamBurst {
+  tower: Tower;
+  left: number;
+  timer: number;
+  /** Номер удара в очереди (с нуля): «Спираль» усиливает каждый следующий. */
+  index: number;
+}
+/** Второй взрыв «Цепной» Шипучки: через сколько секунд, где и с какими числами. */
+interface ChainBlast {
+  left: number;
+  x: number;
+  y: number;
+  stats: TowerStats;
+}
 
 type State = 'playing' | 'paused' | 'won' | 'lost';
 type WavePhase = 'countdown' | 'spawning' | 'pause' | 'done';
@@ -53,18 +90,31 @@ export class GameScene extends Phaser.Scene {
   private shots = 0;
   private slows = 0;
   private spawned = 0;
+  /** Накопленный урон по жизням от «дробных» бактерий (рой): целые жизни списываются, остаток ждёт следующих. */
+  private lifePool = 0;
   /** Скорость игры, выбранная игроком кнопкой (1, 2, 3 …): множитель времени сверх тестового `?speed`. */
   private userSpeed = 1;
 
   private bacteria: Bacterium[] = [];
   private towers: Tower[] = [];
   private projectiles: Projectile[] = [];
-  /** Иглы «Шприца» в полёте. */
-  private needles: Needle[] = [];
+  /** Капли сиропа в полёте к дорожке, лужи на дорожках и очереди луча «Шприца». */
+  private groundShots: GroundShot[] = [];
+  private puddles: Puddle[] = [];
+  private bursts: BeamBurst[] = [];
+  private chains: ChainBlast[] = [];
   /** Занятые клетки (ключ «колонка,ряд»). */
   private occupied = new Set<string>();
   /** Какая башня выбрана на панели (тап по клетке поставит её). */
   private selected: TowerId | null = null;
+  /** Поставленная башня, выбранная на карте (её карточка — в правой панели), и идёт ли выбор пары для слияния. */
+  private selectedTower: Tower | null = null;
+  private mergeMode = false;
+  private merges = 0;
+  private sells = 0;
+  private mutationsPicked = 0;
+  /** Подсказка «тапните по Шприцу — повернуть» уже показана в этой партии. */
+  private rotateHinted = false;
   /** Поставлена ли уже хоть одна башня (после этого общая подсказка «Выберите башню…» больше не нужна). */
   private placedAny = false;
 
@@ -76,7 +126,7 @@ export class GameScene extends Phaser.Scene {
   private waveSpawned = 0;
   private waveCount = 0;
   /** Кто выйдет в текущей волне, по порядку выхода. */
-  private waveQueue: BacteriumKind[] = [];
+  private waveQueue: SpawnItem[] = [];
   /** Какие типы бактерий уже появлялись (в порядке появления). */
   private introduced: BacteriumKind[] = [];
   private waveInterval = 1;
@@ -90,6 +140,7 @@ export class GameScene extends Phaser.Scene {
   private restartAllowedAt = 0;
 
   private world!: Phaser.GameObjects.Container;
+  private puddleLayer!: Phaser.GameObjects.Container;
   private towerLayer!: Phaser.GameObjects.Container;
   private bacteriaLayer!: Phaser.GameObjects.Container;
   private projectileLayer!: Phaser.GameObjects.Container;
@@ -98,6 +149,8 @@ export class GameScene extends Phaser.Scene {
   private ghost!: Phaser.GameObjects.Container;
   private ghostArt!: Phaser.GameObjects.Container;
   private ghostRange!: Phaser.GameObjects.Graphics;
+  private ghostAim!: Phaser.GameObjects.Graphics;
+  private ghostBarrel!: Phaser.GameObjects.Container;
   private ghostCell!: Phaser.GameObjects.Graphics;
   private overlay: Phaser.GameObjects.Container | null = null;
   private rig!: CameraRig;
@@ -121,13 +174,23 @@ export class GameScene extends Phaser.Scene {
     this.shots = 0;
     this.slows = 0;
     this.spawned = 0;
+    this.lifePool = 0;
     this.bacteria = [];
     this.towers = [];
     this.projectiles = [];
-    this.needles = [];
+    this.groundShots = [];
+    this.puddles = [];
+    this.bursts = [];
+    this.chains = [];
     this.occupied = new Set();
     this.selected = null;
+    this.selectedTower = null;
+    this.mergeMode = false;
+    this.merges = 0;
+    this.sells = 0;
+    this.mutationsPicked = 0;
     this.placedAny = false;
+    this.rotateHinted = false;
     this.phase = 'countdown';
     this.phaseTimer = CONFIG.waves.firstDelaySec;
     this.waveIdx = 0;
@@ -149,12 +212,13 @@ export class GameScene extends Phaser.Scene {
     // Мир: карта и всё, что на ней. Камера двигает и масштабирует этот контейнер; панель лежит поверх и не двигается.
     this.world = this.add.container(0, 0);
     const mapLayer = this.add.container(0, 0);
+    this.puddleLayer = this.add.container(0, 0);
     this.ghostLayer = this.add.container(0, 0);
     this.towerLayer = this.add.container(0, 0);
     this.bacteriaLayer = this.add.container(0, 0);
     this.projectileLayer = this.add.container(0, 0);
     this.fxLayer = this.add.container(0, 0);
-    this.world.add([mapLayer, this.ghostLayer, this.towerLayer, this.bacteriaLayer, this.projectileLayer, this.fxLayer]);
+    this.world.add([mapLayer, this.puddleLayer, this.ghostLayer, this.towerLayer, this.bacteriaLayer, this.projectileLayer, this.fxLayer]);
     addMap(this, mapLayer);
 
     this.rig = new CameraRig(this.world, { w: VIEW_W, h: H }, WORLD, { min: CONFIG.camera.zoomMin, max: CONFIG.camera.zoomMax });
@@ -169,6 +233,11 @@ export class GameScene extends Phaser.Scene {
       onPause: () => this.togglePause(),
       onSpeed: () => this.cycleSpeed(),
       onWave: () => this.startWaveNow(),
+      onMerge: () => this.toggleMerge(),
+      onSell: () => this.sellSelected(),
+      onPick: (index) => this.pickMutation(index),
+      onRotate: (dir) => this.rotateSelected(dir),
+      onCardClose: () => this.deselectTower(),
     });
     this.panel.init();
     this.panel.setSpeed(this.userSpeed);
@@ -216,11 +285,17 @@ export class GameScene extends Phaser.Scene {
     this.elapsed += dt;
     this.updateWaves(dt);
 
+    this.updatePuddles(dt);
+    this.applyHealing(dt);
+    this.applyHaste();
     for (const bacterium of this.bacteria) bacterium.update(dt);
+    this.updateBrood(dt);
     this.applySpores();
     for (const tower of this.towers) tower.update(dt, this.bacteria, (target, x, y) => this.fire(tower, target, x, y));
     this.updateProjectiles(dt);
-    this.updateNeedles(dt);
+    this.updateGroundShots(dt);
+    this.updateBursts(dt);
+    this.updateChains(dt);
     this.resolveArrivals();
     if (this.state !== 'playing') return;
 
@@ -241,9 +316,10 @@ export class GameScene extends Phaser.Scene {
     this.spawnTimer -= dt;
     let count = 0;
     while (this.spawnTimer <= 0 && this.waveSpawned < this.waveCount && count < MAX_SPAWNS_PER_FRAME) {
-      this.spawnBacterium();
+      const item = this.waveQueue[this.waveSpawned];
+      this.spawnBacterium(item);
       this.waveSpawned++;
-      this.spawnTimer += this.waveInterval;
+      this.spawnTimer += item.gapSec;
       count++;
     }
     if (this.waveSpawned >= this.waveCount) {
@@ -259,24 +335,42 @@ export class GameScene extends Phaser.Scene {
   private startWave(): void {
     const w = CONFIG.waves;
     const i = this.waveIdx;
+    const k = w.intervalRampWaves > 1 ? Math.min(1, i / (w.intervalRampWaves - 1)) : 1;
+    this.waveInterval = w.intervalStartSec + (w.intervalEndSec - w.intervalStartSec) * k;
     // Новый тип выходит первым и в одном экземпляре (остальные такого же типа — потом, вперемешку с прочими)
     const all = this.waveKinds(i);
     const fresh = KINDS.filter((kind) => !this.introduced.includes(kind) && all.includes(kind));
-    const queue: BacteriumKind[] = [];
+    const queue: SpawnItem[] = [];
     const rest = [...all];
     for (const kind of fresh) {
-      queue.push(kind);
+      queue.push({ kind, edge: null, gapSec: this.waveInterval });
       rest.splice(rest.indexOf(kind), 1);
     }
-    for (let k = rest.length - 1; k > 0; k--) {
-      const j = Math.floor(Math.random() * (k + 1));
-      [rest[k], rest[j]] = [rest[j], rest[k]];
+    // Остальные собираем в «блоки»: одиночные бактерии и пачки (рой выходит плотно, все по одному входу) — и перемешиваем блоки
+    const blocks: SpawnItem[][] = [];
+    for (const kind of KINDS) {
+      let n = rest.filter((kindOfRest) => kindOfRest === kind).length;
+      const gap = CONFIG.types[kind].spawnGapSec;
+      if (gap > 0 && n > 0) {
+        const packs = Math.ceil(n / w.packMax);
+        for (let p = 0; p < packs; p++) {
+          const size = Math.ceil(n / (packs - p));
+          n -= size;
+          const edge = ENTRANCE_EDGES[Math.floor(Math.random() * ENTRANCE_EDGES.length)];
+          const pack: SpawnItem[] = [];
+          for (let m = 0; m < size; m++) pack.push({ kind, edge, gapSec: m < size - 1 ? gap : this.waveInterval });
+          blocks.push(pack);
+        }
+      } else {
+        for (let m = 0; m < n; m++) blocks.push([{ kind, edge: null, gapSec: this.waveInterval }]);
+      }
     }
-    this.waveQueue = [...queue, ...rest];
+    for (let a = blocks.length - 1; a > 0; a--) {
+      const b = Math.floor(Math.random() * (a + 1));
+      [blocks[a], blocks[b]] = [blocks[b], blocks[a]];
+    }
+    this.waveQueue = [...queue, ...blocks.flat()];
     this.waveCount = this.waveQueue.length;
-    const total = this.waveTotal();
-    const k = total > 1 ? i / (total - 1) : 0;
-    this.waveInterval = w.intervalStartSec + (w.intervalEndSec - w.intervalStartSec) * k;
     this.waveIdx++;
     this.waveSpawned = 0;
     this.spawnTimer = 0;
@@ -298,9 +392,9 @@ export class GameScene extends Phaser.Scene {
   }
 
   /** Бактерия выходит справа; на какой из входов — случайно. Дальше на каждой развилке она сама выберет путь. */
-  private spawnBacterium(): void {
-    const kind = this.waveQueue[this.waveSpawned];
-    const edge = ENTRANCE_EDGES[Math.floor(Math.random() * ENTRANCE_EDGES.length)];
+  private spawnBacterium(item: SpawnItem): void {
+    const { kind } = item;
+    const edge = item.edge ?? ENTRANCE_EDGES[Math.floor(Math.random() * ENTRANCE_EDGES.length)];
     this.bacteria.push(new Bacterium(this, this.bacteriaLayer, kind, edge, 0));
     this.spawned++;
     if (!this.introduced.includes(kind)) {
@@ -315,68 +409,204 @@ export class GameScene extends Phaser.Scene {
 
   // ---------------------------------------------------------------- бой
 
-  /** Выстрел башни: «по радиусу» и «по площади» — снаряд летит за целью, «по линии» — игла летит насквозь. */
-  private fire(tower: Tower, target: Bacterium, muzzleX: number, muzzleY: number): void {
+  /**
+   * Выстрел башни; возвращает, состоялся ли он. «По радиусу» и «по площади» — снаряд летит за целью; «лужа» — капля (или две, мутация «Две капли»)
+   * летит в точку дорожки впереди бактерии (если там уже есть лужа — выстрела нет); «луч» — запускается очередь ударов по линии.
+   * Числа берутся из `tower.stats` (уровень и мутации уже учтены).
+   */
+  private fire(tower: Tower, target: Bacterium, muzzleX: number, muzzleY: number): boolean {
+    const st = tower.stats;
+    if (st.targeting === 'puddle') {
+      const puddle = { radius: st.puddleRadius, seconds: st.puddleSec, slowFactor: st.slowFactor, slowSec: st.slowSec, poison: st.poisonPerSec };
+      let launched = 0;
+      for (let k = 0; k < st.puddleCount; k++) {
+        const spot = this.puddleSpot(tower, target, st.puddleLeadPx + k * st.puddleRadius * 1.6);
+        const taken = (x: number, y: number): boolean => Math.hypot(x - spot.x, y - spot.y) < st.puddleRadius * 0.8;
+        if (this.puddles.some((p) => taken(p.x, p.y)) || this.groundShots.some((shot) => taken(shot.tx, shot.ty))) continue;
+        this.groundShots.push(new GroundShot(this, this.projectileLayer, muzzleX, muzzleY, spot.x, spot.y, st.projectileSpeed, puddle));
+        launched++;
+      }
+      if (launched === 0) return false;
+    } else if (st.targeting === 'beam') {
+      this.bursts.push({ tower, left: st.beamPulses, timer: 0, index: 0 });
+    } else {
+      this.projectiles.push(new Projectile(this, this.projectileLayer, muzzleX, muzzleY, target, tower.id, st.projectileSpeed, st));
+    }
     this.shots++;
     sfx.shoot(tower.id);
-    const { targeting, range, projectileSpeed } = tower.cfg;
-    if (targeting === 'line') {
-      const angle = Math.atan2(target.y - tower.y, target.x - tower.x);
-      const muzzle = Math.hypot(muzzleX - tower.x, muzzleY - tower.y);
-      this.needles.push(new Needle(this, this.projectileLayer, tower.x, tower.y, angle, range, muzzle, tower.id, projectileSpeed));
-    } else {
-      this.projectiles.push(new Projectile(this, this.projectileLayer, muzzleX, muzzleY, target, tower.id, projectileSpeed));
+    return true;
+  }
+
+  /** Куда класть лужу: на дорожке впереди бактерии на `lead` пикселей, но так, чтобы место было в радиусе башни (если дальше — ближе к бактерии). */
+  private puddleSpot(tower: Tower, target: Bacterium, lead: number): { x: number; y: number } {
+    const { range, puddleRadius } = tower.stats;
+    for (let d = lead; d > 0; d -= 20) {
+      const p = target.pointAhead(d);
+      if (Math.hypot(p.x - tower.x, p.y - tower.y) <= range + puddleRadius * 0.5) return p;
     }
+    return { x: target.x, y: target.y };
   }
 
   private updateProjectiles(dt: number): void {
     this.projectiles = this.projectiles.filter((projectile) => {
       const result = projectile.update(dt);
       if (result === 'flying') return true;
-      const cfg = CONFIG.towers[projectile.towerId];
-      if (cfg.targeting === 'area') this.explode(projectile.x, projectile.y, cfg);
-      else if (result === 'hit') this.damageBacterium(projectile.target, cfg);
+      if (projectile.stats.targeting === 'area') this.explode(projectile.x, projectile.y, projectile.stats);
+      else if (result === 'hit') this.damageBacterium(projectile.target, projectile.stats);
       projectile.destroy();
       return false;
     });
   }
 
-  /** Иглы летят насквозь: каждая задетая бактерия получает урон один раз. */
-  private updateNeedles(dt: number): void {
-    this.needles = this.needles.filter((needle) => {
-      const { hits, done } = needle.update(dt, this.bacteria);
-      const cfg = CONFIG.towers[needle.towerId];
-      for (const bacterium of hits) this.damageBacterium(bacterium, cfg);
-      if (!done) return true;
-      needle.destroy();
+  /** Капли сиропа летят в точку дорожки; долетев, оставляют лужу. */
+  private updateGroundShots(dt: number): void {
+    this.groundShots = this.groundShots.filter((shot) => {
+      if (!shot.update(dt)) return true;
+      const { radius, seconds, slowFactor, slowSec, poison } = shot.puddle;
+      this.puddles.push(new Puddle(this, this.puddleLayer, shot.tx, shot.ty, radius, seconds, slowFactor, slowSec, poison));
+      this.effects.splat(shot.tx, shot.ty, radius);
+      sfx.splash();
+      shot.destroy();
       return false;
     });
   }
 
-  /** Попадание: урон; у «Сиропа» ещё и замедление. Если бактерия погибла — монеты, частицы, распад делящейся. */
-  private damageBacterium(bacterium: Bacterium, cfg: TowerCfg, quiet = false): void {
+  /** Лужи: каждая бактерия в луже замедляется (и ещё немного после выхода), в «едкой» луже ещё и теряет HP; когда время лужи вышло, она исчезает. */
+  private updatePuddles(dt: number): void {
+    if (this.puddles.length === 0) return;
+    for (const bacterium of [...this.bacteria]) {
+      for (const puddle of this.puddles) {
+        if (bacterium.hp <= 0 || !puddle.covers(bacterium)) continue;
+        if (puddle.poison > 0 && bacterium.drain(puddle.poison * dt)) {
+          this.killBacterium(bacterium);
+          break;
+        }
+        if (CONFIG.types[bacterium.kind].slowImmune > 0) continue;
+        if (!bacterium.slowed) this.slows++;
+        bacterium.slow(puddle.slowFactor, puddle.slowSec);
+      }
+    }
+    this.puddles = this.puddles.filter((puddle) => {
+      if (puddle.update(dt)) return true;
+      puddle.destroy();
+      return false;
+    });
+  }
+
+  /** Лекарь: пока жив, лечит всех остальных бактерий в радиусе healRadius на healPerSec HP в секунду. */
+  private applyHealing(dt: number): void {
+    for (const healer of this.bacteria) {
+      const { healRadius, healPerSec } = CONFIG.types[healer.kind];
+      if (healRadius <= 0 || healer.hp <= 0) continue;
+      for (const bacterium of this.bacteria) {
+        if (bacterium === healer) continue;
+        if (Math.hypot(bacterium.x - healer.x, bacterium.y - healer.y) > healRadius) continue;
+        bacterium.heal(healPerSec * dt);
+      }
+    }
+  }
+
+  /** Командир: все остальные бактерии в его кольце идут быстрее (берётся сильнейшее из ускорений); выставляется заново каждый кадр. */
+  private applyHaste(): void {
+    for (const bacterium of this.bacteria) bacterium.haste = 1;
+    for (const commander of this.bacteria) {
+      const { hasteRadius, hasteFactor } = CONFIG.types[commander.kind];
+      if (hasteRadius <= 0 || commander.hp <= 0) continue;
+      for (const bacterium of this.bacteria) {
+        if (bacterium === commander) continue;
+        if (Math.hypot(bacterium.x - commander.x, bacterium.y - commander.y) > hasteRadius) continue;
+        bacterium.haste = Math.max(bacterium.haste, hasteFactor);
+      }
+    }
+  }
+
+  /** Матка: раз в brewEverySec секунд рожает brewCount бактерий роя на своём месте (чуть друг за другом). Рождённые в «вышло за волну» не считаются. */
+  private updateBrood(dt: number): void {
+    for (const mother of [...this.bacteria]) {
+      const { brewEverySec, brewCount } = CONFIG.types[mother.kind];
+      if (brewEverySec <= 0 || mother.hp <= 0) continue;
+      mother.brewClock += dt;
+      if (mother.brewClock < brewEverySec) continue;
+      mother.brewClock -= brewEverySec;
+      for (let i = 0; i < brewCount; i++) {
+        const child = new Bacterium(this, this.bacteriaLayer, BREWS_INTO, mother.edge, mother.s);
+        child.moveForward(i * CONFIG.types[BREWS_INTO].radius * 2);
+        this.bacteria.push(child);
+      }
+      this.effects.flash(mother.x, mother.y, mother.radius * 0.8, COLORS.egg);
+    }
+  }
+
+  /** Очереди луча: каждые beamGapMs — удар по всем, кто сейчас на линии башни; заглушенная спорой (или проданная) башня очередь бросает. */
+  private updateBursts(dt: number): void {
+    this.bursts = this.bursts.filter((burst) => {
+      if (burst.tower.isDisabled || !this.towers.includes(burst.tower)) return false;
+      burst.timer -= dt;
+      while (burst.timer <= 0 && burst.left > 0) {
+        this.beamPulse(burst.tower, burst.index);
+        burst.index++;
+        burst.left--;
+        burst.timer += burst.tower.stats.beamGapMs / 1000;
+      }
+      return burst.left > 0;
+    });
+  }
+
+  /** Один удар луча (номер в очереди — index): линия (две, если «Второй луч») вспыхивает, каждая бактерия на ней получает урон башни («Спираль» — сильнее с каждым ударом). */
+  private beamPulse(tower: Tower, index: number): void {
+    const st = tower.stats;
+    for (const dir of tower.beamDirections()) {
+      const angle = aimAngle(dir);
+      const reach = beamReach(tower.x, tower.y, angle, st.beamLengthPx);
+      this.effects.beam(tower.x + Math.cos(angle) * BEAM_START_PX, tower.y + Math.sin(angle) * BEAM_START_PX, angle, Math.max(0, reach - BEAM_START_PX));
+    }
+    sfx.zap();
+    const damage = st.damage + index * st.spiral * CONFIG.towerLevels[Math.min(tower.level, CONFIG.towerLevels.length) - 1].damageMul;
+    for (const bacterium of tower.beamHits(this.bacteria)) this.damageBacterium(bacterium, st, true, damage);
+  }
+
+  /** Попадание: урон (у бронированных броня вычитается, если мутация не «бронебойная»); «кислота» делает следующие удары сильнее. Если бактерия погибла — монеты, частицы, распад делящейся. */
+  private damageBacterium(bacterium: Bacterium, st: TowerStats, quiet = false, damage: number = st.damage): void {
     if (bacterium.hp <= 0) return;
-    if (bacterium.hit(cfg.damage)) {
+    if (bacterium.hit(damage, st.armorPierce)) {
       this.killBacterium(bacterium);
       return;
     }
-    if (cfg.slowSec > 0) {
-      bacterium.slow(cfg.slowFactor, cfg.slowSec);
-      this.slows++;
-    }
-    this.effects.flash(bacterium.x, bacterium.y, bacterium.radius * 0.6, cfg.slowSec > 0 ? COLORS.syrup : COLORS.hit);
+    if (st.acidSec > 0) bacterium.expose(st.acidMul, st.acidSec);
+    this.effects.flash(bacterium.x, bacterium.y, bacterium.radius * 0.6, st.targeting === 'beam' ? COLORS.needle : COLORS.hit);
     if (!quiet) sfx.hit(bacterium.kind);
   }
 
-  /** Взрыв «Шипучки»: урон всем бактериям, которых касается круг взрыва (в том числе когда цель уже погибла от другого выстрела). */
-  private explode(x: number, y: number, cfg: TowerCfg): void {
-    this.effects.blast(x, y, cfg.blastRadius);
+  /**
+   * Взрыв «Шипучки»: урон всем бактериям, которых касается круг взрыва (в том числе когда цель уже погибла от другого выстрела).
+   * Мутация «Цепная»: через 0,3 с второй взрыв (радиус ×0,7, урон ×0,6) на ближайшей бактерии рядом (`allowChain` — только у первого).
+   */
+  private explode(x: number, y: number, st: TowerStats, radiusMul = 1, damageMul = 1, allowChain = true): void {
+    const radius = st.blastRadius * radiusMul;
+    this.effects.blast(x, y, radius);
     sfx.blast();
     for (const bacterium of [...this.bacteria]) {
       if (bacterium.hp <= 0) continue;
-      if (Math.hypot(bacterium.x - x, bacterium.y - y) - bacterium.radius > cfg.blastRadius) continue;
-      this.damageBacterium(bacterium, cfg, true);
+      if (Math.hypot(bacterium.x - x, bacterium.y - y) - bacterium.radius > radius) continue;
+      this.damageBacterium(bacterium, st, true, st.damage * damageMul);
     }
+    if (allowChain && st.chain) this.chains.push({ left: CHAIN_DELAY_SEC, x, y, stats: st });
+  }
+
+  /** Вторые взрывы «Цепной» Шипучки. */
+  private updateChains(dt: number): void {
+    this.chains = this.chains.filter((chain) => {
+      chain.left -= dt;
+      if (chain.left > 0) return true;
+      let best: Bacterium | null = null;
+      for (const b of this.bacteria) {
+        if (b.hp <= 0) continue;
+        const d = Math.hypot(b.x - chain.x, b.y - chain.y);
+        if (d <= CHAIN_REACH_PX && (!best || d < Math.hypot(best.x - chain.x, best.y - chain.y))) best = b;
+      }
+      if (best) this.explode(best.x, best.y, chain.stats, 0.7, 0.6, false);
+      return false;
+    });
   }
 
   private killBacterium(bacterium: Bacterium): void {
@@ -428,17 +658,27 @@ export class GameScene extends Phaser.Scene {
     bacterium.destroy();
   }
 
-  /** Бактерии, дошедшие до красной линии организма, исчезают и отнимают жизни. */
+  /** Бактерии, дошедшие до красной линии организма, исчезают и отнимают жизни. Дробный урон (рой) копится: целая жизнь списывается, когда набралась. */
   private resolveArrivals(): void {
     let damage = 0;
+    let lastY = 0;
     for (const bacterium of [...this.bacteria]) {
       if (!bacterium.reachedOrganism) continue;
       damage += bacterium.lifeDamage;
+      lastY = bacterium.y;
       this.leaked++;
       this.removeBacterium(bacterium);
     }
     if (damage === 0) return;
-    this.lives = Math.max(0, this.lives - damage);
+    this.lifePool += damage;
+    const whole = Math.floor(this.lifePool + 1e-9);
+    this.lifePool -= whole;
+    if (whole <= 0) {
+      // Жизнь ещё не потеряна, но ощутимо: красная вспышка у линии организма
+      this.effects.flash(CONFIG.map.orgW, lastY, 36, COLORS.loseLine);
+      return;
+    }
+    this.lives = Math.max(0, this.lives - whole);
     this.panel.setLives(this.lives);
     this.effects.lifeLost();
     sfx.lifeLost();
@@ -451,6 +691,7 @@ export class GameScene extends Phaser.Scene {
   private toggleTower(id: TowerId): void {
     // Вертикальный телефон: поверх игры подсказка «Поверните телефон», касания сквозь неё ничего не делают
     if (this.state !== 'playing' || isPortraitPhone()) return;
+    this.deselectTower();
     this.selected = this.selected === id ? null : id;
     this.panel.setSelected(this.selected);
     if (this.selected) this.setGhostArt(this.selected);
@@ -460,28 +701,218 @@ export class GameScene extends Phaser.Scene {
 
   /** Нижняя подсказка: у новых башен — как они бьют; у таблетки и до первой башни — «выберите башню и тапните по клетке». */
   private updateHint(): void {
+    if (this.mergeMode) {
+      this.panel.setHint(t('hintMerge'));
+      return;
+    }
     const info = this.selected ? this.towerInfo(this.selected) : null;
-    this.panel.setHint(info ?? (this.placedAny ? null : t('hintPlace')));
+    this.panel.setHint(info ?? (this.placedAny || this.selectedTower ? null : t('hintPlace')));
   }
 
   private towerInfo(id: TowerId): string | null {
     const cfg = CONFIG.towers[id];
-    if (id === 'syrup') return t('infoSyrup', { pct: Math.round((1 - cfg.slowFactor) * 100), sec: num(cfg.slowSec) });
+    if (id === 'syrup') return t('infoSyrup', { pct: Math.round((1 - cfg.slowFactor) * 100) });
     if (id === 'fizz') return t('infoFizz');
     if (id === 'syringe') return t('infoSyringe');
     return null;
   }
 
-  /** Тап по карте: если выбрана башня — ставим её в клетку под пальцем. */
+  /** Башня, стоящая в клетке (или null). */
+  private towerAt(col: number, row: number): Tower | null {
+    return this.towers.find((tower) => tower.col === col && tower.row === row) ?? null;
+  }
+
+  /**
+   * Тап по карте. Идёт выбор пары для слияния: по подсвеченной башне — слить, мимо — отмена. Иначе тап по поставленной башне выбирает её
+   * (карточка в панели); по уже выбранной башне с лучом — поворачивает её на 45° (по правой половине — по часовой, по левой — против).
+   * Тап по пустой клетке: если выбрана башня на панели — ставим её; если нет — снимаем выбор башни.
+   */
   private onTap(sx: number, sy: number): void {
-    if (!this.selected) return;
     const world = this.rig.screenToWorld(sx, sy);
     const cell = worldToCell(world.x, world.y);
+    const own = cell ? this.towerAt(cell[0], cell[1]) : null;
+    if (this.mergeMode && this.selectedTower) {
+      if (own && this.mergeCandidates(this.selectedTower).includes(own)) this.doMerge(this.selectedTower, own);
+      else this.cancelMerge();
+      return;
+    }
+    if (own) {
+      if (own === this.selectedTower && own.isBeam) {
+        own.rotateAim(world.x < own.x ? -1 : 1);
+        sfx.rotate();
+        this.refreshCard();
+      } else {
+        this.selectTower(own);
+      }
+      return;
+    }
+    if (!this.selected) {
+      if (this.selectedTower) this.deselectTower();
+      return;
+    }
     if (!cell) {
       this.deny(t('hintCantBuild'));
       return;
     }
     this.tryPlace(this.selected, cell[0], cell[1]);
+  }
+
+  // ---------------------------------------------------------------- выбор башни, слияние, мутации, продажа
+
+  /** Выбрать поставленную башню: золотое кольцо, карточка в панели; выбор башни для постройки на панели снимается. */
+  private selectTower(tower: Tower): void {
+    if (this.selected) {
+      this.selected = null;
+      this.panel.setSelected(null);
+      this.ghost.setVisible(false);
+    }
+    if (this.selectedTower && this.selectedTower !== tower) this.selectedTower.setSelected(false);
+    this.cancelMerge(false);
+    this.selectedTower = tower;
+    tower.setSelected(true);
+    sfx.select();
+    this.refreshCard();
+    this.updateHint();
+  }
+
+  private deselectTower(): void {
+    this.cancelMerge(false);
+    this.selectedTower?.setSelected(false);
+    this.selectedTower = null;
+    this.panel.hideCard();
+    this.updateHint();
+  }
+
+  /** С какими башнями можно слить эту: другие того же вида и уровня (если уровень не высший). */
+  private mergeCandidates(tower: Tower): Tower[] {
+    if (tower.level >= MAX_TOWER_LEVEL) return [];
+    return this.towers.filter((other) => other !== tower && other.id === tower.id && other.level === tower.level);
+  }
+
+  /** Кнопка «Слить» / «Отмена» в карточке. */
+  private toggleMerge(): void {
+    if (this.state !== 'playing' || !this.selectedTower) return;
+    if (this.mergeMode) {
+      this.cancelMerge();
+      return;
+    }
+    const candidates = this.mergeCandidates(this.selectedTower);
+    if (candidates.length === 0) return;
+    this.mergeMode = true;
+    for (const tower of candidates) tower.setMergeCandidate(true);
+    sfx.select();
+    this.refreshCard();
+    this.updateHint();
+  }
+
+  private cancelMerge(update = true): void {
+    if (!this.mergeMode) return;
+    this.mergeMode = false;
+    for (const tower of this.towers) tower.setMergeCandidate(false);
+    if (update) {
+      this.refreshCard();
+      this.updateHint();
+    }
+  }
+
+  /** Слияние: `target` становится уровнем выше (его направление луча и мутации остаются), `source` исчезает, клетка освобождается. Бесплатно. */
+  private doMerge(source: Tower, target: Tower): void {
+    this.merges++;
+    this.cancelMerge(false);
+    this.removeTower(source);
+    target.upgrade();
+    this.effects.merged(target.x, target.y);
+    sfx.merge();
+    this.selectedTower = null;
+    this.selectTower(target);
+    this.panel.toast(t(target.pendingTier !== null ? 'toastPickMutation' : 'toastMerged', { n: target.level }));
+  }
+
+  /** Убирает башню с карты (слияние или продажа): клетка свободна, её очередь луча обрывается. */
+  private removeTower(tower: Tower): void {
+    this.towers = this.towers.filter((other) => other !== tower);
+    this.occupied.delete(cellKey(tower.col, tower.row));
+    this.bursts = this.bursts.filter((burst) => burst.tower !== tower);
+    if (this.selectedTower === tower) {
+      this.selectedTower = null;
+      this.panel.hideCard();
+    }
+    tower.destroy();
+  }
+
+  /** Сколько монет вернёт продажа: доля цены × число обычных башен, «вложенных» в эту (2^(уровень−1)). */
+  private sellValue(tower: Tower): number {
+    return Math.round(tower.cfg.price * 2 ** (tower.level - 1) * CONFIG.economy.sellRefund);
+  }
+
+  private sellSelected(): void {
+    if (this.state !== 'playing' || !this.selectedTower) return;
+    const tower = this.selectedTower;
+    const value = this.sellValue(tower);
+    this.cancelMerge(false);
+    this.coins += value;
+    this.sells++;
+    this.effects.popup(tower.x, tower.y - 30, t('coinsPopup', { n: value }));
+    this.effects.placed(tower.x, tower.y);
+    this.removeTower(tower);
+    sfx.sell();
+    this.panel.setCoins(this.coins);
+    this.panel.toast(t('toastSold', { n: value }));
+    this.updateHint();
+    for (const other of this.towers) other.setMergeCandidate(false);
+  }
+
+  private pickMutation(index: number): void {
+    if (this.state !== 'playing' || !this.selectedTower) return;
+    if (!this.selectedTower.pickMutation(index)) return;
+    this.mutationsPicked++;
+    this.effects.merged(this.selectedTower.x, this.selectedTower.y);
+    sfx.mutation();
+    this.refreshCard();
+  }
+
+  private rotateSelected(dir: 1 | -1): void {
+    if (this.state !== 'playing' || !this.selectedTower?.isBeam) return;
+    this.selectedTower.rotateAim(dir);
+    sfx.rotate();
+    this.refreshCard();
+  }
+
+  /** Числа для карточки: у каждой башни свои три строки. */
+  private cardStats(tower: Tower): string[] {
+    const st = tower.stats;
+    const n = (x: number): string => num(Math.round(x * 10) / 10);
+    const pause = t('statCooldown', { n: n(st.cooldownMs / 1000) });
+    if (st.targeting === 'puddle') return [t('statPuddle', { r: Math.round(st.puddleRadius), s: n(st.puddleSec) }), t('statSlow', { n: n(st.slowFactor) }), pause];
+    if (st.targeting === 'beam') return [t('statDamage', { n: n(st.damage) }), t(st.secondBeam ? 'statBeams' : 'statBeam', { n: st.secondBeam ? 2 : st.beamPulses }), pause];
+    if (st.targeting === 'area') return [t('statDamage', { n: n(st.damage) }), t('statBlast', { r: Math.round(st.blastRadius) }), pause];
+    return [t('statDamage', { n: n(st.damage) }), pause, t('statRange', { n: Math.round(st.range) })];
+  }
+
+  /** Перерисовать карточку выбранной башни (или скрыть, если башня не выбрана). */
+  private refreshCard(): void {
+    const tower = this.selectedTower;
+    if (!tower) {
+      this.panel.hideCard();
+      return;
+    }
+    const label = (id: string): { name: string; desc: string } => {
+      const key = id.charAt(0).toUpperCase() + id.slice(1);
+      return { name: t(`mut${key}` as TextKey), desc: t(`mutd${key}` as TextKey) };
+    };
+    const tier = tower.pendingTier;
+    const merge = tower.level >= MAX_TOWER_LEVEL ? 'max' : this.mergeMode ? 'active' : this.mergeCandidates(tower).length > 0 ? 'ready' : 'none';
+    this.panel.showCard({
+      name: t(`tower${tower.id.charAt(0).toUpperCase()}${tower.id.slice(1)}` as TextKey),
+      level: tower.level,
+      maxLevel: MAX_TOWER_LEVEL,
+      stats: this.cardStats(tower),
+      pending: tier === null ? null : mutationOptions(tower.id, tier).map((m) => label(m.id)),
+      picked: tower.picks.map(label),
+      beam: tower.isBeam,
+      merge,
+      sell: this.sellValue(tower),
+    });
   }
 
   private tryPlace(id: TowerId, col: number, row: number): void {
@@ -506,6 +937,11 @@ export class GameScene extends Phaser.Scene {
     this.placedAny = true;
     this.updateHint();
     this.ghost.setVisible(false);
+    this.refreshCard();
+    if (cfg.targeting === 'beam' && !this.rotateHinted) {
+      this.rotateHinted = true;
+      this.panel.toast(t('hintRotate'), 3200);
+    }
   }
 
   private deny(message: string): void {
@@ -525,9 +961,18 @@ export class GameScene extends Phaser.Scene {
     const half = (CONFIG.map.tile - 6) / 2;
     this.ghost.setPosition(center.x, center.y).setVisible(true);
     this.ghostRange.clear();
-    const range = CONFIG.towers[this.selected].range;
-    this.ghostRange.fillStyle(COLORS.ghost, 0.1).fillCircle(0, 0, range);
-    this.ghostRange.lineStyle(2.5, COLORS.ghostEdge, 1).strokeCircle(0, 0, range);
+    this.ghostAim.clear();
+    const cfg = CONFIG.towers[this.selected];
+    if (cfg.targeting === 'beam') {
+      // Луч: вместо круга радиуса — пунктир по лучшему направлению (так башня встанет, если не поворачивать)
+      const angle = aimAngle(defaultAim(cfg, center.x, center.y));
+      drawAimLine(this.ghostAim, beamReach(center.x, center.y, angle, cfg.beamLengthPx), 0.8);
+      this.ghostAim.setRotation(angle);
+      this.ghostBarrel.setRotation(angle);
+    } else {
+      this.ghostRange.fillStyle(COLORS.ghost, 0.1).fillCircle(0, 0, cfg.range);
+      this.ghostRange.lineStyle(2.5, COLORS.ghostEdge, 1).strokeCircle(0, 0, cfg.range);
+    }
     this.ghostCell.clear();
     this.ghostCell.fillStyle(COLORS.ghost, 0.25).fillRoundedRect(-half, -half, half * 2, half * 2, 10);
     this.ghostCell.lineStyle(3, COLORS.ghostEdge, 1).strokeRoundedRect(-half, -half, half * 2, half * 2, 10);
@@ -535,17 +980,18 @@ export class GameScene extends Phaser.Scene {
 
   private buildGhost(): void {
     this.ghostRange = this.add.graphics();
+    this.ghostAim = this.add.graphics();
     this.ghostCell = this.add.graphics();
     this.ghostArt = this.add.container(0, 0).setAlpha(0.65);
-    createTowerArt(this, this.ghostArt);
-    this.ghost = this.add.container(0, 0, [this.ghostRange, this.ghostCell, this.ghostArt]).setVisible(false);
+    this.ghostBarrel = createTowerArt(this, this.ghostArt);
+    this.ghost = this.add.container(0, 0, [this.ghostRange, this.ghostAim, this.ghostCell, this.ghostArt]).setVisible(false);
     this.ghostLayer.add(this.ghost);
   }
 
   /** «Призрак» рисуется как выбранная башня. */
   private setGhostArt(id: TowerId): void {
     this.ghostArt.removeAll(true);
-    createTowerArt(this, this.ghostArt, id);
+    this.ghostBarrel = createTowerArt(this, this.ghostArt, id);
   }
 
   /** Скорость игры из прошлой партии (браузер запоминает выбор игрока); без хранилища — обычная. */
@@ -617,8 +1063,11 @@ export class GameScene extends Phaser.Scene {
     // Снаряды в полёте не должны «зависать» под экраном конца уровня
     for (const projectile of this.projectiles) projectile.destroy();
     this.projectiles = [];
-    for (const needle of this.needles) needle.destroy();
-    this.needles = [];
+    for (const shot of this.groundShots) shot.destroy();
+    this.groundShots = [];
+    this.bursts = [];
+    this.chains = [];
+    this.deselectTower();
     if (won) sfx.win();
     else sfx.lose();
     this.showOverlay(won ? t('victory') : t('gameOver'), TEXT_COLORS.accent, t('killed', { n: this.kills }), t('tapToRestart'));
@@ -707,7 +1156,36 @@ export class GameScene extends Phaser.Scene {
       },
       camera: { zoom: this.rig.zoom, cx: this.rig.cx, cy: this.rig.cy, zoomMin: CONFIG.camera.zoomMin, zoomMax: CONFIG.camera.zoomMax },
       selected: this.selected,
-      towers: this.towers.map((tw) => ({ id: tw.id, col: tw.col, row: tw.row, x: tw.x, y: tw.y, disabled: tw.isDisabled, remaining: tw.remaining })),
+      towers: this.towers.map((tw) => ({
+        id: tw.id,
+        col: tw.col,
+        row: tw.row,
+        x: tw.x,
+        y: tw.y,
+        disabled: tw.isDisabled,
+        remaining: tw.remaining,
+        aim: tw.aim,
+        level: tw.level,
+        picks: [...tw.picks],
+        pending: tw.pendingTier,
+        stats: {
+          damage: tw.stats.damage,
+          cooldownMs: tw.stats.cooldownMs,
+          range: tw.stats.range,
+          beamPulses: tw.stats.beamPulses,
+          blastRadius: tw.stats.blastRadius,
+          puddleRadius: tw.stats.puddleRadius,
+          slowFactor: tw.stats.slowFactor,
+        },
+      })),
+      selectedTower: this.selectedTower ? { col: this.selectedTower.col, row: this.selectedTower.row } : null,
+      mergeMode: this.mergeMode,
+      maxTowerLevel: MAX_TOWER_LEVEL,
+      merges: this.merges,
+      sells: this.sells,
+      mutationsPicked: this.mutationsPicked,
+      puddles: this.puddles.map((p) => ({ x: p.x, y: p.y, r: p.radius, left: p.left })),
+      lifePool: this.lifePool,
       bacteria: this.bacteria.map((b) => ({
         id: b.id,
         x: b.x,
@@ -722,7 +1200,7 @@ export class GameScene extends Phaser.Scene {
         slowed: b.slowed,
         remaining: b.remaining,
       })),
-      projectiles: this.projectiles.length + this.needles.length,
+      projectiles: this.projectiles.length + this.groundShots.length + this.bursts.length,
       ui: this.panel.geometry(),
       pointerListeners: this.input.listenerCount('pointerdown'),
       effects: {
@@ -733,6 +1211,8 @@ export class GameScene extends Phaser.Scene {
         lifeLosses: this.effects.lifeLosses,
         zaps: this.effects.zaps,
         blasts: this.effects.blasts,
+        beams: this.effects.beams,
+        splats: this.effects.splats,
       },
       sound: { state: sfx.state, played: sfx.played },
     };

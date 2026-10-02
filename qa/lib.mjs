@@ -152,7 +152,18 @@ export function readLevel() {
   };
 }
 
-/** Состав волн из src/config.ts (waves.list): массив строк {coccus, rod, splitter, armored, spore}. */
+/** Все типы бактерий из таблицы `types` в src/config.ts — ключи в порядке строк таблицы (в этом же порядке игра выпускает новые типы в волне). */
+export function readKinds() {
+  const src = readSource('src/config.ts');
+  const from = src.indexOf('types: {', src.indexOf('ТИПЫ БАКТЕРИЙ'));
+  if (from < 0) throw new Error('В config.ts нет таблицы типов бактерий (types)');
+  const to = src.indexOf('\n  },', from);
+  const kinds = [...src.slice(from, to).matchAll(/^\s{4}(\w+):\s*\{\s*hp:/gm)].map((m) => m[1]);
+  if (!kinds.length) throw new Error('В таблице types config.ts не нашёл ни одного типа бактерий');
+  return kinds;
+}
+
+/** Состав волн из src/config.ts (waves.list): массив строк {тип: сколько}; в строке только те типы, что есть в ней в таблице (в начале таблицы строки короткие). */
 export function readWaveList() {
   const src = readSource('src/config.ts');
   const from = src.indexOf('list: [', src.indexOf('waves:'));

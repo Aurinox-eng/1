@@ -34,7 +34,7 @@ export interface DebugSnapshot {
   /** Сколько бактерий дошло до организма. */
   leaked: number;
   /** Какие типы бактерий уже появлялись (в порядке появления); сколько делящихся распалось; сколько раз спора заглушила башню;
-   *  сколько раз «Сироп» замедлил бактерию. */
+   *  сколько бактерий «Сироп» (лужа) замедлил. */
   introduced: string[];
   splits: number;
   disables: number;
@@ -56,8 +56,36 @@ export interface DebugSnapshot {
   camera: { zoom: number; cx: number; cy: number; zoomMin: number; zoomMax: number };
   /** Выбрана ли башня на панели (её название) и цена. */
   selected: string | null;
-  /** Поставленные башни: клетка и центр в пикселях мира; заглушена ли (спорой); расстояние до организма по дорожкам (для «вперёд/назад»). */
-  towers: { id: string; col: number; row: number; x: number; y: number; disabled: boolean; remaining: number }[];
+  /** Поставленные башни: клетка и центр в пикселях мира; заглушена ли (спорой); расстояние до организма по дорожкам (для «вперёд/назад»);
+   *  aim — номер направления луча 0…7 (0 — вправо, дальше по часовой стрелке; у башен без луча всегда 0);
+   *  level — уровень (слияние), picks — выбранные мутации (id), pending — какой порог мутации ждёт выбора (0/1) или null,
+   *  stats — итоговые числа (урон, пауза мс, радиус, ударов в очереди) с учётом уровня и мутаций. */
+  towers: {
+    id: string;
+    col: number;
+    row: number;
+    x: number;
+    y: number;
+    disabled: boolean;
+    remaining: number;
+    aim: number;
+    level: number;
+    picks: string[];
+    pending: number | null;
+    stats: { damage: number; cooldownMs: number; range: number; beamPulses: number; blastRadius: number; puddleRadius: number; slowFactor: number };
+  }[];
+  /** Выбранная на карте башня (клетка), идёт ли режим выбора пары для слияния, сколько слияний, продаж и выборов мутаций было за партию. */
+  selectedTower: { col: number; row: number } | null;
+  mergeMode: boolean;
+  /** Самый высокий уровень башни. */
+  maxTowerLevel: number;
+  merges: number;
+  sells: number;
+  mutationsPicked: number;
+  /** Лужи сиропа на дорожках: центр, радиус и сколько секунд ещё живёт. */
+  puddles: { x: number; y: number; r: number; left: number }[];
+  /** Накопленный, но ещё не списанный урон по жизням от «дробных» бактерий (рой: 0,25 за штуку); при 1 списывается целая жизнь. */
+  lifePool: number;
   /** Бактерии: центр в пикселях мира, радиус, номер ребра дорожки и пройденный по нему путь, идёт ли рывок, замедлена ли («Сироп»),
    *  сколько пикселей осталось до организма по самому короткому пути. */
   bacteria: {
@@ -74,7 +102,7 @@ export interface DebugSnapshot {
     slowed: boolean;
     remaining: number;
   }[];
-  /** Снаряды и иглы в полёте. */
+  /** Снаряды, капли сиропа и очереди луча в полёте. */
   projectiles: number;
   /** Где на экране игры кнопки панели (центры) и сколько жизней нарисовано: towerButton — первая башня (Таблетка), towerButtons — все. */
   ui: {
@@ -84,12 +112,22 @@ export interface DebugSnapshot {
     /** Кнопка скорости (×1/×2/×3) и кнопка «Начать волну» (visible — видна ли сейчас, bonus — сколько монет даст досрочный вызов). */
     speedButton: { x: number; y: number };
     waveButton: { x: number; y: number; w: number; h: number; visible: boolean; bonus: number };
+    /** Карточка выбранной башни: видна ли и где её кнопки (центры и размеры на экране игры). */
+    card: {
+      visible: boolean;
+      merge: { x: number; y: number; w: number; h: number; enabled: boolean };
+      sell: { x: number; y: number; w: number; h: number };
+      picks: { x: number; y: number; w: number; h: number; visible: boolean }[];
+      rotateLeft: { x: number; y: number; w: number; h: number; visible: boolean };
+      rotateRight: { x: number; y: number; w: number; h: number; visible: boolean };
+      close: { x: number; y: number; w: number; h: number };
+    };
     lives: number;
   };
   /** Сколько обработчиков нажатия навешено на сцену (при перезапуске не должно расти — иначе утечка). */
   pointerListeners: number;
-  /** Сколько раз сработали вспышка, частицы, «+монеты», кольцо постановки, красная вспышка потери жизни, кольцо глушения башни и взрыв шипучки. */
-  effects: { flashes: number; bursts: number; popups: number; placements: number; lifeLosses: number; zaps: number; blasts: number };
+  /** Сколько раз сработали вспышка, частицы, «+монеты», кольцо постановки, красная вспышка потери жизни, кольцо глушения башни, взрыв шипучки, удар луча шприца и всплеск лужи. */
+  effects: { flashes: number; bursts: number; popups: number; placements: number; lifeLosses: number; zaps: number; blasts: number; beams: number; splats: number };
   /** Звук: состояние аудио («running» — играет) и сколько звуков сыграно с загрузки страницы. */
   sound: { state: string; played: number };
 }

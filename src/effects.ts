@@ -20,6 +20,8 @@ export class Effects {
   lifeLosses = 0;
   zaps = 0;
   blasts = 0;
+  beams = 0;
+  splats = 0;
 
   constructor(
     private readonly scene: Phaser.Scene,
@@ -90,6 +92,29 @@ export class Effects {
     this.scene.tweens.add({ targets: ring, scale: 2.4, alpha: 0, duration: 380, onComplete: () => ring.destroy() });
   }
 
+  /** Слияние или выбор мутации: золотое кольцо и искры расходятся от башни. */
+  merged(x: number, y: number): void {
+    this.placements++;
+    const ring = this.scene.add.circle(x, y, 44).setStrokeStyle(6, COLORS.gold, 1).setFillStyle();
+    this.layer.add(ring);
+    this.scene.tweens.add({ targets: ring, scale: 2.8, alpha: 0, duration: 460, onComplete: () => ring.destroy() });
+    for (let i = 0; i < 10; i++) {
+      const angle = (Math.PI * 2 * i) / 10;
+      const spark = this.scene.add.circle(x, y, 5, i % 2 === 0 ? COLORS.gold : COLORS.merge);
+      this.layer.add(spark);
+      this.scene.tweens.add({
+        targets: spark,
+        x: x + Math.cos(angle) * 90,
+        y: y + Math.sin(angle) * 90,
+        alpha: 0,
+        scale: 0.3,
+        duration: 480,
+        ease: 'Cubic.easeOut',
+        onComplete: () => spark.destroy(),
+      });
+    }
+  }
+
   /** Взрыв шипучки: розовый круг радиуса взрыва вспыхивает и гаснет, по его краю расходится кольцо. */
   blast(x: number, y: number, radius: number): void {
     this.blasts++;
@@ -98,6 +123,25 @@ export class Effects {
     this.layer.add([disc, ring]);
     this.scene.tweens.add({ targets: disc, scale: 1.12, alpha: 0, duration: 320, onComplete: () => disc.destroy() });
     this.scene.tweens.add({ targets: ring, scale: 1.25, alpha: 0, duration: 380, onComplete: () => ring.destroy() });
+  }
+
+  /** Удар луча шприца: яркая бирюзовая линия от башни на длину луча быстро гаснет. */
+  beam(x: number, y: number, angle: number, length: number): void {
+    this.beams++;
+    const line = this.scene.add.graphics().setBlendMode(Phaser.BlendModes.ADD);
+    line.lineStyle(14, COLORS.needle, 0.35).lineBetween(0, 0, length, 0);
+    line.lineStyle(5, 0xffffff, 0.95).lineBetween(0, 0, length, 0);
+    line.setPosition(x, y).setRotation(angle);
+    this.layer.add(line);
+    this.scene.tweens.add({ targets: line, alpha: 0, duration: 200, onComplete: () => line.destroy() });
+  }
+
+  /** Лужа сиропа шлёпнулась на дорожку: оранжевое кольцо расходится от места падения. */
+  splat(x: number, y: number, radius: number): void {
+    this.splats++;
+    const ring = this.scene.add.circle(x, y, radius * 0.6).setStrokeStyle(5, COLORS.puddle, 1).setFillStyle();
+    this.layer.add(ring);
+    this.scene.tweens.add({ targets: ring, scale: 1.7, alpha: 0, duration: 340, onComplete: () => ring.destroy() });
   }
 
   /** Спора заглушила башню: красное кольцо расходится от башни. */
