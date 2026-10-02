@@ -29,6 +29,35 @@ import { applyConfigOverrides } from './debug';
 export type Targeting = 'radius' | 'area' | 'puddle' | 'beam';
 /** Все типы бактерий (ключи таблицы `types`; нужен для таблицы волн — она описана раньше, чем сам список типов). */
 export type KindId = 'coccus' | 'rod' | 'splitter' | 'armored' | 'spore' | 'swarm' | 'runner' | 'healer' | 'slick' | 'regen' | 'commander' | 'brood' | 'giant';
+/**
+ * Мутация башни (выбор на уровнях 2 и 4): заплатка к числам башни. Все поля необязательны, пропущенное — «не меняет».
+ *  damageMul, cooldownMul, blastMul, puddleRadiusMul — множители урона, паузы, радиуса взрыва, радиуса лужи;
+ *  slowFactor — замедление в луже (меньше — сильнее; берётся меньшее из текущего и этого);
+ *  pulsesAdd — ударов в очереди луча сверх текущих;
+ *  armorPierce — удар игнорирует броню; extraTargets — сколько ещё целей бьёт за выстрел; toughest — бьёт самую прочную цель в радиусе;
+ *  poisonPerSec — лужа жжёт всех в ней на столько HP в секунду; puddleCount — сколько луж за выстрел;
+ *  chain — после взрыва второй (радиус ×0,7, урон ×0,6) на ближайшей бактерии; acidSec, acidMul — задетые получают acidMul× урона acidSec секунд;
+ *  secondBeam — второй луч под 90° к первому; spiral — каждый следующий удар очереди сильнее на столько урона.
+ */
+export interface MutationSpec {
+  id: string;
+  damageMul?: number;
+  cooldownMul?: number;
+  blastMul?: number;
+  puddleRadiusMul?: number;
+  slowFactor?: number;
+  pulsesAdd?: number;
+  armorPierce?: boolean;
+  extraTargets?: number;
+  toughest?: boolean;
+  poisonPerSec?: number;
+  puddleCount?: number;
+  chain?: boolean;
+  acidSec?: number;
+  acidMul?: number;
+  secondBeam?: boolean;
+  spiral?: number;
+}
 /** Куда смотрит башня: любых в радиусе, только «вперёд» (ещё не дошли до башни) или только «назад» (уже прошли). */
 export type TowerSide = 'both' | 'forward' | 'back';
 
@@ -198,6 +227,46 @@ export const CONFIG = {
       beamHalfWidthPx: 10,
     },
   },
+
+  // ------------------------------------------------------------
+  //  УРОВНИ БАШЕН И МУТАЦИИ (этап 4: слияние)
+  // ------------------------------------------------------------
+  //  Две одинаковые башни одного уровня сливаются в одну уровнем выше (бесплатно; результат — в клетке, по которой тапнули вторым). Уровней столько,
+  //  сколько строк в `towerLevels`. Башня уровня L стоит (для продажи) цены × 2^(L−1): в неё «вложено» столько обычных башен.
+  //  Колонки строки уровня:
+  //   damageMul     — множитель урона (у Сиропа урона нет: вместо него растут лужа и замедление, см. ниже)
+  //   cooldownMul   — множитель паузы между выстрелами (меньше — быстрее)
+  //   reachMul      — множитель радиуса стрельбы, радиуса взрыва и радиуса лужи
+  //   pulsesAdd     — ударов в очереди луча (Шприц) сверх обычных
+  //   slowPower     — замедление лужи Сиропа возводится в эту степень (1 — как у уровня 1; больше — сильнее: 0.4 → 0.4^1.25 ≈ 0.32)
+  //   puddleSecMul  — множитель времени жизни лужи
+  towerLevels: [
+    { damageMul: 1, cooldownMul: 1, reachMul: 1, pulsesAdd: 0, slowPower: 1, puddleSecMul: 1 },
+    { damageMul: 2.2, cooldownMul: 0.91, reachMul: 1.05, pulsesAdd: 0, slowPower: 1.25, puddleSecMul: 1.25 },
+    { damageMul: 4.8, cooldownMul: 0.83, reachMul: 1.1, pulsesAdd: 1, slowPower: 1.5, puddleSecMul: 1.5 },
+    { damageMul: 10.5, cooldownMul: 0.77, reachMul: 1.15, pulsesAdd: 2, slowPower: 1.75, puddleSecMul: 1.75 },
+  ],
+  /** Уровни, на которых башня получает выбор мутации (по одному выбору на каждый порог; выбор бесплатный и окончательный). */
+  mutationLevels: [2, 4] as number[],
+  /** Мутации по башням: для каждой башни — список порогов (по порядку mutationLevels), в каждом два варианта на выбор. */
+  mutations: {
+    pill: [
+      [{ id: 'pillRapid', cooldownMul: 0.65 }, { id: 'pillPierce', armorPierce: true }],
+      [{ id: 'pillDouble', extraTargets: 1 }, { id: 'pillHunter', toughest: true, damageMul: 1.5 }],
+    ],
+    syrup: [
+      [{ id: 'syrupSticky', slowFactor: 0.25 }, { id: 'syrupWide', puddleRadiusMul: 1.6 }],
+      [{ id: 'syrupCaustic', poisonPerSec: 1.5 }, { id: 'syrupTwin', puddleCount: 2 }],
+    ],
+    fizz: [
+      [{ id: 'fizzBig', blastMul: 1.5 }, { id: 'fizzFast', cooldownMul: 0.65 }],
+      [{ id: 'fizzChain', chain: true }, { id: 'fizzAcid', acidSec: 3, acidMul: 1.5 }],
+    ],
+    syringe: [
+      [{ id: 'syringeMore', pulsesAdd: 2 }, { id: 'syringePierce', damageMul: 1.5, armorPierce: true }],
+      [{ id: 'syringeTwin', secondBeam: true }, { id: 'syringeSpiral', spiral: 1 }],
+    ],
+  } as Record<string, MutationSpec[][]>,
 
   // ------------------------------------------------------------
   //  ТИПЫ БАКТЕРИЙ (таблица: одна строка — один тип)

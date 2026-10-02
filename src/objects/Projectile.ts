@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { COLORS } from '../theme';
+import type { TowerStats } from '../towerStats';
 import type { Bacterium } from './Bacterium';
 import type { TowerId } from './Tower';
 
@@ -37,6 +38,8 @@ export class Projectile {
     /** Какая башня выстрелила: по ней сцена берёт урон, замедление и взрыв из таблицы `towers`. */
     readonly towerId: TowerId,
     private readonly speed: number,
+    /** Числа башни на момент выстрела (уровень и мутации): снаряд в полёте не меняется, даже если башню слили или продали. */
+    readonly stats: TowerStats,
   ) {
     this.x = x;
     this.y = y;

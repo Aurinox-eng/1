@@ -21,10 +21,12 @@ export class Puddle {
     /** Замедление в луже: во сколько раз медленнее и сколько секунд держится после выхода из неё. */
     readonly slowFactor: number,
     readonly slowSec: number,
+    /** Яд (мутация «Едкая»): сколько HP в секунду теряют все в луже; 0 — лужа не жжёт. */
+    readonly poison = 0,
   ) {
     this.left = seconds;
     const g = scene.add.graphics();
-    g.fillStyle(COLORS.puddle, 0.42).fillCircle(0, 0, radius);
+    g.fillStyle(poison > 0 ? COLORS.acid : COLORS.puddle, 0.42).fillCircle(0, 0, radius);
     g.fillStyle(0xffd08a, 0.28).fillCircle(-radius * 0.15, -radius * 0.1, radius * 0.7);
     g.lineStyle(3, 0xffc070, 0.95).strokeCircle(0, 0, radius);
     // пузырьки: фиксированные по месту, чтобы пятно выглядело «липким»

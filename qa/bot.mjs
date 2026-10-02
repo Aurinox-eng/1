@@ -74,6 +74,9 @@ const AIM_STEPS = 8; // «Шприц»: сколько направлений л
 const BEAM_MARGIN_PX = 22; // «Шприц»: насколько дальше полуширины луча от линии выстрела может лежать середина дорожки, чтобы луч её задел (как в игре)
 const MERGE_ZONE_PX = 170; // «Шипучка»: участки дорожки ближе этого к узлу слияния считаются «кучей»
 const MERGE_FACTOR = 2; // … и ценятся вдвое
+const MERGE_UP_TO = { novice: -1, average: -1, strong: 1, expert: 99 }; // башни какого уровня и ниже профиль сливает (−1 — не сливает совсем): «сильный» — только пары первого уровня, «особо сильный» — всё
+// Какую мутацию выбирает профиль (номер варианта 0/1 по порогам): «сильный» всегда первую; «особо сильный» — по таблице (Сироп — «Едкая» в конце, чтобы лужа ещё и убивала; Шприц — «Бронебойный», затем «Второй луч»)
+const MUTATION_PICKS = { strong: { default: [0, 0] }, expert: { pill: [0, 0], syrup: [0, 0], fizz: [0, 0], syringe: [1, 0] } };
 const STALL_SEC = 30; // игровое время не идёт столько реальных секунд подряд — партия зависла
 
 const NAMES = { pill: 'Таблетка', syrup: 'Сироп', fizz: 'Шипучка', syringe: 'Шприц' };
@@ -569,7 +572,7 @@ async function playGame(browser, baseUrl, profile, run) {
     }
 
     // 2) поставить башню: кнопка на панели (если не выбрана), при необходимости сдвинуть карту, тап по клетке; проверка по состоянию
-    const record = { builds: [], failures: [], anomalies: [], spent: 0 };
+    const record = { builds: [], failures: [], anomalies: [], spent: 0, merges: 0, picks: 0 };
     const ensureVisible = async (col, row) => {
       for (let k = 0; k < 3; k++) {
         const g = c2g(await cellPos(col, row));
@@ -581,23 +584,96 @@ async function playGame(browser, baseUrl, profile, run) {
       }
       return false;
     };
-    /** «Особо сильный» после постановки Шприца поворачивает его (тап по башне — шаг 45°) на лучшее направление луча. */
+    const clickCard = async (rect) => {
+      await input.tap(g2c(rect.x, rect.y));
+      await sleep(120);
+    };
+    /** Выбирает поставленную башню тапом по клетке (если она уже выбрана — ничего не делает: повторный тап по Шприцу повернул бы его). Возвращает состояние или null. */
+    const selectTower = async (tw) => {
+      const st = await getState(page);
+      if (st.selectedTower && st.selectedTower.col === tw.col && st.selectedTower.row === tw.row) return st;
+      if (!(await ensureVisible(tw.col, tw.row))) return null;
+      await input.tap(await cellPos(tw.col, tw.row));
+      const after = await pollUntil(page, (x) => (x.selectedTower?.col === tw.col && x.selectedTower?.row === tw.row) || x.state !== 'playing', 1000);
+      return after.selectedTower ? after : null;
+    };
+    /** «Особо сильный» после постановки Шприца выбирает его и поворачивает кнопками-стрелками карточки (на 45° влево/вправо) на лучшее направление луча. */
     const aimTower = async (st, tower, cell) => {
       const others = st.towers.filter((tw) => !(tw.col === cell.col && tw.row === cell.row));
       const best = WORLD.bestAim(tower.id, cell, true, WORLD.coverCounts(others));
-      // тап по правой половине башни — на 45° по часовой, по левой — против: идём в ту сторону, где шагов меньше
       const cw = (best.dir - tower.aim + AIM_STEPS) % AIM_STEPS;
       const steps = Math.min(cw, AIM_STEPS - cw);
-      const side = cw <= AIM_STEPS - cw ? 1 : -1;
-      for (let k = 0; k < steps; k++) {
-        const c = await cellPos(cell.col, cell.row);
-        await input.tap({ x: c.x + side * 8, y: c.y });
-        await sleep(60);
-      }
       if (steps === 0) return;
+      const sel = await selectTower(tower);
+      const card = sel?.ui.card;
+      const button = cw <= AIM_STEPS - cw ? card?.rotateRight : card?.rotateLeft;
+      if (!button?.visible) {
+        record.anomalies.push(`Шприц в ${cell.key}: кнопок поворота в карточке нет`);
+        return;
+      }
+      for (let k = 0; k < steps; k++) await clickCard(button);
       const after = await pollUntil(page, (x) => x.towers.find((tw) => tw.col === cell.col && tw.row === cell.row)?.aim === best.dir || x.state !== 'playing', 1500);
       const now = after.towers.find((tw) => tw.col === cell.col && tw.row === cell.row);
       if (after.state === 'playing' && now?.aim !== best.dir) record.anomalies.push(`Шприц в ${cell.key}: ждали направление ${best.dir}, в игре ${now?.aim}`);
+    };
+    /** Выбирает мутацию для башни, которая её ждёт (tw.pending — номер порога): выбирает башню, жмёт кнопку варианта в карточке. */
+    const pickMutation = async (tw) => {
+      const table = MUTATION_PICKS[profile];
+      const index = table ? (table[tw.id] ?? table.default)?.[tw.pending] : undefined;
+      if (index === undefined) return false;
+      const sel = await selectTower(tw);
+      const rect = sel?.ui.card.visible ? sel.ui.card.picks[index] : null;
+      if (!rect?.visible) return false;
+      const before = sel.mutationsPicked;
+      await clickCard(rect);
+      const after = await pollUntil(page, (x) => x.mutationsPicked > before || x.state !== 'playing', 1000);
+      if (after.mutationsPicked > before) {
+        record.picks++;
+        return true;
+      }
+      record.anomalies.push(`мутация в ${tw.col},${tw.row}: кнопка варианта ${index} не сработала`);
+      return false;
+    };
+    /** Одно слияние: берёт пару одинаковых башен (вид и уровень не выше предела профиля), выбирает первую («Слить»), тапает по второй (у неё остаются мутации). Возвращает true, если слилось. */
+    const mergeOnce = async (s0) => {
+      const limit = MERGE_UP_TO[profile];
+      if (limit < 1) return false;
+      const groups = new Map();
+      for (const tw of s0.towers) {
+        if (tw.level > limit || tw.level >= s0.maxTowerLevel) continue;
+        const key = `${tw.id}|${tw.level}`;
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(tw);
+      }
+      for (const list of groups.values()) {
+        if (list.length < 2) continue;
+        list.sort((a, b) => b.picks.length - a.picks.length);
+        const [target, source] = [list[0], list[1]];
+        let st = await selectTower(source);
+        if (!st || !st.ui.card.merge.enabled) return false;
+        await clickCard(st.ui.card.merge);
+        st = await pollUntil(page, (x) => x.mergeMode || x.state !== 'playing', 800);
+        if (!st.mergeMode) {
+          record.anomalies.push(`слияние не включилось (${source.id} ${source.col},${source.row})`);
+          return false;
+        }
+        const before = st.merges;
+        if (!(await ensureVisible(target.col, target.row))) {
+          await clickCard(st.ui.card.merge); // отмена: вторая башня не видна на экране
+          return false;
+        }
+        await input.tap(await cellPos(target.col, target.row));
+        st = await pollUntil(page, (x) => x.merges > before || x.state !== 'playing', 1200);
+        if (st.merges > before) {
+          record.merges++;
+          const tw = st.towers.find((x) => x.col === target.col && x.row === target.row);
+          if (tw && tw.pending !== null) await pickMutation(tw);
+          return true;
+        }
+        record.anomalies.push(`слияние не удалось: ${source.id} ${source.col},${source.row} → ${target.col},${target.row}`);
+        return false;
+      }
+      return false;
     };
     const buy = async (choice) => {
       const { type, cell } = choice;
@@ -691,6 +767,17 @@ async function playGame(browser, baseUrl, profile, run) {
 
       if (s.state === 'playing' && s.elapsed >= nextDecisionAt) {
         const decisionStart = s.elapsed; // следующее решение — через 2 игровые секунды ОТ НАЧАЛА этого (тап тоже занимает время)
+        // Слияния и мутации (бесплатные) — раньше покупок: сначала башни, ждущие выбора мутации, потом одно слияние
+        const waiting = s.towers.find((tw) => tw.pending !== null);
+        if (waiting && (await pickMutation(waiting))) {
+          nextDecisionAt = decisionStart + DECIDE_EVERY[profile];
+          continue;
+        }
+        if (await mergeOnce(s)) {
+          nextDecisionAt = decisionStart + DECIDE_EVERY[profile];
+          continue;
+        }
+        s = await getState(page);
         for (let attempt = 0; attempt < 3; attempt++) {
           const occupied = new Set(s.towers.map((tw) => `${tw.col},${tw.row}`));
           const view = {
@@ -750,6 +837,9 @@ async function playGame(browser, baseUrl, profile, run) {
       gameSec: Math.round(last.elapsed * 10) / 10,
       realSec: Math.round((Date.now() - realStart) / 100) / 10,
       timeline,
+      merges: record.merges,
+      picks: record.picks,
+      levels: last.towers.reduce((acc, tw) => ((acc[tw.level] = (acc[tw.level] ?? 0) + 1), acc), {}),
       builds: record.builds,
       failures: record.failures,
       anomalies: record.anomalies,
@@ -771,7 +861,8 @@ function gameLine(g, runs) {
   const head = `[${PROFILE_TITLES[g.profile]} ${g.run}/${runs}]`;
   if (g.result === 'error') return `${head} ОШИБКА: ${g.error}`;
   const towers = KNOWN_TOWERS.map((id) => `${SHORT[id] ?? id} ${g.towers[id]}`).join(' ');
-  return `${head} ${RESULT_RU[g.result]} · волна ${g.wave}/${g.waveTotal} · жизни ${g.lives}/${g.maxLives} · убито ${g.kills}, дошло ${g.leaked} · монеты ${g.coins} · башни ${towers} · игра ${f1(g.gameSec)} с · реал. ${f1(g.realSec)} с`;
+  const merged = g.merges ? ` · слияний ${g.merges}, мутаций ${g.picks}` : '';
+  return `${head} ${RESULT_RU[g.result]} · волна ${g.wave}/${g.waveTotal} · жизни ${g.lives}/${g.maxLives} · убито ${g.kills}, дошло ${g.leaked} · монеты ${g.coins} · башни ${towers}${merged} · игра ${f1(g.gameSec)} с · реал. ${f1(g.realSec)} с`;
 }
 
 function summarize(games) {

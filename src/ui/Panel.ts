@@ -4,6 +4,7 @@ import { t, type TextKey } from '../i18n';
 import { createTowerArt, type TowerId } from '../objects/Tower';
 import { COLORS, FONT, TEXT_COLORS } from '../theme';
 import { card, drawPlate, panelBackground, roundButton, slot as slotTexture, waveButton as waveButtonTexture } from './panelArt';
+import { TowerCard, type CardGeometry, type CardModel } from './TowerCard';
 
 const { width: W, height: H } = CONFIG.screen;
 const PANEL_W = CONFIG.map.panelW;
@@ -53,6 +54,12 @@ export interface PanelCallbacks {
   onSpeed: () => void;
   /** Тап по кнопке «Начать волну». */
   onWave: () => void;
+  /** Кнопки карточки выбранной башни: слить, продать, выбрать мутацию (0/1), повернуть луч (-1 влево, 1 вправо), закрыть. */
+  onMerge: () => void;
+  onSell: () => void;
+  onPick: (index: number) => void;
+  onRotate: (dir: 1 | -1) => void;
+  onCardClose: () => void;
 }
 
 /**
@@ -78,6 +85,7 @@ export class Panel {
   private readonly toastPlate: Phaser.GameObjects.Graphics;
   private readonly hintText: Phaser.GameObjects.Text;
   private readonly hintPlate: Phaser.GameObjects.Graphics;
+  private readonly card: TowerCard;
   private toastTween: Phaser.Tweens.Tween | null = null;
   private selected: TowerId | null = null;
   private lives = 0;
@@ -123,6 +131,14 @@ export class Panel {
         .setInteractive({ useHandCursor: true })
         .on('pointerdown', () => callbacks.onTower(id));
     });
+
+    // Карточка выбранной башни — поверх кнопок башен (скрыта, пока башня не выбрана)
+    this.card = new TowerCard(
+      scene,
+      { x: SLOT.x, y: SLOT.y0, w: SLOT.w, h: TOWER_IDS.length * SLOT.h + (TOWER_IDS.length - 1) * SLOT.gap },
+      D.item + 3,
+      { onMerge: callbacks.onMerge, onSell: callbacks.onSell, onPick: callbacks.onPick, onRotate: callbacks.onRotate, onClose: callbacks.onCardClose },
+    );
 
     // «Начать волну» (видна, пока идёт отсчёт до волны)
     const wy = WAVE_BTN.y + WAVE_BTN.h / 2;
@@ -217,6 +233,19 @@ export class Panel {
     }
   }
 
+  /** Показать карточку выбранной башни (или обновить её). */
+  showCard(model: CardModel): void {
+    this.card.show(model);
+  }
+
+  hideCard(): void {
+    this.card.hide();
+  }
+
+  get cardVisible(): boolean {
+    return this.card.visible;
+  }
+
   /** Скорость игры на кнопке: «×2»; ускорение подсвечено золотым. */
   setSpeed(n: number): void {
     this.speedText.setText(`×${n}`).setColor(n > 1 ? TEXT_COLORS.accent : TEXT_COLORS.main);
@@ -278,6 +307,7 @@ export class Panel {
     pauseButton: { x: number; y: number };
     speedButton: { x: number; y: number };
     waveButton: { x: number; y: number; w: number; h: number; visible: boolean; bonus: number };
+    card: CardGeometry;
     lives: number;
   } {
     const towerButtons = TOWER_IDS.map((id, i) => {
@@ -291,6 +321,7 @@ export class Panel {
       pauseButton: { x: CX + CTRL.dx, y: CTRL.y },
       speedButton: { x: CX - CTRL.dx, y: CTRL.y },
       waveButton: { x: CX, y: WAVE_BTN.y + WAVE_BTN.h / 2, w: WAVE_BTN.w, h: WAVE_BTN.h, visible: this.waveBtnVisible, bonus: this.waveBtnBonusValue },
+      card: this.card.geometry(),
       lives: this.lives,
     };
   }

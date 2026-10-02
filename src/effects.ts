@@ -92,6 +92,29 @@ export class Effects {
     this.scene.tweens.add({ targets: ring, scale: 2.4, alpha: 0, duration: 380, onComplete: () => ring.destroy() });
   }
 
+  /** Слияние или выбор мутации: золотое кольцо и искры расходятся от башни. */
+  merged(x: number, y: number): void {
+    this.placements++;
+    const ring = this.scene.add.circle(x, y, 44).setStrokeStyle(6, COLORS.gold, 1).setFillStyle();
+    this.layer.add(ring);
+    this.scene.tweens.add({ targets: ring, scale: 2.8, alpha: 0, duration: 460, onComplete: () => ring.destroy() });
+    for (let i = 0; i < 10; i++) {
+      const angle = (Math.PI * 2 * i) / 10;
+      const spark = this.scene.add.circle(x, y, 5, i % 2 === 0 ? COLORS.gold : COLORS.merge);
+      this.layer.add(spark);
+      this.scene.tweens.add({
+        targets: spark,
+        x: x + Math.cos(angle) * 90,
+        y: y + Math.sin(angle) * 90,
+        alpha: 0,
+        scale: 0.3,
+        duration: 480,
+        ease: 'Cubic.easeOut',
+        onComplete: () => spark.destroy(),
+      });
+    }
+  }
+
   /** Взрыв шипучки: розовый круг радиуса взрыва вспыхивает и гаснет, по его краю расходится кольцо. */
   blast(x: number, y: number, radius: number): void {
     this.blasts++;

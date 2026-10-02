@@ -16,7 +16,7 @@ export class GroundShot {
     readonly tx: number,
     readonly ty: number,
     private readonly speed: number,
-    readonly puddle: { radius: number; seconds: number; slowFactor: number; slowSec: number },
+    readonly puddle: { radius: number; seconds: number; slowFactor: number; slowSec: number; poison: number },
   ) {
     this.x = x;
     this.y = y;

@@ -51,6 +51,10 @@ export class Bacterium {
   private slowLeft = 0;
   private slowBy = 1;
   private slowRing: Phaser.GameObjects.Arc | null = null;
+  /** «Кислота» Шипучки: сколько секунд ещё действует и во сколько раз сильнее удары по этой бактерии. */
+  private acidLeft = 0;
+  private acidBy = 1;
+  private acidRing: Phaser.GameObjects.Arc | null = null;
   /** Какое HP показано на теле (перерисовываем при заметном изменении: лечение идёт каждый кадр). */
   private drawnHp: number;
   private readonly scene: Phaser.Scene;
@@ -125,9 +129,29 @@ export class Bacterium {
     this.slowRing.setVisible(true);
   }
 
+  /** Кислота: следующие `seconds` секунд любой удар по бактерии в `mul` раз сильнее (берётся сильнейшая, время продлевается). */
+  expose(mul: number, seconds: number): void {
+    if (mul <= 1 || seconds <= 0 || this.hp <= 0) return;
+    this.acidBy = this.acidLeft > 0 ? Math.max(this.acidBy, mul) : mul;
+    this.acidLeft = Math.max(this.acidLeft, seconds);
+    if (!this.acidRing) {
+      this.acidRing = this.scene.add.circle(0, 0, this.radius + 4).setStrokeStyle(3, COLORS.acid, 0.9).setFillStyle();
+      this.container.add(this.acidRing);
+    }
+    this.acidRing.setVisible(true);
+  }
+
   update(dt: number): void {
     const cfg = CONFIG.types[this.kind];
     let factor = 1;
+    if (this.acidLeft > 0) {
+      this.acidLeft -= dt;
+      if (this.acidLeft <= 0) {
+        this.acidLeft = 0;
+        this.acidBy = 1;
+        this.acidRing?.setVisible(false);
+      }
+    }
     if (this.slowLeft > 0) {
       this.slowLeft -= dt;
       if (this.slowLeft <= 0) {
@@ -152,12 +176,24 @@ export class Bacterium {
     this.advance(this.baseSpeed * factor * this.haste * dt);
   }
 
-  /** Попадание. Броня вычитается из удара (но не меньше доли `combat.armorMinShare`). Возвращает true, если бактерия уничтожена. */
-  hit(damage: number): boolean {
+  /**
+   * Попадание. Броня вычитается из удара (но не меньше доли `combat.armorMinShare`); `pierce` — удар игнорирует броню (мутации).
+   * Под кислотой удар сильнее. Возвращает true, если бактерия уничтожена.
+   */
+  hit(damage: number, pierce = false): boolean {
     const { armor } = CONFIG.types[this.kind];
-    const dealt = armor > 0 ? Math.max(damage * CONFIG.combat.armorMinShare, damage - armor) : damage;
+    const raw = damage * (this.acidLeft > 0 ? this.acidBy : 1);
+    const dealt = armor > 0 && !pierce ? Math.max(raw * CONFIG.combat.armorMinShare, raw - armor) : raw;
     this.hp = Math.max(0, this.hp - dealt);
     this.redraw();
+    return this.hp <= 0;
+  }
+
+  /** Постепенный урон (яд лужи): броню и кислоту не учитывает; тело перерисовывается, когда HP изменилось заметно. Возвращает true, если бактерия погибла. */
+  drain(amount: number): boolean {
+    if (this.hp <= 0) return true;
+    this.hp = Math.max(0, this.hp - amount);
+    if (Math.abs(this.hp - this.drawnHp) >= 0.5 || this.hp <= 0) this.redraw();
     return this.hp <= 0;
   }
 

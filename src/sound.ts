@@ -88,6 +88,30 @@ class Sfx {
     this.tone({ from: 900, to: 1200, ms: 50, type: 'square', gain: 0.25 });
   }
 
+  /** Башню выбрали на карте: короткий тихий «тик». */
+  select(): void {
+    this.tone({ from: 600, to: 760, ms: 45, type: 'triangle', gain: 0.3 });
+  }
+
+  /** Слияние: два тона вверх и «блеск». */
+  merge(): void {
+    this.tone({ from: 440, to: 880, ms: 140, type: 'triangle', gain: 0.8 });
+    this.tone({ from: 880, to: 1320, ms: 160, type: 'triangle', gain: 0.6, delayMs: 90 });
+    this.tone({ from: 1760, to: 2200, ms: 120, type: 'sine', gain: 0.35, delayMs: 180 });
+  }
+
+  /** Выбрана мутация: восходящая трель. */
+  mutation(): void {
+    this.tone({ from: 600, to: 900, ms: 90, type: 'square', gain: 0.3 });
+    this.tone({ from: 900, to: 1400, ms: 130, type: 'square', gain: 0.3, delayMs: 90 });
+  }
+
+  /** Башня продана: «звяк» монет. */
+  sell(): void {
+    this.tone({ from: 1200, to: 1500, ms: 70, type: 'triangle', gain: 0.6 });
+    this.tone({ from: 1600, to: 1900, ms: 90, type: 'triangle', gain: 0.5, delayMs: 70 });
+  }
+
   /** Удар луча шприца: быстрый высокий «вжик» (на каждый удар очереди). */
   zap(): void {
     this.tone({ from: 2200, to: 700, ms: 110, type: 'sawtooth', gain: 0.22 });

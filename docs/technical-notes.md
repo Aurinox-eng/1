@@ -159,6 +159,12 @@ dist/, dist-qa/            результаты сборки (в git нет)
   полуширина `beamHalfWidthPx` плюс 0,7 радиуса бактерии). Попадание — `damageBacterium` → `Bacterium.hit(урон)` (**броня:** урон =
   max(урон·`combat.armorMinShare`, урон − `armor`)). Рисунок башни и снаряда — по `id` (`createTowerArt`, `drawShot`). Новая башня = строка в
   таблице + рисунок + тексты (`towerX`, `tagX`) в `i18n.ts` + строка в `TOWER_TEXT` панели (без неё проект не соберётся).
+- **Уровни, мутации, карточка (этап 4):** итоговые числа башни считает `src/towerStats.ts` (`computeStats(id, level, picks)`: строка таблицы × строка `towerLevels` × мутации из `mutations`) —
+  сцена и башня читают `tower.stats`, а не строку таблицы; снаряд хранит снимок `stats` на момент выстрела. `Tower`: `level`, `picks`, `pendingTier` (какой порог ждёт выбора), `upgrade()`, `pickMutation(i)`,
+  `setSelected`, `setMergeCandidate`; метки на башне — кольцо цвета уровня, точки под ней, золотой «!». `GameScene`: `selectTower/deselectTower`, `mergeCandidates`, `toggleMerge/cancelMerge/doMerge`,
+  `removeTower`, `sellSelected`, `pickMutation`, `refreshCard`; особые мутации: `explode(... chain)` + `updateChains`, `updatePuddles` (яд), `beamPulse` (второй луч, «Спираль»), `Bacterium.expose` («Кислота»),
+  `Bacterium.hit(damage, pierce)` («Бронебойная»). Карточка — `src/ui/TowerCard.ts` (лежит поверх кнопок башен в панели; кнопки-зоны созданы один раз и переносятся). В состоянии для проверок:
+  `towers[].level/picks/pending/stats`, `selectedTower`, `mergeMode`, `maxTowerLevel`, `merges`, `sells`, `mutationsPicked`, `ui.card` (где кнопки «Слить», «Продать», варианты мутаций, стрелки).
 - **Направление луча Шприца:** 8 направлений (`level.AIM_STEPS`, номер 0 — вправо, дальше по часовой стрелке, шаг 45°). При постановке
   `level.bestBeamDirection` выбирает то, где под лучом больше всего дорожки; тап по башне с лучом (`GameScene.onTap`) поворачивает её на
   шаг (`Tower.rotateAim(dir)`: тап по правой половине башни — по часовой, по левой — против; стрелки по бокам рисует `drawTurnArrows`; звук `sfx.rotate`).
