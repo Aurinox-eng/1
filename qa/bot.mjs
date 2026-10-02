@@ -679,6 +679,13 @@ async function playGame(browser, baseUrl, profile, run) {
       const { type, cell } = choice;
       let st = await getState(page);
       if (st.state !== 'playing') return { ok: false, ended: true };
+      // Карточка выбранной башни лежит поверх кнопок башен: сначала закрываем её (крестик), иначе нажатие по кнопке башни попало бы в карточку (например, в «Продать»)
+      if (st.ui.card.visible) {
+        await clickCard(st.ui.card.close);
+        st = await pollUntil(page, (x) => !x.ui.card.visible || x.state !== 'playing', 800);
+        if (st.state !== 'playing') return { ok: false, ended: true };
+        if (st.ui.card.visible) return { ok: false, reason: 'карточка не закрылась' };
+      }
       const before = st.towers.length;
       const coinsBefore = st.coins;
       if (st.selected !== type) {
