@@ -70,6 +70,10 @@
  *   strip                  полоса компактных кнопок над карточкой (ui.towerStrip, ?level=10): видна только при открытой карточке, кнопки только открытых башен (на
  *                          уровне 1 — две), тап по кнопке полосы закрывает карточку и выбирает башню; карточка Шприца уровня 2 с выбором мутации помещается: второй
  *                          вариант выше «Слить», кнопки не налезают друг на друга, на полосу и «Начать волну» и не выходят за панель (компьютер ru, телефон en)
+ *   meta-save              очки ДНК: сохранение в браузере (чтение, повреждённая запись, чужие значения, недоступное хранилище)
+ *   meta-dna               очки ДНК: начисление за проигрыш и победу, один раз за партию, накопление, запись в хранилище
+ *   meta-shop              экран «Улучшения» (компьютер ru, телефон en): переход с экрана конца уровня, покупка, нехватка очков, наибольший уровень, «Играть», тексты
+ *   meta-effects           улучшения в партии: жизни, стартовые монеты, урон башен, награда за бактерий
  *   restart-button         конец уровня (проигрыш и победа, компьютер ru и телефон en): есть кнопка «Заново» (endButton), тапы мимо неё не перезапускают, тап по ней — перезапускает
  *   deflation              economy.rewardMul: ×0,5 — два кокка номиналом 5 дают 2 + 3 = 5 монет (дробная часть копится); ×0,1 — 0 + 1, «+N» всплывает только при N ≥ 1
  *   camera-fit             самое сильное отдаление (считает игра, ≈ 0,499): высота карты × масштаб ≤ 720,5, ширина влезает, камера по центру и сдвигом не уводится
@@ -126,7 +130,7 @@ if (['stage-1', 'stage-1b', 'stage-1b-qa', 'td-1-mockup', 'tmp'].includes(tag)) 
   process.exit(2);
 }
 
-const SCENARIOS = ['desktop-ru', 'phone-ru', 'desktop-en', 'phone-en', 'rules', 'graph', 'combat', 'dash', 'split', 'spore', 'armored', 'intro', 'lose-ru', 'lose-en', 'win-ru', 'win-en', 'towers', 'card', 'merge', 'mutations', 'sell', 'special', 'danger', 'rotate', 'production', 'fullgame', 'plaques', 'locked', 'strip', 'restart-button', 'deflation', 'camera-fit', 'colors']
+const SCENARIOS = ['desktop-ru', 'phone-ru', 'desktop-en', 'phone-en', 'rules', 'graph', 'combat', 'dash', 'split', 'spore', 'armored', 'intro', 'lose-ru', 'lose-en', 'win-ru', 'win-en', 'towers', 'card', 'merge', 'mutations', 'sell', 'special', 'danger', 'rotate', 'production', 'fullgame', 'plaques', 'locked', 'strip', 'restart-button', 'deflation', 'camera-fit', 'colors', 'meta-save', 'meta-dna', 'meta-shop', 'meta-effects']
 const only = args.only === undefined ? null : String(args.only);
 if (only !== null && !SCENARIOS.includes(only)) {
   console.error(`Неизвестный сценарий --only=${only}. Есть: ${SCENARIOS.join(', ')}`);
@@ -5123,17 +5127,175 @@ async function runRestartButton(browser, baseUrl) {
       await frames(game.page, 3);
       await shot(game.page, `restart-${deviceKey}-${lang}-${outcome}`);
       const b = s.endButton;
-      const misses = [game.g(b.x, b.y - b.h / 2 - 40), game.g(b.x + b.w / 2 + 60, b.y), game.g(200, 120), game.g(1180, 650)];
+      const misses = [game.g(b.x, b.y - b.h / 2 - 40), game.g(b.x - b.w / 2 - 60, b.y), game.g(200, 120), game.g(1180, 650)]; // справа от «Заново» лежит кнопка «Улучшения» (этап 6а), поэтому промах — слева
       for (const pt of misses) await game.input.tap(pt);
       await sleep(500);
       s = await game.state();
-      check(`${q} тапы мимо кнопки (над ней, справа, в углах экрана) уровень не перезапускают`, s.state === outcome, `состояние ${s.state}`);
+      check(`${q} тапы мимо кнопки (над ней, слева, в углах экрана) уровень не перезапускают`, s.state === outcome, `состояние ${s.state}`);
       await tapToRestart(game);
       s = await waitFor(game.page, (x) => x.state === 'playing' && x.elapsed < 2, 5000, 'перезапуск кнопкой').catch(() => null);
       check(`${q} тап по кнопке «Заново» перезапускает уровень (волна 0, башен нет, монеты стартовые)`, s !== null && s.wave === 0 && s.towers.length === 0 && s.endButton === null && s.coins === (outcome === 'won' ? 500 : CFG.startCoins), s ? `волна ${s.wave}, башен ${s.towers.length}, монеты ${s.coins}, endButton ${JSON.stringify(s.endButton)}` : 'не перезапустилась');
       await ctx.close();
     }
   }
+}
+
+// ================================================================== очки ДНК и улучшения вне партии (этап 6а, docs/upgrades.md)
+
+const metaOf = (page) => page.evaluate(() => window.__pvbMeta?.getMeta());
+const META_LOSE_CFG = 'lives.start:1,waves.firstDelaySec:1,bacteria.baseSpeed:250';
+
+/** Сохранение: чтение, повреждённые и чужие значения, недоступное хранилище. */
+async function runMetaSave(browser, baseUrl) {
+  const p = '[очки ДНК: сохранение]';
+  const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
+  const game = await openGame(context, baseUrl, p, { speed: 1, cfg: 'waves.firstDelaySec:60' });
+  const { page } = game;
+  let m = await metaOf(page);
+  check(`${p} новая игра: 0 очков ДНК, все улучшения на уровне 0`, m.dna === 0 && Object.values(m.levels).every((v) => v === 0), JSON.stringify(m.levels));
+  const reloadWith = async (value) => {
+    await page.evaluate((v) => (v === null ? window.localStorage.removeItem('pvb.meta') : window.localStorage.setItem('pvb.meta', v)), value);
+    await page.reload({ waitUntil: 'load', timeout: 90000 });
+    await waitFor(page, (x) => x.state === 'playing' || x.state === 'info', 20000, 'запуск после перезагрузки');
+    return metaOf(page);
+  };
+  m = await reloadWith(JSON.stringify({ v: 1, dna: 40, levels: { lives: 1, coins: 0, damage: 2, reward: 0 } }));
+  check(`${p} сохранённые очки и уровни читаются после перезагрузки страницы`, m.dna === 40 && m.levels.lives === 1 && m.levels.damage === 2 && m.levels.coins === 0, JSON.stringify(m));
+  m = await reloadWith('это не JSON {');
+  check(`${p} повреждённая запись: игра запускается с нулевым прогрессом`, m.dna === 0 && Object.values(m.levels).every((v) => v === 0), JSON.stringify(m));
+  m = await reloadWith(JSON.stringify({ v: 1, dna: -5, levels: { lives: 99, coins: 'много', damage: 2.7, reward: -1 } }));
+  check(`${p} чужие значения исправляются: очки −5 → 0, уровень 99 → наибольший 2, «много» → 0, 2,7 → 2, −1 → 0`, m.dna === 0 && m.levels.lives === 2 && m.levels.coins === 0 && m.levels.damage === 2 && m.levels.reward === 0, JSON.stringify(m));
+  await context.close();
+
+  // хранилище недоступно: обращение к localStorage бросает ошибку
+  const blocked = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
+  await blocked.addInitScript(() => {
+    Object.defineProperty(window, 'localStorage', { get() { throw new Error('denied'); } });
+  });
+  const g2 = await openGame(blocked, baseUrl, p, { speed: 1, cfg: 'waves.firstDelaySec:60' });
+  m = await metaOf(g2.page);
+  check(`${p} хранилище недоступно: игра запустилась, прогресс нулевой, ошибок нет`, m.dna === 0 && (await g2.state()).state === 'playing', JSON.stringify(m));
+  await blocked.close();
+}
+
+/** Начисление очков: за победу и за проигрыш, один раз за партию, накопление, запись в хранилище. */
+async function runMetaDna(browser, baseUrl) {
+  const p = '[очки ДНК: начисление]';
+  const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
+  const dnaCfg = 'meta.dna.perWave:2,meta.dna.winBonus:7';
+
+  // ---- проигрыш на волне ≥ 2: очки = (достигнутая волна − 1) × perWave
+  const lose = await openGame(context, baseUrl, p, {
+    speed: 4,
+    cfg: `waves.total:3,waves.pauseSec:0.1,waves.firstDelaySec:1,waves.intervalStartSec:1,waves.intervalEndSec:1,waves.list.0.coccus:2,waves.list.1.coccus:2,waves.list.2.coccus:2,lives.start:1,bacteria.baseSpeed:250,${dnaCfg}`,
+  });
+  let s = await waitFor(lose.page, (x) => x.state === 'lost', WAIT_MS, 'проигрыш');
+  const wantLose = (s.wave - 1) * 2;
+  let m = await metaOf(lose.page);
+  check(`${p} проигрыш на волне ${s.wave}: начислено (волна − 1) × 2 = ${wantLose} очков, на счёте столько же`, s.wave >= 2 && s.dnaGained === wantLose && m.dna === wantLose, `волна ${s.wave}, начислено ${s.dnaGained}, на счёте ${m.dna}`);
+  await sleep(1500);
+  m = await metaOf(lose.page);
+  check(`${p} очки за партию начисляются один раз (через 1,5 с на счёте по-прежнему ${wantLose})`, m.dna === wantLose, `на счёте ${m.dna}`);
+  const stored = await lose.page.evaluate(() => JSON.parse(window.localStorage.getItem('pvb.meta') ?? 'null'));
+  check(`${p} очки записаны в хранилище браузера (pvb.meta)`, stored !== null && stored.dna === wantLose && stored.v === 1, JSON.stringify(stored));
+  await shot(lose.page, 'meta-dna-lost');
+  await lose.page.close();
+
+  // ---- победа: волн × perWave + winBonus; очки накапливаются между партиями той же страницы (перезапуск кнопкой)
+  const win = await openGame(context, baseUrl, p, {
+    speed: 4,
+    cfg: `${wavesOnlyCfg({ coccus: 1 })},waves.firstDelaySec:1,towers.pill.range:900,towers.pill.damage:50,economy.startCoins:500,lives.start:3,${dnaCfg}`,
+  });
+  for (const cell of [FREE.a, FREE.b]) await placeSure(win, 'pill', cell);
+  s = await waitFor(win.page, (x) => x.state === 'won', WAIT_MS, 'победа');
+  m = await metaOf(win.page);
+  check(`${p} победа за 1 волну: 1 × 2 + 7 = 9 очков (начислено ${s.dnaGained}); к ${wantLose} прежним — ${wantLose + 9} на счёте`, s.dnaGained === 9 && m.dna === wantLose + 9, `начислено ${s.dnaGained}, на счёте ${m.dna}`);
+  await sleep(CFG.restartLockMs + 250);
+  await tapToRestart(win);
+  s = await waitFor(win.page, (x) => x.state === 'playing' && x.elapsed < 2, 5000, 'перезапуск после победы');
+  m = await metaOf(win.page);
+  check(`${p} перезапуск очков не начисляет и не сбрасывает: на счёте по-прежнему ${wantLose + 9}`, m.dna === wantLose + 9 && s.dnaGained === 0, `на счёте ${m.dna}, начислено ${s.dnaGained}`);
+  await context.close();
+}
+
+/** Экран «Улучшения»: переход с экрана конца уровня, покупка, нехватка очков, наибольший уровень, «Играть», тексты ru и en. */
+async function runMetaShop(browser, baseUrl) {
+  for (const [deviceKey, lang] of [['desktop', 'ru'], ['phone', 'en']]) {
+    const device = VIEWPORTS[deviceKey];
+    const p = `[улучшения, ${device.label}, ${lang}]`;
+    const context = await newDeviceContext(browser, device, lang);
+    const prices = 'meta.upgrades.lives.prices.0:10,meta.upgrades.lives.prices.1:25,meta.upgrades.coins.prices.0:20,meta.upgrades.damage.prices.0:1000,meta.upgrades.reward.prices.0:30';
+    const game = await openGame(context, baseUrl, p, { speed: 4, cfg: `${META_LOSE_CFG},${prices}`, isTouch: device.hasTouch, query: '&meta=dna:60' });
+    let s = await waitFor(game.page, (x) => x.state === 'lost', WAIT_MS, 'проигрыш');
+    check(`${p} на экране конца уровня есть кнопка «Улучшения» рядом с «Заново», не перекрывая её`, s.upgradesButton !== null && s.endButton !== null && s.upgradesButton.x - s.upgradesButton.w / 2 > s.endButton.x + s.endButton.w / 2, JSON.stringify([s.endButton, s.upgradesButton]));
+    await sleep(CFG.restartLockMs + 250);
+    await shot(game.page, `meta-end-${deviceKey}-${lang}`);
+    await game.input.tap(game.g(s.upgradesButton.x, s.upgradesButton.y));
+    let m;
+    const t0 = Date.now();
+    do {
+      m = await metaOf(game.page);
+      if (m.screen.visible) break;
+      await sleep(100);
+    } while (Date.now() - t0 < 5000);
+    check(`${p} тап по «Улучшения» открывает экран: четыре карточки (lives, coins, damage, reward), кнопка «Играть»`, m.screen.visible && m.screen.cards.map((c) => c.id).join() === 'lives,coins,damage,reward' && m.screen.play !== null, JSON.stringify(m.screen.cards.map((c) => c.id)));
+    const dna0 = m.dna;
+    check(`${p} на счёте не меньше 60 очков (подмена &meta=dna:60), на экране надпись с числом ${dna0}`, dna0 >= 60 && m.screen.balance.includes(String(dna0)), m.screen.balance);
+    await shot(game.page, `meta-shop-${deviceKey}-${lang}`);
+    const card = (mm, id) => mm.screen.cards.find((c) => c.id === id);
+    const buy = async (id) => {
+      const b = card(await metaOf(game.page), id).buy;
+      await game.input.tap(game.g(b.x, b.y));
+      await sleep(250);
+      return metaOf(game.page);
+    };
+    m = await buy('lives');
+    check(`${p} покупка «lives» уровня 1 за 10: уровень 1, очков ${dna0 - 10}`, card(m, 'lives').level === 1 && m.dna === dna0 - 10 && m.levels.lives === 1, `уровень ${card(m, 'lives').level}, очков ${m.dna}`);
+    check(`${p} кнопка «lives» показывает цену следующего уровня 25`, card(m, 'lives').price === 25 && card(m, 'lives').texts[3].includes('25'), card(m, 'lives').texts.join(' | '));
+    m = await buy('lives');
+    check(`${p} покупка «lives» уровня 2 за 25: уровень 2 (наибольший), очков ${dna0 - 35}; кнопка «Максимум»`, card(m, 'lives').level === 2 && m.dna === dna0 - 35 && card(m, 'lives').price === null && !card(m, 'lives').canBuy, `уровень ${card(m, 'lives').level}, очков ${m.dna}, цена ${card(m, 'lives').price}`);
+    m = await buy('lives');
+    check(`${p} на наибольшем уровне повторная покупка ничего не делает (очков ${dna0 - 35}, уровень 2)`, m.dna === dna0 - 35 && card(m, 'lives').level === 2, `очков ${m.dna}`);
+    m = await buy('damage');
+    check(`${p} не хватает очков (цена 1000): покупки нет, очки и уровень прежние`, m.dna === dna0 - 35 && card(m, 'damage').level === 0 && !card(m, 'damage').canBuy, `очков ${m.dna}, уровень ${card(m, 'damage').level}`);
+    m = await buy('coins');
+    check(`${p} покупка «coins» за 20: очков ${dna0 - 55}, уровень 1`, m.dna === dna0 - 55 && card(m, 'coins').level === 1, `очков ${m.dna}`);
+    const texts = m.screen.cards.flatMap((c) => c.texts);
+    check(`${p} тексты на ${lang === 'ru' ? 'русском' : 'английском'}: нет сырых ключей и «undefined», у каждой карточки название, уровень, описание и кнопка`, texts.every((x) => x && !/undefined|upg[A-Z]|\{/.test(x)) && (lang === 'ru' ? /[А-Яа-я]/.test(texts.join('')) : !/[А-Яа-я]/.test(texts.join(''))), texts.join(' | '));
+    await shot(game.page, `meta-shop-bought-${deviceKey}-${lang}`);
+    await game.input.tap(game.g(m.screen.play.x, m.screen.play.y));
+    s = await waitFor(game.page, (x) => x.state === 'playing' && x.wave === 0, 5000, 'новая партия после «Играть»');
+    // в подмене META_LOSE_CFG жизней в начале 1: с купленным уровнем 2 «lives» должно быть 1 + 2
+    check(`${p} «Играть» запускает новую партию: жизней 1 + 2 = 3 (куплен уровень 2 «lives»), монет на 60 больше стартовых (уровень 1 «coins» = +60)`, s.maxLives === 3 && s.lives === 3 && s.coins === CFG.startCoins + 60, `жизни ${s.lives}/${s.maxLives}, монеты ${s.coins}`);
+    check(`${p} сердец на панели 3`, s.ui.lives === 3, `жизней на панели ${s.ui.lives}`);
+    await context.close();
+  }
+}
+
+/** Действие улучшений в партии: жизни, стартовые монеты, урон башен, награда за бактерий. */
+async function runMetaEffects(browser, baseUrl) {
+  const p = '[улучшения в партии]';
+  const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
+  const base = `${wavesOnlyCfg({ coccus: 1 })},waves.firstDelaySec:1,${FIXED_BALANCE.join(',')},towers.pill.range:900,towers.pill.damage:10,economy.startCoins:500,lives.start:3`;
+  const plain = await openGame(context, baseUrl, p, { speed: 4, cfg: base, query: '&meta=dna:0' });
+  await placeSure(plain, 'pill', FREE.a);
+  const s0 = await plain.state();
+  const dmg0 = s0.towers[0].stats.damage;
+  await plain.page.close();
+
+  const game = await openGame(context, baseUrl, p, { speed: 4, cfg: base, query: '&meta=lives:2,coins:3,damage:2,reward:5' });
+  let s = await game.state();
+  check(`${p} жизни: 3 + 2 = 5 (maxLives ${s.maxLives}, lives ${s.lives}, сердец ${s.ui.lives})`, s.maxLives === 5 && s.lives === 5 && s.ui.lives === 5, `${s.lives}/${s.maxLives}`);
+  check(`${p} стартовые монеты: 500 + 3 × 60 = 680 (сейчас ${s.coins})`, s.coins === 680, `монет ${s.coins}`);
+  await shot(game.page, 'meta-effects-hearts');
+  await placeSure(game, 'pill', FREE.a);
+  s = await game.state();
+  check(`${p} урон башен: ×(1 + 0,1 × 2) = ×1,2 (без улучшений ${f2(dmg0)}, с улучшением ${f2(s.towers[0].stats.damage)})`, Math.abs(s.towers[0].stats.damage - dmg0 * 1.2) < 1e-6, `${s.towers[0].stats.damage} против ${dmg0}`);
+  const before = s.coins;
+  s = await waitFor(game.page, (x) => x.kills >= 1 || x.state === 'won', WAIT_MS, 'первое убийство');
+  const gain = s.coins - before;
+  check(`${p} награда за бактерию: номинал ${BASE.reward} × (1 + 0,08 × 5) = ${BASE.reward * 1.4} (получено ${gain})`, gain === BASE.reward * 1.4, `получено ${gain}`);
+  await context.close();
 }
 
 async function runDeflation(browser, baseUrl) {
@@ -5313,6 +5475,10 @@ try {
   if (wants('deflation')) await safe('[дефляция]', () => runDeflation(browser, qaServer.url));
   if (wants('camera-fit')) await safe('[отдаление камеры]', () => runCameraFit(browser, qaServer.url));
   if (wants('colors')) await safe('[цвета бактерий]', () => runColors(browser, qaServer.url));
+  if (wants('meta-save')) await safe('[очки ДНК: сохранение]', () => runMetaSave(browser, qaServer.url));
+  if (wants('meta-dna')) await safe('[очки ДНК: начисление]', () => runMetaDna(browser, qaServer.url));
+  if (wants('meta-shop')) await safe('[улучшения]', () => runMetaShop(browser, qaServer.url));
+  if (wants('meta-effects')) await safe('[улучшения в партии]', () => runMetaEffects(browser, qaServer.url));
 } catch (error) {
   crashed = error;
   check('Проверка дошла до конца', false, error.message);

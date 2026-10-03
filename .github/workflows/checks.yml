@@ -1,4 +1,4 @@
-# Автопроверки игры в браузере (qa/smoke.mjs, все 33 сценария) при каждом push в рабочую ветку; также вручную: вкладка Actions → «Проверки (smoke)» → Run workflow.
+# Автопроверки игры в браузере (qa/smoke.mjs, все 37 сценариев) при каждом push в рабочую ветку; также вручную: вкладка Actions → «Проверки (smoke)» → Run workflow.
 # Сценарии разложены по параллельным задачам (в каждой они идут по одному — несколько браузеров одновременно на одной машине тормозят и дают ложные красные).
 # Упала любая проверка — задача красная, и GitHub присылает письмо о неудачном запуске (включается в GitHub → Settings → Notifications → Actions →
 # «Send notifications for failed workflows only» + Email). Снимки всех сценариев — во вложениях прогона (smoke-shots-…), чтобы вид можно было посмотреть и при зелёных проверках.
@@ -53,6 +53,9 @@ jobs:
           - group: 'Конец уровня, плашки, экономика, игровая сборка (lose, win, restart-button, deflation, camera-fit, colors, locked, plaques, production)'
             key: end
             scenarios: 'lose-ru lose-en win-ru win-en restart-button deflation camera-fit colors locked plaques production'
+          - group: 'Очки ДНК и улучшения (meta-save, meta-dna, meta-shop, meta-effects)'
+            key: meta
+            scenarios: 'meta-save meta-dna meta-shop meta-effects'
           - group: 'Полная партия (fullgame)'
             key: fullgame
             scenarios: 'fullgame'
