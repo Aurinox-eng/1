@@ -13,6 +13,7 @@
  *   http://localhost:5173/?qa&stress&fps — стресс-сценарий для замера скорости (40 башен, ≈200 бактерий, ×3) со счётчиком кадров
  *   http://localhost:5173/?fps          — счётчик кадров в углу; работает и в игровой сборке (только показывает число)
  *   http://localhost:5173/?level=5       — номер уровня (какие башни открыты); работает и в игровой сборке, пока нет меню уровней (этап 5)
+ *   http://localhost:5173/?qa&meta=lives:1,coins:2,damage:3,reward:0,dna:50 — подменяет уровни улучшений вне партии и очки ДНК (в сохранение ничего не пишется)
  *   http://localhost:5173/?lang=en       — принудительно выбирает язык (проверка переводов)
  */
 import type { PerfReport } from './perf';
@@ -73,6 +74,9 @@ export interface DebugSnapshot {
   info: { visible: boolean; kind: 'bacterium' | 'tower' | null; id: string | null; queue: number };
   /** Кнопка «Заново» на экране конца уровня (центр и размер на экране игры) или null, пока уровень идёт. */
   endButton: { x: number; y: number; w: number; h: number } | null;
+  /** Кнопка «Улучшения» на экране конца уровня (или null) и сколько очков ДНК начислено за партию (0, пока партия идёт). */
+  upgradesButton: { x: number; y: number; w: number; h: number } | null;
+  dnaGained: number;
   /** Выбрана ли башня на панели (её название) и цена. */
   selected: string | null;
   /** Поставленные башни: клетка и центр в пикселях мира; заглушена ли (спорой); расстояние до организма по дорожкам (для «вперёд/назад»);

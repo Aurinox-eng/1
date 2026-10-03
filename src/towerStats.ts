@@ -1,3 +1,4 @@
+import { damageMul } from './meta';
 import { CONFIG, type MutationSpec, type Targeting, type TowerSide } from './config';
 
 export type TowerKey = keyof typeof CONFIG.towers;
@@ -99,5 +100,7 @@ export function computeStats(id: TowerKey, level: number, picks: readonly string
     if (spec.secondBeam) s.secondBeam = true;
     if (spec.spiral) s.spiral += spec.spiral;
   });
+  // Улучшение вне партии «Сильное вещество»: урон всех башен (docs/upgrades.md)
+  s.damage *= damageMul();
   return s;
 }
