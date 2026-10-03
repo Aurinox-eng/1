@@ -335,7 +335,7 @@ async function openGame(context, baseUrl, prefix, { speed = 1, cfg = '', isTouch
   const plaqueFlag = query.includes('plaques') ? '' : '&noplaque';
   // QA_CANVAS=1 (GitHub, группы со временем и скоростью): рисование через canvas — на сервере без видеокарты программный WebGL даёт 2–6 кадров/с, шаг игрового времени
   // ограничен 50 мс, и проверки, считающие секунды, скорости и паузы между ударами, ломаются; canvas даёт ≈ 20 кадров/с (docs/performance.md)
-  // canvas: true — только для сценариев, где проверяются секунды, скорости и паузы между ударами (см. выше)
+  // canvas: true — рисование через canvas для отдельного сценария. Проба 3 октября: красные проверки со временем (Шприц, скорость, командир) от этого не прошли — причина в скорости сервера; сейчас нигде не включено
   const canvasFlag = (canvas || process.env.QA_CANVAS === '1') && !query.includes('canvas') ? '&canvas' : '';
   await page.goto(`${baseUrl}?qa&speed=${speed}${plaqueFlag}${canvasFlag}${allCfg ? `&cfg=${allCfg}` : ''}${query}`, { waitUntil: 'load', timeout: 90000 });
   await waitFor(page, (s) => s.state === 'playing' || s.state === 'info', 20000, 'запуск игры');
@@ -1214,7 +1214,7 @@ async function runDanger(browser, baseUrl) {
   const p = '[тревога у организма]';
   const danger = readConfigNumber('ui', 'dangerDistancePx');
   const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
-  const game = await openGame(context, baseUrl, p, { speed: 6, canvas: true, cfg: `waves.firstDelaySec:1,waves.list.0.coccus:1,${FIXED_BALANCE.join(',')},ui.dangerDistancePx:${danger}` });
+  const game = await openGame(context, baseUrl, p, { speed: 6, cfg: `waves.firstDelaySec:1,waves.list.0.coccus:1,${FIXED_BALANCE.join(',')},ui.dangerDistancePx:${danger}` });
   const { page } = game;
   const chipRed = async () => {
     const png = await page.screenshot();
@@ -1872,7 +1872,7 @@ async function runSplit(browser, baseUrl) {
   const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
 
   // ---- A. башня убивает делящихся: на месте гибели появляются кокки
-  let game = await openGame(context, baseUrl, p, { speed: 2, canvas: true, cfg: `${base},towers.pill.range:450,economy.startCoins:${BASE.price}` });
+  let game = await openGame(context, baseUrl, p, { speed: 2, cfg: `${base},towers.pill.range:450,economy.startCoins:${BASE.price}` });
   await game.placeTowers([FREE.a]);
   const seen = new Set();
   let splitters = new Map();
@@ -1927,7 +1927,7 @@ async function runSplit(browser, baseUrl) {
   await game.page.close();
 
   // ---- B. без башен делящаяся не делится сама
-  game = await openGame(context, baseUrl, p, { speed: 4, canvas: true, cfg: base });
+  game = await openGame(context, baseUrl, p, { speed: 4, cfg: base });
   let coccusSeen = false;
   const endB = await pollUntil(game, (s) => {
     if (s.bacteria.some((b) => b.kind === 'coccus')) coccusSeen = true;
@@ -1938,7 +1938,7 @@ async function runSplit(browser, baseUrl) {
 
   // ---- C. регрессия: много распадов подряд, ни в одном кокки не слипаются (раньше у конца ребра было 25 и 34 px вместо 44)
   const MANY = 40;
-  game = await openGame(context, baseUrl, p, { speed: 4, canvas: true, cfg: `${wavesOnlyCfg({ splitter: MANY })},waves.intervalStartSec:0.8,waves.intervalEndSec:0.8,waves.firstDelaySec:1,${FIXED_BALANCE.join(',')},${NO_LIFE_LOSS},towers.pill.range:1400,towers.pill.cooldownMs:300,towers.pill.damage:20,economy.startCoins:${BASE.price * 7}` });
+  game = await openGame(context, baseUrl, p, { speed: 4, cfg: `${wavesOnlyCfg({ splitter: MANY })},waves.intervalStartSec:0.8,waves.intervalEndSec:0.8,waves.firstDelaySec:1,${FIXED_BALANCE.join(',')},${NO_LIFE_LOSS},towers.pill.range:1400,towers.pill.cooldownMs:300,towers.pill.damage:20,economy.startCoins:${BASE.price * 7}` });
   await game.placeTowers(Object.values(FREE));
   const seenC = new Set();
   const pairs = [];
@@ -3206,7 +3206,7 @@ function beamSpot(state, mode) {
 const BEAM_WAIT_MS = 420000;
 async function beamBurst(context, baseUrl, p, { wave, mode, needOn, extraCfg = [], shotName = null }) {
   const cfg = [...wave, 'waves.intervalStartSec:0.3', 'waves.intervalEndSec:0.3', 'waves.firstDelaySec:2', ...FIXED_NO_TOWERS, 'bacteria.baseSpeed:20', 'towers.syringe.cooldownMs:60000', `economy.startCoins:${TW.syringe.price}`, NO_LIFE_LOSS, ...extraCfg].join(',');
-  const game = await openGame(context, baseUrl, p, { query: ALL_TOWERS, speed: 2, canvas: true, cfg });
+  const game = await openGame(context, baseUrl, p, { query: ALL_TOWERS, speed: 2, cfg });
   let spot;
   if (mode === 'entrance') {
     await panTo(game, 'right');
@@ -3553,7 +3553,7 @@ async function towersControls(browser, baseUrl) {
   const p = '[башни: кнопки скорости и «Начать волну»]';
   const WAIT = 60;
   const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
-  const game = await openGame(context, baseUrl, p, { query: ALL_TOWERS, speed: 1, canvas: true, cfg: `waves.firstDelaySec:${WAIT},${FIXED_NO_TOWERS.join(',')}` });
+  const game = await openGame(context, baseUrl, p, { query: ALL_TOWERS, speed: 1, cfg: `waves.firstDelaySec:${WAIT},${FIXED_NO_TOWERS.join(',')}` });
   let s = await game.state();
   check(`${p} в начале игра идёт на скорости ×${UI_SPEEDS[0]}; кнопка «Начать волну» видна и обещает ≈ ${WAIT} монет за пропуск ожидания (на кнопке +${s.ui.waveButton.bonus})`, s.speed === UI_SPEEDS[0] && s.ui.waveButton.visible && s.ui.waveButton.bonus >= WAIT - 4 && s.ui.waveButton.bonus <= WAIT, `скорость ${s.speed}, видна ${s.ui.waveButton.visible}, бонус ${s.ui.waveButton.bonus}`);
   // кнопка скорости переключает по кругу ×1 → ×2 → ×3 → ×1; игровое время идёт во столько же раз быстрее
@@ -3764,7 +3764,7 @@ async function typesCommander(browser, baseUrl) {
   const norm = [base * (1 - BASE.spread) - 1.5, base * (1 + BASE.spread) + 1.5];
   const fast = [norm[0] * factor - 1.5, norm[1] * factor + 1.5];
   const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
-  const game = await openGame(context, baseUrl, p, { query: ALL_TOWERS, speed: 4, canvas: true, cfg: `${wavesOnlyCfg({ coccus: 12, commander: 1 })},waves.firstDelaySec:1,${FIXED_BALANCE.join(',')},${NO_LIFE_LOSS}` });
+  const game = await openGame(context, baseUrl, p, { query: ALL_TOWERS, speed: 4, cfg: `${wavesOnlyCfg({ coccus: 12, commander: 1 })},waves.firstDelaySec:1,${FIXED_BALANCE.join(',')},${NO_LIFE_LOSS}` });
   const log = [];
   const end = await pollUntil(game, (s) => {
     log.push(s);
