@@ -196,7 +196,10 @@ export function applyConfigOverrides(config: Record<string, unknown>): void {
     for (const key of keys) target = (target as Record<string, unknown> | undefined)?.[key];
     const value = Number(valueText);
     const holder = target as Record<string, unknown> | undefined;
-    if (last && holder && typeof holder[last] === 'number' && valueText !== undefined && valueText !== '' && Number.isFinite(value)) {
+    // Состав волны (`waves.list.N.<тип>`): в строках таблицы только типы уровня 1, а проверкам нужны все 13 — любой тип из таблицы `types` можно добавить в строку
+    const kinds = (config as { types?: Record<string, unknown> }).types ?? {};
+    const addsKind = keys[0] === 'waves' && keys[1] === 'list' && keys.length === 3 && last !== undefined && last in kinds;
+    if (last && holder && (typeof holder[last] === 'number' || addsKind) && valueText !== undefined && valueText !== '' && Number.isFinite(value)) {
       holder[last] = value;
     } else {
       console.warn(`cfg: не понял «${item}» — пропускаю`);
