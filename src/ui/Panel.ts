@@ -255,12 +255,13 @@ export class Panel {
     this.maxLives = max;
     this.hearts.clear();
     const n = max;
-    const step = n > 1 ? Math.min(50, 150 / (n - 1)) : 50;
+    const step = n > 1 ? Math.min(50, 130 / (n - 1)) : 50;
+    const scale = Math.min(1.2, (1.2 * step) / 46); // шаг 50 — сердца обычного размера; теснее — уменьшаются, чтобы не слипаться
     for (let i = 0; i < n; i++) {
       const x = CX + (i - (n - 1) / 2) * step;
-      this.hearts.fillStyle(0x000000, 0.35).fillPoints(heartPoints(x + 1.5, RES_CARD.y + 66, 1.2), true);
+      this.hearts.fillStyle(0x000000, 0.35).fillPoints(heartPoints(x + 1.5, RES_CARD.y + 66, scale), true);
       this.hearts.fillStyle(i < lives ? COLORS.heart : COLORS.heartLost, 1);
-      this.hearts.fillPoints(heartPoints(x, RES_CARD.y + 64, 1.2), true);
+      this.hearts.fillPoints(heartPoints(x, RES_CARD.y + 64, scale), true);
     }
   }
 

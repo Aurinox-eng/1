@@ -9,14 +9,16 @@ import { COLORS, FONT, TEXT_COLORS } from '../theme';
 const { width: W } = CONFIG.screen;
 
 /** Раскладка: две колонки по две карточки, сверху заголовок и очки ДНК, снизу «Играть». Координаты — экран игры 1280×720, центры. */
-const CARD = { w: 560, h: 190 };
+const CARD = { w: 560, h: 210 };
 const CARD_CENTERS = [
-  { x: 340, y: 250 },
-  { x: 940, y: 250 },
-  { x: 340, y: 460 },
-  { x: 940, y: 460 },
+  { x: 340, y: 245 },
+  { x: 940, y: 245 },
+  { x: 340, y: 470 },
+  { x: 940, y: 470 },
 ];
-const BUY = { w: 250, h: 58 };
+const BUY = { w: 250, h: 56 };
+/** Центр кнопки покупки: правый нижний угол карточки, под строкой описания (строка кончается выше кнопки). */
+const buyCenter = (c: { x: number; y: number }): { x: number; y: number } => ({ x: c.x + CARD.w / 2 - 24 - BUY.w / 2, y: c.y + CARD.h / 2 - 16 - BUY.h / 2 });
 const PLAY = { x: W / 2, y: 640, w: 360, h: 76 };
 
 const NAME_KEY: Record<UpgradeId, TextKey> = { lives: 'upgLives', coins: 'upgCoins', damage: 'upgDamage', reward: 'upgReward' };
@@ -73,8 +75,7 @@ export class UpgradesScene extends Phaser.Scene {
     const name = this.add.text(x0 + 24, y0 + 18, t(NAME_KEY[id]), this.style(36, TEXT_COLORS.accent)).setOrigin(0, 0);
     const level = this.add.text(x0 + 24, y0 + 66, '', this.style(24, TEXT_COLORS.soft, false)).setOrigin(0, 0);
     const effect = this.add.text(x0 + 24, y0 + 98, '', this.style(24, TEXT_COLORS.main, false)).setOrigin(0, 0).setWordWrapWidth(CARD.w - 48);
-    const buyX = x0 + CARD.w - 24 - BUY.w / 2;
-    const buyY = y0 + CARD.h - 20 - BUY.h / 2;
+    const { x: buyX, y: buyY } = buyCenter(c);
     const buyBg = this.add.graphics();
     const buyLabel = this.add.text(buyX, buyY, '', this.style(28)).setOrigin(0.5);
     const zone = this.add.zone(buyX, buyY, BUY.w, BUY.h).setInteractive({ useHandCursor: true });
@@ -115,8 +116,7 @@ export class UpgradesScene extends Phaser.Scene {
       card.level.setText(t('upgLevel', { n: level, max }));
       card.effect.setText(price === null ? effectText(card.id, level) : t('upgNext', { text: effectText(card.id, level + 1) }));
       const enabled = canBuy(card.id);
-      const bx = card.center.x - CARD.w / 2 + CARD.w - 24 - BUY.w / 2;
-      const by = card.center.y - CARD.h / 2 + CARD.h - 20 - BUY.h / 2;
+      const { x: bx, y: by } = buyCenter(card.center);
       card.buyBg.clear();
       card.buyBg.fillStyle(enabled ? 0x2a8a4a : 0x2a3550, 1).fillRoundedRect(bx - BUY.w / 2, by - BUY.h / 2, BUY.w, BUY.h, 14);
       card.buyBg.lineStyle(3, enabled ? COLORS.merge : 0x4a5c82, 1).strokeRoundedRect(bx - BUY.w / 2, by - BUY.h / 2, BUY.w, BUY.h, 14);
@@ -137,7 +137,7 @@ export class UpgradesScene extends Phaser.Scene {
         price: nextPrice(c.id),
         canBuy: canBuy(c.id),
         rect: { x: c.center.x, y: c.center.y, w: CARD.w, h: CARD.h },
-        buy: { x: c.center.x - CARD.w / 2 + CARD.w - 24 - BUY.w / 2, y: c.center.y - CARD.h / 2 + CARD.h - 20 - BUY.h / 2, w: BUY.w, h: BUY.h },
+        buy: { ...buyCenter(c.center), w: BUY.w, h: BUY.h },
         texts: [c.name.text, c.level.text, c.effect.text, c.buyLabel.text],
       })),
     };
