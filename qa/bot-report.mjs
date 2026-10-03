@@ -128,7 +128,10 @@ const runUrl = env.GITHUB_SERVER_URL && env.GITHUB_REPOSITORY && env.GITHUB_RUN_
 lines.push(`## ${args.title && args.title !== true ? args.title : 'Итог замера бота'}`);
 const meta = [
   env.BOT_REF ? `ветка/коммит: \`${env.BOT_REF}\`${env.GITHUB_SHA ? ` (код: \`${String(env.BOT_SHA ?? env.GITHUB_SHA).slice(0, 7)}\`)` : ''}` : '',
-  env.BOT_SPEED ? `speed ${env.BOT_SPEED}, \`--canvas\`` : '',
+  (() => {
+    const speeds = [...new Set(results.map((r) => r.args?.speed).filter((x) => x !== undefined))];
+    return speeds.length ? `speed ${speeds.join('/')}, \`--canvas\`` : '';
+  })(),
   runUrl ? `[прогон](${runUrl})` : '',
 ].filter(Boolean);
 if (meta.length) lines.push(meta.join(' · '));

@@ -7,10 +7,20 @@
  * каждой пары «профиль + набор» (1 — одна задача, партии идут подряд; 5 при RUNS=5 — по одной партии в задаче: быстрее всего);
  * EXCLUDES — наборы исключений через «;», внутри набора башни через «,» (например «-;syrup;fizz,syringe»; «-» или пусто — без исключений);
  * CFG — подмена чисел «путь:число,путь:число»; LEVEL, SPEED.
+ * Если запуск от push (EVENT_NAME=push), поля берутся из файла `.github/balance-request.json` (ключи profiles, runs, shards, excludes, cfg, level, speed — в нижнем регистре),
+ * а не из переменных окружения: так замер можно запустить без кнопки — изменив этот файл и сделав push в рабочую ветку.
  */
 import fs from 'node:fs';
 
-const env = process.env;
+const env = { ...process.env };
+if (env.EVENT_NAME === 'push') {
+  const request = JSON.parse(fs.readFileSync('.github/balance-request.json', 'utf8'));
+  for (const name of ['PROFILES', 'RUNS', 'SHARDS', 'EXCLUDES', 'CFG', 'LEVEL', 'SPEED']) {
+    const value = request[name.toLowerCase()];
+    if (value !== undefined && value !== null) env[name] = String(value);
+  }
+  console.log(`Запуск по файлу запроса: ${JSON.stringify(request)}`);
+}
 const fail = (message) => {
   console.error(`❌ ${message}`);
   process.exit(1);

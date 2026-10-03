@@ -2,11 +2,16 @@
 # Каждый профиль, каждый набор исключённых башен (--exclude) и каждая «доля» партий — отдельная параллельная задача (матрица), бот идёт с --canvas.
 # Последняя задача («Итоговая таблица») складывает результаты всех задач в одну таблицу: она на странице прогона (раздел Summary, самый низ страницы
 # прогона) и в логе задачи; сырые JSON — во вложениях прогона (Artifacts внизу страницы): bot-<тег> по задачам и bot-results-all одним архивом.
+# Второй способ запуска — без кнопки: изменить файл .github/balance-request.json (те же поля) и сделать push в рабочую ветку claude/serene-rubin-x3t2gu;
+# так запускает замеры агент (кнопка Run workflow появляется на вкладке Actions, только когда этот файл уже лежит в main).
 # Подробности и примеры полей — docs/bot-prompts.md.
 name: Замер баланса (боты)
-run-name: Боты · ${{ inputs.ref }} · ${{ inputs.profiles }} × ${{ inputs.runs }}${{ inputs.excludes != '-' && inputs.excludes != '' && format(' · без {0}', inputs.excludes) || '' }}${{ inputs.cfg != '' && format(' · {0}', inputs.cfg) || '' }}
+run-name: ${{ github.event_name == 'push' && format('Боты · по файлу запроса · {0}', github.sha) || format('Боты · {0} · {1} × {2}{3}{4}', inputs.ref, inputs.profiles, inputs.runs, inputs.excludes != '-' && inputs.excludes != '' && format(' · без {0}', inputs.excludes) || '', inputs.cfg != '' && format(' · {0}', inputs.cfg) || '') }}
 
 on:
+  push:
+    branches: [claude/serene-rubin-x3t2gu]
+    paths: ['.github/balance-request.json']
   workflow_dispatch:
     inputs:
       ref:
@@ -56,7 +61,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.ref }}
+          ref: ${{ inputs.ref || github.sha }}
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -65,6 +70,7 @@ jobs:
       # Поля запуска попадают в скрипт только через переменные окружения (не в текст команд)
       - id: matrix
         env:
+          EVENT_NAME: ${{ github.event_name }}
           PROFILES: ${{ inputs.profiles }}
           RUNS: ${{ inputs.runs }}
           SHARDS: ${{ inputs.shards }}
@@ -152,9 +158,8 @@ jobs:
           merge-multiple: true
       - name: Собрать таблицу
         env:
-          BOT_REF: ${{ inputs.ref }}
+          BOT_REF: ${{ inputs.ref || github.ref_name }}
           BOT_SHA: ${{ needs.plan.outputs.sha }}
-          BOT_SPEED: ${{ inputs.speed }}
         run: |
           mkdir -p out
           node qa/bot-report.mjs results --plan=plan/plan.json --title="Итог замера бота" > out/summary.md
