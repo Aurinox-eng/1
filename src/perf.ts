@@ -18,9 +18,13 @@ const SHOW_EVERY_MS = 500;
 /** Промежутки между кадрами и работа кадра, мс (общие для всей страницы: сцена при перезапуске создаётся заново, а замер идёт дальше). */
 const intervals: number[] = [];
 const works: number[] = [];
+/** Из работы кадра: расчёт (движение, стрельба, эффекты) и рисование, мс. */
+const updates: number[] = [];
+const renders: number[] = [];
 let installed = false;
 let lastTime = 0;
 let stepStart = 0;
+let renderStart = 0;
 
 /** Подключает замер к игре (один раз на страницу). */
 export function installFrameStats(game: Phaser.Game): void {
@@ -31,8 +35,14 @@ export function installFrameStats(game: Phaser.Game): void {
     if (lastTime > 0) push(intervals, time - lastTime);
     lastTime = time;
   });
+  game.events.on(Phaser.Core.Events.PRE_RENDER, () => {
+    renderStart = performance.now();
+    if (stepStart > 0) push(updates, renderStart - stepStart);
+  });
   game.events.on(Phaser.Core.Events.POST_RENDER, () => {
-    if (stepStart > 0) push(works, performance.now() - stepStart);
+    const now = performance.now();
+    if (stepStart > 0) push(works, now - stepStart);
+    if (renderStart > 0) push(renders, now - renderStart);
   });
 }
 
@@ -64,6 +74,9 @@ export interface PerfReport {
   /** Работа кадра (расчёт + рисование): средняя и 95-й процентиль, мс. */
   workMs: number;
   workP95: number;
+  /** Из работы кадра: расчёт и рисование в среднем, мс. */
+  updateMs: number;
+  renderMs: number;
 }
 
 /** Итог замера с последнего сброса; reset — начать замер заново. */
@@ -80,10 +93,14 @@ export function frameReport(reset = false): PerfReport {
     frameP99: round1(percentile(intervals, 0.99)),
     workMs: works.length ? round1(workSum / works.length) : 0,
     workP95: round1(percentile(works, 0.95)),
+    updateMs: updates.length ? round1(updates.reduce((a, b) => a + b, 0) / updates.length) : 0,
+    renderMs: renders.length ? round1(renders.reduce((a, b) => a + b, 0) / renders.length) : 0,
   };
   if (reset) {
     intervals.length = 0;
     works.length = 0;
+    updates.length = 0;
+    renders.length = 0;
   }
   return report;
 }

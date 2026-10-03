@@ -55,12 +55,20 @@ async function measure(browser, url, renderer, shotName) {
   await page.evaluate(() => window.__pvb.getPerf(true));
   await sleep(seconds * 1000);
   const report = await page.evaluate(() => window.__pvb.getPerf());
-  await page.screenshot({ path: path.join(shotsDir, `${shotName}.png`) });
+  // Снимки: при очень медленных кадрах снимок может не успеть — замер от этого не портится
+  const shot = async (name) => {
+    try {
+      await page.screenshot({ path: path.join(shotsDir, `${name}.png`), timeout: 120000 });
+    } catch (e) {
+      console.log(`снимок ${name} не снят: ${String(e).split('\n')[0]}`);
+    }
+  };
+  await shot(shotName);
   // Крупный план: приближение к середине карты (видны трещины, уровни башен, надписи)
   await page.mouse.move(540, 360);
   for (let i = 0; i < 4; i++) await page.mouse.wheel(0, -400);
-  await sleep(600);
-  await page.screenshot({ path: path.join(shotsDir, `${shotName}-close.png`) });
+  await sleep(1500);
+  await shot(`${shotName}-close`);
   await context.close();
   return { ...report, errors };
 }
@@ -80,7 +88,7 @@ try {
         const report = await measure(browser, servers[i].url, renderer, shotName);
         results.push({ version: names[i], renderer, round: round + 1, ...report });
         console.log(
-          `${names[i]} ${renderer} круг ${round + 1}: ${report.fps} кадров/с (1 % худших ${report.fpsLow1}), работа кадра ${report.workMs} мс (95 % — до ${report.workP95}), ` +
+          `${names[i]} ${renderer} круг ${round + 1}: ${report.fps} кадров/с (1 % худших ${report.fpsLow1}), работа кадра ${report.workMs} мс (расчёт ${report.updateMs}, рисование ${report.renderMs}; 95 % — до ${report.workP95}), ` +
             `объектов ${report.objects}, бактерий ${report.bacteria}, башен ${report.towers}${report.errors.length ? `, ОШИБКИ: ${report.errors.join(' | ')}` : ''}`,
         );
       }
@@ -95,13 +103,16 @@ fs.writeFileSync(path.join(resultsDir, `${tag}.json`), JSON.stringify(results, n
 
 // Итоговая таблица: среднее по кругам для каждой версии и способа рисования
 const avg = (list, key) => Math.round((list.reduce((a, r) => a + r[key], 0) / list.length) * 10) / 10;
-const lines = ['| Версия | Рисование | Кадров/с | 1 % худших, кадров/с | Работа кадра, мс | 95 % кадров — до, мс | Объектов на экране | Ошибки |', '|---|---|---|---|---|---|---|---|'];
+const lines = [
+  '| Версия | Рисование | Кадров/с | 1 % худших, кадров/с | Работа кадра, мс | из неё расчёт, мс | из неё рисование, мс | 95 % кадров — до, мс | Объектов на экране | Ошибки |',
+  '|---|---|---|---|---|---|---|---|---|---|',
+];
 for (const renderer of renderers) {
   for (const name of names) {
     const list = results.filter((r) => r.version === name && r.renderer === renderer);
     if (!list.length) continue;
     const errors = list.reduce((a, r) => a + r.errors.length, 0);
-    lines.push(`| ${name} | ${renderer} | ${avg(list, 'fps')} | ${avg(list, 'fpsLow1')} | ${avg(list, 'workMs')} | ${avg(list, 'workP95')} | ${avg(list, 'objects')} | ${errors} |`);
+    lines.push(`| ${name} | ${renderer} | ${avg(list, 'fps')} | ${avg(list, 'fpsLow1')} | ${avg(list, 'workMs')} | ${avg(list, 'updateMs')} | ${avg(list, 'renderMs')} | ${avg(list, 'workP95')} | ${avg(list, 'objects')} | ${errors} |`);
   }
 }
 const table = lines.join('\n');

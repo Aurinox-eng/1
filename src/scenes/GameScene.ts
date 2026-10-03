@@ -14,7 +14,7 @@ import { GroundShot } from '../objects/GroundShot';
 import { Projectile } from '../objects/Projectile';
 import { Puddle } from '../objects/Puddle';
 import { beamReach, createTowerArt, defaultAim, drawAimLine, Tower, type TowerId } from '../objects/Tower';
-import { tileCenter, type Edge } from '../pathing';
+import { pointAt, tileCenter, type Edge } from '../pathing';
 import { sfx } from '../sound';
 import { MAX_TOWER_LEVEL, mutationOptions, type TowerStats } from '../towerStats';
 import { COLORS, FONT, TEXT_COLORS } from '../theme';
@@ -68,6 +68,8 @@ const STRESS_SPEED = 3;
 const STRESS_HP_MUL = 3;
 /** Сколько бактерий стресс-сценарий добавляет за кадр взамен погибших. */
 const STRESS_REFILL_PER_FRAME = 20;
+/** Новые бактерии стресс-сценария появляются не ближе стольких клеток к организму. */
+const STRESS_ORGANISM_GAP_TILES = 3;
 
 /** Кто выходит следующим в волне: тип, вход (null — случайный) и сколько секунд ждать до следующего (в пачке — короткая пауза). */
 interface SpawnItem {
@@ -1152,7 +1154,6 @@ export class GameScene extends Phaser.Scene {
 
   // ---------------------------------------------------------------- плашки с описанием (игра на паузе)
 
-  /** В начале уровня: плашки башен, открывшихся на этом уровне (на 1-м — Таблетка и Сироп), затем плашки бактерий 1-й волны. */
   // ---------------------------------------------------------------- стресс-сценарий (замер скорости)
 
   /** 40 башен всех видов (уровни 1–4, мутации выбраны) по свободным клеткам, ≈200 бактерий всех типов по всей сети, скорость ×3. */
@@ -1187,12 +1188,20 @@ export class GameScene extends Phaser.Scene {
   private refillStress(limit: number): void {
     for (let n = 0; n < limit && this.bacteria.length < STRESS_BACTERIA; n++) {
       const kind = KINDS[Math.floor(Math.random() * KINDS.length)];
-      const edge = EDGES[Math.floor(Math.random() * EDGES.length)];
-      this.bacteria.push(new Bacterium(this, this.bacteriaLayer, kind, edge, Math.random() * edge.length, STRESS_HP_MUL));
+      // Место — случайная точка сети не ближе STRESS_ORGANISM_GAP_TILES клеток к организму (иначе потеря жизни шла бы каждый кадр)
+      let edge = EDGES[0];
+      let s = 0;
+      for (let attempt = 0; attempt < 20; attempt++) {
+        edge = EDGES[Math.floor(Math.random() * EDGES.length)];
+        s = Math.random() * edge.length;
+        if (pointAt(edge, s).x > CONFIG.map.orgW + STRESS_ORGANISM_GAP_TILES * CONFIG.map.tile) break;
+      }
+      this.bacteria.push(new Bacterium(this, this.bacteriaLayer, kind, edge, s, STRESS_HP_MUL));
       this.spawned++;
     }
   }
 
+  /** В начале уровня: плашки башен, открывшихся на этом уровне (на 1-м — Таблетка и Сироп), затем плашки бактерий 1-й волны. */
   private announceStart(): void {
     if (NO_PLAQUES) return;
     for (const id of newTowersOfLevel(Object.keys(CONFIG.towers))) {
