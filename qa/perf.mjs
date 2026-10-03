@@ -9,8 +9,10 @@
  *     --rounds     сколько раз повторить каждую пару (порядок чередуется, чтобы нагрев машины не давал преимущества одной версии).
  * Печатает таблицу (Markdown) и пишет qa/perf-results/<tag>.json; снимки — qa/screenshots/perf-<tag>/.
  *
- * Что значат числа: «кадров/с» — сколько кадров браузер успел показать (60 — предел экрана); «1 % худших» — кадры в секунду
- * у самых медленных кадров; «работа кадра» — сколько миллисекунд игра считала и рисовала кадр (меньше — лучше; при 60 кадрах на всё 16,7 мс).
+ * Что значат числа: «работа кадра» — сколько миллисекунд игра считала и рисовала кадр (меньше — лучше; при 60 кадрах на всё 16,7 мс), из неё
+ * «расчёт» и «рисование»; «вызовов рисования» и «вершин за кадр» — сколько работы получает видеокарта (от машины не зависят).
+ * Кадры в секунду на сервере НЕ результат (решение владельца): там нет видеокарты; они есть только в JSON. Итог по кадрам — замер владельца
+ * по ?fps на компьютере, iPhone и iPad.
  * На сервере нет видеокарты: WebGL рисуется программно, поэтому числа ниже, чем на компьютере игрока; сравнивать надо «до» и «после» на одной машине.
  */
 import fs from 'node:fs';
@@ -88,7 +90,7 @@ try {
         const report = await measure(browser, servers[i].url, renderer, shotName);
         results.push({ version: names[i], renderer, round: round + 1, ...report });
         console.log(
-          `${names[i]} ${renderer} круг ${round + 1}: ${report.fps} кадров/с (1 % худших ${report.fpsLow1}), работа кадра ${report.workMs} мс (расчёт ${report.updateMs}, рисование ${report.renderMs}; 95 % — до ${report.workP95}), вызовов рисования ${report.drawCalls}, вершин ${report.vertices}, ` +
+          `${names[i]} ${renderer} круг ${round + 1}: работа кадра ${report.workMs} мс (расчёт ${report.updateMs}, рисование ${report.renderMs}; 95 % — до ${report.workP95}), вызовов рисования ${report.drawCalls}, вершин ${report.vertices}, ` +
             `объектов ${report.objects}, бактерий ${report.bacteria}, башен ${report.towers}${report.errors.length ? `, ОШИБКИ: ${report.errors.join(' | ')}` : ''}`,
         );
       }
@@ -104,18 +106,18 @@ fs.writeFileSync(path.join(resultsDir, `${tag}.json`), JSON.stringify(results, n
 // Итоговая таблица: среднее по кругам для каждой версии и способа рисования
 const avg = (list, key) => Math.round((list.reduce((a, r) => a + r[key], 0) / list.length) * 10) / 10;
 const lines = [
-  '| Версия | Рисование | Кадров/с | 1 % худших, кадров/с | Работа кадра, мс | из неё расчёт, мс | из неё рисование, мс | 95 % кадров — до, мс | Вызовов рисования за кадр | Вершин за кадр | Объектов на экране | Ошибки |',
-  '|---|---|---|---|---|---|---|---|---|---|---|---|',
+  '| Версия | Рисование | Работа кадра, мс | из неё расчёт, мс | из неё рисование, мс | 95 % кадров — до, мс | Вызовов рисования за кадр | Вершин за кадр | Объектов на экране | Ошибки |',
+  '|---|---|---|---|---|---|---|---|---|---|',
 ];
 for (const renderer of renderers) {
   for (const name of names) {
     const list = results.filter((r) => r.version === name && r.renderer === renderer);
     if (!list.length) continue;
     const errors = list.reduce((a, r) => a + r.errors.length, 0);
-    lines.push(`| ${name} | ${renderer} | ${avg(list, 'fps')} | ${avg(list, 'fpsLow1')} | ${avg(list, 'workMs')} | ${avg(list, 'updateMs')} | ${avg(list, 'renderMs')} | ${avg(list, 'workP95')} | ${avg(list, 'drawCalls')} | ${avg(list, 'vertices')} | ${avg(list, 'objects')} | ${errors} |`);
+    lines.push(`| ${name} | ${renderer} | ${avg(list, 'workMs')} | ${avg(list, 'updateMs')} | ${avg(list, 'renderMs')} | ${avg(list, 'workP95')} | ${avg(list, 'drawCalls')} | ${avg(list, 'vertices')} | ${avg(list, 'objects')} | ${errors} |`);
   }
 }
 const table = lines.join('\n');
 console.log('\n' + table);
-if (process.env.GITHUB_STEP_SUMMARY) fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `### Замер скорости (стресс-сценарий)\n\n${table}\n`);
+if (process.env.GITHUB_STEP_SUMMARY) fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `### Замер скорости (стресс-сценарий): сравнение «до/после» на одной машине\n\n${table}\n\nКадры в секунду на сервере не результат (нет видеокарты); итог — замер владельца по ?fps.\n`);
 if (results.some((r) => r.errors.length)) process.exitCode = 1;
