@@ -1,7 +1,7 @@
 # Автопроверки игры в браузере (qa/smoke.mjs, все 33 сценария) при каждом push в рабочую ветку; также вручную: вкладка Actions → «Проверки (smoke)» → Run workflow.
 # Сценарии разложены по параллельным задачам (в каждой они идут по одному — несколько браузеров одновременно на одной машине тормозят и дают ложные красные).
 # Упала любая проверка — задача красная, и GitHub присылает письмо о неудачном запуске (включается в GitHub → Settings → Notifications → Actions →
-# «Send notifications for failed workflows only» + Email). Снимки упавших задач — во вложениях прогона (smoke-shots-…).
+# «Send notifications for failed workflows only» + Email). Снимки всех сценариев — во вложениях прогона (smoke-shots-…), чтобы вид можно было посмотреть и при зелёных проверках.
 # Правки только в docs/ и *.md проверки не запускают: на игру они не влияют.
 name: Проверки (smoke)
 
@@ -98,8 +98,8 @@ jobs:
             echo "::endgroup::"
           done
           exit $failed
-      - name: Снимки (только при падении)
-        if: failure()
+      - name: Снимки
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: smoke-shots-${{ matrix.key }}

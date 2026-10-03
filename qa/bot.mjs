@@ -436,6 +436,7 @@ function makePlayer(profile, { world, rng, buttons }) {
   const imperfect = profile === 'strong';
   const patience = imperfect ? STRONG_PATIENCE_SEC : PATIENCE_SEC;
   const noise = imperfect ? STRONG_NOISE : EXPERT_NOISE;
+  const gaveUp = new Set(); // башни, для которых «копить на первую» не вышло (нет подходящих клеток): дальше обычный круг
   let ptr = 0;
   let headSince = 0;
   let lastPtr = -1;
@@ -460,13 +461,15 @@ function makePlayer(profile, { world, rng, buttons }) {
         order = cheapest ? [{ idx: -1, type: cheapest }] : order.filter((o) => TABLE[o.type].damage > 0);
       }
       // «Особо сильный» знает, что с 4-й волны идёт рой, а одними Таблетками он не остановим: до 5-й волны копит монеты на первую Шипучку и ничего другого не покупает (слияния Таблеток при этом идут как обычно)
-      const needFizz = !imperfect && !opening && available('fizz') && !view.towers.some((tw) => tw.id === 'fizz') && view.s.wave <= FIZZ_BY_WAVE;
-      if (needFizz) order = [{ idx: STRONG_CYCLE.indexOf('fizz'), type: 'fizz' }];
+      // Так же он копит на первый Сироп и первый Шприц (без этого в бою, когда «не спокойно», терпение 0 и он до конца партии покупает только дешёвые Таблетки: Сироп не строился ни разу)
+      const firstOf = (id) => available(id) && !gaveUp.has(id) && !view.towers.some((tw) => tw.id === id);
+      const needFirst = imperfect || opening ? null : firstOf('fizz') && view.s.wave <= FIZZ_BY_WAVE ? 'fizz' : ['syrup', 'syringe'].find(firstOf) ?? null;
+      if (needFirst) order = [{ idx: STRONG_CYCLE.indexOf(needFirst), type: needFirst }];
       if (!order.length) return null;
       const calm = view.s.lives >= view.s.maxLives && view.s.bacteria.length <= CALM_MAX_BACTERIA;
       let chosen = null;
       if (view.coins >= TABLE[order[0].type].price) chosen = order[0];
-      else if (!opening && !needFizz && now - headSince >= (calm ? patience : 0)) chosen = order.find((o) => view.coins >= TABLE[o.type].price) ?? null;
+      else if (!opening && !needFirst && now - headSince >= (calm ? patience : 0)) chosen = order.find((o) => view.coins >= TABLE[o.type].price) ?? null;
       if (!chosen) return null;
       const candidates = [];
       for (const c of view.free) {
@@ -482,6 +485,7 @@ function makePlayer(profile, { world, rng, buttons }) {
         best = pool[Math.floor(rng() * pool.length)];
       }
       if (!best) {
+        if (needFirst) gaveUp.add(chosen.type);
         if (chosen.idx >= 0) ptr = chosen.idx + 1; // клеток для этой башни нет — переходит к следующей в списке
         return null;
       }

@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import { CameraRig } from '../cameraRig';
 import { CONFIG } from '../config';
-import { exposeDebug, NO_PLAQUES, TIME_SCALE, type DebugSnapshot } from '../debug';
+import { exposeDebug, NO_PLAQUES, QA_MODE, STRESS, TIME_SCALE, type DebugSnapshot } from '../debug';
 import { Effects } from '../effects';
 import { num, t, type TextKey } from '../i18n';
 import { aimAngle, BLOCKED_TILES, EDGES, ENTRANCE_EDGES, LEVEL, PATH_TILES, WORLD, cellKey, worldToCell } from '../level';
@@ -14,10 +14,11 @@ import { GroundShot } from '../objects/GroundShot';
 import { Projectile } from '../objects/Projectile';
 import { Puddle } from '../objects/Puddle';
 import { beamReach, createTowerArt, defaultAim, drawAimLine, Tower, type TowerId } from '../objects/Tower';
-import { tileCenter, type Edge } from '../pathing';
+import { pointAt, tileCenter, type Edge } from '../pathing';
 import { sfx } from '../sound';
 import { MAX_TOWER_LEVEL, mutationOptions, type TowerStats } from '../towerStats';
 import { COLORS, FONT, TEXT_COLORS } from '../theme';
+import { FPS_ENABLED, FpsMeter, frameReport, installFrameStats } from '../perf';
 import { Panel, VIEW_W } from '../ui/Panel';
 import { Plaque, type PlaqueModel } from '../ui/Plaque';
 
@@ -60,6 +61,15 @@ const BEAM_START_PX = 50;
 const SPLITS_INTO: BacteriumKind = 'coccus';
 /** Кого рожает матка (правило игры; сколько и как часто — в таблице типов). */
 const BREWS_INTO: BacteriumKind = 'swarm';
+/** Стресс-сценарий (`?qa&stress`): сколько башен, сколько бактерий держится на карте, скорость игры, во сколько раз прочнее бактерии (чтобы жили дольше). */
+const STRESS_TOWERS = 40;
+const STRESS_BACTERIA = 200;
+const STRESS_SPEED = 3;
+const STRESS_HP_MUL = 3;
+/** Сколько бактерий стресс-сценарий добавляет за кадр взамен погибших. */
+const STRESS_REFILL_PER_FRAME = 20;
+/** Новые бактерии стресс-сценария появляются не ближе стольких клеток к организму. */
+const STRESS_ORGANISM_GAP_TILES = 3;
 
 /** Кто выходит следующим в волне: тип, вход (null — случайный) и сколько секунд ждать до следующего (в пачке — короткая пауза). */
 interface SpawnItem {
@@ -273,7 +283,10 @@ export class GameScene extends Phaser.Scene {
       onHoverEnd: () => this.ghost.setVisible(false),
     });
     this.input.on('pointerdown', this.onScreenTap, this);
-    this.announceStart();
+    if (STRESS) this.setupStress();
+    else this.announceStart();
+    if (FPS_ENABLED || QA_MODE) installFrameStats(this.game);
+    if (FPS_ENABLED) new FpsMeter(this);
 
     exposeDebug({
       getState: () => this.snapshot(),
@@ -294,6 +307,24 @@ export class GameScene extends Phaser.Scene {
           this.ghost.setVisible(false);
           this.showInfo();
         }
+      },
+      getPerf: (reset) => {
+        let objects = 0;
+        const count = (list: Phaser.GameObjects.GameObject[]): void => {
+          for (const obj of list) {
+            if ((obj as unknown as { visible?: boolean }).visible === false) continue;
+            objects++;
+            if (obj instanceof Phaser.GameObjects.Container) count(obj.list);
+          }
+        };
+        count(this.children.list);
+        return {
+          ...frameReport(reset),
+          objects,
+          bacteria: this.bacteria.length,
+          towers: this.towers.length,
+          renderer: this.game.renderer.type === Phaser.WEBGL ? 'webgl' : 'canvas',
+        };
       },
       worldToClient: (wx, wy) => {
         const s = this.rig.worldToScreen(wx, wy);
@@ -337,6 +368,10 @@ export class GameScene extends Phaser.Scene {
   // ---------------------------------------------------------------- волны
 
   private updateWaves(dt: number): void {
+    if (STRESS) {
+      this.refillStress(STRESS_REFILL_PER_FRAME);
+      return;
+    }
     if (this.phase === 'done') return;
     if (this.phase === 'countdown' || this.phase === 'pause') {
       this.phaseTimer -= dt;
@@ -425,10 +460,10 @@ export class GameScene extends Phaser.Scene {
     return pts[pts.length - 1][1];
   }
 
-  /** Во сколько раз прочнее бактерии текущей волны (рост `waves.hpGrowthPerWave` после волны `hpGrowthFromWave`); 1 — как в таблице типов. */
+  /** Во сколько раз прочнее бактерии текущей волны (рост `waves.hpGrowthPerWave` после волны `hpGrowthFromWave` и добавка `hpGrowthLatePerWave` после волны `hpGrowthLateFromWave`); 1 — как в таблице типов. */
   private waveHpMul(): number {
-    const { hpGrowthPerWave, hpGrowthFromWave } = CONFIG.waves;
-    return 1 + hpGrowthPerWave * Math.max(0, this.waveIdx - hpGrowthFromWave);
+    const { hpGrowthPerWave, hpGrowthFromWave, hpGrowthLatePerWave, hpGrowthLateFromWave } = CONFIG.waves;
+    return 1 + hpGrowthPerWave * Math.max(0, this.waveIdx - hpGrowthFromWave) + hpGrowthLatePerWave * Math.max(0, this.waveIdx - hpGrowthLateFromWave);
   }
 
   /** Сколько волн идёт на уровне. */
@@ -735,7 +770,8 @@ export class GameScene extends Phaser.Scene {
       this.effects.flash(CONFIG.map.orgW, lastY, 36, COLORS.loseLine);
       return;
     }
-    this.lives = Math.max(0, this.lives - whole);
+    // Стресс-сценарий: жизни не убывают (вспышка и тряска остаются — это тоже нагрузка)
+    if (!STRESS) this.lives = Math.max(0, this.lives - whole);
     this.panel.setLives(this.lives);
     this.effects.lifeLost();
     sfx.lifeLost();
@@ -1117,6 +1153,53 @@ export class GameScene extends Phaser.Scene {
   }
 
   // ---------------------------------------------------------------- плашки с описанием (игра на паузе)
+
+  // ---------------------------------------------------------------- стресс-сценарий (замер скорости)
+
+  /** 40 башен всех видов (уровни 1–4, мутации выбраны) по свободным клеткам, ≈200 бактерий всех типов по всей сети, скорость ×3. */
+  private setupStress(): void {
+    this.userSpeed = STRESS_SPEED;
+    this.panel.setSpeed(this.userSpeed);
+    const ids = Object.keys(CONFIG.towers) as TowerId[];
+    const free: [number, number][] = [];
+    for (let row = 0; row < LEVEL.rows; row++) {
+      for (let col = 0; col < LEVEL.cols; col++) {
+        const key = cellKey(col, row);
+        if (!PATH_TILES.has(key) && !BLOCKED_TILES.has(key)) free.push([col, row]);
+      }
+    }
+    // Клетки берутся равномерно по всему списку, чтобы башни стояли по всей карте
+    const count = Math.min(STRESS_TOWERS, free.length);
+    for (let i = 0; i < count; i++) {
+      const [col, row] = free[Math.floor((i * free.length) / count)];
+      const center = tileCenter(col, row);
+      const tower = new Tower(this, this.towerLayer, ids[i % ids.length], col, row, center.x, center.y);
+      for (let level = 1; level < 1 + (Math.floor(i / ids.length) % MAX_TOWER_LEVEL); level++) tower.upgrade();
+      while (tower.pendingTier !== null) tower.pickMutation(i % 2);
+      this.occupied.add(cellKey(col, row));
+      this.towers.push(tower);
+    }
+    this.placedAny = true;
+    this.updateHint();
+    this.refillStress(STRESS_BACTERIA);
+  }
+
+  /** Добавляет бактерий случайных типов в случайные места сети (не больше `limit` за раз), пока их меньше STRESS_BACTERIA. */
+  private refillStress(limit: number): void {
+    for (let n = 0; n < limit && this.bacteria.length < STRESS_BACTERIA; n++) {
+      const kind = KINDS[Math.floor(Math.random() * KINDS.length)];
+      // Место — случайная точка сети не ближе STRESS_ORGANISM_GAP_TILES клеток к организму (иначе потеря жизни шла бы каждый кадр)
+      let edge = EDGES[0];
+      let s = 0;
+      for (let attempt = 0; attempt < 20; attempt++) {
+        edge = EDGES[Math.floor(Math.random() * EDGES.length)];
+        s = Math.random() * edge.length;
+        if (pointAt(edge, s).x > CONFIG.map.orgW + STRESS_ORGANISM_GAP_TILES * CONFIG.map.tile) break;
+      }
+      this.bacteria.push(new Bacterium(this, this.bacteriaLayer, kind, edge, s, STRESS_HP_MUL));
+      this.spawned++;
+    }
+  }
 
   /** В начале уровня: плашки башен, открывшихся на этом уровне (на 1-м — Таблетка и Сироп), затем плашки бактерий 1-й волны. */
   private announceStart(): void {

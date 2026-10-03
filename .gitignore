@@ -7,3 +7,6 @@ dist-qa/
 
 # Скриншоты проверок (qa/screenshots) создаются при запуске и в репозиторий не попадают; итоговые снимки этапа — docs/screenshots/
 qa/screenshots/
+
+# Числа замера скорости (qa/perf.mjs)
+qa/perf-results/

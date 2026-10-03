@@ -45,17 +45,42 @@ export interface BodyState {
   seed: number;
 }
 
+/** Сколько трещин рисуется при таком HP: чем больше потеряно, тем их больше (не больше 9, даже у бронированной с 20 HP). */
+export function crackCount(hp: number, maxHp: number): number {
+  return Math.round(Math.min(1, Math.max(0, maxHp - hp) / maxHp) * Math.min(maxHp, 9));
+}
+
+/** Круглые типы: трещины идут от края к центру под углом seed, поэтому их можно нарисовать один раз и поворачивать картинкой. */
+export function hasRadialCracks(kind: Kind): boolean {
+  return kind !== 'runner' && kind !== 'rod' && kind !== 'splitter';
+}
+
+/** Насколько рисунок типа выходит за центр по горизонтали и вертикали (с запасом на толщину линий), пикселей мира. */
+export function bodyHalfSize(kind: Kind): { hx: number; hy: number } {
+  const { radius: r, length: l } = CONFIG.types[kind];
+  const pad = 4;
+  if (kind === 'runner') return { hx: r + pad, hy: l / 2 + 24 };
+  if (kind === 'rod') return { hx: r + pad, hy: l / 2 + pad };
+  if (kind === 'splitter') return { hx: r * SPLITTER_LOBE_OFFSET + r + pad, hy: r + pad };
+  if (kind === 'giant') return { hx: r * 1.28 + pad, hy: r * 1.28 + pad };
+  if (kind === 'slick') return { hx: r + pad, hy: r * 1.52 + pad };
+  return { hx: r + pad, hy: r + pad };
+}
+
 /**
  * Рисует тело бактерии в её собственных координатах (центр в 0,0).
  * Форма зависит от типа, толщина оболочки и число трещин — от оставшегося HP.
  */
 export function drawBody(g: Phaser.GameObjects.Graphics, kind: Kind, state: BodyState): void {
+  g.clear();
+  drawShape(g, kind, shellWidth(kind, state.hp), state.spread);
+  drawCracks(g, kind, crackCount(state.hp, state.maxHp), state.maxHp, state.seed);
+}
+
+/** Тело без трещин: sw — толщина оболочки (от HP, см. shellWidth), spread — насколько раздвинуты доли делящейся. */
+export function drawShape(g: Phaser.GameObjects.Graphics, kind: Kind, sw: number, spread = 0): void {
   const cfg = CONFIG.types[kind];
   const col = COLORS.kinds[kind];
-  const sw = shellWidth(kind, state.hp);
-  // Трещины: чем больше потеряно HP, тем их больше (не больше 9, даже у бронированной с 20 HP)
-  const damage = Math.round(Math.min(1, Math.max(0, state.maxHp - state.hp) / state.maxHp) * Math.min(state.maxHp, 9));
-  g.clear();
 
   if (kind === 'runner') {
     // Бегун: острая «капля», голова вперёд (вверх по своим осям), сзади три полоски скорости
@@ -68,7 +93,6 @@ export function drawBody(g: Phaser.GameObjects.Graphics, kind: Kind, state: Body
     g.fillStyle(col.body, 1);
     g.fillEllipse(0, 0, Math.max(2, w - 2 * sw), Math.max(2, l - 2 * sw));
     shine(g, -w * 0.12, -l * 0.22, w * 0.1);
-    for (let i = 0; i < damage; i++) crack(g, col.crack, [(i % 2 === 0 ? -1 : 1) * w * 0.5, -l * 0.2 + i * 7], [(i % 2 === 0 ? -1 : 1) * w * 0.1, -l * 0.1 + i * 7], [0, l * 0.05 + i * 5]);
     return;
   }
 
@@ -81,18 +105,13 @@ export function drawBody(g: Phaser.GameObjects.Graphics, kind: Kind, state: Body
     g.fillStyle(col.body, 1);
     g.fillRoundedRect(-w / 2 + sw, -l / 2 + sw, Math.max(1, w - 2 * sw), Math.max(1, l - 2 * sw), Math.max(1, w - 2 * sw) / 2);
     shine(g, -w * 0.18, -l * 0.28, w * 0.1);
-    for (let i = 0; i < damage; i++) {
-      const side = i % 2 === 0 ? -1 : 1;
-      const y = -l / 2 + ((i + 1) * l) / (state.maxHp + 1);
-      crack(g, col.crack, [side * w * 0.5, y], [side * w * 0.12, y + 9], [-side * w * 0.08, y - 5]);
-    }
     return;
   }
 
   if (kind === 'splitter') {
     // Делящаяся: две доли с перетяжкой посередине
     const r = cfg.radius;
-    const off = r * SPLITTER_LOBE_OFFSET + state.spread;
+    const off = r * SPLITTER_LOBE_OFFSET + spread;
     g.fillStyle(col.shell, 1);
     g.fillCircle(-off, 0, r);
     g.fillCircle(off, 0, r);
@@ -102,13 +121,9 @@ export function drawBody(g: Phaser.GameObjects.Graphics, kind: Kind, state: Body
     // перетяжка: тёмная перегородка и две «зарубки» сверху и снизу
     const waist = Math.sqrt(Math.max(1, r * r - (r * SPLITTER_LOBE_OFFSET) ** 2)) + 2;
     g.lineStyle(5, COLORS.septum, 1);
-    g.lineBetween(0, -waist - state.spread * 0.3, 0, waist + state.spread * 0.3);
+    g.lineBetween(0, -waist - spread * 0.3, 0, waist + spread * 0.3);
     shine(g, -off - r * 0.3, -r * 0.35, r * 0.16);
     shine(g, off - r * 0.3, -r * 0.35, r * 0.16);
-    for (let i = 0; i < damage; i++) {
-      const cx = i % 2 === 0 ? -off : off;
-      crack(g, col.crack, [cx - r * 0.9, -r * 0.2 + i * 6], [cx - r * 0.45, r * 0.1], [cx - r * 0.2, -r * 0.05]);
-    }
     return;
   }
 
@@ -172,9 +187,41 @@ export function drawBody(g: Phaser.GameObjects.Graphics, kind: Kind, state: Body
     g.fillRoundedRect(-r * 0.13, -r * 0.55, r * 0.26, r * 1.1, 3);
     g.fillRoundedRect(-r * 0.55, -r * 0.13, r * 1.1, r * 0.26, 3);
   }
-  const step = (Math.PI * 2) / Math.max(3, Math.min(9, state.maxHp));
+}
+
+/** Трещины поверх тела: damage — сколько (crackCount), maxHp — полное HP этой бактерии, seed — угол первой трещины у круглых типов. */
+export function drawCracks(g: Phaser.GameObjects.Graphics, kind: Kind, damage: number, maxHp: number, seed: number): void {
+  const cfg = CONFIG.types[kind];
+  const col = COLORS.kinds[kind];
+  if (kind === 'runner') {
+    const w = cfg.radius * 2;
+    const l = cfg.length;
+    for (let i = 0; i < damage; i++) crack(g, col.crack, [(i % 2 === 0 ? -1 : 1) * w * 0.5, -l * 0.2 + i * 7], [(i % 2 === 0 ? -1 : 1) * w * 0.1, -l * 0.1 + i * 7], [0, l * 0.05 + i * 5]);
+    return;
+  }
+  if (kind === 'rod') {
+    const w = cfg.radius * 2;
+    const l = cfg.length;
+    for (let i = 0; i < damage; i++) {
+      const side = i % 2 === 0 ? -1 : 1;
+      const y = -l / 2 + ((i + 1) * l) / (maxHp + 1);
+      crack(g, col.crack, [side * w * 0.5, y], [side * w * 0.12, y + 9], [-side * w * 0.08, y - 5]);
+    }
+    return;
+  }
+  if (kind === 'splitter') {
+    const r = cfg.radius;
+    const off = r * SPLITTER_LOBE_OFFSET;
+    for (let i = 0; i < damage; i++) {
+      const cx = i % 2 === 0 ? -off : off;
+      crack(g, col.crack, [cx - r * 0.9, -r * 0.2 + i * 6], [cx - r * 0.45, r * 0.1], [cx - r * 0.2, -r * 0.05]);
+    }
+    return;
+  }
+  const r = cfg.radius;
+  const step = (Math.PI * 2) / Math.max(3, Math.min(9, maxHp));
   for (let i = 0; i < damage; i++) {
-    const a = state.seed + i * step;
+    const a = seed + i * step;
     crack(
       g,
       col.crack,

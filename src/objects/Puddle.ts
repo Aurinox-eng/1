@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import { artImage, bakeArt, squareBox } from '../art';
 import { COLORS } from '../theme';
 import type { Bacterium } from './Bacterium';
 
@@ -25,15 +26,18 @@ export class Puddle {
     readonly poison = 0,
   ) {
     this.left = seconds;
-    const g = scene.add.graphics();
-    g.fillStyle(poison > 0 ? COLORS.acid : COLORS.puddle, 0.42).fillCircle(0, 0, radius);
-    g.fillStyle(0xd9902f, 0.24).fillCircle(-radius * 0.15, -radius * 0.1, radius * 0.7);
-    g.lineStyle(3, 0xb8782a, 0.95).strokeCircle(0, 0, radius);
-    // пузырьки: фиксированные по месту, чтобы пятно выглядело «липким»
-    for (const [bx, by, br] of [[-0.45, -0.2, 0.1], [0.3, -0.45, 0.07], [0.35, 0.3, 0.12], [-0.2, 0.42, 0.06], [0.0, 0.0, 0.08]] as const) {
-      g.lineStyle(2, 0xffffff, 0.45).strokeCircle(bx * radius, by * radius, br * radius);
-    }
-    this.container = scene.add.container(x, y, [g]).setScale(0.3);
+    // Рисунок — одна картинка на радиус и вид лужи (обычная или едкая)
+    const box = squareBox(radius + 3);
+    const key = bakeArt(scene, `puddle-${Math.round(radius * 10) / 10}-${poison > 0 ? 'acid' : 'syrup'}`, box, (g) => {
+      g.fillStyle(poison > 0 ? COLORS.acid : COLORS.puddle, 0.42).fillCircle(0, 0, radius);
+      g.fillStyle(0xd9902f, 0.24).fillCircle(-radius * 0.15, -radius * 0.1, radius * 0.7);
+      g.lineStyle(3, 0xb8782a, 0.95).strokeCircle(0, 0, radius);
+      // пузырьки: фиксированные по месту, чтобы пятно выглядело «липким»
+      for (const [bx, by, br] of [[-0.45, -0.2, 0.1], [0.3, -0.45, 0.07], [0.35, 0.3, 0.12], [-0.2, 0.42, 0.06], [0.0, 0.0, 0.08]] as const) {
+        g.lineStyle(2, 0xffffff, 0.45).strokeCircle(bx * radius, by * radius, br * radius);
+      }
+    });
+    this.container = scene.add.container(x, y, [artImage(scene, key, box)]).setScale(0.3);
     layer.add(this.container);
     scene.tweens.add({ targets: this.container, scale: 1, duration: 220, ease: 'Back.easeOut' });
   }

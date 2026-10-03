@@ -10,9 +10,13 @@
  *                                        — временно подменяет числа из config.ts (для подбора баланса)
  *   http://localhost:5173/?qa&canvas     — рисовать через canvas вместо WebGL (быстрее на слабой машине без видеокарты; для бота баланса)
  *   http://localhost:5173/?qa&noplaque   — не показывать плашки с описанием бактерий и башен (игра не встаёт на паузу сама; для проверок, которым плашки мешают)
+ *   http://localhost:5173/?qa&stress&fps — стресс-сценарий для замера скорости (40 башен, ≈200 бактерий, ×3) со счётчиком кадров
+ *   http://localhost:5173/?fps          — счётчик кадров в углу; работает и в игровой сборке (только показывает число)
  *   http://localhost:5173/?level=5       — номер уровня (какие башни открыты); работает и в игровой сборке, пока нет меню уровней (этап 5)
  *   http://localhost:5173/?lang=en       — принудительно выбирает язык (проверка переводов)
  */
+import type { PerfReport } from './perf';
+
 /** Разрешён ли режим проверки в этой сборке (в игровой сборке — всегда false). */
 export const QA_ENABLED: boolean = import.meta.env.DEV || import.meta.env.MODE === 'qa';
 
@@ -22,6 +26,9 @@ export const QA_MODE: boolean = QA_ENABLED && params.has('qa');
 
 /** Не показывать плашки с описанием (только вместе с ?qa): нужно проверкам, которые проверяют не плашки, а бой и интерфейс. */
 export const NO_PLAQUES: boolean = QA_MODE && params.has('noplaque');
+
+/** Стресс-сценарий для замера скорости (только вместе с ?qa): 40 башен разных уровней, ≈200 бактерий всех типов, скорость ×3, без волн и без поражения. */
+export const STRESS: boolean = QA_MODE && params.has('stress');
 
 /** Множитель игрового времени (1 = обычная скорость). Работает только вместе с ?qa. */
 export const TIME_SCALE: number = QA_MODE ? Math.min(10, Math.max(0.1, Number(params.get('speed')) || 1)) : 1;
@@ -167,6 +174,8 @@ export interface DebugApi {
   cellToClient: (col: number, row: number) => { x: number; y: number };
   /** Показать плашку с описанием бактерии (kind 'bacterium', id — тип) или башни (kind 'tower', id — башня) сейчас, в любой момент игры (для снимков и проверок вида). */
   showPlaque: (kind: 'bacterium' | 'tower', id: string) => void;
+  /** Замер скорости с последнего сброса (reset — начать заново) и сколько объектов сейчас рисуется. */
+  getPerf: (reset?: boolean) => PerfReport & { objects: number; bacteria: number; towers: number; renderer: 'webgl' | 'canvas' };
 }
 
 declare global {

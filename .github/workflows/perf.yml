@@ -1,0 +1,70 @@
+# Замер скорости (кадры в секунду) в стресс-сценарии ?qa&stress (40 башен, ≈200 бактерий, ×3): qa/perf.mjs.
+# Срабатывает на каждый push в рабочую ветку (кроме правок только в docs/ и *.md) и вручную (Actions → «Замер скорости» → Run workflow).
+# Сравнивает текущую версию («после») с версией из файла .github/perf-base («до») на ОДНОЙ машине, поочерёдно; итог — таблица в Summary и в логе.
+# На сервере нет видеокарты (WebGL рисуется программно), поэтому сами числа ниже, чем у игрока; смысл — сравнение «до/после».
+# Код замера (src/perf.ts) для версии «до» берётся из текущей версии, чтобы обе мерились одинаково.
+name: Замер скорости
+
+on:
+  push:
+    branches: [claude/serene-rubin-x3t2gu]
+    paths-ignore:
+      - 'docs/**'
+      - '**.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: perf-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  perf:
+    name: Стресс-сценарий, до и после
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Установить зависимости и браузер
+        env:
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+      - name: Собрать текущую версию и версию «до»
+        run: |
+          npm run build:qa
+          BASE=$(tr -d '[:space:]' < .github/perf-base 2>/dev/null || true)
+          echo "BASE=$BASE" >> "$GITHUB_ENV"
+          if [ -n "$BASE" ] && [ "$BASE" != "$(git rev-parse HEAD)" ]; then
+            git worktree add base "$BASE"
+            ln -s "$PWD/node_modules" base/node_modules
+            # Код замера (счётчик кадров и вызовов рисования) — из текущей версии, чтобы обе версии мерились одинаково
+            cp src/perf.ts base/src/perf.ts
+            (cd base && npm run build:qa)
+          fi
+      - name: Замер
+        run: |
+          if [ -d base ]; then
+            node qa/perf.mjs --roots=base,. --names=до,после --tag=ci
+          else
+            node qa/perf.mjs --roots=. --names=после --tag=ci
+          fi
+      - name: Снимки и числа
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: perf-shots
+          path: |
+            qa/screenshots
+            qa/perf-results
+          if-no-files-found: ignore
+          retention-days: 14
