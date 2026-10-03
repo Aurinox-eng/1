@@ -287,6 +287,14 @@ export class GameScene extends Phaser.Scene {
         }),
       }),
       gameToClient: (gx, gy) => this.gameToClient(gx, gy),
+      showPlaque: (kind, id) => {
+        this.infoQueue.push(kind === 'tower' ? this.towerPlaque(id as TowerId) : this.bacteriumPlaque(id as BacteriumKind));
+        if (this.state === 'playing') {
+          this.state = 'info';
+          this.ghost.setVisible(false);
+          this.showInfo();
+        }
+      },
       worldToClient: (wx, wy) => {
         const s = this.rig.worldToScreen(wx, wy);
         return this.gameToClient(s.x, s.y);

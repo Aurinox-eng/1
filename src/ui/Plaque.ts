@@ -26,7 +26,7 @@ export interface PlaqueGeometry {
   id: string | null;
 }
 
-const CARD = { w: 900, h: 470 };
+const CARD = { w: 960, h: 500 };
 const DEPTH = 220;
 /** Правая колонка текста: левый край и ширина, пикселей. */
 const TEXT_X = W / 2 - CARD.w / 2 + 380;
@@ -61,10 +61,10 @@ export class Plaque {
     card.lineStyle(3, COLORS.gold, 0.7).strokeCircle(x0 + 190, H / 2 + 8, 150);
     this.art = scene.add.container(x0 + 190, H / 2 + 8);
     this.titleText = this.text(W / 2, y0 + 36, '', 34, TEXT_COLORS.accent).setOrigin(0.5);
-    this.nameText = this.text(TEXT_X, y0 + 100, '', 46, TEXT_COLORS.main).setOrigin(0, 0.5);
+    this.nameText = this.text(TEXT_X, y0 + 92, '', 46, TEXT_COLORS.main).setOrigin(0, 0.5);
     this.labelTexts = [0, 1].map(() => this.text(TEXT_X, 0, '', 22, TEXT_COLORS.accent).setOrigin(0, 0));
     this.bodyTexts = [0, 1].map(() =>
-      this.text(TEXT_X, 0, '', 24, TEXT_COLORS.main)
+      this.text(TEXT_X, 0, '', 22, TEXT_COLORS.main)
         .setOrigin(0, 0)
         .setFontStyle('normal')
         .setWordWrapWidth(TEXT_W),
@@ -102,15 +102,15 @@ export class Plaque {
     }
     this.titleText.setText(model.title);
     this.nameText.setText(model.name);
-    let y = H / 2 - CARD.h / 2 + 150;
+    let y = H / 2 - CARD.h / 2 + 140;
     for (let i = 0; i < 2; i++) {
       const line = model.lines[i];
       this.labelTexts[i].setVisible(Boolean(line)).setText(line?.label ?? '').setPosition(TEXT_X, y);
       this.bodyTexts[i].setVisible(Boolean(line)).setText(line?.text ?? '');
       if (!line) continue;
-      y += 30;
+      y += 28;
       this.bodyTexts[i].setPosition(TEXT_X, y);
-      y += this.bodyTexts[i].height + 22;
+      y += this.bodyTexts[i].height + 18;
     }
     this.hintText.setText(model.hint);
     this.root.setVisible(true);

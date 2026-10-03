@@ -165,6 +165,8 @@ export interface DebugApi {
   gameToClient: (gx: number, gy: number) => { x: number; y: number };
   /** Центр клетки → координаты на странице. */
   cellToClient: (col: number, row: number) => { x: number; y: number };
+  /** Показать плашку с описанием бактерии (kind 'bacterium', id — тип) или башни (kind 'tower', id — башня) сейчас, в любой момент игры (для снимков и проверок вида). */
+  showPlaque: (kind: 'bacterium' | 'tower', id: string) => void;
 }
 
 declare global {
