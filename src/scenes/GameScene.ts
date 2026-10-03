@@ -378,6 +378,12 @@ export class GameScene extends Phaser.Scene {
     sfx.wave();
   }
 
+  /** Во сколько раз прочнее бактерии текущей волны (рост `waves.hpGrowthPerWave` после волны `hpGrowthFromWave`); 1 — как в таблице типов. */
+  private waveHpMul(): number {
+    const { hpGrowthPerWave, hpGrowthFromWave } = CONFIG.waves;
+    return 1 + hpGrowthPerWave * Math.max(0, this.waveIdx - hpGrowthFromWave);
+  }
+
   /** Сколько волн идёт на уровне. */
   private waveTotal(): number {
     return Math.min(CONFIG.waves.total, CONFIG.waves.list.length);
@@ -395,7 +401,7 @@ export class GameScene extends Phaser.Scene {
   private spawnBacterium(item: SpawnItem): void {
     const { kind } = item;
     const edge = item.edge ?? ENTRANCE_EDGES[Math.floor(Math.random() * ENTRANCE_EDGES.length)];
-    this.bacteria.push(new Bacterium(this, this.bacteriaLayer, kind, edge, 0));
+    this.bacteria.push(new Bacterium(this, this.bacteriaLayer, kind, edge, 0, this.waveHpMul()));
     this.spawned++;
     if (!this.introduced.includes(kind)) {
       this.introduced.push(kind);
@@ -529,7 +535,7 @@ export class GameScene extends Phaser.Scene {
       if (mother.brewClock < brewEverySec) continue;
       mother.brewClock -= brewEverySec;
       for (let i = 0; i < brewCount; i++) {
-        const child = new Bacterium(this, this.bacteriaLayer, BREWS_INTO, mother.edge, mother.s);
+        const child = new Bacterium(this, this.bacteriaLayer, BREWS_INTO, mother.edge, mother.s, this.waveHpMul());
         child.moveForward(i * CONFIG.types[BREWS_INTO].radius * 2);
         this.bacteria.push(child);
       }
@@ -628,7 +634,7 @@ export class GameScene extends Phaser.Scene {
     this.splits++;
     sfx.split();
     for (let i = 0; i < splitCount; i++) {
-      const child = new Bacterium(this, this.bacteriaLayer, SPLITS_INTO, parent.edge, parent.s);
+      const child = new Bacterium(this, this.bacteriaLayer, SPLITS_INTO, parent.edge, parent.s, this.waveHpMul());
       child.moveForward(i * splitGapPx);
       this.bacteria.push(child);
     }
