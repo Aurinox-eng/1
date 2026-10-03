@@ -186,7 +186,7 @@ export const CONFIG = {
     },
     /** Шипучка — взрыв по малой площади: медленный снаряд, большой урон всем в маленьком круге. Убийца кучек (Рой, дети делящейся); по одиночным слабее Таблетки. */
     fizz: {
-      price: 170,
+      price: 140,
       range: 210,
       damage: 3,
       cooldownMs: 2600,
@@ -206,11 +206,12 @@ export const CONFIG = {
     },
     /** Шприц — направленный луч: игрок задаёт направление (тап по правой половине башни — поворот на 45° по часовой стрелке, по левой — против),
      *  башня бьёт очередью по линии через всю карту, всех на линии. Радиуса действия у Шприца нет (range 0): луч идёт до края карты (beamLengthPx больше
-     *  диагонали карты). Урон 5 пробивает броню; ставить надо вдоль прямого участка дороги. */
+     *  диагонали карты). Очередь — два удара по 3 (урон 3 против брони 2 даёт 1 — настоящую броню пробивает мутация «Бронебойный»); ставить надо вдоль
+     *  прямого участка дороги. Ослаблен по просьбе владельца (было: цена 150, урон 5, три удара — слишком сильный, а Шипучка рядом теряла смысл). */
     syringe: {
-      price: 150,
+      price: 200,
       range: 0,
-      damage: 5,
+      damage: 3,
       cooldownMs: 2400,
       projectileSpeed: 0,
       targeting: 'beam' as Targeting,
@@ -221,7 +222,7 @@ export const CONFIG = {
       puddleRadius: 0,
       puddleSec: 0,
       puddleLeadPx: 0,
-      beamPulses: 3,
+      beamPulses: 2,
       beamGapMs: 180,
       beamLengthPx: 3000,
       beamHalfWidthPx: 10,
@@ -242,9 +243,9 @@ export const CONFIG = {
   //   puddleSecMul  — множитель времени жизни лужи
   towerLevels: [
     { damageMul: 1, cooldownMul: 1, reachMul: 1, pulsesAdd: 0, slowPower: 1, puddleSecMul: 1 },
-    { damageMul: 2.2, cooldownMul: 0.91, reachMul: 1.05, pulsesAdd: 0, slowPower: 1.25, puddleSecMul: 1.25 },
-    { damageMul: 4.8, cooldownMul: 0.83, reachMul: 1.1, pulsesAdd: 1, slowPower: 1.5, puddleSecMul: 1.5 },
-    { damageMul: 10.5, cooldownMul: 0.77, reachMul: 1.15, pulsesAdd: 2, slowPower: 1.75, puddleSecMul: 1.75 },
+    { damageMul: 1.9, cooldownMul: 0.95, reachMul: 1.04, pulsesAdd: 0, slowPower: 1.15, puddleSecMul: 1.15 },
+    { damageMul: 3.6, cooldownMul: 0.9, reachMul: 1.08, pulsesAdd: 0, slowPower: 1.3, puddleSecMul: 1.3 },
+    { damageMul: 6.4, cooldownMul: 0.85, reachMul: 1.12, pulsesAdd: 1, slowPower: 1.45, puddleSecMul: 1.45 },
   ],
   /** Уровни, на которых башня получает выбор мутации (по одному выбору на каждый порог; выбор бесплатный и окончательный). */
   mutationLevels: [2, 4] as number[],
@@ -263,8 +264,8 @@ export const CONFIG = {
       [{ id: 'fizzChain', chain: true }, { id: 'fizzAcid', acidSec: 3, acidMul: 1.5 }],
     ],
     syringe: [
-      [{ id: 'syringeMore', pulsesAdd: 2 }, { id: 'syringePierce', damageMul: 1.5, armorPierce: true }],
-      [{ id: 'syringeTwin', secondBeam: true }, { id: 'syringeSpiral', spiral: 1 }],
+      [{ id: 'syringeMore', pulsesAdd: 1 }, { id: 'syringePierce', damageMul: 1.5, armorPierce: true }],
+      [{ id: 'syringeTwin', secondBeam: true }, { id: 'syringeSpiral', spiral: 2 }],
     ],
   } as Record<string, MutationSpec[][]>,
 
@@ -303,7 +304,7 @@ export const CONFIG = {
     /** Спора — маленькая красная. 3 HP, быстрая; проходя рядом с башней, глушит её на 3 секунды. */
     spore: { hp: 3, speedFactor: 1.4, reward: 12, lifeDamage: 1, radius: 18, length: 0, armor: 0, dashEverySec: 0, dashSec: 0, dashFactor: 1, splitCount: 0, splitGapPx: 0, disableSec: 3, disableRadius: 150, healRadius: 0, healPerSec: 0, spawnGapSec: 0, regenPerSec: 0, hasteRadius: 0, hasteFactor: 1, slowImmune: 0, brewEverySec: 0, brewCount: 0 },
     /** Рой — крошечные бирюзовые, быстрые, выходят плотной пачкой по одному входу. 2 HP. Против кучи — Шипучка. */
-    swarm: { hp: 2, speedFactor: 1.3, reward: 2, lifeDamage: 0.125, radius: 14, length: 0, armor: 0, dashEverySec: 0, dashSec: 0, dashFactor: 1, splitCount: 0, splitGapPx: 0, disableSec: 0, disableRadius: 0, healRadius: 0, healPerSec: 0, spawnGapSec: 0.15, regenPerSec: 0, hasteRadius: 0, hasteFactor: 1, slowImmune: 0, brewEverySec: 0, brewCount: 0 },
+    swarm: { hp: 2, speedFactor: 1.3, reward: 2, lifeDamage: 0.25, radius: 14, length: 0, armor: 0, dashEverySec: 0, dashSec: 0, dashFactor: 1, splitCount: 0, splitGapPx: 0, disableSec: 0, disableRadius: 0, healRadius: 0, healPerSec: 0, spawnGapSec: 0.15, regenPerSec: 0, hasteRadius: 0, hasteFactor: 1, slowImmune: 0, brewEverySec: 0, brewCount: 0 },
     /** Бегун — оранжевая «капля» со следом, очень быстрый (×2,2). 4 HP. Башни не успевают — нужна лужа Сиропа. */
     runner: { hp: 4, speedFactor: 2.2, reward: 8, lifeDamage: 1, radius: 20, length: 52, armor: 0, dashEverySec: 0, dashSec: 0, dashFactor: 1, splitCount: 0, splitGapPx: 0, disableSec: 0, disableRadius: 0, healRadius: 0, healPerSec: 0, spawnGapSec: 0, regenPerSec: 0, hasteRadius: 0, hasteFactor: 1, slowImmune: 0, brewEverySec: 0, brewCount: 0 },
     /** Лекарь — белый с розовым крестом и кольцом-аурой. 6 HP; пока жив, лечит всех рядом на 0,8 HP/с — одиночные Таблетки не справляются. Против него — линия Шприца и взрыв Шипучки. */
@@ -349,8 +350,8 @@ export const CONFIG = {
     /** Пауза между волнами (после того, как вышла последняя бактерия волны), секунд. */
     pauseSec: 6,
     /** Рост прочности бактерий от волны к волне: с волны hpGrowthFromWave (не считая её) HP каждой бактерии × (1 + hpGrowthPerWave × (волна − hpGrowthFromWave)).
-     *  0 — прочность не растёт. Появилось по замерам круга 11: после 8-й волны ни один бот не терял жизней, игра вся в начале. Подбирается ботом. */
-    hpGrowthPerWave: 0,
+     *  0 — прочность не растёт. 0.03 — осторожный рост по решению владельца: 12-я волна ×1,12, 20-я ×1,36, 30-я ×1,66 (числа бактерий при этом тоже растут). Подбирается ботом. */
+    hpGrowthPerWave: 0.03,
     hpGrowthFromWave: 8,
     /** Самая большая «пачка» бактерий с spawnGapSec (рой): больше — делится на несколько пачек, каждая на свой вход. */
     packMax: 10,
@@ -366,11 +367,11 @@ export const CONFIG = {
       { coccus: 4 },
       { coccus: 6 },
       { coccus: 5, rod: 1 },
-      { coccus: 4, rod: 2, swarm: 4 },
-      { coccus: 5, rod: 3, swarm: 6, runner: 1 },
-      { coccus: 5, rod: 3, swarm: 6, runner: 3, splitter: 1 },
-      { coccus: 6, rod: 4, swarm: 8, runner: 3, splitter: 2, armored: 1 },
-      { coccus: 6, rod: 4, swarm: 8, runner: 4, splitter: 3, armored: 2, healer: 1 },
+      { coccus: 4, rod: 2, swarm: 8 },
+      { coccus: 5, rod: 3, swarm: 10, runner: 1 },
+      { coccus: 5, rod: 3, swarm: 10, runner: 3, splitter: 1 },
+      { coccus: 6, rod: 4, swarm: 12, runner: 3, splitter: 2, armored: 1 },
+      { coccus: 6, rod: 4, swarm: 12, runner: 4, splitter: 3, armored: 2, healer: 1 },
       { coccus: 6, rod: 5, swarm: 14, runner: 4, splitter: 3, armored: 2, healer: 2, spore: 1 },
       { coccus: 8, rod: 6, swarm: 16, runner: 5, splitter: 4, armored: 3, healer: 2, spore: 3 },
       { coccus: 8, rod: 7, swarm: 18, runner: 6, splitter: 5, armored: 3, healer: 3, spore: 4 },
