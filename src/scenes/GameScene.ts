@@ -410,6 +410,21 @@ export class GameScene extends Phaser.Scene {
     sfx.wave();
   }
 
+  /** Множитель наград текущей волны по кривой `economy.rewardCurve` (точки [волна, множитель], между ними — по прямой). */
+  private rewardFactor(): number {
+    const pts = CONFIG.economy.rewardCurve;
+    const w = Math.max(1, this.waveIdx);
+    if (w <= pts[0][0]) return pts[0][1];
+    for (let i = 1; i < pts.length; i++) {
+      const [wb, fb] = pts[i];
+      if (w <= wb) {
+        const [wa, fa] = pts[i - 1];
+        return fa + ((fb - fa) * (w - wa)) / (wb - wa);
+      }
+    }
+    return pts[pts.length - 1][1];
+  }
+
   /** Во сколько раз прочнее бактерии текущей волны (рост `waves.hpGrowthPerWave` после волны `hpGrowthFromWave`); 1 — как в таблице типов. */
   private waveHpMul(): number {
     const { hpGrowthPerWave, hpGrowthFromWave } = CONFIG.waves;
@@ -649,8 +664,8 @@ export class GameScene extends Phaser.Scene {
 
   private killBacterium(bacterium: Bacterium): void {
     this.kills++;
-    // «Дефляция»: награда умножается на economy.rewardMul, дробная часть копится до целой монеты
-    this.rewardPool += bacterium.reward * CONFIG.economy.rewardMul;
+    // «Дефляция»: награда умножается на economy.rewardMul и множитель волны из economy.rewardCurve, дробная часть копится до целой монеты
+    this.rewardPool += bacterium.reward * CONFIG.economy.rewardMul * this.rewardFactor();
     const gain = Math.floor(this.rewardPool + 1e-9);
     this.rewardPool -= gain;
     this.coins += gain;

@@ -148,13 +148,13 @@ const ru = {
   mutFizzAcid: 'Кислота',
   mutdFizzAcid: '+50 % урона по задетым 3 с',
   mutSyringeMore: 'Больше ударов',
-  mutdSyringeMore: '+2 удара в очереди',
+  mutdSyringeMore: '+1 удар в очереди',
   mutSyringePierce: 'Бронебойный',
   mutdSyringePierce: 'Урон ×1,5, игнорирует броню',
   mutSyringeTwin: 'Второй луч',
   mutdSyringeTwin: 'Под 90° к первому',
   mutSyringeSpiral: 'Спираль',
-  mutdSyringeSpiral: 'Каждый удар сильнее на 1',
+  mutdSyringeSpiral: 'Каждый удар сильнее на 2',
 };
 
 export type TextKey = keyof typeof ru;
@@ -300,13 +300,13 @@ const en: Record<TextKey, string> = {
   mutFizzAcid: 'Acid',
   mutdFizzAcid: '+50% damage to hit ones for 3 s',
   mutSyringeMore: 'More hits',
-  mutdSyringeMore: '+2 hits in a burst',
+  mutdSyringeMore: '+1 hit in a burst',
   mutSyringePierce: 'Armor-piercing',
   mutdSyringePierce: 'Damage ×1.5, ignores armor',
   mutSyringeTwin: 'Second beam',
   mutdSyringeTwin: 'At 90° to the first',
   mutSyringeSpiral: 'Spiral',
-  mutdSyringeSpiral: 'Each hit is stronger by 1',
+  mutdSyringeSpiral: 'Each hit is stronger by 2',
 };
 
 const TEXTS: Record<Lang, Record<TextKey, string>> = { ru, en };

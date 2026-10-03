@@ -236,6 +236,11 @@ const FIXED_BALANCE = [
   'lives.start:3',
   // С круга 14 награды умножаются на economy.rewardMul (0,3, дробные монеты копятся): проверки, считающие монеты за убитых, ждут номинал из таблицы — множитель 1
   'economy.rewardMul:1',
+  // … и кривая наград по волнам (economy.rewardCurve) выровнена в 1: иначе награда зависела бы от номера волны
+  'economy.rewardCurve.0.1:1',
+  'economy.rewardCurve.1.1:1',
+  'economy.rewardCurve.2.1:1',
+  'economy.rewardCurve.3.1:1',
 ];
 
 // ------------------------------------------------------------------ общие помощники
@@ -5134,6 +5139,10 @@ async function runDeflation(browser, baseUrl) {
     const ctx = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
     const cfg = [
       `economy.rewardMul:${mul}`,
+      'economy.rewardCurve.0.1:1',
+      'economy.rewardCurve.1.1:1',
+      'economy.rewardCurve.2.1:1',
+      'economy.rewardCurve.3.1:1',
       'types.coccus.reward:5',
       'types.coccus.hp:1',
       wavesOnlyCfg({ coccus: 2 }),

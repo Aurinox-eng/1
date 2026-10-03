@@ -48,6 +48,8 @@ export interface CardGeometry {
 const BTN_H = 34;
 const PICK_H = 64;
 const PAD = 12;
+/** Сторона кнопок поворота луча (Шприц), пикселей: они стоят справа от первых двух строк чисел и не должны их закрывать. */
+const ROT = 36;
 
 /**
  * Карточка выбранной башни: лежит на месте кнопок башен в правой панели. Название и уровень, числа, выбор мутации (две кнопки),
@@ -87,8 +89,8 @@ export class TowerCard {
     this.all.push(this.bg, this.btns);
     this.nameText = this.text(0, 0, '', 21, TEXT_COLORS.main, 0);
     this.levelText = this.text(0, 0, '', 16, TEXT_COLORS.accent, 0);
-    this.statTexts = [0, 1, 2].map(() => this.text(0, 0, '', 15, TEXT_COLORS.soft, 0).setFontStyle('normal'));
-    this.headerText = this.text(0, 0, '', 16, TEXT_COLORS.accent, 0);
+    this.statTexts = [0, 1, 2].map(() => this.text(0, 0, '', 14, TEXT_COLORS.soft, 0).setFontStyle('normal'));
+    this.headerText = this.text(0, 0, '', 14, TEXT_COLORS.accent, 0);
     this.pickNames = [0, 1].map(() => this.text(0, 0, '', 17, TEXT_COLORS.main, 0));
     this.pickDescs = [0, 1].map(() => this.text(0, 0, '', 13, TEXT_COLORS.soft, 0).setFontStyle('normal').setWordWrapWidth(area.w - 2 * PAD - 12));
     this.listText = this.text(0, 0, '', 15, TEXT_COLORS.main, 0).setWordWrapWidth(area.w - 2 * PAD);
@@ -116,8 +118,8 @@ export class TowerCard {
       sell: zone(bw, BTN_H, callbacks.onSell),
       pick0: zone(bw, PICK_H, () => callbacks.onPick(0)),
       pick1: zone(bw, PICK_H, () => callbacks.onPick(1)),
-      rotL: zone(40, 40, () => callbacks.onRotate(-1)),
-      rotR: zone(40, 40, () => callbacks.onRotate(1)),
+      rotL: zone(ROT, ROT, () => callbacks.onRotate(-1)),
+      rotR: zone(ROT, ROT, () => callbacks.onRotate(1)),
     };
     this.setShown(false);
   }
@@ -163,15 +165,18 @@ export class TowerCard {
     // Поворот луча (Шприц): две кнопки справа от строк чисел
     this.rotVisible = m.beam;
     if (m.beam) {
-      const ry = y + 12 + 28 + 24 + 16;
-      for (const [dir, zone, cx] of [[-1, this.zones.rotL, x + w - 12 - 62], [1, this.zones.rotR, x + w - 12 - 20]] as const) {
+      const ry = y + 12 + 28 + 24 + 14;
+      const half = ROT / 2;
+      const xr = x + w - 12 - half;
+      const xl = xr - ROT - 6;
+      for (const [dir, zone, cx] of [[-1, this.zones.rotL, xl], [1, this.zones.rotR, xr]] as const) {
         zone.setPosition(cx, ry);
-        this.btns.fillStyle(0x1d366a, 1).fillRoundedRect(cx - 20, ry - 20, 40, 40, 11);
-        this.btns.lineStyle(2, COLORS.needle, 1).strokeRoundedRect(cx - 20, ry - 20, 40, 40, 11);
-        this.btns.fillStyle(COLORS.needle, 1).fillTriangle(cx + dir * 10, ry, cx - dir * 7, ry - 10, cx - dir * 7, ry + 10);
+        this.btns.fillStyle(0x1d366a, 1).fillRoundedRect(cx - half, ry - half, ROT, ROT, 10);
+        this.btns.lineStyle(2, COLORS.needle, 1).strokeRoundedRect(cx - half, ry - half, ROT, ROT, 10);
+        this.btns.fillStyle(COLORS.needle, 1).fillTriangle(cx + dir * 9, ry, cx - dir * 6, ry - 9, cx - dir * 6, ry + 9);
       }
-      this.rects.rotL = { x: x + w - 12 - 62, y: ry, w: 40, h: 40 };
-      this.rects.rotR = { x: x + w - 12 - 20, y: ry, w: 40, h: 40 };
+      this.rects.rotL = { x: xl, y: ry, w: ROT, h: ROT };
+      this.rects.rotR = { x: xr, y: ry, w: ROT, h: ROT };
     }
 
     // Мутации: выбор (две кнопки) или список выбранных

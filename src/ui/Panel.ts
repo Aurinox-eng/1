@@ -149,8 +149,9 @@ export class Panel {
         const veil = scene.add.graphics().setDepth(D.item + 2);
         veil.fillStyle(0x070d1c, 0.68).fillRoundedRect(r.x, r.y, r.w, r.h, 16);
         track(veil);
-        track(this.lockIcon(r.x + r.w - 30, r.y + 30));
-        track(this.text(r.x + 74, r.y + 76, t('lockedLevel', { n: unlockLevel(id) }), 19, TEXT_COLORS.soft, 0, 0.5).setDepth(D.item + 3));
+        // Замок — поверх значка башни (не закрывает название), надпись «Уровень N» — на месте цены
+        track(this.lockIcon(r.x + 36, cy - 4));
+        track(this.text(r.x + 74, r.y + 76, t('lockedLevel', { n: unlockLevel(id) }), 16, TEXT_COLORS.soft, 0, 0.5).setDepth(D.item + 3));
       }
       scene.add
         .zone(r.x + r.w / 2, cy, r.w, r.h)
