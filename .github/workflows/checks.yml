@@ -44,11 +44,9 @@ jobs:
           - group: 'Бактерии и бой (combat, dash, split, spore, armored, intro, danger, rotate)'
             key: bacteria
             scenarios: 'combat dash split spore armored intro danger rotate'
-            canvas: '1'
           - group: 'Башни (towers)'
             key: towers
             scenarios: 'towers'
-            canvas: '1'
           - group: 'Карточка, слияние, мутации (card, merge, mutations, sell, special, strip)'
             key: card
             scenarios: 'card merge mutations sell special strip'
@@ -81,8 +79,6 @@ jobs:
         env:
           SCENARIOS: ${{ matrix.scenarios }}
           KEY: ${{ matrix.key }}
-          # canvas вместо программного WebGL в группах, где проверяются секунды, скорости и паузы (на сервере WebGL даёт 2–6 кадров/с; см. qa/smoke.mjs, QA_CANVAS)
-          QA_CANVAS: ${{ matrix.canvas }}
         run: |
           failed=0
           {
