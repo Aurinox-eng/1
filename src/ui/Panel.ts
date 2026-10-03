@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import { CONFIG } from '../config';
 import { t, type TextKey } from '../i18n';
 import { createTowerArt, type TowerId } from '../objects/Tower';
+import { isTowerOpen, unlockLevel } from '../progress';
 import { COLORS, FONT, TEXT_COLORS } from '../theme';
 import { card, drawPlate, panelBackground, roundButton, slot as slotTexture, waveButton as waveButtonTexture } from './panelArt';
 import { TowerCard, type CardGeometry, type CardModel } from './TowerCard';
@@ -32,6 +33,10 @@ const RES_CARD = { y: 96, h: 84 };
 const SLOT = { x: PX + 12, y0: 190, w: PANEL_W - 24, h: 96, gap: 8 };
 const WAVE_BTN = { y: 614, w: PANEL_W - 24, h: 38 };
 const CTRL = { y: 686, r: 22, dx: 38 };
+/** Полоса компактных кнопок башен над карточкой (видна, только пока открыта карточка): высота и промежуток до карточки, пикселей. */
+const STRIP = { h: 38, gap: 6, between: 4 };
+/** Карточка при открытой полосе растягивается вниз на столько пикселей (до кнопки «Начать волну» остаётся запас), чтобы в неё помещался выбор мутации. */
+const CARD_EXTRA = 8;
 
 /** Сердце по точкам классической кривой; центр — (cx, cy), k — размер. */
 function heartPoints(cx: number, cy: number, k: number): Phaser.Types.Math.Vector2Like[] {
@@ -75,6 +80,13 @@ export class Panel {
   private readonly slotOff = new Map<TowerId, Phaser.GameObjects.Image>();
   private readonly slotOn = new Map<TowerId, Phaser.GameObjects.Image>();
   private readonly priceTexts = new Map<TowerId, Phaser.GameObjects.Text>();
+  /** Всё, что нарисовано на больших кнопках башен: прячется, пока открыта карточка (над ней — компактная полоса). */
+  private readonly slotItems: { setVisible(v: boolean): unknown }[] = [];
+  /** Компактные кнопки башен над карточкой: подложка, цена и положение (только открытые башни). */
+  private readonly stripPrices = new Map<TowerId, Phaser.GameObjects.Text>();
+  private readonly stripRects: { id: TowerId; x: number; y: number; w: number; h: number }[] = [];
+  private readonly stripItems: { setVisible(v: boolean): unknown }[] = [];
+  private readonly stripZones: Phaser.GameObjects.Zone[] = [];
   private readonly speedText: Phaser.GameObjects.Text;
   private readonly waveBtnItems: { setVisible(v: boolean): unknown }[] = [];
   private readonly waveBtnBonus: Phaser.GameObjects.Text;
@@ -112,19 +124,34 @@ export class Panel {
     this.coinsText = this.text(PX + 70, RES_CARD.y + 28, '0', 34, TEXT_COLORS.accent, 0, 0.5);
     this.hearts = scene.add.graphics().setDepth(D.item);
 
-    // Кнопки башен: значок, название, подпись способа стрельбы, цена
+    // Кнопки башен: значок, название, подпись способа стрельбы, цена; закрытая башня — серая, с замком и надписью «Уровень N»
     TOWER_IDS.forEach((id, i) => {
       const r = this.slotRect(i);
       const cy = r.y + r.h / 2;
+      const open = isTowerOpen(id);
+      const track = <T extends { setVisible(v: boolean): unknown }>(item: T): T => {
+        this.slotItems.push(item);
+        return item;
+      };
       this.slotOff.set(id, scene.add.image(CX, cy, slotTexture(scene, false, r.w, r.h)).setDepth(D.item));
       this.slotOn.set(id, scene.add.image(CX, cy, slotTexture(scene, true, r.w, r.h)).setDepth(D.item).setVisible(false));
-      scene.add.circle(r.x + 36, cy, 29, 0x0e1b38, 1).setStrokeStyle(2, 0x3a5f9c, 1).setDepth(D.item + 1);
-      const icon = scene.add.container(r.x + 36, cy).setDepth(D.item + 1).setScale(0.62);
+      track(scene.add.circle(r.x + 36, cy, 29, 0x0e1b38, 1).setStrokeStyle(2, 0x3a5f9c, 1).setDepth(D.item + 1));
+      const icon = track(scene.add.container(r.x + 36, cy).setDepth(D.item + 1).setScale(0.62));
       createTowerArt(scene, icon, id);
-      this.text(r.x + 74, r.y + 26, t(TOWER_TEXT[id].name), 20, TEXT_COLORS.main, 0, 0.5);
-      this.text(r.x + 74, r.y + 50, t(TOWER_TEXT[id].tag), 16, TEXT_COLORS.soft, 0, 0.5).setFontStyle('normal');
-      this.coin(r.x + 84, r.y + 76, 10);
-      this.priceTexts.set(id, this.text(r.x + 100, r.y + 76, String(CONFIG.towers[id].price), 24, TEXT_COLORS.accent, 0, 0.5));
+      track(this.text(r.x + 74, r.y + 26, t(TOWER_TEXT[id].name), 20, TEXT_COLORS.main, 0, 0.5));
+      track(this.text(r.x + 74, r.y + 50, t(TOWER_TEXT[id].tag), 16, TEXT_COLORS.soft, 0, 0.5).setFontStyle('normal'));
+      if (open) {
+        track(this.coin(r.x + 84, r.y + 76, 10));
+        const price = track(this.text(r.x + 100, r.y + 76, String(CONFIG.towers[id].price), 24, TEXT_COLORS.accent, 0, 0.5));
+        this.priceTexts.set(id, price);
+      } else {
+        // Серая «шторка» поверх кнопки, замок справа и надпись вместо цены
+        const veil = scene.add.graphics().setDepth(D.item + 2);
+        veil.fillStyle(0x070d1c, 0.68).fillRoundedRect(r.x, r.y, r.w, r.h, 16);
+        track(veil);
+        track(this.lockIcon(r.x + r.w - 30, r.y + 30));
+        track(this.text(r.x + 74, r.y + 76, t('lockedLevel', { n: unlockLevel(id) }), 19, TEXT_COLORS.soft, 0, 0.5).setDepth(D.item + 3));
+      }
       scene.add
         .zone(r.x + r.w / 2, cy, r.w, r.h)
         .setDepth(D.item + 2)
@@ -136,10 +163,13 @@ export class Panel {
         });
     });
 
+    // Компактные кнопки открытых башен — над карточкой (скрыты, пока карточка не открыта)
+    this.buildStrip(callbacks);
+
     // Карточка выбранной башни — поверх кнопок башен (скрыта, пока башня не выбрана)
     this.card = new TowerCard(
       scene,
-      { x: SLOT.x, y: SLOT.y0, w: SLOT.w, h: TOWER_IDS.length * SLOT.h + (TOWER_IDS.length - 1) * SLOT.gap },
+      { x: SLOT.x, y: SLOT.y0, w: SLOT.w, h: this.slotsHeight() },
       D.item + 3,
       { onMerge: callbacks.onMerge, onSell: callbacks.onSell, onPick: callbacks.onPick, onRotate: callbacks.onRotate, onClose: callbacks.onCardClose },
     );
@@ -206,7 +236,9 @@ export class Panel {
   /** Число монет; цена башни красная, если на неё не хватает. */
   setCoins(n: number): void {
     this.coinsText.setText(String(n));
-    for (const [id, text] of this.priceTexts) text.setColor(n >= CONFIG.towers[id].price ? TEXT_COLORS.accent : TEXT_COLORS.bad);
+    for (const texts of [this.priceTexts, this.stripPrices]) {
+      for (const [id, text] of texts) text.setColor(n >= CONFIG.towers[id].price ? TEXT_COLORS.accent : TEXT_COLORS.bad);
+    }
   }
 
   /** Красным мигает число монет, если на башню не хватило. */
@@ -237,13 +269,24 @@ export class Panel {
     }
   }
 
-  /** Показать карточку выбранной башни (или обновить её). */
+  /** Показать карточку выбранной башни (или обновить её): большие кнопки башен прячутся, над карточкой — компактная полоса кнопок. */
   showCard(model: CardModel): void {
+    const top = SLOT.y0 + (this.stripRects.length > 0 ? STRIP.h + STRIP.between : 0);
+    this.card.setArea({ x: SLOT.x, y: top, w: SLOT.w, h: SLOT.y0 + this.slotsHeight() + CARD_EXTRA - top });
     this.card.show(model);
+    for (const item of this.slotItems) item.setVisible(false);
+    for (const tid of TOWER_IDS) {
+      this.slotOn.get(tid)?.setVisible(false);
+      this.slotOff.get(tid)?.setVisible(false);
+    }
+    this.setStrip(true);
   }
 
   hideCard(): void {
     this.card.hide();
+    this.setStrip(false);
+    for (const item of this.slotItems) item.setVisible(true);
+    this.setSelected(this.selected);
   }
 
   get cardVisible(): boolean {
@@ -307,7 +350,8 @@ export class Panel {
   /** Где кнопки на экране игры — для проверок: towerButton — первая башня (Таблетка), towerButtons — все по порядку таблицы. */
   geometry(): {
     towerButton: { x: number; y: number; w: number; h: number };
-    towerButtons: { id: string; x: number; y: number; w: number; h: number }[];
+    towerButtons: { id: string; x: number; y: number; w: number; h: number; locked: boolean }[];
+    towerStrip: { visible: boolean; buttons: { id: string; x: number; y: number; w: number; h: number }[] };
     pauseButton: { x: number; y: number };
     speedButton: { x: number; y: number };
     waveButton: { x: number; y: number; w: number; h: number; visible: boolean; bonus: number };
@@ -316,12 +360,13 @@ export class Panel {
   } {
     const towerButtons = TOWER_IDS.map((id, i) => {
       const r = this.slotRect(i);
-      return { id, x: r.x + r.w / 2, y: r.y + r.h / 2, w: r.w, h: r.h };
+      return { id, x: r.x + r.w / 2, y: r.y + r.h / 2, w: r.w, h: r.h, locked: !isTowerOpen(id) };
     });
     const first = towerButtons[0];
     return {
       towerButton: { x: first.x, y: first.y, w: first.w, h: first.h },
       towerButtons,
+      towerStrip: { visible: this.card.visible && this.stripRects.length > 0, buttons: this.stripRects.map((r) => ({ ...r })) },
       pauseButton: { x: CX + CTRL.dx, y: CTRL.y },
       speedButton: { x: CX - CTRL.dx, y: CTRL.y },
       waveButton: { x: CX, y: WAVE_BTN.y + WAVE_BTN.h / 2, w: WAVE_BTN.w, h: WAVE_BTN.h, visible: this.waveBtnVisible, bonus: this.waveBtnBonusValue },
@@ -350,11 +395,66 @@ export class Panel {
       .setDepth(D.item + 1);
   }
 
-  private coin(x: number, y: number, r: number): void {
+  private coin(x: number, y: number, r: number): Phaser.GameObjects.Graphics {
     const g = this.scene.add.graphics().setDepth(D.item + 1);
     g.fillStyle(COLORS.gold, 1).fillCircle(x, y, r);
     g.lineStyle(2.5, COLORS.goldEdge, 1).strokeCircle(x, y, r);
     g.lineStyle(2, COLORS.goldEdge, 1).strokeCircle(x, y, r * 0.55);
+    return g;
+  }
+
+  /** Замок закрытой башни: корпус и дужка (рисуется кодом). */
+  private lockIcon(x: number, y: number): Phaser.GameObjects.Graphics {
+    const g = this.scene.add.graphics().setDepth(D.item + 3);
+    g.lineStyle(4, 0xc9d6f2, 1);
+    g.beginPath();
+    g.arc(x, y - 4, 8, Math.PI, 0, false);
+    g.strokePath();
+    g.fillStyle(0xc9d6f2, 1).fillRoundedRect(x - 12, y - 4, 24, 19, 4);
+    g.fillStyle(0x14264b, 1).fillCircle(x, y + 5, 3);
+    return g;
+  }
+
+  /** Высота блока больших кнопок башен (все башни таблицы, открытые и закрытые). */
+  private slotsHeight(): number {
+    return TOWER_IDS.length * SLOT.h + (TOWER_IDS.length - 1) * SLOT.gap;
+  }
+
+  /**
+   * Компактные кнопки открытых башен над карточкой: подложка, значок, цена. Нужны, чтобы купить башню, не закрывая карточку.
+   * Видны только пока открыта карточка (`setStrip`); закрытые башни в полосе не показываются.
+   */
+  private buildStrip(callbacks: PanelCallbacks): void {
+    const ids = TOWER_IDS.filter((id) => isTowerOpen(id));
+    if (ids.length === 0) return;
+    const n = ids.length;
+    const w = (SLOT.w - STRIP.gap * (n - 1)) / n;
+    ids.forEach((id, i) => {
+      const x = SLOT.x + i * (w + STRIP.gap);
+      const y = SLOT.y0;
+      const cx = x + w / 2;
+      const plate = this.scene.add.graphics().setDepth(D.item + 8);
+      plate.fillStyle(0x1d366a, 1).fillRoundedRect(x, y, w, STRIP.h, 12);
+      plate.lineStyle(2, 0x3a5f9c, 1).strokeRoundedRect(x, y, w, STRIP.h, 12);
+      const icon = this.scene.add.container(cx, y + 15).setDepth(D.item + 9).setScale(0.3);
+      createTowerArt(this.scene, icon, id);
+      const price = this.text(cx, y + STRIP.h - 9, String(CONFIG.towers[id].price), 14, TEXT_COLORS.accent).setDepth(D.item + 9);
+      const zone = this.scene.add
+        .zone(cx, y + STRIP.h / 2, w, STRIP.h)
+        .setDepth(D.item + 10)
+        .setInteractive({ useHandCursor: true })
+        .on('pointerdown', () => callbacks.onTower(id));
+      this.stripItems.push(plate, icon, price);
+      this.stripZones.push(zone);
+      this.stripPrices.set(id, price);
+      this.stripRects.push({ id, x: cx, y: y + STRIP.h / 2, w, h: STRIP.h });
+    });
+    this.setStrip(false);
+  }
+
+  private setStrip(on: boolean): void {
+    for (const item of this.stripItems) item.setVisible(on);
+    for (const zone of this.stripZones) if (zone.input) zone.input.enabled = on;
   }
 
   /** Первичная отрисовка (после создания всех объектов). */

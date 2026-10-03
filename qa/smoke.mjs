@@ -151,7 +151,8 @@ const CFG = {
   lives: readConfigNumber('lives', 'start'),
   waves: readConfigNumber('waves', 'total'),
   zoomStart: readConfigNumber('camera', 'zoomStart'),
-  zoomMin: readConfigNumber('camera', 'zoomMin'),
+  // Самое сильное отдаление считается игрой из размеров карты и окна (карта целиком по ширине и по высоте), в config.ts числа нет
+  zoomMin: Math.min((1280 - readConfigNumber('map', 'panelW')) / (MAP.orgW + LEVEL.cols * MAP.tile), 720 / (LEVEL.rows * MAP.tile)),
   zoomMax: readConfigNumber('camera', 'zoomMax'),
   pillPrice: readConfigNumber('pill', 'price'),
   restartLockMs: readConfigNumber('gameOver', 'restartLockMs'),
@@ -300,8 +301,10 @@ async function openGame(context, baseUrl, prefix, { speed = 1, cfg = '', isTouch
   watchConsole(page, prefix);
   // QA_EXTRA_CFG нужна только для проверки самих проверок: подмешивает «поломку» (например camera.tapMaxMovePx:14) — соответствующая проверка обязана покраснеть
   const allCfg = [cfg, process.env.QA_EXTRA_CFG].filter(Boolean).join(',');
-  await page.goto(`${baseUrl}?qa&speed=${speed}${allCfg ? `&cfg=${allCfg}` : ''}${query}`, { waitUntil: 'load' });
-  await waitFor(page, (s) => s.state === 'playing', 20000, 'запуск игры');
+  // `noplaque`: игра не встаёт на паузу сама (плашки с описанием проверяет отдельный сценарий `plaques`, остальным они мешают)
+  const plaqueFlag = query.includes('plaques') ? '' : '&noplaque';
+  await page.goto(`${baseUrl}?qa&speed=${speed}${plaqueFlag}${allCfg ? `&cfg=${allCfg}` : ''}${query}`, { waitUntil: 'load' });
+  await waitFor(page, (s) => s.state === 'playing' || s.state === 'info', 20000, 'запуск игры');
   const cdp = await context.newCDPSession(page);
   const input = createInput(page, cdp, isTouch);
   const rect = await page.evaluate(() => {
@@ -1207,8 +1210,11 @@ async function runDanger(browser, baseUrl) {
 
 // ================================================================== проигрыш и победа
 
+/** Перезапуск после конца уровня — только кнопкой «Заново» (тап мимо неё уровень не перезапускает). */
 async function tapToRestart(game) {
-  await game.input.tap(game.g(640, 300));
+  const s = await game.state();
+  const b = s.endButton ?? { x: 640, y: 480 };
+  await game.input.tap(game.g(b.x, b.y));
 }
 
 /** Проигрыш при работающих башнях: снаряды в полёте не должны зависать под экраном «Проигрыш». */
@@ -1593,18 +1599,15 @@ async function pollUntil(game, fn, timeoutMs = WAIT_MS, pollMs = 30) {
 const NO_LIFE_LOSS = KINDS.map((k) => `types.${k}.lifeDamage:0`).join(',');
 
 /**
- * Подмена состава волн для проверок. Подменять через ?cfg= можно только числа, которые уже есть в строке таблицы волн, а в начале таблицы строки
- * короткие (в волне 1 одни кокки, палочка — с волны 3 и т. д.). Поэтому нужный состав `counts` ({тип: сколько}) ставится в первую строку, где есть все
- * нужные типы, остальные типы этой строки обнуляются, а все прежние волны — тоже (пустая волна проходит за `pauseSec` секунд). Партия идёт до этой волны
- * включительно (`waves.total` = её номер): в ней выходят только заказанные бактерии. Возвращает список подмен для ?cfg= (без запятых между ними).
+ * Подмена состава волн для проверок. Нужный состав `counts` ({тип: сколько}) ставится в первую волну (остальные типы её строки обнуляются), `waves.total` = 1:
+ * в ней выходят только заказанные бактерии. Возвращает список подмен для ?cfg= (без запятых между ними).
  * Новые типы в первой (и единственной непустой) волне выходят «первыми и по одному», как в игре: порядок — как в таблице типов.
  */
 function wavesOnly(counts, { pauseSec = 0.1 } = {}) {
-  const kinds = Object.keys(counts);
-  const idx = WAVE_LIST.findIndex((row) => kinds.every((k) => k in row));
-  if (idx < 0) throw new Error(`В таблице волн нет строки, где есть все типы: ${kinds.join(', ')}`);
-  const out = [`waves.total:${idx + 1}`, `waves.pauseSec:${pauseSec}`];
-  for (let i = 0; i <= idx; i++) for (const k of Object.keys(WAVE_LIST[i])) out.push(`waves.list.${i}.${k}:${i === idx ? (counts[k] ?? 0) : 0}`);
+  // С круга 14 в таблице волн только шесть типов уровня 1, но `?qa&cfg=waves.list.0.<тип>:N` умеет добавить в строку любой тип из таблицы `types` (src/debug.ts):
+  // заказанный состав всегда ставится в первую (и единственную) волну
+  const out = ['waves.total:1', `waves.pauseSec:${pauseSec}`];
+  for (const k of new Set([...Object.keys(WAVE_LIST[0]), ...Object.keys(counts)])) out.push(`waves.list.0.${k}:${counts[k] ?? 0}`);
   return out;
 }
 const wavesOnlyCfg = (counts, opts) => wavesOnly(counts, opts).join(',');

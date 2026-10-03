@@ -45,7 +45,7 @@ export interface CardGeometry {
   close: Rect;
 }
 
-const BTN_H = 38;
+const BTN_H = 34;
 const PICK_H = 64;
 const PAD = 12;
 
@@ -77,7 +77,7 @@ export class TowerCard {
 
   constructor(
     private readonly scene: Phaser.Scene,
-    private readonly area: Rect,
+    private area: Rect,
     private readonly depth: number,
     private readonly callbacks: CardCallbacks,
   ) {
@@ -126,6 +126,12 @@ export class TowerCard {
     return this.shown;
   }
 
+  /** Перенести и растянуть карточку (над ней может появляться полоса кнопок башен); применяется при следующем `show`. */
+  setArea(area: Rect): void {
+    this.area = area;
+    this.blocker.setPosition(area.x + area.w / 2, area.y + area.h / 2).setSize(area.w, area.h);
+  }
+
   hide(): void {
     this.setShown(false);
   }
@@ -149,9 +155,9 @@ export class TowerCard {
     this.levelText.setText(t('cardLevel', { n: m.level, max: m.maxLevel })).setPosition(left, cy);
     cy += 24;
     this.statTexts.forEach((text, i) => {
-      text.setVisible(i < m.stats.length).setText(m.stats[i] ?? '').setPosition(left, cy + i * 19);
+      text.setVisible(i < m.stats.length).setText(m.stats[i] ?? '').setPosition(left, cy + i * 18);
     });
-    cy += 3 * 19 + 8;
+    cy += 3 * 18 + 6;
 
     const bw = w - 2 * PAD;
     // Поворот луча (Шприц): две кнопки справа от строк чисел
@@ -178,9 +184,9 @@ export class TowerCard {
     }
     if (m.pending) {
       this.headerText.setVisible(true).setText(t('cardPick')).setPosition(left, cy);
-      cy += 22;
+      cy += 20;
       m.pending.slice(0, 2).forEach((opt, i) => {
-        const by = cy + i * (PICK_H + 6);
+        const by = cy + i * (PICK_H + 4);
         this.btns.fillStyle(0x2a4d8e, 1).fillRoundedRect(left, by, bw, PICK_H, 12);
         this.btns.lineStyle(3, COLORS.gold, 1).strokeRoundedRect(left, by, bw, PICK_H, 12);
         this.pickNames[i].setVisible(true).setText(opt.name).setPosition(left + 8, by + 8);
@@ -192,7 +198,7 @@ export class TowerCard {
       });
     } else if (m.picked.length > 0) {
       this.headerText.setVisible(true).setText(t('cardMutations')).setPosition(left, cy);
-      cy += 22;
+      cy += 20;
       this.listText.setVisible(true).setText(m.picked.map((p) => `• ${p.name} — ${p.desc}`).join('\n')).setPosition(left, cy);
     }
     this.applyEnabled();

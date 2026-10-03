@@ -4,3 +4,6 @@ dist-qa/
 *.zip
 .DS_Store
 *.log
+
+# Скриншоты проверок (qa/screenshots) создаются при запуске и в репозиторий не попадают; итоговые снимки этапа — docs/screenshots/
+qa/screenshots/
