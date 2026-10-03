@@ -1,0 +1,108 @@
+# Автопроверки игры в браузере (qa/smoke.mjs, все 33 сценария) при каждом push в рабочую ветку; также вручную: вкладка Actions → «Проверки (smoke)» → Run workflow.
+# Сценарии разложены по параллельным задачам (в каждой они идут по одному — несколько браузеров одновременно на одной машине тормозят и дают ложные красные).
+# Упала любая проверка — задача красная, и GitHub присылает письмо о неудачном запуске (включается в GitHub → Settings → Notifications → Actions →
+# «Send notifications for failed workflows only» + Email). Снимки упавших задач — во вложениях прогона (smoke-shots-…).
+# Правки только в docs/ и *.md проверки не запускают: на игру они не влияют.
+name: Проверки (smoke)
+
+on:
+  push:
+    branches: [claude/serene-rubin-x3t2gu]
+    paths-ignore:
+      - 'docs/**'
+      - '**.md'
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Ветка или коммит'
+        type: string
+        default: claude/serene-rubin-x3t2gu
+
+permissions:
+  contents: read
+
+# Новый push отменяет ещё идущие проверки предыдущего (они уже устарели)
+concurrency:
+  group: checks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    name: ${{ matrix.group }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - group: 'Экран и камера (desktop-ru, phone-ru)'
+            key: screen-ru
+            scenarios: 'desktop-ru phone-ru'
+          - group: 'Экран на английском, клетки, граф (desktop-en, phone-en, rules, graph)'
+            key: screen-en
+            scenarios: 'desktop-en phone-en rules graph'
+          - group: 'Бактерии и бой (combat, dash, split, spore, armored, intro, danger, rotate)'
+            key: bacteria
+            scenarios: 'combat dash split spore armored intro danger rotate'
+          - group: 'Башни (towers)'
+            key: towers
+            scenarios: 'towers'
+          - group: 'Карточка, слияние, мутации (card, merge, mutations, sell, special, strip)'
+            key: card
+            scenarios: 'card merge mutations sell special strip'
+          - group: 'Конец уровня, плашки, экономика, игровая сборка (lose, win, restart-button, deflation, camera-fit, colors, locked, plaques, production)'
+            key: end
+            scenarios: 'lose-ru lose-en win-ru win-en restart-button deflation camera-fit colors locked plaques production'
+          - group: 'Полная партия (fullgame)'
+            key: fullgame
+            scenarios: 'fullgame'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Установить зависимости и браузер
+        env:
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+      # Игровая сборка нужна сценарию production, тестовая — остальным
+      - name: Собрать игру (игровая и тестовая версии)
+        run: |
+          npm run build
+          npm run build:qa
+      - name: Сценарии
+        env:
+          SCENARIOS: ${{ matrix.scenarios }}
+          KEY: ${{ matrix.key }}
+        run: |
+          failed=0
+          {
+            echo "### ${{ matrix.group }}"
+            echo
+            echo "| Сценарий | Результат |"
+            echo "|---|---|"
+          } >> "$GITHUB_STEP_SUMMARY"
+          for s in $SCENARIOS; do
+            echo "::group::$s"
+            if node qa/smoke.mjs --tag="ci-$KEY-$s" --only="$s"; then
+              echo "| $s | ✅ |" >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "| $s | ❌ |" >> "$GITHUB_STEP_SUMMARY"
+              failed=1
+            fi
+            echo "::endgroup::"
+          done
+          exit $failed
+      - name: Снимки (только при падении)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-shots-${{ matrix.key }}
+          path: qa/screenshots
+          if-no-files-found: ignore
+          retention-days: 7
