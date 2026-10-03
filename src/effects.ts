@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import { ART_DENSITY, bakeArt, squareBox } from './art';
 import { CONFIG } from './config';
 import type { BacteriumKind } from './objects/Bacterium';
 import { COLORS, FONT, TEXT_COLORS } from './theme';
@@ -10,7 +11,56 @@ import { COLORS, FONT, TEXT_COLORS } from './theme';
  *  • башня поставлена — расходящееся кольцо;
  *  • потеря жизни — красная вспышка по всему экрану и тряска (организм может быть за краем экрана, поэтому вспышка на всём экране).
  * Вспышки, частицы и надписи лежат в контейнере мира — они двигаются и масштабируются вместе с картой.
+ *
+ * Частые эффекты сделаны без создания объектов на каждое событие (это и тормозило конец партии):
+ *  • частицы — один эмиттер частиц Phaser на всю сцену; при множестве уничтожений в секунду частиц на каждое меньше;
+ *  • «+монеты» — готовый запас надписей (не больше `feedback.popupMax` на экране, лишние не показываются);
+ *  • вспышки попадания — готовый запас картинок-кружков (не больше `feedback.flashMax` на экране).
+ * Надписи и вспышки двигаются вручную в обработчике кадра (как прежние анимации: в реальном времени, и на паузе тоже).
  */
+
+/** Кружок для частиц и вспышек (белый, цвет задаётся оттенком), радиус в пикселях мира. */
+const DOT_R = 16;
+const DISC_R = 32;
+/** Сколько длится вспышка попадания и во сколько раз она расширяется. */
+const FLASH_MS = 180;
+const FLASH_GROW = 0.6;
+/** За какое окно считается частота уничтожений (для числа частиц), мс. */
+const KILL_WINDOW_MS = 1000;
+
+/** «Cubic.easeOut» — как у прежних анимаций: быстро в начале, плавно к концу. */
+const cubicOut = (p: number): number => 1 - (1 - p) ** 3;
+
+/** Частица разлёта: откуда, куда летит, начальный размер. */
+type BurstParticle = Phaser.GameObjects.Particles.Particle & { sx: number; sy: number; ex: number; ey: number; s0: number };
+
+/** Двигает частицы разлёта по «Cubic.easeOut» от места гибели к своей точке, уменьшает и гасит (как прежняя анимация каждой частицы). */
+class BurstMotion extends Phaser.GameObjects.Particles.ParticleProcessor {
+  update(particle: Phaser.GameObjects.Particles.Particle, _delta: number, _step: number, t: number): void {
+    const p = particle as BurstParticle;
+    const e = cubicOut(t);
+    p.x = p.sx + (p.ex - p.sx) * e;
+    p.y = p.sy + (p.ey - p.sy) * e;
+    p.scaleX = p.s0 * (1 - 0.8 * e);
+    p.alpha = 1 - e;
+  }
+}
+
+interface PopupAnim {
+  label: Phaser.GameObjects.Text;
+  fromY: number;
+  toY: number;
+  ms: number;
+  busy: boolean;
+}
+
+interface FlashAnim {
+  disc: Phaser.GameObjects.Image;
+  scale: number;
+  ms: number;
+  busy: boolean;
+}
+
 export class Effects {
   /** Сколько раз сработало каждое — для проверок. */
   flashes = 0;
@@ -23,65 +73,129 @@ export class Effects {
   beams = 0;
   splats = 0;
 
+  /** Один эмиттер на все разлёты частиц. */
+  private readonly emitter: Phaser.GameObjects.Particles.ParticleEmitter;
+  /** Запас надписей «+монеты» и вспышек (создаются по мере надобности, не больше предела) — и какие из них сейчас на экране. */
+  private readonly popupPool: PopupAnim[] = [];
+  private readonly flashPool: FlashAnim[] = [];
+  /** Когда были последние уничтожения (реальные часы, мс): по ним считается, сколько частиц давать на каждое. */
+  private readonly killTimes: number[] = [];
+
   constructor(
     private readonly scene: Phaser.Scene,
     private readonly layer: Phaser.GameObjects.Container,
-  ) {}
+  ) {
+    const dot = bakeArt(scene, 'fx-dot', squareBox(DOT_R), (g) => g.fillStyle(0xffffff, 1).fillCircle(0, 0, DOT_R));
+    bakeArt(scene, 'fx-disc', squareBox(DISC_R), (g) => g.fillStyle(0xffffff, 1).fillCircle(0, 0, DISC_R));
+    this.emitter = scene.add.particles(0, 0, dot, { emitting: false, speed: 0, lifespan: CONFIG.feedback.particleLifeMs });
+    this.emitter.addParticleProcessor(new BurstMotion());
+    layer.add(this.emitter);
+    scene.events.on(Phaser.Scenes.Events.UPDATE, this.tick, this);
+    scene.events.once(Phaser.Scenes.Events.SHUTDOWN, () => scene.events.off(Phaser.Scenes.Events.UPDATE, this.tick, this));
+  }
+
+  /** Каждый кадр (реальное время, и на паузе тоже — как прежние анимации): двигает надписи и вспышки, гасит закончившиеся. */
+  private tick(_time: number, deltaMs: number): void {
+    const popupMs = CONFIG.feedback.popupMs;
+    for (const a of this.popupPool) {
+      if (!a.busy) continue;
+      a.ms += deltaMs;
+      const p = Math.min(1, a.ms / popupMs);
+      const e = cubicOut(p);
+      a.label.setY(a.fromY + (a.toY - a.fromY) * e).setAlpha(1 - e);
+      if (p >= 1) {
+        a.busy = false;
+        a.label.setVisible(false);
+      }
+    }
+    for (const a of this.flashPool) {
+      if (!a.busy) continue;
+      a.ms += deltaMs;
+      const p = Math.min(1, a.ms / FLASH_MS);
+      a.disc.setScale(a.scale * (1 + FLASH_GROW * p)).setAlpha(1 - p);
+      if (p >= 1) {
+        a.busy = false;
+        a.disc.setVisible(false);
+      }
+    }
+  }
 
   /** Яркая круглая вспышка на месте попадания: быстро расширяется и гаснет (color — цвет вспышки; у сиропа оранжевая). */
   flash(x: number, y: number, radius: number, color: number = COLORS.hit): void {
     this.flashes++;
-    const flash = this.scene.add.circle(x, y, radius, color, 1).setBlendMode(Phaser.BlendModes.ADD);
-    this.layer.add(flash);
-    this.scene.tweens.add({ targets: flash, scale: 1.6, alpha: 0, duration: 180, onComplete: () => flash.destroy() });
+    let a = this.flashPool.find((f) => !f.busy);
+    if (!a) {
+      // Все вспышки заняты: новая — только пока не достигнут предел, иначе эту не показываем
+      if (this.flashPool.length >= CONFIG.feedback.flashMax) return;
+      const disc = this.scene.add.image(0, 0, 'fx-disc').setBlendMode(Phaser.BlendModes.ADD);
+      this.layer.add(disc);
+      a = { disc, scale: 1, ms: 0, busy: false };
+      this.flashPool.push(a);
+    }
+    a.busy = true;
+    a.ms = 0;
+    a.scale = radius / DISC_R / ART_DENSITY;
+    a.disc.setPosition(x, y).setTint(color).setScale(a.scale).setAlpha(1).setVisible(true);
+    // поверх остальных эффектов, как прежняя только что созданная вспышка
+    this.layer.bringToTop(a.disc);
   }
 
-  /** Разлёт частиц (маленьких кружков в цвет бактерии) на месте уничтоженной бактерии. */
+  /** Разлёт частиц (маленьких кружков в цвет бактерии) на месте уничтоженной бактерии. При частых уничтожениях частиц на каждое меньше. */
   burst(x: number, y: number, kind: BacteriumKind): void {
     this.bursts++;
-    const { particlesPerKill, particleSpeed, particleLifeMs } = CONFIG.feedback;
-    for (let i = 0; i < particlesPerKill; i++) {
-      const angle = (Math.PI * 2 * i) / particlesPerKill + Math.random() * 0.5;
+    const { particlesPerKill, particleSpeed, particleLifeMs, particleFullRate, particleMinPerKill } = CONFIG.feedback;
+    const now = performance.now();
+    this.killTimes.push(now);
+    while (this.killTimes.length > 0 && this.killTimes[0] < now - KILL_WINDOW_MS) this.killTimes.shift();
+    const rate = this.killTimes.length;
+    const count = rate <= particleFullRate ? particlesPerKill : Math.min(particlesPerKill, Math.max(particleMinPerKill, Math.round((particlesPerKill * particleFullRate) / rate)));
+    for (let i = 0; i < count; i++) {
+      const p = this.emitter.emitParticle(1, x, y) as BurstParticle | undefined;
+      if (!p) return;
+      const angle = (Math.PI * 2 * i) / count + Math.random() * 0.5;
       const distance = ((particleSpeed * particleLifeMs) / 1000) * (0.35 + Math.random() * 0.65);
-      const color = i % 3 === 0 ? COLORS.hit : COLORS.kinds[kind].body;
-      const particle = this.scene.add.circle(x, y, 4 + Math.random() * 5, color);
-      this.layer.add(particle);
-      this.scene.tweens.add({
-        targets: particle,
-        x: x + Math.cos(angle) * distance,
-        y: y + Math.sin(angle) * distance,
-        scale: 0.2,
-        alpha: 0,
-        duration: particleLifeMs * (0.7 + Math.random() * 0.3),
-        ease: 'Cubic.easeOut',
-        onComplete: () => particle.destroy(),
-      });
+      p.sx = x;
+      p.sy = y;
+      p.ex = x + Math.cos(angle) * distance;
+      p.ey = y + Math.sin(angle) * distance;
+      p.s0 = (4 + Math.random() * 5) / DOT_R / ART_DENSITY;
+      p.scaleX = p.s0;
+      p.scaleY = p.s0;
+      p.tint = i % 3 === 0 ? COLORS.hit : COLORS.kinds[kind].body;
+      p.life = particleLifeMs * (0.7 + Math.random() * 0.3);
+      p.lifeCurrent = p.life;
     }
   }
 
-  /** Всплывающая надпись «+монеты» над местом, где погибла бактерия. */
+  /** Всплывающая надпись «+монеты» над местом, где погибла бактерия. Надписи берутся из готового запаса; если все заняты — не показывается. */
   popup(x: number, y: number, text: string): void {
     this.popups++;
-    const label = this.scene.add
-      .text(x + (Math.random() - 0.5) * 56, y - 20 - Math.random() * 26, text, {
-        fontFamily: FONT,
-        fontSize: '34px',
-        fontStyle: 'bold',
-        color: TEXT_COLORS.accent,
-        stroke: TEXT_COLORS.stroke,
-        strokeThickness: 6,
-        resolution: 2,
-      })
-      .setOrigin(0.5);
-    this.layer.add(label);
-    this.scene.tweens.add({
-      targets: label,
-      y: y - 90 - Math.random() * 14,
-      alpha: 0,
-      duration: CONFIG.feedback.popupMs,
-      ease: 'Cubic.easeOut',
-      onComplete: () => label.destroy(),
-    });
+    // свободная надпись с тем же текстом (не нужно перерисовывать буквы), иначе любая свободная, иначе новая — пока не достигнут предел
+    let a = this.popupPool.find((p) => !p.busy && p.label.text === text) ?? this.popupPool.find((p) => !p.busy);
+    if (!a) {
+      if (this.popupPool.length >= CONFIG.feedback.popupMax) return;
+      const label = this.scene.add
+        .text(0, 0, text, {
+          fontFamily: FONT,
+          fontSize: '34px',
+          fontStyle: 'bold',
+          color: TEXT_COLORS.accent,
+          stroke: TEXT_COLORS.stroke,
+          strokeThickness: 6,
+          resolution: 2,
+        })
+        .setOrigin(0.5);
+      this.layer.add(label);
+      a = { label, fromY: 0, toY: 0, ms: 0, busy: false };
+      this.popupPool.push(a);
+    }
+    if (a.label.text !== text) a.label.setText(text);
+    a.busy = true;
+    a.ms = 0;
+    a.fromY = y - 20 - Math.random() * 26;
+    a.toY = y - 90 - Math.random() * 14;
+    a.label.setPosition(x + (Math.random() - 0.5) * 56, a.fromY).setAlpha(1).setVisible(true);
+    this.layer.bringToTop(a.label);
   }
 
   /** Башня поставлена: кольцо расходится от клетки. */

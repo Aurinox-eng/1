@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { CONFIG } from '../config';
 import { aimAngle, AIM_STEPS, bestBeamDirection, remainingNear, WORLD } from '../level';
+import { artImage, bakeArt, setArt, squareBox, type ArtBox } from '../art';
 import { COLORS } from '../theme';
 import { computeStats, mutationOptions, unlockedTiers, type TowerKey, type TowerStats } from '../towerStats';
 import type { Bacterium } from './Bacterium';
@@ -10,9 +11,23 @@ export type TowerId = TowerKey;
 /** Как далеко от центра башни вылетает снаряд (длина ствола), пикселей. */
 const MUZZLE: Record<TowerId, number> = { pill: 40, syrup: 36, fizz: 34, syringe: 56 };
 
-/** Рисует ствол башни (он повернут вправо; потом поворачивается на цель). */
-function drawBarrel(scene: Phaser.Scene, id: TowerId): Phaser.GameObjects.Graphics {
-  const g = scene.add.graphics();
+/** Рамка рисунка ствола (ствол смотрит вправо; центр башни — 0,0). */
+const BARREL_BOX: ArtBox = { x: -26, y: -24, w: 84, h: 48 };
+/** Рамка основания и верхней части (втулка, кольцо и точки уровня под башней). */
+const BASE_BOX = squareBox(38);
+const TOP_BOX: ArtBox = { x: -46, y: -46, w: 92, h: 100 };
+/** Рамка стрелок поворота луча. */
+const TURN_BOX = squareBox(58);
+/** Пунктир направления луча рисуется картинкой обычной плотности: он длинный (до края карты), а точки в нём простые. */
+const AIM_DENSITY = 1;
+
+/** Ствол башни (он повернут вправо; потом поворачивается на цель) — готовая картинка. */
+function barrelImage(scene: Phaser.Scene, id: TowerId): Phaser.GameObjects.Image {
+  return artImage(scene, bakeArt(scene, `tower-barrel-${id}`, BARREL_BOX, (g) => drawBarrel(g, id)), BARREL_BOX);
+}
+
+/** Рисует ствол башни командами Graphics (один раз, в картинку). */
+function drawBarrel(g: Phaser.GameObjects.Graphics, id: TowerId): void {
   if (id === 'pill') {
     // Таблетка: белая капсула с голубой половиной
     g.fillStyle(COLORS.pill, 1).fillRoundedRect(-6, -13, 46, 26, 13);
@@ -38,7 +53,6 @@ function drawBarrel(scene: Phaser.Scene, id: TowerId): Phaser.GameObjects.Graphi
     g.fillStyle(COLORS.syringeEdge, 1).fillRect(-18, -3, 9, 6).fillRoundedRect(-23, -11, 5, 22, 2);
     g.fillStyle(COLORS.syringe, 1).fillRect(42, -1.5, 10, 3);
   }
-  return g;
 }
 
 /** Запас к полуширине луча при выборе лучшего направления: бактерии идут не ровно по оси луча, а по ширине дорожки, пикселей. */
@@ -64,14 +78,32 @@ export function beamReach(x: number, y: number, angle: number, length: number): 
 /** Рисует тонкую пунктирную линию «куда смотрит луч»: вправо от начала координат, длиной length; к концу бледнеет. */
 export function drawAimLine(g: Phaser.GameObjects.Graphics, length: number, alpha = 0.55): void {
   g.clear();
+  paintAimLine(g, length, alpha);
+}
+
+/** Точки пунктира направления луча (без очистки рисунка). */
+function paintAimLine(g: Phaser.GameObjects.Graphics, length: number, alpha = 0.55): void {
   for (let d = 52; d < length; d += 26) {
     g.fillStyle(COLORS.needle, alpha * (1 - (d / length) * 0.7)).fillCircle(d, 0, 3.2);
   }
 }
 
+/** Пунктир направления луча длиной length — готовая картинка (одна на длину, округлённую до пикселя); начало картинки — центр башни. */
+function aimLineImage(scene: Phaser.Scene, image: Phaser.GameObjects.Image | null, length: number): Phaser.GameObjects.Image {
+  const len = Math.max(1, Math.round(length));
+  const box: ArtBox = { x: 0, y: -4, w: len + 4, h: 8 };
+  const key = bakeArt(scene, `tower-aim-${len}`, box, (g) => paintAimLine(g, len), AIM_DENSITY);
+  if (!image) return artImage(scene, key, box, AIM_DENSITY);
+  setArt(image, key, box, AIM_DENSITY);
+  return image;
+}
+
 /** Две изогнутые стрелки по бокам башни с лучом: левая — «повернуть против часовой», правая — «по часовой» (тап по левой/правой половине башни). */
-function drawTurnArrows(scene: Phaser.Scene): Phaser.GameObjects.Graphics {
-  const g = scene.add.graphics();
+function turnArrowsImage(scene: Phaser.Scene): Phaser.GameObjects.Image {
+  return artImage(scene, bakeArt(scene, 'tower-turn', TURN_BOX, drawTurnArrows), TURN_BOX);
+}
+
+function drawTurnArrows(g: Phaser.GameObjects.Graphics): void {
   g.lineStyle(3.5, COLORS.needle, 0.85).fillStyle(COLORS.needle, 0.85);
   const radius = 46;
   // dir: 1 — стрелка по часовой стрелке (справа), -1 — против (слева); center — угол середины дуги, градусы
@@ -90,27 +122,44 @@ function drawTurnArrows(scene: Phaser.Scene): Phaser.GameObjects.Graphics {
     const ny = Math.sin(to);
     g.fillTriangle(px + tx * 9, py + ty * 9, px + nx * 6, py + ny * 6, px - nx * 6, py - ny * 6);
   }
-  return g;
-}
-
-/** Рисует башню (основание и ствол) в контейнере; возвращает ствол — он поворачивается на цель. */
-export function createTowerArt(scene: Phaser.Scene, parent: Phaser.GameObjects.Container, id: TowerId = 'pill'): Phaser.GameObjects.Container {
-  const base = scene.add.graphics();
-  base.fillStyle(COLORS.tower, 1).fillCircle(0, 0, 36);
-  base.lineStyle(3, COLORS.towerEdge, 1).strokeCircle(0, 0, 36);
-
-  const barrel = scene.add.container(0, 0, [drawBarrel(scene, id)]);
-
-  const hub = scene.add.graphics();
-  hub.fillStyle(COLORS.background, 1).fillCircle(0, 0, 9);
-  hub.lineStyle(2, COLORS.towerEdge, 1).strokeCircle(0, 0, 9);
-
-  parent.add([base, barrel, hub]);
-  return barrel;
 }
 
 /** Цвет кольца башни по уровню: 1 — обычное, дальше серебро, золото, фиолетовый. */
 const LEVEL_COLORS = [COLORS.towerEdge, 0xdfe6f5, 0xffd84d, 0xc78bff];
+
+/** Верхняя неподвижная часть башни уровня level — одна картинка: втулка над стволом и (с уровня 2) кольцо и точки уровня под башней. */
+function topTexture(scene: Phaser.Scene, level: number): string {
+  return bakeArt(scene, `tower-top-${level}`, TOP_BOX, (g) => {
+    g.fillStyle(COLORS.background, 1).fillCircle(0, 0, 9);
+    g.lineStyle(2, COLORS.towerEdge, 1).strokeCircle(0, 0, 9);
+    if (level <= 1) return;
+    const color = LEVEL_COLORS[Math.min(level, LEVEL_COLORS.length) - 1];
+    g.lineStyle(4, color, 0.95).strokeCircle(0, 0, 40);
+    for (let i = 0; i < level; i++) {
+      const dx = (i - (level - 1) / 2) * 13;
+      g.fillStyle(color, 1).fillCircle(dx, 46, 5);
+      g.lineStyle(1.5, 0x0b1020, 1).strokeCircle(dx, 46, 5);
+    }
+  });
+}
+
+/** Основание, ствол и верхняя часть башни в контейнере; ствол (контейнер) поворачивается на цель, верхнюю часть Tower меняет по уровню. */
+function buildTowerArt(scene: Phaser.Scene, parent: Phaser.GameObjects.Container, id: TowerId): { barrel: Phaser.GameObjects.Container; top: Phaser.GameObjects.Image } {
+  const baseKey = bakeArt(scene, 'tower-base', BASE_BOX, (g) => {
+    g.fillStyle(COLORS.tower, 1).fillCircle(0, 0, 36);
+    g.lineStyle(3, COLORS.towerEdge, 1).strokeCircle(0, 0, 36);
+  });
+  const base = artImage(scene, baseKey, BASE_BOX);
+  const barrel = scene.add.container(0, 0, [barrelImage(scene, id)]);
+  const top = artImage(scene, topTexture(scene, 1), TOP_BOX);
+  parent.add([base, barrel, top]);
+  return { barrel, top };
+}
+
+/** Рисует башню (основание и ствол) в контейнере; возвращает ствол — он поворачивается на цель. */
+export function createTowerArt(scene: Phaser.Scene, parent: Phaser.GameObjects.Container, id: TowerId = 'pill'): Phaser.GameObjects.Container {
+  return buildTowerArt(scene, parent, id).barrel;
+}
 
 /**
  * Башня: стоит в клетке и сама стреляет. Способ стрельбы задан в таблице `towers` (config.ts): `targeting` — как бьёт
@@ -141,9 +190,12 @@ export class Tower {
   private readonly ring: Phaser.GameObjects.Arc;
   private readonly barrel: Phaser.GameObjects.Container;
   private readonly container: Phaser.GameObjects.Container;
-  private readonly aimLine: Phaser.GameObjects.Graphics | null = null;
-  private aimLine2: Phaser.GameObjects.Graphics | null = null;
-  private readonly marks: Phaser.GameObjects.Graphics;
+  private aimLine: Phaser.GameObjects.Image | null = null;
+  private aimLine2: Phaser.GameObjects.Image | null = null;
+  /** Втулка, кольцо и точки уровня — одна картинка на уровень. */
+  private readonly top: Phaser.GameObjects.Image;
+  private readonly mergeTween: Phaser.Tweens.Tween;
+  private readonly badgeTween: Phaser.Tweens.Tween;
   private readonly selectRing: Phaser.GameObjects.Graphics;
   private readonly mergeRing: Phaser.GameObjects.Arc;
   private readonly badge: Phaser.GameObjects.Container;
@@ -166,31 +218,32 @@ export class Tower {
     if (this.isBeam) {
       // Сразу смотрит туда, где под лучом больше всего дорожки; игрок потом повернёт тапом
       this.aim = defaultAim(this.cfg, x, y);
-      this.aimLine = scene.add.graphics();
+      this.aimLine = aimLineImage(scene, null, 1);
       this.container.add(this.aimLine);
     }
     this.selectRing = scene.add.graphics().setVisible(false);
     this.container.add(this.selectRing);
-    this.barrel = createTowerArt(scene, this.container, id);
-    this.marks = scene.add.graphics();
-    this.container.add(this.marks);
+    const art = buildTowerArt(scene, this.container, id);
+    this.barrel = art.barrel;
+    this.top = art.top;
     // Красное кольцо — башня заглушена
     this.ring = scene.add.circle(0, 0, 44).setStrokeStyle(5, COLORS.loseLine, 1).setFillStyle().setVisible(false);
     this.container.add(this.ring);
     // Зелёное мигающее кольцо — башню можно слить с выбранной
     this.mergeRing = scene.add.circle(0, 0, 49).setStrokeStyle(5, COLORS.merge, 1).setFillStyle().setVisible(false);
     this.container.add(this.mergeRing);
-    scene.tweens.add({ targets: this.mergeRing, alpha: { from: 1, to: 0.35 }, duration: 380, yoyo: true, repeat: -1 });
+    // Мигание колец и «!» идёт, только пока они видны (иначе 40 башен крутили бы 80 невидимых анимаций каждый кадр)
+    this.mergeTween = scene.tweens.add({ targets: this.mergeRing, alpha: { from: 1, to: 0.35 }, duration: 380, yoyo: true, repeat: -1, paused: true });
     // Золотой «!» — можно выбрать мутацию
     const badgeBg = scene.add.circle(0, 0, 13, COLORS.gold, 1).setStrokeStyle(3, COLORS.goldEdge, 1);
     const badgeText = scene.add.text(0, 0, '!', { fontFamily: 'Arial', fontSize: '20px', fontStyle: 'bold', color: '#3a2a00' }).setOrigin(0.5);
     this.badge = scene.add.container(32, -34, [badgeBg, badgeText]).setVisible(false);
     this.container.add(this.badge);
-    scene.tweens.add({ targets: this.badge, scale: { from: 0.85, to: 1.2 }, duration: 420, yoyo: true, repeat: -1 });
+    this.badgeTween = scene.tweens.add({ targets: this.badge, scale: { from: 0.85, to: 1.2 }, duration: 420, yoyo: true, repeat: -1, paused: true });
     if (this.aimLine) {
       // линия — под основанием башни; стрелки поворота (влево/вправо на 45°) — над ней
       this.container.sendToBack(this.aimLine);
-      this.container.add(drawTurnArrows(scene));
+      this.container.add(turnArrowsImage(scene));
       this.applyAim();
     }
     this.refreshVisuals();
@@ -242,17 +295,11 @@ export class Tower {
 
   /** Метки на башне: кольцо цвета уровня, точки уровня под башней, «!» при невыбранной мутации. */
   private refreshVisuals(): void {
-    const color = LEVEL_COLORS[Math.min(this.level, LEVEL_COLORS.length) - 1];
-    this.marks.clear();
-    if (this.level > 1) {
-      this.marks.lineStyle(4, color, 0.95).strokeCircle(0, 0, 40);
-      for (let i = 0; i < this.level; i++) {
-        const dx = (i - (this.level - 1) / 2) * 13;
-        this.marks.fillStyle(color, 1).fillCircle(dx, 46, 5);
-        this.marks.lineStyle(1.5, 0x0b1020, 1).strokeCircle(dx, 46, 5);
-      }
-    }
-    this.badge.setVisible(this.pendingTier !== null);
+    setArt(this.top, topTexture(this.scene, this.level), TOP_BOX);
+    const badge = this.pendingTier !== null;
+    this.badge.setVisible(badge);
+    if (badge) this.badgeTween.resume();
+    else this.badgeTween.pause();
     if (this.selectRing.visible) this.drawSelectRing();
   }
 
@@ -275,6 +322,8 @@ export class Tower {
   /** Подсветка «с этой башней можно слить». */
   setMergeCandidate(on: boolean): void {
     this.mergeRing.setVisible(on);
+    if (on) this.mergeTween.resume();
+    else this.mergeTween.pause();
   }
 
   /** Повернуть луч на один шаг (45°): dir 1 — по часовой стрелке, -1 — против. Для башен без луча ничего не делает. */
@@ -289,17 +338,17 @@ export class Tower {
     const angle = this.aimRad;
     this.barrel.setRotation(angle);
     if (this.aimLine) {
-      drawAimLine(this.aimLine, beamReach(this.x, this.y, angle, this.stats.beamLengthPx));
+      this.aimLine = aimLineImage(this.scene, this.aimLine, beamReach(this.x, this.y, angle, this.stats.beamLengthPx));
       this.aimLine.setRotation(angle);
     }
     if (this.stats.secondBeam) {
-      if (!this.aimLine2) {
-        this.aimLine2 = this.scene.add.graphics();
+      const angle2 = aimAngle(this.aim + 2);
+      const fresh = !this.aimLine2;
+      this.aimLine2 = aimLineImage(this.scene, this.aimLine2, beamReach(this.x, this.y, angle2, this.stats.beamLengthPx));
+      if (fresh) {
         this.container.add(this.aimLine2);
         this.container.sendToBack(this.aimLine2);
       }
-      const angle2 = aimAngle(this.aim + 2);
-      drawAimLine(this.aimLine2, beamReach(this.x, this.y, angle2, this.stats.beamLengthPx));
       this.aimLine2.setRotation(angle2);
     }
   }
@@ -400,6 +449,8 @@ export class Tower {
   }
 
   destroy(): void {
+    this.mergeTween.remove();
+    this.badgeTween.remove();
     this.scene.tweens.killTweensOf([this.mergeRing, this.badge, this.container]);
     this.container.destroy();
   }

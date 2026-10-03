@@ -1,5 +1,9 @@
 import Phaser from 'phaser';
+import { artImage, bakeArt, squareBox } from '../art';
 import { COLORS } from '../theme';
+
+/** Рамка рисунка капли (хвост тянется влево до −27). */
+const DROP_BOX = squareBox(30);
 
 /** Капля сиропа, летящая в точку дорожки (не за бактерией): по прилёте сцена кладёт на это место лужу. */
 export class GroundShot {
@@ -20,11 +24,12 @@ export class GroundShot {
   ) {
     this.x = x;
     this.y = y;
-    const gfx = scene.add.graphics();
-    gfx.fillStyle(COLORS.syrup, 1).fillCircle(0, 0, 11).fillCircle(-14, 0, 7).fillCircle(-23, 0, 3.5);
-    gfx.lineStyle(2, COLORS.syrupDark, 1).strokeCircle(0, 0, 11);
-    gfx.fillStyle(0xffffff, 0.6).fillCircle(3, -4, 3);
-    this.container = scene.add.container(x, y, [gfx]).setRotation(Math.atan2(ty - y, tx - x));
+    const key = bakeArt(scene, 'shot-ground', DROP_BOX, (gfx) => {
+      gfx.fillStyle(COLORS.syrup, 1).fillCircle(0, 0, 11).fillCircle(-14, 0, 7).fillCircle(-23, 0, 3.5);
+      gfx.lineStyle(2, COLORS.syrupDark, 1).strokeCircle(0, 0, 11);
+      gfx.fillStyle(0xffffff, 0.6).fillCircle(3, -4, 3);
+    });
+    this.container = scene.add.container(x, y, [artImage(scene, key, DROP_BOX)]).setRotation(Math.atan2(ty - y, tx - x));
     layer.add(this.container);
   }
 
