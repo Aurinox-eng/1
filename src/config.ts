@@ -303,7 +303,7 @@ export const CONFIG = {
     /** Спора — маленькая красная. 3 HP, быстрая; проходя рядом с башней, глушит её на 3 секунды. */
     spore: { hp: 3, speedFactor: 1.4, reward: 12, lifeDamage: 1, radius: 18, length: 0, armor: 0, dashEverySec: 0, dashSec: 0, dashFactor: 1, splitCount: 0, splitGapPx: 0, disableSec: 3, disableRadius: 150, healRadius: 0, healPerSec: 0, spawnGapSec: 0, regenPerSec: 0, hasteRadius: 0, hasteFactor: 1, slowImmune: 0, brewEverySec: 0, brewCount: 0 },
     /** Рой — крошечные бирюзовые, быстрые, выходят плотной пачкой по одному входу. 2 HP. Против кучи — Шипучка. */
-    swarm: { hp: 2, speedFactor: 1.3, reward: 2, lifeDamage: 0.25, radius: 14, length: 0, armor: 0, dashEverySec: 0, dashSec: 0, dashFactor: 1, splitCount: 0, splitGapPx: 0, disableSec: 0, disableRadius: 0, healRadius: 0, healPerSec: 0, spawnGapSec: 0.15, regenPerSec: 0, hasteRadius: 0, hasteFactor: 1, slowImmune: 0, brewEverySec: 0, brewCount: 0 },
+    swarm: { hp: 2, speedFactor: 1.3, reward: 2, lifeDamage: 0.125, radius: 14, length: 0, armor: 0, dashEverySec: 0, dashSec: 0, dashFactor: 1, splitCount: 0, splitGapPx: 0, disableSec: 0, disableRadius: 0, healRadius: 0, healPerSec: 0, spawnGapSec: 0.15, regenPerSec: 0, hasteRadius: 0, hasteFactor: 1, slowImmune: 0, brewEverySec: 0, brewCount: 0 },
     /** Бегун — оранжевая «капля» со следом, очень быстрый (×2,2). 4 HP. Башни не успевают — нужна лужа Сиропа. */
     runner: { hp: 4, speedFactor: 2.2, reward: 8, lifeDamage: 1, radius: 20, length: 52, armor: 0, dashEverySec: 0, dashSec: 0, dashFactor: 1, splitCount: 0, splitGapPx: 0, disableSec: 0, disableRadius: 0, healRadius: 0, healPerSec: 0, spawnGapSec: 0, regenPerSec: 0, hasteRadius: 0, hasteFactor: 1, slowImmune: 0, brewEverySec: 0, brewCount: 0 },
     /** Лекарь — белый с розовым крестом и кольцом-аурой. 6 HP; пока жив, лечит всех рядом на 0,8 HP/с — одиночные Таблетки не справляются. Против него — линия Шприца и взрыв Шипучки. */
@@ -348,6 +348,10 @@ export const CONFIG = {
     firstDelaySec: 8,
     /** Пауза между волнами (после того, как вышла последняя бактерия волны), секунд. */
     pauseSec: 6,
+    /** Рост прочности бактерий от волны к волне: с волны hpGrowthFromWave (не считая её) HP каждой бактерии × (1 + hpGrowthPerWave × (волна − hpGrowthFromWave)).
+     *  0 — прочность не растёт. Появилось по замерам круга 11: после 8-й волны ни один бот не терял жизней, игра вся в начале. Подбирается ботом. */
+    hpGrowthPerWave: 0,
+    hpGrowthFromWave: 8,
     /** Самая большая «пачка» бактерий с spawnGapSec (рой): больше — делится на несколько пачек, каждая на свой вход. */
     packMax: 10,
     /** Бонус за досрочный вызов волны кнопкой «Начать волну»: монет за каждую пропущенную секунду ожидания. */
@@ -362,11 +366,11 @@ export const CONFIG = {
       { coccus: 4 },
       { coccus: 6 },
       { coccus: 5, rod: 1 },
-      { coccus: 4, rod: 2, swarm: 8 },
-      { coccus: 5, rod: 3, swarm: 10, runner: 1 },
-      { coccus: 5, rod: 3, swarm: 10, runner: 3, splitter: 1 },
-      { coccus: 6, rod: 4, swarm: 12, runner: 3, splitter: 2, armored: 1 },
-      { coccus: 6, rod: 4, swarm: 12, runner: 4, splitter: 3, armored: 2, healer: 1 },
+      { coccus: 4, rod: 2, swarm: 4 },
+      { coccus: 5, rod: 3, swarm: 6, runner: 1 },
+      { coccus: 5, rod: 3, swarm: 6, runner: 3, splitter: 1 },
+      { coccus: 6, rod: 4, swarm: 8, runner: 3, splitter: 2, armored: 1 },
+      { coccus: 6, rod: 4, swarm: 8, runner: 4, splitter: 3, armored: 2, healer: 1 },
       { coccus: 6, rod: 5, swarm: 14, runner: 4, splitter: 3, armored: 2, healer: 2, spore: 1 },
       { coccus: 8, rod: 6, swarm: 16, runner: 5, splitter: 4, armored: 3, healer: 2, spore: 3 },
       { coccus: 8, rod: 7, swarm: 18, runner: 6, splitter: 5, armored: 3, healer: 3, spore: 4 },

@@ -74,12 +74,14 @@ export class Bacterium {
     kind: BacteriumKind,
     edge: Edge,
     s = 0,
+    /** Множитель прочности (рост от волны к волне, `waves.hpGrowthPerWave`). */
+    hpMul = 1,
   ) {
     this.scene = scene;
     this.kind = kind;
     const cfg = CONFIG.types[kind];
-    this.maxHp = cfg.hp;
-    this.hp = cfg.hp;
+    this.maxHp = cfg.hp * hpMul;
+    this.hp = this.maxHp;
     this.radius = extentOf(kind);
     const spread = 1 + (Math.random() * 2 - 1) * CONFIG.bacteria.speedSpread;
     this.baseSpeed = CONFIG.bacteria.baseSpeed * cfg.speedFactor * spread;
