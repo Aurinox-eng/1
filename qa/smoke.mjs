@@ -262,7 +262,7 @@ async function waitFor(page, predicate, timeoutMs, label, pollMs = 40) {
 /** Сохраняет скриншот окна и возвращает его содержимое. */
 async function shot(page, name) {
   const file = path.join(shotsDir, `${name}.png`);
-  const buffer = await page.screenshot({ path: file });
+  const buffer = await page.screenshot({ path: file, timeout: 90000 }); // на медленном сервере (программный WebGL, 2–6 кадров/с) снимок занимает больше 30 с по умолчанию
   screenshots.push(path.relative(ROOT, file));
   return buffer;
 }
@@ -329,7 +329,10 @@ async function openGame(context, baseUrl, prefix, { speed = 1, cfg = '', isTouch
   const allCfg = [cfg, process.env.QA_EXTRA_CFG].filter(Boolean).join(',');
   // `noplaque`: игра не встаёт на паузу сама (плашки с описанием проверяет отдельный сценарий `plaques`, остальным они мешают)
   const plaqueFlag = query.includes('plaques') ? '' : '&noplaque';
-  await page.goto(`${baseUrl}?qa&speed=${speed}${plaqueFlag}${allCfg ? `&cfg=${allCfg}` : ''}${query}`, { waitUntil: 'load' });
+  // QA_CANVAS=1 (GitHub, группы со временем и скоростью): рисование через canvas — на сервере без видеокарты программный WebGL даёт 2–6 кадров/с, шаг игрового времени
+  // ограничен 50 мс, и проверки, считающие секунды, скорости и паузы между ударами, ломаются; canvas даёт ≈ 20 кадров/с (docs/performance.md)
+  const canvasFlag = process.env.QA_CANVAS === '1' && !query.includes('canvas') ? '&canvas' : '';
+  await page.goto(`${baseUrl}?qa&speed=${speed}${plaqueFlag}${canvasFlag}${allCfg ? `&cfg=${allCfg}` : ''}${query}`, { waitUntil: 'load', timeout: 90000 });
   await waitFor(page, (s) => s.state === 'playing' || s.state === 'info', 20000, 'запуск игры');
   const cdp = await context.newCDPSession(page);
   const input = createInput(page, cdp, isTouch);
@@ -1564,7 +1567,7 @@ async function runProduction(browser, prodUrl, qaUrl) {
   };
   const page = await context.newPage();
   watchConsole(page, p);
-  await page.goto(`${prodUrl}?qa&speed=10${query}&cfg=${hostile}`, { waitUntil: 'load' });
+  await page.goto(`${prodUrl}?qa&speed=10${query}&cfg=${hostile}`, { waitUntil: 'load', timeout: 90000 });
   await sleep(1500);
   const plaqueBrightness = await brightness(page);
   await shot(page, 'production-plaque');
@@ -1583,7 +1586,7 @@ async function runProduction(browser, prodUrl, qaUrl) {
   // Игра в игровой сборке работает: выбрать башню и поставить её тапом (по цвету пикселей вокруг клетки ${FREE.a} на старте камеры)
   const play = await context.newPage();
   watchConsole(play, p);
-  await play.goto(prodUrl, { waitUntil: 'load' });
+  await play.goto(prodUrl, { waitUntil: 'load', timeout: 90000 });
   await sleep(1500);
   await closePlaques(play);
   await sleep(600);
@@ -1617,7 +1620,7 @@ async function runProduction(browser, prodUrl, qaUrl) {
   const portrait = await context.newPage();
   watchConsole(portrait, p);
   await portrait.setViewportSize({ width: 390, height: 844 });
-  await portrait.goto(prodUrl, { waitUntil: 'load' });
+  await portrait.goto(prodUrl, { waitUntil: 'load', timeout: 90000 });
   await sleep(1500);
   const rot = await rotateInfo(portrait);
   check(`${p} телефон вертикально: показана подсказка «${ROTATE_TEXT.ru}»`, rot.display === 'flex' && rot.full && rot.text === ROTATE_TEXT.ru && rot.textInside, `display=${rot.display}, текст «${rot.text}»`);
