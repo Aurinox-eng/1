@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { ART_DENSITY, bakeArt, squareBox } from './art';
+import { ART_DENSITY, bakeArt, ringImage, squareBox } from './art';
 import { CONFIG } from './config';
 import type { BacteriumKind } from './objects/Bacterium';
 import { COLORS, FONT, TEXT_COLORS } from './theme';
@@ -201,17 +201,13 @@ export class Effects {
   /** Башня поставлена: кольцо расходится от клетки. */
   placed(x: number, y: number): void {
     this.placements++;
-    const ring = this.scene.add.circle(x, y, 40).setStrokeStyle(5, COLORS.ghostEdge, 1).setFillStyle();
-    this.layer.add(ring);
-    this.scene.tweens.add({ targets: ring, scale: 2.4, alpha: 0, duration: 380, onComplete: () => ring.destroy() });
+    this.ring(x, y, 40, 5, COLORS.ghostEdge, 2.4, 380);
   }
 
   /** Слияние или выбор мутации: золотое кольцо и искры расходятся от башни. */
   merged(x: number, y: number): void {
     this.placements++;
-    const ring = this.scene.add.circle(x, y, 44).setStrokeStyle(6, COLORS.gold, 1).setFillStyle();
-    this.layer.add(ring);
-    this.scene.tweens.add({ targets: ring, scale: 2.8, alpha: 0, duration: 460, onComplete: () => ring.destroy() });
+    this.ring(x, y, 44, 6, COLORS.gold, 2.8, 460);
     for (let i = 0; i < 10; i++) {
       const angle = (Math.PI * 2 * i) / 10;
       const spark = this.scene.add.circle(x, y, 5, i % 2 === 0 ? COLORS.gold : COLORS.merge);
@@ -232,11 +228,11 @@ export class Effects {
   /** Взрыв шипучки: розовый круг радиуса взрыва вспыхивает и гаснет, по его краю расходится кольцо. */
   blast(x: number, y: number, radius: number): void {
     this.blasts++;
-    const disc = this.scene.add.circle(x, y, radius, COLORS.fizz, 0.28).setBlendMode(Phaser.BlendModes.ADD);
-    const ring = this.scene.add.circle(x, y, radius).setStrokeStyle(5, COLORS.fizz, 1).setFillStyle();
-    this.layer.add([disc, ring]);
-    this.scene.tweens.add({ targets: disc, scale: 1.12, alpha: 0, duration: 320, onComplete: () => disc.destroy() });
-    this.scene.tweens.add({ targets: ring, scale: 1.25, alpha: 0, duration: 380, onComplete: () => ring.destroy() });
+    const base = radius / DISC_R / ART_DENSITY;
+    const disc = this.scene.add.image(x, y, 'fx-disc').setScale(base).setTint(COLORS.fizz).setAlpha(0.28).setBlendMode(Phaser.BlendModes.ADD);
+    this.layer.add(disc);
+    this.scene.tweens.add({ targets: disc, scale: base * 1.12, alpha: 0, duration: 320, onComplete: () => disc.destroy() });
+    this.ring(x, y, radius, 5, COLORS.fizz, 1.25, 380);
   }
 
   /** Удар луча шприца: яркая бирюзовая линия от башни на длину луча быстро гаснет. */
@@ -253,17 +249,20 @@ export class Effects {
   /** Лужа сиропа шлёпнулась на дорожку: оранжевое кольцо расходится от места падения. */
   splat(x: number, y: number, radius: number): void {
     this.splats++;
-    const ring = this.scene.add.circle(x, y, radius * 0.6).setStrokeStyle(5, COLORS.puddle, 1).setFillStyle();
-    this.layer.add(ring);
-    this.scene.tweens.add({ targets: ring, scale: 1.7, alpha: 0, duration: 340, onComplete: () => ring.destroy() });
+    this.ring(x, y, radius * 0.6, 5, COLORS.puddle, 1.7, 340);
   }
 
   /** Спора заглушила башню: красное кольцо расходится от башни. */
   zap(x: number, y: number): void {
     this.zaps++;
-    const ring = this.scene.add.circle(x, y, 36).setStrokeStyle(6, COLORS.loseLine, 1).setFillStyle();
+    this.ring(x, y, 36, 6, COLORS.loseLine, 3, 450);
+  }
+
+  /** Расходящееся кольцо (картинка): радиус и толщина в начале, цвет; за ms миллисекунд увеличивается в grow раз и гаснет. */
+  private ring(x: number, y: number, radius: number, width: number, color: number, grow: number, ms: number): void {
+    const ring = ringImage(this.scene, x, y, radius, width, color);
     this.layer.add(ring);
-    this.scene.tweens.add({ targets: ring, scale: 3, alpha: 0, duration: 450, onComplete: () => ring.destroy() });
+    this.scene.tweens.add({ targets: ring, scale: ring.scale * grow, alpha: 0, duration: ms, onComplete: () => ring.destroy() });
   }
 
   /** Бактерия дошла до организма: красная вспышка на всём экране и тряска. */

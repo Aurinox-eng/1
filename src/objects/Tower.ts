@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import { CONFIG } from '../config';
 import { aimAngle, AIM_STEPS, bestBeamDirection, remainingNear, WORLD } from '../level';
-import { artImage, bakeArt, setArt, squareBox, type ArtBox } from '../art';
+import { artImage, bakeArt, ringImage, setArt, squareBox, type ArtBox } from '../art';
 import { COLORS } from '../theme';
 import { computeStats, mutationOptions, unlockedTiers, type TowerKey, type TowerStats } from '../towerStats';
 import type { Bacterium } from './Bacterium';
@@ -187,7 +187,7 @@ export class Tower {
   private disabledFor = 0;
   /** Куда смотрит луч: номер направления 0…AIM_STEPS-1 (только у башен с лучом). */
   aim = 0;
-  private readonly ring: Phaser.GameObjects.Arc;
+  private readonly ring: Phaser.GameObjects.Image;
   private readonly barrel: Phaser.GameObjects.Container;
   private readonly container: Phaser.GameObjects.Container;
   private aimLine: Phaser.GameObjects.Image | null = null;
@@ -197,7 +197,7 @@ export class Tower {
   private readonly mergeTween: Phaser.Tweens.Tween;
   private readonly badgeTween: Phaser.Tweens.Tween;
   private readonly selectRing: Phaser.GameObjects.Graphics;
-  private readonly mergeRing: Phaser.GameObjects.Arc;
+  private readonly mergeRing: Phaser.GameObjects.Image;
   private readonly badge: Phaser.GameObjects.Container;
   private readonly scene: Phaser.Scene;
 
@@ -227,10 +227,10 @@ export class Tower {
     this.barrel = art.barrel;
     this.top = art.top;
     // Красное кольцо — башня заглушена
-    this.ring = scene.add.circle(0, 0, 44).setStrokeStyle(5, COLORS.loseLine, 1).setFillStyle().setVisible(false);
+    this.ring = ringImage(scene, 0, 0, 44, 5, COLORS.loseLine).setVisible(false);
     this.container.add(this.ring);
     // Зелёное мигающее кольцо — башню можно слить с выбранной
-    this.mergeRing = scene.add.circle(0, 0, 49).setStrokeStyle(5, COLORS.merge, 1).setFillStyle().setVisible(false);
+    this.mergeRing = ringImage(scene, 0, 0, 49, 5, COLORS.merge).setVisible(false);
     this.container.add(this.mergeRing);
     // Мигание колец и «!» идёт, только пока они видны (иначе 40 башен крутили бы 80 невидимых анимаций каждый кадр)
     this.mergeTween = scene.tweens.add({ targets: this.mergeRing, alpha: { from: 1, to: 0.35 }, duration: 380, yoyo: true, repeat: -1, paused: true });

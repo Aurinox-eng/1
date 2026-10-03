@@ -21,6 +21,11 @@ const works: number[] = [];
 /** Из работы кадра: расчёт (движение, стрельба, эффекты) и рисование, мс. */
 const updates: number[] = [];
 const renders: number[] = [];
+/** Вызовов рисования WebGL и вершин за кадр (только с ?qa: для замера; не зависит от машины — показывает, сколько работы получает видеокарта). */
+const drawCalls: number[] = [];
+const vertices: number[] = [];
+let frameCalls = 0;
+let frameVerts = 0;
 let installed = false;
 let lastTime = 0;
 let stepStart = 0;
@@ -30,6 +35,22 @@ let renderStart = 0;
 export function installFrameStats(game: Phaser.Game): void {
   if (installed) return;
   installed = true;
+  const renderer = game.renderer as Phaser.Renderer.WebGL.WebGLRenderer;
+  if (new URLSearchParams(window.location.search).has('qa') && renderer.gl) {
+    const gl = renderer.gl;
+    const drawArrays = gl.drawArrays.bind(gl);
+    const drawElements = gl.drawElements.bind(gl);
+    gl.drawArrays = (mode: number, first: number, count: number): void => {
+      frameCalls++;
+      frameVerts += count;
+      drawArrays(mode, first, count);
+    };
+    gl.drawElements = (mode: number, count: number, type: number, offset: number): void => {
+      frameCalls++;
+      frameVerts += count;
+      drawElements(mode, count, type, offset);
+    };
+  }
   game.events.on(Phaser.Core.Events.PRE_STEP, (time: number) => {
     stepStart = performance.now();
     if (lastTime > 0) push(intervals, time - lastTime);
@@ -43,6 +64,10 @@ export function installFrameStats(game: Phaser.Game): void {
     const now = performance.now();
     if (stepStart > 0) push(works, now - stepStart);
     if (renderStart > 0) push(renders, now - renderStart);
+    push(drawCalls, frameCalls);
+    push(vertices, frameVerts);
+    frameCalls = 0;
+    frameVerts = 0;
   });
 }
 
@@ -77,6 +102,9 @@ export interface PerfReport {
   /** Из работы кадра: расчёт и рисование в среднем, мс. */
   updateMs: number;
   renderMs: number;
+  /** Вызовов рисования WebGL и вершин за кадр в среднем (в режиме canvas — 0). */
+  drawCalls: number;
+  vertices: number;
 }
 
 /** Итог замера с последнего сброса; reset — начать замер заново. */
@@ -95,12 +123,16 @@ export function frameReport(reset = false): PerfReport {
     workP95: round1(percentile(works, 0.95)),
     updateMs: updates.length ? round1(updates.reduce((a, b) => a + b, 0) / updates.length) : 0,
     renderMs: renders.length ? round1(renders.reduce((a, b) => a + b, 0) / renders.length) : 0,
+    drawCalls: drawCalls.length ? Math.round(drawCalls.reduce((a, b) => a + b, 0) / drawCalls.length) : 0,
+    vertices: vertices.length ? Math.round(vertices.reduce((a, b) => a + b, 0) / vertices.length) : 0,
   };
   if (reset) {
     intervals.length = 0;
     works.length = 0;
     updates.length = 0;
     renders.length = 0;
+    drawCalls.length = 0;
+    vertices.length = 0;
   }
   return report;
 }

@@ -88,7 +88,7 @@ try {
         const report = await measure(browser, servers[i].url, renderer, shotName);
         results.push({ version: names[i], renderer, round: round + 1, ...report });
         console.log(
-          `${names[i]} ${renderer} круг ${round + 1}: ${report.fps} кадров/с (1 % худших ${report.fpsLow1}), работа кадра ${report.workMs} мс (расчёт ${report.updateMs}, рисование ${report.renderMs}; 95 % — до ${report.workP95}), ` +
+          `${names[i]} ${renderer} круг ${round + 1}: ${report.fps} кадров/с (1 % худших ${report.fpsLow1}), работа кадра ${report.workMs} мс (расчёт ${report.updateMs}, рисование ${report.renderMs}; 95 % — до ${report.workP95}), вызовов рисования ${report.drawCalls}, вершин ${report.vertices}, ` +
             `объектов ${report.objects}, бактерий ${report.bacteria}, башен ${report.towers}${report.errors.length ? `, ОШИБКИ: ${report.errors.join(' | ')}` : ''}`,
         );
       }
@@ -104,15 +104,15 @@ fs.writeFileSync(path.join(resultsDir, `${tag}.json`), JSON.stringify(results, n
 // Итоговая таблица: среднее по кругам для каждой версии и способа рисования
 const avg = (list, key) => Math.round((list.reduce((a, r) => a + r[key], 0) / list.length) * 10) / 10;
 const lines = [
-  '| Версия | Рисование | Кадров/с | 1 % худших, кадров/с | Работа кадра, мс | из неё расчёт, мс | из неё рисование, мс | 95 % кадров — до, мс | Объектов на экране | Ошибки |',
-  '|---|---|---|---|---|---|---|---|---|---|',
+  '| Версия | Рисование | Кадров/с | 1 % худших, кадров/с | Работа кадра, мс | из неё расчёт, мс | из неё рисование, мс | 95 % кадров — до, мс | Вызовов рисования за кадр | Вершин за кадр | Объектов на экране | Ошибки |',
+  '|---|---|---|---|---|---|---|---|---|---|---|---|',
 ];
 for (const renderer of renderers) {
   for (const name of names) {
     const list = results.filter((r) => r.version === name && r.renderer === renderer);
     if (!list.length) continue;
     const errors = list.reduce((a, r) => a + r.errors.length, 0);
-    lines.push(`| ${name} | ${renderer} | ${avg(list, 'fps')} | ${avg(list, 'fpsLow1')} | ${avg(list, 'workMs')} | ${avg(list, 'updateMs')} | ${avg(list, 'renderMs')} | ${avg(list, 'workP95')} | ${avg(list, 'objects')} | ${errors} |`);
+    lines.push(`| ${name} | ${renderer} | ${avg(list, 'fps')} | ${avg(list, 'fpsLow1')} | ${avg(list, 'workMs')} | ${avg(list, 'updateMs')} | ${avg(list, 'renderMs')} | ${avg(list, 'workP95')} | ${avg(list, 'drawCalls')} | ${avg(list, 'vertices')} | ${avg(list, 'objects')} | ${errors} |`);
   }
 }
 const table = lines.join('\n');

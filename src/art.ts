@@ -51,3 +51,35 @@ export function artImage(scene: Phaser.Scene, key: string, box: ArtBox, density 
 export function setArt(image: Phaser.GameObjects.Image, key: string, box: ArtBox, density = ART_DENSITY): void {
   image.setTexture(key).setOrigin(-box.x / box.w, -box.y / box.h).setScale(1 / density);
 }
+
+/** Белое кольцо радиуса radius и толщины width (цвет задаётся оттенком картинки: setTint). Одна картинка на радиус и толщину. */
+export function ringArt(scene: Phaser.Scene, radius: number, width: number): { key: string; box: ArtBox } {
+  const r = Math.round(radius * 2) / 2;
+  const box = squareBox(r + width / 2 + 2);
+  const key = bakeArt(scene, `ring-${r}-${width}`, box, (g) => g.lineStyle(width, 0xffffff, 1).strokeCircle(0, 0, r));
+  return { key, box };
+}
+
+/** Кольцо-картинка вместо фигуры Arc со штрихом: тот же радиус, толщина, цвет и прозрачность; центр картинки — в (x, y). */
+export function ringImage(scene: Phaser.Scene, x: number, y: number, radius: number, width: number, color: number, alpha = 1): Phaser.GameObjects.Image {
+  const { key, box } = ringArt(scene, radius, width);
+  return artImage(scene, key, box).setPosition(x, y).setTint(color).setAlpha(alpha);
+}
+
+/** Круг с заливкой и обводкой (ауры лекаря и командира) — одна картинка на набор чисел. */
+export function discImage(
+  scene: Phaser.Scene,
+  radius: number,
+  fill: number,
+  fillAlpha: number,
+  stroke: number,
+  strokeWidth: number,
+  strokeAlpha: number,
+): Phaser.GameObjects.Image {
+  const box = squareBox(radius + strokeWidth / 2 + 2);
+  const key = bakeArt(scene, `disc-${radius}-${fill}-${fillAlpha}-${stroke}-${strokeWidth}-${strokeAlpha}`, box, (g) => {
+    g.fillStyle(fill, fillAlpha).fillCircle(0, 0, radius);
+    if (strokeWidth > 0) g.lineStyle(strokeWidth, stroke, strokeAlpha).strokeCircle(0, 0, radius);
+  });
+  return artImage(scene, key, box);
+}

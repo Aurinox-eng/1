@@ -3,7 +3,7 @@ import { CONFIG } from '../config';
 import { EDGES_FROM } from '../level';
 import { pointAt, type Edge } from '../pathing';
 import { COLORS } from '../theme';
-import { artImage, bakeArt, setArt, squareBox, type ArtBox } from '../art';
+import { artImage, bakeArt, discImage, ringImage, setArt, squareBox, type ArtBox } from '../art';
 import { bodyHalfSize, crackCount, drawCracks, drawShape, hasRadialCracks, shellWidth, SPLITTER_LOBE_OFFSET } from './bacteriumArt';
 
 export type BacteriumKind = keyof typeof CONFIG.types;
@@ -77,11 +77,11 @@ export class Bacterium {
   /** Замедление от «Сиропа»: сколько секунд ещё действует и во сколько раз медленнее идёт (1 — не замедлена). */
   private slowLeft = 0;
   private slowBy = 1;
-  private slowRing: Phaser.GameObjects.Arc | null = null;
+  private slowRing: Phaser.GameObjects.Image | null = null;
   /** «Кислота» Шипучки: сколько секунд ещё действует и во сколько раз сильнее удары по этой бактерии. */
   private acidLeft = 0;
   private acidBy = 1;
-  private acidRing: Phaser.GameObjects.Arc | null = null;
+  private acidRing: Phaser.GameObjects.Image | null = null;
   /** Какое HP показано на теле (перерисовываем при заметном изменении: лечение идёт каждый кадр). */
   private drawnHp: number;
   private readonly scene: Phaser.Scene;
@@ -128,11 +128,11 @@ export class Bacterium {
     this.container = scene.add.container(0, 0, [this.body, this.cracks]);
     // Лекарь: кольцо-аура радиуса лечения, командир — радиуса ускорения (под телом)
     if (cfg.healRadius > 0) {
-      const aura = scene.add.circle(0, 0, cfg.healRadius, COLORS.aura, 0.07).setStrokeStyle(3, COLORS.aura, 0.38);
+      const aura = discImage(scene, cfg.healRadius, COLORS.aura, 0.07, COLORS.aura, 3, 0.38);
       this.container.addAt(aura, 0);
     }
     if (cfg.hasteRadius > 0) {
-      const aura = scene.add.circle(0, 0, cfg.hasteRadius, COLORS.haste, 0.06).setStrokeStyle(3, COLORS.haste, 0.42);
+      const aura = discImage(scene, cfg.hasteRadius, COLORS.haste, 0.06, COLORS.haste, 3, 0.42);
       this.container.addAt(aura, 0);
     }
     layer.add(this.container);
@@ -160,7 +160,7 @@ export class Bacterium {
     this.slowBy = this.slowLeft > 0 ? Math.min(this.slowBy, factor) : factor;
     this.slowLeft = Math.max(this.slowLeft, seconds);
     if (!this.slowRing) {
-      this.slowRing = this.scene.add.circle(0, 0, this.radius + 8).setStrokeStyle(4, COLORS.slowRing, 0.9).setFillStyle();
+      this.slowRing = ringImage(this.scene, 0, 0, this.radius + 8, 4, COLORS.slowRing, 0.9);
       this.container.add(this.slowRing);
     }
     this.slowRing.setVisible(true);
@@ -172,7 +172,7 @@ export class Bacterium {
     this.acidBy = this.acidLeft > 0 ? Math.max(this.acidBy, mul) : mul;
     this.acidLeft = Math.max(this.acidLeft, seconds);
     if (!this.acidRing) {
-      this.acidRing = this.scene.add.circle(0, 0, this.radius + 4).setStrokeStyle(3, COLORS.acid, 0.9).setFillStyle();
+      this.acidRing = ringImage(this.scene, 0, 0, this.radius + 4, 3, COLORS.acid, 0.9);
       this.container.add(this.acidRing);
     }
     this.acidRing.setVisible(true);
