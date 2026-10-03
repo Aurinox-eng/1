@@ -151,7 +151,8 @@ const CFG = {
   lives: readConfigNumber('lives', 'start'),
   waves: readConfigNumber('waves', 'total'),
   zoomStart: readConfigNumber('camera', 'zoomStart'),
-  zoomMin: readConfigNumber('camera', 'zoomMin'),
+  // Самое сильное отдаление считается игрой из размеров карты и окна (карта целиком по ширине и по высоте), в config.ts числа нет
+  zoomMin: Math.min((1280 - readConfigNumber('map', 'panelW')) / (MAP.orgW + LEVEL.cols * MAP.tile), 720 / (LEVEL.rows * MAP.tile)),
   zoomMax: readConfigNumber('camera', 'zoomMax'),
   pillPrice: readConfigNumber('pill', 'price'),
   restartLockMs: readConfigNumber('gameOver', 'restartLockMs'),
@@ -300,8 +301,10 @@ async function openGame(context, baseUrl, prefix, { speed = 1, cfg = '', isTouch
   watchConsole(page, prefix);
   // QA_EXTRA_CFG нужна только для проверки самих проверок: подмешивает «поломку» (например camera.tapMaxMovePx:14) — соответствующая проверка обязана покраснеть
   const allCfg = [cfg, process.env.QA_EXTRA_CFG].filter(Boolean).join(',');
-  await page.goto(`${baseUrl}?qa&speed=${speed}${allCfg ? `&cfg=${allCfg}` : ''}${query}`, { waitUntil: 'load' });
-  await waitFor(page, (s) => s.state === 'playing', 20000, 'запуск игры');
+  // `noplaque`: игра не встаёт на паузу сама (плашки с описанием проверяет отдельный сценарий `plaques`, остальным они мешают)
+  const plaqueFlag = query.includes('plaques') ? '' : '&noplaque';
+  await page.goto(`${baseUrl}?qa&speed=${speed}${plaqueFlag}${allCfg ? `&cfg=${allCfg}` : ''}${query}`, { waitUntil: 'load' });
+  await waitFor(page, (s) => s.state === 'playing' || s.state === 'info', 20000, 'запуск игры');
   const cdp = await context.newCDPSession(page);
   const input = createInput(page, cdp, isTouch);
   const rect = await page.evaluate(() => {
@@ -1207,8 +1210,11 @@ async function runDanger(browser, baseUrl) {
 
 // ================================================================== проигрыш и победа
 
+/** Перезапуск после конца уровня — только кнопкой «Заново» (тап мимо неё уровень не перезапускает). */
 async function tapToRestart(game) {
-  await game.input.tap(game.g(640, 300));
+  const s = await game.state();
+  const b = s.endButton ?? { x: 640, y: 480 };
+  await game.input.tap(game.g(b.x, b.y));
 }
 
 /** Проигрыш при работающих башнях: снаряды в полёте не должны зависать под экраном «Проигрыш». */

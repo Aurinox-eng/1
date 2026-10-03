@@ -8,18 +8,18 @@ export const COLORS = {
   loseLine: 0xff4d5e,
   /**
    * Цвета типов бактерий: тело, оболочка (у бронированной — толстая), трещины.
-   * Тип должен читаться с первого взгляда: кокк — зелёный, палочка — синяя, делящаяся — жёлтая,
+   * Тип должен читаться с первого взгляда: кокк — зелёный, палочка — синяя, делящаяся — ярко-оранжевая,
    * бронированная — фиолетовая, спора — красная.
    */
   kinds: {
     coccus: { body: 0x7bdc7b, shell: 0x2f8f3a, crack: 0x1b5a25 },
     rod: { body: 0x74b8ff, shell: 0x2a62b8, crack: 0x143a78 },
-    splitter: { body: 0xffe066, shell: 0xc9981b, crack: 0x7a5800 },
+    splitter: { body: 0xff7a00, shell: 0xb84a00, crack: 0x6a2800 },
     armored: { body: 0xb99af0, shell: 0x5b3596, crack: 0x2a1650 },
     spore: { body: 0xff7a7a, shell: 0xb02a2a, crack: 0x6a1010 },
-    /** Рой — бирюзовый; бегун — оранжевый; лекарь — белый с розовым. */
+    /** Рой — бирюзовый; бегун — малиновый (оранжевую взяла делящаяся: жёлтая была похожа на монету); лекарь — белый с розовым. */
     swarm: { body: 0x5fe0c8, shell: 0x1f8f7c, crack: 0x0f5a4e },
-    runner: { body: 0xffa24d, shell: 0xc2621a, crack: 0x7a3a08 },
+    runner: { body: 0xf06bd6, shell: 0xa3238f, crack: 0x5a0e4c },
     healer: { body: 0xfff0f5, shell: 0xe05a8a, crack: 0x8a2a50 },
     /** Слизень — лаймовый; регенератор — тёмно-зелёный; командир — тёмно-синий; матка — бежевая; гигант — тёмно-бордовый. */
     slick: { body: 0xc4ee45, shell: 0x7ea516, crack: 0x4a6008 },

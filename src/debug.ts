@@ -9,6 +9,8 @@
  *   http://localhost:5173/?qa&cfg=bacteria.baseSpeed:60,towers.pill.cooldownMs:300,economy.startCoins:500
  *                                        — временно подменяет числа из config.ts (для подбора баланса)
  *   http://localhost:5173/?qa&canvas     — рисовать через canvas вместо WebGL (быстрее на слабой машине без видеокарты; для бота баланса)
+ *   http://localhost:5173/?qa&noplaque   — не показывать плашки с описанием бактерий и башен (игра не встаёт на паузу сама; для проверок, которым плашки мешают)
+ *   http://localhost:5173/?level=5       — номер уровня (какие башни открыты); работает и в игровой сборке, пока нет меню уровней (этап 5)
  *   http://localhost:5173/?lang=en       — принудительно выбирает язык (проверка переводов)
  */
 /** Разрешён ли режим проверки в этой сборке (в игровой сборке — всегда false). */
@@ -18,11 +20,15 @@ const params = new URLSearchParams(window.location.search);
 
 export const QA_MODE: boolean = QA_ENABLED && params.has('qa');
 
+/** Не показывать плашки с описанием (только вместе с ?qa): нужно проверкам, которые проверяют не плашки, а бой и интерфейс. */
+export const NO_PLAQUES: boolean = QA_MODE && params.has('noplaque');
+
 /** Множитель игрового времени (1 = обычная скорость). Работает только вместе с ?qa. */
 export const TIME_SCALE: number = QA_MODE ? Math.min(10, Math.max(0.1, Number(params.get('speed')) || 1)) : 1;
 
 export interface DebugSnapshot {
-  state: 'playing' | 'paused' | 'won' | 'lost';
+  /** 'info' — на экране плашка с описанием новой бактерии или башни (игра на паузе до тапа). */
+  state: 'playing' | 'paused' | 'info' | 'won' | 'lost';
   coins: number;
   lives: number;
   maxLives: number;
@@ -54,6 +60,12 @@ export interface DebugSnapshot {
   map: { cols: number; rows: number; tile: number; orgW: number; worldW: number; worldH: number };
   /** Камера: приближение, центр (в пикселях мира) и допустимые пределы приближения. */
   camera: { zoom: number; cx: number; cy: number; zoomMin: number; zoomMax: number };
+  /** Номер текущего уровня (адрес `?level=N`, по умолчанию 1). */
+  level: number;
+  /** Плашка с описанием: видна ли, что на ней (bacterium/tower и тип) и сколько плашек ещё ждёт в очереди после текущей. */
+  info: { visible: boolean; kind: 'bacterium' | 'tower' | null; id: string | null; queue: number };
+  /** Кнопка «Заново» на экране конца уровня (центр и размер на экране игры) или null, пока уровень идёт. */
+  endButton: { x: number; y: number; w: number; h: number } | null;
   /** Выбрана ли башня на панели (её название) и цена. */
   selected: string | null;
   /** Поставленные башни: клетка и центр в пикселях мира; заглушена ли (спорой); расстояние до организма по дорожкам (для «вперёд/назад»);
@@ -107,7 +119,9 @@ export interface DebugSnapshot {
   /** Где на экране игры кнопки панели (центры) и сколько жизней нарисовано: towerButton — первая башня (Таблетка), towerButtons — все. */
   ui: {
     towerButton: { x: number; y: number; w: number; h: number };
-    towerButtons: { id: string; x: number; y: number; w: number; h: number }[];
+    towerButtons: { id: string; x: number; y: number; w: number; h: number; locked: boolean }[];
+    /** Компактные кнопки открытых башен над карточкой (видны, только пока открыта карточка). */
+    towerStrip: { visible: boolean; buttons: { id: string; x: number; y: number; w: number; h: number }[] };
     pauseButton: { x: number; y: number };
     /** Кнопка скорости (×1/×2/×3) и кнопка «Начать волну» (visible — видна ли сейчас, bonus — сколько монет даст досрочный вызов). */
     speedButton: { x: number; y: number };

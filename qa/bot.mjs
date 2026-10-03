@@ -44,6 +44,7 @@ import {
   parseArgs,
   readConfigNumber,
   readTowerTable,
+  readTowerUnlock,
   ROOT,
   sleep,
   startServer,
@@ -107,6 +108,7 @@ const HELP = `Бот-замерщик баланса: играет целые п
   --max-real-sec=3600                   потолок реального времени одной партии (страховка); дольше — «timeout»
   --verbose                             печатать каждую покупку и раз в 30 с — где идёт партия
   --shots                               снимок экрана в конце партии: qa/bot-results/<tag>-shots/
+  --level=N                             номер уровня (1…10, по умолчанию 1): от него зависит, какие башни открыты (levels.towerUnlock в config.ts; на уровне 1 — только Таблетка и Сироп)
   --canvas                              рисовать игру через canvas вместо WebGL (?qa&canvas): на слабом контейнере партия идёт ≈ втрое быстрее.
                                         Логика игры та же; для замеров баланса годится (картинка не важна)
   --help                                эта справка
@@ -122,7 +124,7 @@ if (args.help || args.h) {
   console.log(HELP);
   process.exit(0);
 }
-const KNOWN = new Set(['profile', 'runs', 'speed', 'exclude', 'cfg', 'tag', 'seed', 'max-game-sec', 'max-real-sec', 'verbose', 'shots', 'canvas', 'help']);
+const KNOWN = new Set(['profile', 'runs', 'speed', 'exclude', 'cfg', 'tag', 'seed', 'max-game-sec', 'max-real-sec', 'verbose', 'shots', 'canvas', 'level', 'help']);
 for (const key of Object.keys(args)) if (!KNOWN.has(key)) die(`Неизвестный параметр --${key}. Справка: node qa/bot.mjs --help`);
 
 function numArg(name, fallback, { min = -Infinity, max = Infinity, int = false } = {}) {
@@ -142,6 +144,7 @@ const SPEED = numArg('speed', 2, { min: 0.1, max: 4 });
 if (args.speed !== undefined && SPEED > 4) die('--speed не выше 4.');
 const MAX_GAME_SEC = numArg('max-game-sec', 2400, { min: 30, max: 100000 });
 const MAX_REAL_SEC = numArg('max-real-sec', 3600, { min: 30, max: 100000 });
+const LEVEL = numArg('level', 1, { min: 1, max: 10, int: true });
 const SEED = args.seed === undefined ? Math.floor(Math.random() * 1e9) : numArg('seed', 0, { min: 0, max: 4294967295, int: true });
 const TAG = args.tag === undefined ? 'latest' : String(args.tag);
 if (!/^[\w-]+$/.test(TAG)) die(`Неверный --tag=«${TAG}»: только буквы, цифры, «_» и «-».`);
@@ -149,6 +152,7 @@ const VERBOSE = Boolean(args.verbose);
 const SHOTS = Boolean(args.shots);
 
 const TABLE = readTowerTable(); // из config.ts; подмена --cfg накладывается ниже
+const TOWER_UNLOCK = readTowerUnlock(); // с какого уровня открыта башня (levels.towerUnlock)
 const KNOWN_TOWERS = Object.keys(TABLE);
 const EXCLUDE = new Set(
   args.exclude === undefined || args.exclude === true
@@ -537,10 +541,11 @@ async function playGame(browser, baseUrl, profile, run) {
 
   const realStart = Date.now();
   try {
-    await page.goto(`${baseUrl}?qa&speed=${SPEED}${args.canvas ? '&canvas' : ''}${CFG_STRING ? `&cfg=${CFG_STRING}` : ''}`, { waitUntil: 'load' });
-    let s = await pollUntil(page, (x) => x && x.state === 'playing', 20000, 100);
+    await page.goto(`${baseUrl}?qa&speed=${SPEED}${args.canvas ? '&canvas' : ''}${CFG_STRING ? `&cfg=${CFG_STRING}` : ''}&level=${LEVEL}`, { waitUntil: 'load' });
+    // В начале уровня игра сама встаёт на паузу и показывает плашки (башни уровня и бактерии 1-й волны): state 'info'. Бот закрывает их тапом (раньше 0,4 с после показа плашка тап не принимает)
+    let s = await pollUntil(page, (x) => x && (x.state === 'playing' || x.state === 'info'), 20000, 100);
     checkConsole();
-    if (!s || s.state !== 'playing') throw new Error('Игра не запустилась за 20 секунд');
+    if (!s || (s.state !== 'playing' && s.state !== 'info')) throw new Error('Игра не запустилась за 20 секунд');
     const cdp = await context.newCDPSession(page);
     const input = createInput(page, cdp, false);
     const rect = await page.evaluate(() => {
@@ -550,6 +555,19 @@ async function playGame(browser, baseUrl, profile, run) {
     const g2c = (x, y) => ({ x: rect.left + (x * rect.width) / W, y: rect.top + (y * rect.height) / H });
     const c2g = (p) => ({ x: ((p.x - rect.left) * W) / rect.width, y: ((p.y - rect.top) * H) / rect.height });
     const cellPos = (col, row) => page.evaluate(([c, r]) => window.__pvb.cellToClient(c, r), [col, row]);
+    /** Закрывает плашки с описанием (state 'info'): тап в центр экрана, пока игра не вернётся в 'playing'; возвращает свежее состояние. */
+    const closePlaques = async () => {
+      let st = await getState(page);
+      for (let k = 0; k < 30 && st.state === 'info'; k++) {
+        await sleep(450);
+        await input.tap(g2c(W / 2, H / 2));
+        await sleep(100);
+        st = await getState(page);
+      }
+      return st;
+    };
+    s = await closePlaques();
+    if (s.state !== 'playing') throw new Error(`После закрытия плашек игра не в состоянии «playing», а «${s.state}»`);
 
     if (!WORLD) {
       const graph = await page.evaluate(() => window.__pvb.getGraph());
@@ -561,7 +579,7 @@ async function playGame(browser, baseUrl, profile, run) {
       const withCover = KNOWN_TOWERS.map((id) => `${NAMES[id] ?? id} ${free.filter((c) => WORLD.cover(id, c) > 0).length}`).join(', ');
       console.log(`  карта: клеток ${WORLD.cells.length}, под дорожкой ${WORLD.cells.length - free.length}, свободных ${free.length}; клеток с охватом > 0: ${withCover}`);
     }
-    const buttons = s.ui.towerButtons.map((b) => b.id);
+    const buttons = s.ui.towerButtons.filter((b) => !b.locked).map((b) => b.id); // закрытые башни (замок) профили не строят
     const player = makePlayer(profile, { world: WORLD, rng, buttons });
 
     // 1) один раз отдаляем камеру до минимума колесом мыши (карта целиком в окне)
@@ -731,6 +749,12 @@ async function playGame(browser, baseUrl, profile, run) {
       checkConsole();
       s = await getState(page);
       last = s;
+      if (s.state === 'info') {
+        // Плашка перед волной с новым типом: закрыть тапом и продолжить (игровое время на ней стоит — сторож «время не идёт» не должен сработать)
+        s = await closePlaques();
+        lastProgressReal = Date.now();
+        continue;
+      }
       if (s.state === 'won' || s.state === 'lost') {
         result = s.state;
         break;
@@ -935,7 +959,7 @@ const saveResults = () => {
   const payload = {
     tag: TAG,
     startedAt: startedAt.toISOString(),
-    args: { profiles: PROFILES, runs: RUNS, speed: SPEED, exclude: [...EXCLUDE], cfg: CFG_STRING, seed: SEED, maxGameSec: MAX_GAME_SEC },
+    args: { profiles: PROFILES, runs: RUNS, speed: SPEED, level: LEVEL, exclude: [...EXCLUDE], cfg: CFG_STRING, seed: SEED, maxGameSec: MAX_GAME_SEC },
     towerTable: TABLE,
     summary: summarize(games),
     games,
@@ -952,6 +976,7 @@ process.on('SIGINT', () => {
 
 console.log(`Бот-замерщик: профили ${PROFILES.map((p) => PROFILE_TITLES[p]).join(', ')}; партий на профиль ${RUNS}; speed ${SPEED}; потолок ${MAX_GAME_SEC} игровых с; seed ${SEED}`);
 console.log(`  башни из config.ts${CFG_STRING ? ' с подменой --cfg' : ''}: ${KNOWN_TOWERS.map((id) => `${NAMES[id] ?? id} ${TABLE[id].price}₽/${TABLE[id].targeting === 'beam' ? 'луч' : `${TABLE[id].range}px`}`).join(', ')}`);
+console.log(`  уровень ${LEVEL}: открыты башни ${KNOWN_TOWERS.filter((id) => (TOWER_UNLOCK[id] ?? 1) <= LEVEL).map((id) => NAMES[id] ?? id).join(', ')}`);
 if (EXCLUDE.size) console.log(`  не строят: ${[...EXCLUDE].map((id) => NAMES[id] ?? id).join(', ')}`);
 if (CFG_STRING) console.log(`  подмена чисел (--cfg): ${CFG_STRING}`);
 if (SPEED > 2) console.log(`  ⚠ speed ${SPEED} выше 2: замеры грубее (кадры крупнее, бот тратит больше игрового времени на тап). Для итоговых чисел баланса используйте speed 2.`);

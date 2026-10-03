@@ -1,11 +1,12 @@
 import Phaser from 'phaser';
 import { CameraRig } from '../cameraRig';
 import { CONFIG } from '../config';
-import { exposeDebug, TIME_SCALE, type DebugSnapshot } from '../debug';
+import { exposeDebug, NO_PLAQUES, TIME_SCALE, type DebugSnapshot } from '../debug';
 import { Effects } from '../effects';
 import { num, t, type TextKey } from '../i18n';
 import { aimAngle, BLOCKED_TILES, EDGES, ENTRANCE_EDGES, LEVEL, PATH_TILES, WORLD, cellKey, worldToCell } from '../level';
 import { isPortraitPhone } from '../orientation';
+import { CURRENT_LEVEL, isTowerOpen, newTowersOfLevel, unlockLevel } from '../progress';
 import { addMap } from '../mapArt';
 import { MapGestures } from '../mapGestures';
 import { Bacterium, type BacteriumKind } from '../objects/Bacterium';
@@ -18,8 +19,15 @@ import { sfx } from '../sound';
 import { MAX_TOWER_LEVEL, mutationOptions, type TowerStats } from '../towerStats';
 import { COLORS, FONT, TEXT_COLORS } from '../theme';
 import { Panel, VIEW_W } from '../ui/Panel';
+import { Plaque, type PlaqueModel } from '../ui/Plaque';
 
 const { width: W, height: H } = CONFIG.screen;
+/** Самое сильное отдаление камеры: карта помещается целиком и по ширине, и по высоте (≈ 0,499). */
+const ZOOM_MIN = Math.min(VIEW_W / WORLD.w, H / WORLD.h);
+/** Тап по плашке не закрывает её раньше, чем через столько миллисекунд после показа (реальные часы): чтобы не закрыть случайным тапом. */
+const PLAQUE_LOCK_MS = 400;
+/** Что игрок уже видел на плашках с момента загрузки страницы («б:тип» — бактерия, «т:башня» — башня): повторные партии подряд их не повторяют. */
+const seenPlaques = new Set<string>();
 /** Защита от «прыжков» после сворачивания вкладки: один кадр не длиннее 50 мс. */
 const MAX_FRAME_MS = 50;
 /** Если кадр очень длинный, за него выйдет не больше стольких бактерий (защита от лавины). */
@@ -75,7 +83,7 @@ interface ChainBlast {
   stats: TowerStats;
 }
 
-type State = 'playing' | 'paused' | 'won' | 'lost';
+type State = 'playing' | 'paused' | 'info' | 'won' | 'lost';
 type WavePhase = 'countdown' | 'spawning' | 'pause' | 'done';
 
 export class GameScene extends Phaser.Scene {
@@ -94,6 +102,8 @@ export class GameScene extends Phaser.Scene {
   private lifePool = 0;
   /** Скорость игры, выбранная игроком кнопкой (1, 2, 3 …): множитель времени сверх тестового `?speed`. */
   private userSpeed = 1;
+  /** Накопленная дробная часть наград (`economy.rewardMul`): целые монеты зачисляются, остаток ждёт следующих бактерий. */
+  private rewardPool = 0;
 
   private bacteria: Bacterium[] = [];
   private towers: Tower[] = [];
@@ -129,6 +139,12 @@ export class GameScene extends Phaser.Scene {
   private waveQueue: SpawnItem[] = [];
   /** Какие типы бактерий уже появлялись (в порядке появления). */
   private introduced: BacteriumKind[] = [];
+  /** Плашки, ждущие показа (по одной за тап), и когда можно закрыть текущую (реальные часы, мс). */
+  private infoQueue: PlaqueModel[] = [];
+  private infoClosableAt = 0;
+  private plaque!: Plaque;
+  /** Кнопка «Заново» на экране конца уровня (центр и размер на экране игры), пока экран не показан — null. */
+  private endButton: { x: number; y: number; w: number; h: number } | null = null;
   private waveInterval = 1;
   private spawnTimer = 0;
   private plannedTotal = 0;
@@ -136,7 +152,7 @@ export class GameScene extends Phaser.Scene {
 
   /** Тап по экрану паузы не закрывает её раньше этого момента (реальные часы, мс) — иначе тап по кнопке «пауза» сразу её снимет. */
   private resumeAllowedAt = 0;
-  /** Тап по экрану конца уровня не перезапускает игру раньше этого момента (реальные часы, мс). */
+  /** Кнопка «Заново» не срабатывает раньше этого момента (реальные часы, мс) — чтобы не нажать случайно, продолжая быстро тапать. */
   private restartAllowedAt = 0;
 
   private world!: Phaser.GameObjects.Container;
@@ -175,6 +191,10 @@ export class GameScene extends Phaser.Scene {
     this.slows = 0;
     this.spawned = 0;
     this.lifePool = 0;
+    this.rewardPool = 0;
+    this.infoQueue = [];
+    this.infoClosableAt = 0;
+    this.endButton = null;
     this.bacteria = [];
     this.towers = [];
     this.projectiles = [];
@@ -221,7 +241,7 @@ export class GameScene extends Phaser.Scene {
     this.world.add([mapLayer, this.puddleLayer, this.ghostLayer, this.towerLayer, this.bacteriaLayer, this.projectileLayer, this.fxLayer]);
     addMap(this, mapLayer);
 
-    this.rig = new CameraRig(this.world, { w: VIEW_W, h: H }, WORLD, { min: CONFIG.camera.zoomMin, max: CONFIG.camera.zoomMax });
+    this.rig = new CameraRig(this.world, { w: VIEW_W, h: H }, WORLD, { min: ZOOM_MIN, max: CONFIG.camera.zoomMax });
     const start = tileCenter(LEVEL.startCenter[0], LEVEL.startCenter[1]);
     this.rig.set(CONFIG.camera.zoomStart, start.x, start.y);
 
@@ -240,6 +260,7 @@ export class GameScene extends Phaser.Scene {
       onCardClose: () => this.deselectTower(),
     });
     this.panel.init();
+    this.plaque = new Plaque(this);
     this.panel.setSpeed(this.userSpeed);
     this.panel.setCoins(this.coins);
     this.updateHint();
@@ -252,6 +273,7 @@ export class GameScene extends Phaser.Scene {
       onHoverEnd: () => this.ghost.setVisible(false),
     });
     this.input.on('pointerdown', this.onScreenTap, this);
+    this.announceStart();
 
     exposeDebug({
       getState: () => this.snapshot(),
@@ -284,6 +306,7 @@ export class GameScene extends Phaser.Scene {
     const dt = (Math.min(deltaMs, MAX_FRAME_MS) / 1000) * TIME_SCALE * this.userSpeed;
     this.elapsed += dt;
     this.updateWaves(dt);
+    if (this.state !== 'playing') return;
 
     this.updatePuddles(dt);
     this.applyHealing(dt);
@@ -328,6 +351,7 @@ export class GameScene extends Phaser.Scene {
       } else {
         this.phase = 'pause';
         this.phaseTimer = CONFIG.waves.pauseSec;
+        this.announceWave(this.waveIdx);
       }
     }
   }
@@ -617,9 +641,13 @@ export class GameScene extends Phaser.Scene {
 
   private killBacterium(bacterium: Bacterium): void {
     this.kills++;
-    this.coins += bacterium.reward;
+    // «Дефляция»: награда умножается на economy.rewardMul, дробная часть копится до целой монеты
+    this.rewardPool += bacterium.reward * CONFIG.economy.rewardMul;
+    const gain = Math.floor(this.rewardPool + 1e-9);
+    this.rewardPool -= gain;
+    this.coins += gain;
     this.effects.burst(bacterium.x, bacterium.y, bacterium.kind);
-    this.effects.popup(bacterium.x, bacterium.y, t('coinsPopup', { n: bacterium.reward }));
+    if (gain > 0) this.effects.popup(bacterium.x, bacterium.y, t('coinsPopup', { n: gain }));
     sfx.destroy();
     this.removeBacterium(bacterium);
     this.splitIntoChildren(bacterium);
@@ -697,6 +725,10 @@ export class GameScene extends Phaser.Scene {
   private toggleTower(id: TowerId): void {
     // Вертикальный телефон: поверх игры подсказка «Поверните телефон», касания сквозь неё ничего не делают
     if (this.state !== 'playing' || isPortraitPhone()) return;
+    if (!isTowerOpen(id)) {
+      this.deny(t('hintLocked', { n: unlockLevel(id) }));
+      return;
+    }
     this.deselectTower();
     this.selected = this.selected === id ? null : id;
     this.panel.setSelected(this.selected);
@@ -922,6 +954,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private tryPlace(id: TowerId, col: number, row: number): void {
+    if (!isTowerOpen(id)) return;
     const cfg = CONFIG.towers[id];
     const key = cellKey(col, row);
     if (PATH_TILES.has(key) || BLOCKED_TILES.has(key) || this.occupied.has(key)) {
@@ -1038,12 +1071,12 @@ export class GameScene extends Phaser.Scene {
     return Math.max(0, Math.floor(this.phaseTimer * CONFIG.waves.skipBonusPerSec));
   }
 
-  /** Любое касание экрана: на паузе — продолжить, после конца уровня — начать заново. */
+  /** Любое касание экрана: на паузе — продолжить, на плашке — закрыть её. После конца уровня тап по экрану ничего не делает: заново — только кнопкой. */
   private onScreenTap(): void {
     if (isPortraitPhone()) return;
     const now = performance.now();
     if (this.state === 'paused' && now >= this.resumeAllowedAt) this.togglePause();
-    else if ((this.state === 'won' || this.state === 'lost') && now >= this.restartAllowedAt) this.scene.restart();
+    else if (this.state === 'info' && now >= this.infoClosableAt) this.advanceInfo();
   }
 
   private togglePause(): void {
@@ -1058,6 +1091,87 @@ export class GameScene extends Phaser.Scene {
       this.overlay?.destroy();
       this.overlay = null;
     }
+  }
+
+  // ---------------------------------------------------------------- плашки с описанием (игра на паузе)
+
+  /** В начале уровня: плашки башен, открывшихся на этом уровне (на 1-м — Таблетка и Сироп), затем плашки бактерий 1-й волны. */
+  private announceStart(): void {
+    if (NO_PLAQUES) return;
+    for (const id of newTowersOfLevel(Object.keys(CONFIG.towers))) {
+      if (seenPlaques.has(`t:${id}`)) continue;
+      seenPlaques.add(`t:${id}`);
+      this.infoQueue.push(this.towerPlaque(id as TowerId));
+    }
+    this.announceWave(0);
+  }
+
+  /** Перед волной с номером `index` (с нуля): плашки типов бактерий, которых игрок ещё не видел; пауза перед волной после них длиннее. */
+  private announceWave(index: number): void {
+    if (NO_PLAQUES) return;
+    if (index < this.waveTotal()) {
+      const present = new Set(this.waveKinds(index));
+      let fresh = 0;
+      for (const kind of KINDS) {
+        if (!present.has(kind) || seenPlaques.has(`b:${kind}`)) continue;
+        seenPlaques.add(`b:${kind}`);
+        this.infoQueue.push(this.bacteriumPlaque(kind));
+        fresh++;
+      }
+      if (fresh > 0) this.phaseTimer += CONFIG.waves.newTypePauseSec;
+    }
+    if (this.infoQueue.length === 0 || this.state !== 'playing') return;
+    this.state = 'info';
+    this.ghost.setVisible(false);
+    this.showInfo();
+  }
+
+  private showInfo(): void {
+    this.plaque.show(this.infoQueue[0]);
+    this.infoClosableAt = performance.now() + PLAQUE_LOCK_MS;
+    sfx.newType();
+  }
+
+  /** Тап по плашке: следующая плашка из очереди или, если очередь кончилась, игра продолжается. */
+  private advanceInfo(): void {
+    this.infoQueue.shift();
+    if (this.infoQueue.length > 0) {
+      this.showInfo();
+      return;
+    }
+    this.plaque.hide();
+    this.state = 'playing';
+  }
+
+  private bacteriumPlaque(kind: BacteriumKind): PlaqueModel {
+    const key = kind.charAt(0).toUpperCase() + kind.slice(1);
+    return {
+      kind: 'bacterium',
+      id: kind,
+      title: t('plaqueBacteria'),
+      name: t(`bacName${key}` as TextKey),
+      lines: [
+        { label: t('plaqueAbility'), text: t(`bacAbility${key}` as TextKey) },
+        { label: t('plaqueCounter'), text: t(`bacCounter${key}` as TextKey) },
+      ],
+      hint: t('tapToResume'),
+    };
+  }
+
+  private towerPlaque(id: TowerId): PlaqueModel {
+    const key = id.charAt(0).toUpperCase() + id.slice(1);
+    const vars = { pct: Math.round((1 - CONFIG.towers.syrup.slowFactor) * 100) };
+    return {
+      kind: 'tower',
+      id,
+      title: t('plaqueTower'),
+      name: t(`tower${key}` as TextKey),
+      lines: [
+        { label: t('plaqueDoes'), text: t(`towerDoes${key}` as TextKey, vars) },
+        { label: t('plaqueVs'), text: t(`towerVs${key}` as TextKey) },
+      ],
+      hint: t('tapToResume'),
+    };
   }
 
   // ---------------------------------------------------------------- конец уровня
@@ -1076,7 +1190,28 @@ export class GameScene extends Phaser.Scene {
     this.deselectTower();
     if (won) sfx.win();
     else sfx.lose();
-    this.showOverlay(won ? t('victory') : t('gameOver'), TEXT_COLORS.accent, t('killed', { n: this.kills }), t('tapToRestart'));
+    this.showOverlay(won ? t('victory') : t('gameOver'), TEXT_COLORS.accent, t('killed', { n: this.kills }));
+    this.addRestartButton();
+  }
+
+  /** Кнопка «Заново» на экране конца уровня: перезапуск только ею (тап мимо кнопки уровень не перезапускает). */
+  private addRestartButton(): void {
+    const w = 320;
+    const h = 76;
+    const x = W / 2;
+    const y = H / 2 + 120;
+    const g = this.add.graphics();
+    g.fillStyle(0x2a8a4a, 1).fillRoundedRect(x - w / 2, y - h / 2, w, h, 18);
+    g.lineStyle(4, COLORS.merge, 1).strokeRoundedRect(x - w / 2, y - h / 2, w, h, 18);
+    const label = this.add.text(x, y, t('restart'), this.textStyle(34)).setOrigin(0.5);
+    const zone = this.add
+      .zone(x, y, w, h)
+      .setInteractive({ useHandCursor: true })
+      .on('pointerdown', () => {
+        if (performance.now() >= this.restartAllowedAt) this.scene.restart();
+      });
+    this.overlay?.add([g, label, zone]);
+    this.endButton = { x, y, w, h };
   }
 
   private showOverlay(title: string, titleColor: string, line2: string, line3?: string): void {
@@ -1160,7 +1295,10 @@ export class GameScene extends Phaser.Scene {
         worldW: WORLD.w,
         worldH: WORLD.h,
       },
-      camera: { zoom: this.rig.zoom, cx: this.rig.cx, cy: this.rig.cy, zoomMin: CONFIG.camera.zoomMin, zoomMax: CONFIG.camera.zoomMax },
+      camera: { zoom: this.rig.zoom, cx: this.rig.cx, cy: this.rig.cy, zoomMin: ZOOM_MIN, zoomMax: CONFIG.camera.zoomMax },
+      level: CURRENT_LEVEL,
+      info: { ...this.plaque.geometry(), queue: this.infoQueue.length },
+      endButton: this.endButton ? { ...this.endButton } : null,
       selected: this.selected,
       towers: this.towers.map((tw) => ({
         id: tw.id,

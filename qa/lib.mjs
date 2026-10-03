@@ -175,6 +175,16 @@ export function readWaveList() {
   });
 }
 
+/** С какого уровня открыта каждая башня: `levels.towerUnlock` из src/config.ts, например { pill: 1, syrup: 1, fizz: 5, syringe: 10 }. */
+export function readTowerUnlock() {
+  const src = readSource('src/config.ts');
+  const found = /towerUnlock:\s*\{([^}]*)\}/.exec(src);
+  if (!found) throw new Error('В config.ts нет таблицы levels.towerUnlock');
+  const table = {};
+  for (const [, key, value] of found[1].matchAll(/(\w+):\s*(\d+)/g)) table[key] = Number(value);
+  return table;
+}
+
 /**
  * Таблица башен из src/config.ts (раздел `towers`): { id: { price, range, damage, cooldownMs, projectileSpeed, blastRadius,
  * slowFactor, slowSec, targeting, side } } в порядке строк. Читает числа и строки в одинарных кавычках из каждой строки таблицы
