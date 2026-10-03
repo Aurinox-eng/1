@@ -1,0 +1,174 @@
+# Замер баланса ботами. Запуск вручную: вкладка Actions → «Замер баланса (боты)» → Run workflow → поля → зелёная кнопка.
+# Каждый профиль, каждый набор исключённых башен (--exclude) и каждая «доля» партий — отдельная параллельная задача (матрица), бот идёт с --canvas.
+# Последняя задача («Итоговая таблица») складывает результаты всех задач в одну таблицу: она на странице прогона (раздел Summary, самый низ страницы
+# прогона) и в логе задачи; сырые JSON — во вложениях прогона (Artifacts внизу страницы): bot-<тег> по задачам и bot-results-all одним архивом.
+# Второй способ запуска — без кнопки: изменить файл .github/balance-request.json (те же поля) и сделать push в рабочую ветку claude/serene-rubin-x3t2gu;
+# так запускает замеры агент (кнопка Run workflow появляется на вкладке Actions, только когда этот файл уже лежит в main).
+# Подробности и примеры полей — docs/bot-prompts.md.
+name: Замер баланса (боты)
+run-name: ${{ github.event_name == 'push' && format('Боты · по файлу запроса · {0}', github.sha) || format('Боты · {0} · {1} × {2}{3}{4}', inputs.ref, inputs.profiles, inputs.runs, inputs.excludes != '-' && inputs.excludes != '' && format(' · без {0}', inputs.excludes) || '', inputs.cfg != '' && format(' · {0}', inputs.cfg) || '') }}
+
+on:
+  push:
+    branches: [claude/serene-rubin-x3t2gu]
+    paths: ['.github/balance-request.json']
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Ветка или коммит (по умолчанию рабочая ветка)'
+        type: string
+        default: claude/serene-rubin-x3t2gu
+      profiles:
+        description: 'Профили через запятую: novice, average, strong, expert (или all)'
+        type: string
+        default: novice,average,strong,expert
+      runs:
+        description: 'Партий на каждый профиль и набор исключений (партия на 30 волн — 15–45 минут)'
+        type: string
+        default: '5'
+      shards:
+        description: 'На сколько параллельных задач разнести партии каждой пары «профиль + набор» (1 — партии идут подряд в одной задаче; равно числу партий — быстрее всего)'
+        type: string
+        default: '1'
+      excludes:
+        description: 'Наборы исключённых башен (--exclude), через «;»: «-;syrup» — без исключений и без Сиропа; «fizz,syringe» — без двух башен; «-» — не исключать'
+        type: string
+        default: '-'
+      cfg:
+        description: 'Подмена чисел (--cfg), например economy.rewardMul:0.85 или waves.hpGrowthPerWave:0.06 (пусто — нет)'
+        type: string
+        default: ''
+      level:
+        description: 'Номер уровня 1–10 (от него зависит, какие башни открыты)'
+        type: string
+        default: '1'
+      speed:
+        description: 'Ускорение игры для бота (для итоговых чисел — 2; выше 2 замеры грубее)'
+        type: string
+        default: '2'
+
+permissions:
+  contents: read
+
+jobs:
+  plan:
+    name: Список задач
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+      count: ${{ steps.matrix.outputs.count }}
+      sha: ${{ steps.sha.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - id: sha
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      # Поля запуска попадают в скрипт только через переменные окружения (не в текст команд)
+      - id: matrix
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PROFILES: ${{ inputs.profiles }}
+          RUNS: ${{ inputs.runs }}
+          SHARDS: ${{ inputs.shards }}
+          EXCLUDES: ${{ inputs.excludes }}
+          CFG: ${{ inputs.cfg }}
+          LEVEL: ${{ inputs.level }}
+          SPEED: ${{ inputs.speed }}
+        run: node .github/scripts/balance-matrix.mjs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: plan
+          path: plan.json
+          retention-days: 30
+
+  bot:
+    name: ${{ matrix.title }}
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.plan.outputs.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Установить зависимости и браузер
+        env:
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+      - name: Собрать тестовую версию игры
+        run: npm run build:qa
+      - name: Бот
+        env:
+          PROFILE: ${{ matrix.profile }}
+          RUNS: ${{ matrix.runs }}
+          EXCLUDE: ${{ matrix.exclude }}
+          CFG: ${{ matrix.cfg }}
+          LEVEL: ${{ matrix.level }}
+          SPEED: ${{ matrix.speed }}
+          TAG: ${{ matrix.tag }}
+        run: |
+          args=(--profile="$PROFILE" --runs="$RUNS" --speed="$SPEED" --canvas --level="$LEVEL" --tag="$TAG")
+          if [ -n "$EXCLUDE" ]; then args+=(--exclude="$EXCLUDE"); fi
+          if [ -n "$CFG" ]; then args+=(--cfg="$CFG"); fi
+          node qa/bot.mjs "${args[@]}" 2>&1 | tee bot.log
+      - name: Сохранить результаты
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bot-${{ matrix.tag }}
+          path: |
+            qa/bot-results/*.json
+            bot.log
+          if-no-files-found: warn
+          retention-days: 30
+
+  report:
+    name: Итоговая таблица
+    needs: [plan, bot]
+    # Таблица собирается, даже если часть задач упала: пропавшие попадут в раздел «Проблемы»
+    if: ${{ always() && needs.plan.result == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.plan.outputs.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/download-artifact@v4
+        with:
+          name: plan
+          path: plan
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: bot-*
+          path: results
+          merge-multiple: true
+      - name: Собрать таблицу
+        env:
+          BOT_REF: ${{ inputs.ref || github.ref_name }}
+          BOT_SHA: ${{ needs.plan.outputs.sha }}
+        run: |
+          mkdir -p out
+          node qa/bot-report.mjs results --plan=plan/plan.json --title="Итог замера бота" > out/summary.md
+          cat out/summary.md >> "$GITHUB_STEP_SUMMARY"
+          echo "================ ИТОГ ЗАМЕРА (то же, что в Summary) ================"
+          cat out/summary.md
+          cp -r results out/results
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bot-results-all
+          path: out
+          retention-days: 30

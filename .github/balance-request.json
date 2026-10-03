@@ -1,0 +1,10 @@
+{
+  "note": "Пробный прогон инфраструктуры: числа круга 14 (88a7881) воспроизведены подменой, чтобы сравнить с замером из чатов",
+  "profiles": "novice,average,strong,expert",
+  "runs": 2,
+  "shards": 2,
+  "excludes": "-",
+  "cfg": "economy.rewardMul:0.3,economy.rewardCurve.0.1:1,economy.rewardCurve.1.1:1,economy.rewardCurve.2.1:1,economy.rewardCurve.3.1:1,waves.hpGrowthPerWave:0.03",
+  "level": 1,
+  "speed": 2
+}

@@ -125,7 +125,7 @@ export class Bacterium {
     this.slowBy = this.slowLeft > 0 ? Math.min(this.slowBy, factor) : factor;
     this.slowLeft = Math.max(this.slowLeft, seconds);
     if (!this.slowRing) {
-      this.slowRing = this.scene.add.circle(0, 0, this.radius + 8).setStrokeStyle(4, COLORS.syrup, 0.9).setFillStyle();
+      this.slowRing = this.scene.add.circle(0, 0, this.radius + 8).setStrokeStyle(4, COLORS.slowRing, 0.9).setFillStyle();
       this.container.add(this.slowRing);
     }
     this.slowRing.setVisible(true);
