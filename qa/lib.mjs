@@ -449,3 +449,27 @@ export async function heapMb(cdp) {
   const { metrics } = await cdp.send('Performance.getMetrics');
   return metrics.find((m) => m.name === 'JSHeapUsedSize').value / 1048576;
 }
+
+/**
+ * Очки ДНК и улучшения вне партии из src/config.ts (раздел meta): { dna: { perWave, winBonus }, upgrades: { id: { perLevel, prices: [...] } } }.
+ * Порядок ключей — порядок строк в таблице (как на экране «Улучшения»).
+ */
+export function readMetaTable() {
+  const src = readSource('src/config.ts');
+  const start = /\bmeta:\s*\{/.exec(src);
+  if (!start) throw new Error('В config.ts нет раздела «meta»');
+  const body = src.slice(start.index);
+  const num = (key) => {
+    const found = new RegExp(`\\b${key}:\\s*(-?[\\d.]+)`).exec(body);
+    if (!found) throw new Error(`В разделе «meta» config.ts нет числа «${key}»`);
+    return Number(found[1]);
+  };
+  const upStart = body.indexOf('upgrades:');
+  if (upStart < 0) throw new Error('В разделе «meta» config.ts нет «upgrades»');
+  const upgrades = {};
+  for (const m of body.slice(upStart).matchAll(/(\w+):\s*\{\s*perLevel:\s*(-?[\d.]+),\s*prices:\s*\[([^\]]*)\]\s*\}/g)) {
+    upgrades[m[1]] = { perLevel: Number(m[2]), prices: m[3].split(',').map((x) => Number(x.trim())).filter((x) => Number.isFinite(x)) };
+  }
+  if (!Object.keys(upgrades).length) throw new Error('В разделе «meta» config.ts не нашлось улучшений');
+  return { dna: { perWave: num('perWave'), winBonus: num('winBonus') }, upgrades };
+}

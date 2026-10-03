@@ -57,6 +57,9 @@ for (const file of findJson(dir)) {
   }
 }
 results.sort((a, b) => a.tag.localeCompare(b.tag));
+// Результаты режима «серия партий» (--campaign) — отдельный раздел: партии одной серии зависят друг от друга, в общую таблицу их складывать нельзя
+const campaignResults = results.filter((r) => r.campaign);
+results.splice(0, results.length, ...results.filter((r) => !r.campaign));
 
 const towerIds = [...new Set(results.flatMap((r) => Object.keys(r.towerTable ?? {})))];
 const KNOWN_TOWERS = towerIds.length ? towerIds : Object.keys(NAMES);
@@ -137,9 +140,9 @@ const meta = [
 if (meta.length) lines.push(meta.join(' · '));
 lines.push('');
 
-if (!orderedGroups.length) {
+if (!orderedGroups.length && !campaignResults.length) {
   lines.push('**Результатов нет:** ни одна задача не прислала файл с партиями.');
-} else {
+} else if (orderedGroups.length) {
   const head = ['Вариант', 'Профиль', 'Партий', 'Побед', 'Потеряно жизней', 'Волна гибели', `Башни (${KNOWN_TOWERS.map((id) => SHORT[id] ?? id).join('/')})`, 'Монеты в конце', 'Реал. время партии'];
   lines.push(`| ${head.join(' | ')} |`);
   lines.push(`|${head.map(() => '---').join('|')}|`);
@@ -183,6 +186,45 @@ if (!orderedGroups.length) {
   lines.push('');
 }
 
+// ------------------------------------------------------------------ серии партий (этап 6а)
+if (campaignResults.length) {
+  const cgroups = new Map();
+  for (const r of campaignResults) {
+    const a = r.args ?? {};
+    const key = [a.exclude ? [...a.exclude].sort().join(',') : '', a.cfg ?? '', a.level ?? 1, r.campaign.n].join('|');
+    if (!cgroups.has(key)) cgroups.set(key, { exclude: a.exclude ? [...a.exclude].sort().join(',') : '', cfg: a.cfg ?? '', level: a.level ?? 1, n: r.campaign.n, series: [], table: r.campaign.metaTable });
+    cgroups.get(key).series.push(...r.campaign.series);
+  }
+  for (const grp of cgroups.values()) {
+    lines.push(`### Серии партий (до ${grp.n} партий в серии; очки ДНК за каждую пройденную волну и добавка за победу, улучшения покупаются по порядку damage, coins, lives, reward)`);
+    const vtitle = [grp.exclude ? `без: ${grp.exclude}` : '', grp.cfg ? `cfg: ${grp.cfg}` : '', grp.level !== 1 ? `уровень ${grp.level}` : ''].filter(Boolean).join('; ');
+    if (vtitle) lines.push(`Вариант: ${esc(vtitle)}`);
+    lines.push('');
+    lines.push('| Профиль | Серий | Серий с победой | Первая победа в партии (среднее; по сериям) | Волны по партиям (каждая серия в скобках) |');
+    lines.push('|---|---|---|---|---|');
+    for (const profile of PROFILE_ORDER) {
+      const own = grp.series.filter((x) => x.profile === profile && !x.error);
+      if (!own.length) continue;
+      const wins = own.filter((x) => x.firstWin);
+      lines.push(
+        `| ${PROFILE_TITLES[profile]} | ${own.length} | ${wins.length}/${own.length} (${pct(wins.length / own.length)}) | ${wins.length ? `${f1(mean(wins.map((x) => x.firstWin)))} (${wins.map((x) => x.firstWin).sort((x, y) => x - y).join(', ')})` : `нет за ${grp.n}`}${own.length > wins.length && wins.length ? `; без победы: ${own.length - wins.length}` : ''} | ${own.map((x) => `[${x.waves.join(' ')}]`).join(' ')} |`,
+      );
+    }
+    lines.push('');
+    lines.push('<details><summary>Покупки по партиям</summary>');
+    lines.push('');
+    lines.push('```');
+    for (const profile of PROFILE_ORDER) {
+      for (const x of grp.series.filter((y) => y.profile === profile)) {
+        lines.push(`${PROFILE_TITLES[profile]}, серия ${x.run}: ${x.error ? `ОШИБКА ${x.error}` : x.bought.map((b, i) => `${i + 1}: ${b.join('+') || '—'}`).join('; ')}`);
+      }
+    }
+    lines.push('```');
+    lines.push('</details>');
+    lines.push('');
+  }
+}
+
 // ------------------------------------------------------------------ проблемы
 const problems = [];
 for (const g of orderedGroups) {
@@ -194,6 +236,15 @@ for (const g of orderedGroups) {
     for (const w of game.warnings ?? []) problems.push(`${name}, партия ${i + 1}: консоль: ${w}`);
     if ((game.failures ?? []).length) problems.push(`${name}, партия ${i + 1}: не вышло поставить башню ${game.failures.length} раз(а)`);
   });
+}
+for (const r of campaignResults) {
+  for (const game of r.games) {
+    const name = `${PROFILE_TITLES[game.profile] ?? game.profile}, серия ${game.series ?? game.run}, партия ${game.game ?? '?'}`;
+    if (game.result === 'error') problems.push(`${name}: ОШИБКА — ${game.error}`);
+    if (game.result === 'timeout') problems.push(`${name}: timeout (волна ${game.wave})`);
+    for (const a of game.anomalies ?? []) problems.push(`${name}: ⚠ ${a}`);
+    for (const w of game.warnings ?? []) problems.push(`${name}: консоль: ${w}`);
+  }
 }
 if (args.plan && fs.existsSync(String(args.plan))) {
   try {

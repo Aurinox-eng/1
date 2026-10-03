@@ -6,7 +6,7 @@
  * Поля: PROFILES — «novice,average,strong,expert» (или «all»); RUNS — партий на профиль и набор; SHARDS — на сколько параллельных задач разнести партии
  * каждой пары «профиль + набор» (1 — одна задача, партии идут подряд; 5 при RUNS=5 — по одной партии в задаче: быстрее всего);
  * EXCLUDES — наборы исключений через «;», внутри набора башни через «,» (например «-;syrup;fizz,syringe»; «-» или пусто — без исключений);
- * CFG — подмена чисел «путь:число,путь:число»; LEVEL, SPEED.
+ * CFG — подмена чисел «путь:число,путь:число»; LEVEL, SPEED; CAMPAIGN — число партий в серии (0 — обычный замер; N — каждая из RUNS серий играет до N партий подряд с очками ДНК и улучшениями, до первой победы).
  * Если запуск от push (EVENT_NAME=push), поля берутся из файла `.github/balance-request.json` (ключи profiles, runs, shards, excludes, cfg, level, speed — в нижнем регистре),
  * а не из переменных окружения: так замер можно запустить без кнопки — изменив этот файл и сделав push в рабочую ветку.
  */
@@ -15,7 +15,7 @@ import fs from 'node:fs';
 const env = { ...process.env };
 if (env.EVENT_NAME === 'push') {
   const request = JSON.parse(fs.readFileSync('.github/balance-request.json', 'utf8'));
-  for (const name of ['PROFILES', 'RUNS', 'SHARDS', 'EXCLUDES', 'CFG', 'LEVEL', 'SPEED']) {
+  for (const name of ['PROFILES', 'RUNS', 'SHARDS', 'EXCLUDES', 'CFG', 'LEVEL', 'SPEED', 'CAMPAIGN']) {
     const value = request[name.toLowerCase()];
     if (value !== undefined && value !== null) env[name] = String(value);
   }
@@ -42,6 +42,7 @@ const intField = (name, fallback, min, max) => {
 const runs = intField('RUNS', 5, 1, 100);
 const shards = Math.min(intField('SHARDS', 1, 1, 20), runs);
 const level = intField('LEVEL', 1, 1, 10);
+const campaign = intField('CAMPAIGN', 0, 0, 40);
 const speed = (env.SPEED ?? '2').trim() || '2';
 if (!(Number(speed) > 0 && Number(speed) <= 4)) fail(`SPEED=«${speed}»: нужно число от 0,1 до 4`);
 
@@ -64,8 +65,8 @@ for (const profile of profiles) {
       const games = Math.floor(runs / shards) + (shard < runs % shards ? 1 : 0);
       const variant = exclude ? `no-${exclude.replace(/,/g, '-')}` : 'base';
       const tag = `${profile}-${variant}-s${shard + 1}`;
-      const title = `${TITLES[profile]}${exclude ? ` · без ${exclude}` : ''}${shards > 1 ? ` · доля ${shard + 1}/${shards}` : ''} (${games} парт.)`;
-      include.push({ profile, exclude, runs: games, tag, title, cfg, level, speed });
+      const title = `${TITLES[profile]}${exclude ? ` · без ${exclude}` : ''}${campaign ? ` · серии до ${campaign}` : ''}${shards > 1 ? ` · доля ${shard + 1}/${shards}` : ''} (${games} парт.)`;
+      include.push({ profile, exclude, runs: games, tag, title, cfg, level, speed, campaign });
     }
   }
 }
@@ -73,5 +74,5 @@ if (include.length > 120) fail(`слишком много задач (${include.
 
 fs.writeFileSync('plan.json', JSON.stringify(include, null, 1));
 if (env.GITHUB_OUTPUT) fs.appendFileSync(env.GITHUB_OUTPUT, `matrix=${JSON.stringify({ include })}\ncount=${include.length}\n`);
-console.log(`Задач: ${include.length} (профили ${profiles.join(', ')}; наборы исключений: ${excludeSets.map((s) => s || '—').join(' | ')}; партий ${runs}, долей ${shards}; cfg «${cfg}»; уровень ${level}; speed ${speed})`);
+console.log(`Задач: ${include.length} (профили ${profiles.join(', ')}; наборы исключений: ${excludeSets.map((s) => s || '—').join(' | ')}; партий ${runs}, долей ${shards}; cfg «${cfg}»; уровень ${level}; speed ${speed}${campaign ? `; серии до ${campaign} партий` : ''})`);
 for (const job of include) console.log(`  ${job.tag}: ${job.title}`);

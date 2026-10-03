@@ -46,6 +46,10 @@ on:
         description: 'Ускорение игры для бота (для итоговых чисел — 2; выше 2 замеры грубее)'
         type: string
         default: '2'
+      campaign:
+        description: 'Серии партий (этап 6а): 0 — обычный замер; N — каждая из «партий» играет до N партий подряд с очками ДНК и улучшениями, до первой победы'
+        type: string
+        default: '0'
 
 permissions:
   contents: read
@@ -78,6 +82,7 @@ jobs:
           CFG: ${{ inputs.cfg }}
           LEVEL: ${{ inputs.level }}
           SPEED: ${{ inputs.speed }}
+          CAMPAIGN: ${{ inputs.campaign }}
         run: node .github/scripts/balance-matrix.mjs
       - uses: actions/upload-artifact@v4
         with:
@@ -117,11 +122,13 @@ jobs:
           CFG: ${{ matrix.cfg }}
           LEVEL: ${{ matrix.level }}
           SPEED: ${{ matrix.speed }}
+          CAMPAIGN: ${{ matrix.campaign }}
           TAG: ${{ matrix.tag }}
         run: |
           args=(--profile="$PROFILE" --runs="$RUNS" --speed="$SPEED" --canvas --level="$LEVEL" --tag="$TAG")
           if [ -n "$EXCLUDE" ]; then args+=(--exclude="$EXCLUDE"); fi
           if [ -n "$CFG" ]; then args+=(--cfg="$CFG"); fi
+          if [ -n "$CAMPAIGN" ] && [ "$CAMPAIGN" != "0" ]; then args+=(--campaign="$CAMPAIGN"); fi
           node qa/bot.mjs "${args[@]}" 2>&1 | tee bot.log
       - name: Сохранить результаты
         if: always()
