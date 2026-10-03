@@ -11,6 +11,12 @@ import { CONFIG } from './config';
 /** Во сколько раз картинка плотнее мира: при самом сильном приближении камеры рисунок остаётся чётким (как у карты). */
 export const ART_DENSITY = CONFIG.camera.zoomMax;
 
+/** Самая большая сторона текстуры, пикселей: больше не принимают многие видеокарты (телефоны — точно). Огромный рисунок (например, аура при
+ *  радиусе, подменённом в проверке) рисуется реже, чем ART_DENSITY, чтобы уложиться в этот размер. */
+const MAX_TEXTURE_PX = 4096;
+/** С какой плотностью нарисована каждая картинка (ключ → плотность): картинка на экране уменьшается ровно настолько же. */
+const densityOf = new Map<string, number>();
+
 /** Прямоугольник рисунка в его собственных координатах (центр объекта — 0,0): левый верхний угол и размер, пикселей мира. */
 export interface ArtBox {
   x: number;
@@ -30,6 +36,8 @@ export function squareBox(half: number): ArtBox {
  */
 export function bakeArt(scene: Phaser.Scene, key: string, box: ArtBox, draw: (g: Phaser.GameObjects.Graphics) => void, density = ART_DENSITY): string {
   if (scene.textures.exists(key)) return key;
+  density = Math.min(density, MAX_TEXTURE_PX / Math.max(1, box.w, box.h));
+  densityOf.set(key, density);
   const g = new Phaser.GameObjects.Graphics(scene);
   g.scaleCanvas(density, density);
   g.translateCanvas(-box.x, -box.y);
@@ -40,16 +48,21 @@ export function bakeArt(scene: Phaser.Scene, key: string, box: ArtBox, draw: (g:
 }
 
 /** Картинка из готовой текстуры, поставленная так, что её точка 0,0 совпадает с центром объекта (как у прежнего рисунка Graphics). */
-export function artImage(scene: Phaser.Scene, key: string, box: ArtBox, density = ART_DENSITY): Phaser.GameObjects.Image {
+export function artImage(scene: Phaser.Scene, key: string, box: ArtBox): Phaser.GameObjects.Image {
   return scene.add
     .image(0, 0, key)
     .setOrigin(-box.x / box.w, -box.y / box.h)
-    .setScale(1 / density);
+    .setScale(1 / artDensity(key));
 }
 
-/** Меняет текстуру картинки на другую того же размера-рамки (origin пересчитывается по рамке). */
-export function setArt(image: Phaser.GameObjects.Image, key: string, box: ArtBox, density = ART_DENSITY): void {
-  image.setTexture(key).setOrigin(-box.x / box.w, -box.y / box.h).setScale(1 / density);
+/** Меняет текстуру картинки на другую (origin пересчитывается по рамке, размер — по плотности картинки). */
+export function setArt(image: Phaser.GameObjects.Image, key: string, box: ArtBox): void {
+  image.setTexture(key).setOrigin(-box.x / box.w, -box.y / box.h).setScale(1 / artDensity(key));
+}
+
+/** С какой плотностью нарисована картинка (для своих кружков частиц и вспышек — чтобы задать размер на экране). */
+export function artDensity(key: string): number {
+  return densityOf.get(key) ?? ART_DENSITY;
 }
 
 /** Белое кольцо радиуса radius и толщины width (цвет задаётся оттенком картинки: setTint). Одна картинка на радиус и толщину. */

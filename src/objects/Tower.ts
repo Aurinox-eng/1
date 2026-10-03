@@ -93,8 +93,8 @@ function aimLineImage(scene: Phaser.Scene, image: Phaser.GameObjects.Image | nul
   const len = Math.max(1, Math.round(length));
   const box: ArtBox = { x: 0, y: -4, w: len + 4, h: 8 };
   const key = bakeArt(scene, `tower-aim-${len}`, box, (g) => paintAimLine(g, len), AIM_DENSITY);
-  if (!image) return artImage(scene, key, box, AIM_DENSITY);
-  setArt(image, key, box, AIM_DENSITY);
+  if (!image) return artImage(scene, key, box);
+  setArt(image, key, box);
   return image;
 }
 
