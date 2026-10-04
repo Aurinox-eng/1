@@ -5225,7 +5225,7 @@ async function runMetaShop(browser, baseUrl) {
     const device = VIEWPORTS[deviceKey];
     const p = `[улучшения, ${device.label}, ${lang}]`;
     const context = await newDeviceContext(browser, device, lang);
-    const prices = 'meta.upgrades.lives.prices.0:10,meta.upgrades.lives.prices.1:25,meta.upgrades.coins.prices.0:20,meta.upgrades.damage.prices.0:1000,meta.upgrades.reward.prices.0:30';
+    const prices = 'meta.upgrades.coins.perLevel:60,meta.upgrades.lives.prices.0:10,meta.upgrades.lives.prices.1:25,meta.upgrades.coins.prices.0:20,meta.upgrades.damage.prices.0:1000,meta.upgrades.reward.prices.0:30';
     const game = await openGame(context, baseUrl, p, { speed: 4, cfg: `${META_LOSE_CFG},${prices}`, isTouch: device.hasTouch, query: '&meta=dna:60' });
     let s = await waitFor(game.page, (x) => x.state === 'lost', WAIT_MS, 'проигрыш');
     check(`${p} на экране конца уровня есть кнопка «Улучшения» рядом с «Заново», не перекрывая её`, s.upgradesButton !== null && s.endButton !== null && s.upgradesButton.x - s.upgradesButton.w / 2 > s.endButton.x + s.endButton.w / 2, JSON.stringify([s.endButton, s.upgradesButton]));
@@ -5277,7 +5277,8 @@ async function runMetaShop(browser, baseUrl) {
 async function runMetaEffects(browser, baseUrl) {
   const p = '[улучшения в партии]';
   const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
-  const base = `${wavesOnlyCfg({ coccus: 1 })},waves.firstDelaySec:1,${FIXED_BALANCE.join(',')},towers.pill.range:900,towers.pill.damage:10,economy.startCoins:500,lives.start:3`;
+  // эффекты одного уровня заданы явно: проверка не зависит от подобранных в config.ts чисел
+  const base = `${wavesOnlyCfg({ coccus: 1 })},waves.firstDelaySec:1,${FIXED_BALANCE.join(',')},towers.pill.range:900,towers.pill.damage:10,economy.startCoins:500,lives.start:3,meta.upgrades.coins.perLevel:60,meta.upgrades.damage.perLevel:0.1,meta.upgrades.reward.perLevel:0.08`;
   const plain = await openGame(context, baseUrl, p, { speed: 4, cfg: base, query: '&meta=dna:0' });
   await placeSure(plain, 'pill', FREE.a);
   const s0 = await plain.state();
