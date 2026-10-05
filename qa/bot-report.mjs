@@ -71,16 +71,17 @@ for (const r of results) {
   const exclude = [...(a.exclude ?? [])].sort().join(',');
   const cfg = a.cfg ?? '';
   const level = a.level ?? 1;
+  const meta = a.meta ? Object.entries(a.meta).map(([id, n]) => `${id}:${n}`).join(',') : '';
   for (const g of r.games) {
-    const key = [g.profile, exclude, cfg, level].join('|');
-    if (!groups.has(key)) groups.set(key, { profile: g.profile, exclude, cfg, level, games: [], tags: new Set(), seeds: [] });
+    const key = [g.profile, exclude, cfg, level, meta].join('|');
+    if (!groups.has(key)) groups.set(key, { profile: g.profile, exclude, cfg, level, meta, games: [], tags: new Set(), seeds: [] });
     const group = groups.get(key);
     group.games.push(g);
     group.tags.add(r.tag);
   }
 }
 const orderedGroups = [...groups.values()].sort(
-  (x, y) => x.level - y.level || x.cfg.localeCompare(y.cfg) || x.exclude.localeCompare(y.exclude) || PROFILE_ORDER.indexOf(x.profile) - PROFILE_ORDER.indexOf(y.profile),
+  (x, y) => x.level - y.level || x.meta.localeCompare(y.meta) || x.cfg.localeCompare(y.cfg) || x.exclude.localeCompare(y.exclude) || PROFILE_ORDER.indexOf(x.profile) - PROFILE_ORDER.indexOf(y.profile),
 );
 
 function summarize(games) {
@@ -102,7 +103,7 @@ function summarize(games) {
   };
 }
 
-const variant = (g) => [g.exclude ? `без: ${g.exclude.split(',').map((id) => NAMES[id] ?? id).join(', ')}` : '', g.cfg ? `cfg: ${g.cfg}` : '', g.level !== 1 ? `уровень ${g.level}` : ''].filter(Boolean).join('; ') || 'обычный';
+const variant = (g) => [g.exclude ? `без: ${g.exclude.split(',').map((id) => NAMES[id] ?? id).join(', ')}` : '', g.cfg ? `cfg: ${g.cfg}` : '', g.level !== 1 ? `уровень ${g.level}` : '', g.meta ? `улучшения: ${g.meta}` : ''].filter(Boolean).join('; ') || 'обычный';
 
 const gameLine = (g, index, total) => {
   const head = `[${PROFILE_TITLES[g.profile] ?? g.profile} ${index}/${total}]`;

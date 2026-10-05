@@ -109,7 +109,9 @@ const HELP = `Бот-замерщик баланса: играет целые п
   --max-real-sec=3600                   потолок реального времени одной партии (страховка); дольше — «timeout»
   --verbose                             печатать каждую покупку и раз в 30 с — где идёт партия
   --shots                               снимок экрана в конце партии: qa/bot-results/<tag>-shots/
-  --level=N                             номер уровня (1…10, по умолчанию 1): от него зависит, какие башни открыты (levels.towerUnlock в config.ts; на уровне 1 — только Таблетка и Сироп)
+  --level=N                             номер уровня (1…10, по умолчанию 1): от него зависит, какие башни открыты (levels.towerUnlock в config.ts; на уровне 1 — только Таблетка и Сироп);
+                                        на уровнях 2–10 партия идёт по составу волн своего уровня (levels.specs; адрес получает &levelwaves)
+  --meta=lives:2,coins:5,damage:5,reward:5   фиксированные улучшения вне партии (уровни по таблице из config.ts; не больше наибольшего уровня; без параметра — 0). Не сочетается с --campaign
   --campaign=N                          режим «серия партий» (этап 6а): каждая из --runs серий — до N партий подряд одним профилем; после каждой партии бот начисляет очки ДНК
                                         (по формуле config.ts, раздел meta) и покупает улучшения по порядку damage, coins, lives, reward; серия кончается первой победой.
                                         Итог — номер партии первой победы. Без этого параметра улучшений нет (уровни 0)
@@ -128,7 +130,7 @@ if (args.help || args.h) {
   console.log(HELP);
   process.exit(0);
 }
-const KNOWN = new Set(['profile', 'runs', 'speed', 'exclude', 'cfg', 'tag', 'seed', 'max-game-sec', 'max-real-sec', 'verbose', 'shots', 'canvas', 'level', 'campaign', 'help']);
+const KNOWN = new Set(['profile', 'runs', 'speed', 'exclude', 'cfg', 'tag', 'seed', 'max-game-sec', 'max-real-sec', 'verbose', 'shots', 'canvas', 'level', 'meta', 'campaign', 'help']);
 for (const key of Object.keys(args)) if (!KNOWN.has(key)) die(`Неизвестный параметр --${key}. Справка: node qa/bot.mjs --help`);
 
 function numArg(name, fallback, { min = -Infinity, max = Infinity, int = false } = {}) {
@@ -192,6 +194,19 @@ const MAP_PATH_WIDTH = cfgGet('map.pathWidth') ?? readConfigNumber('map', 'pathW
 
 // Очки ДНК и улучшения (config.ts, раздел meta) с подменой --cfg: цены, очки за волну и за победу
 const META = readMetaTable();
+/** Фиксированные улучшения (--meta=lives:2,coins:5,...): null — нет; иначе уровни четырёх улучшений. Нужны, чтобы замерять уровни 2–10 «с полным деревом» без прохождения серии партий. */
+const META_FIXED = (() => {
+  if (args.meta === undefined) return null;
+  const levels = { lives: 0, coins: 0, damage: 0, reward: 0 };
+  for (const item of String(args.meta).split(',')) {
+    const [key, valueText] = item.split(':');
+    const value = Number(valueText);
+    if (!(key in levels) || !Number.isInteger(value) || value < 0) die(`--meta: не понял «${item}». Нужно вид lives:2,coins:5,damage:5,reward:5`);
+    levels[key] = Math.min(META.upgrades[key].prices.length, value);
+  }
+  return levels;
+})();
+if (META_FIXED && args.campaign !== undefined && Number(args.campaign) > 0) die('--meta не сочетается с --campaign: в серии улучшения покупает сам бот');
 for (const [cfgPath, value] of CFG_ITEMS) {
   let m = /^meta\.dna\.(\w+)$/.exec(cfgPath);
   if (m && typeof META.dna[m[1]] === 'number') META.dna[m[1]] = value;
@@ -586,7 +601,7 @@ async function playGame(browser, baseUrl, profile, run, metaLevels = null, salt 
 
   const realStart = Date.now();
   try {
-    await page.goto(`${baseUrl}?qa&speed=${SPEED}${args.canvas ? '&canvas' : ''}${CFG_STRING ? `&cfg=${CFG_STRING}` : ''}&level=${LEVEL}${metaLevels ? `&meta=${Object.entries(metaLevels).map(([id, n]) => `${id}:${n}`).join(',')}` : ''}`, { waitUntil: 'load' });
+    await page.goto(`${baseUrl}?qa&speed=${SPEED}${args.canvas ? '&canvas' : ''}${CFG_STRING ? `&cfg=${CFG_STRING}` : ''}&level=${LEVEL}${LEVEL > 1 ? '&levelwaves' : ''}${metaLevels ? `&meta=${Object.entries(metaLevels).map(([id, n]) => `${id}:${n}`).join(',')}` : ''}`, { waitUntil: 'load' });
     // В начале уровня игра сама встаёт на паузу и показывает плашки (башни уровня и бактерии 1-й волны): state 'info'. Бот закрывает их тапом (раньше 0,4 с после показа плашка тап не принимает)
     let s = await pollUntil(page, (x) => x && (x.state === 'playing' || x.state === 'info'), 20000, 100);
     checkConsole();
@@ -1006,7 +1021,7 @@ const saveResults = () => {
   const payload = {
     tag: TAG,
     startedAt: startedAt.toISOString(),
-    args: { profiles: PROFILES, runs: RUNS, speed: SPEED, level: LEVEL, exclude: [...EXCLUDE], cfg: CFG_STRING, seed: SEED, maxGameSec: MAX_GAME_SEC, campaign: CAMPAIGN },
+    args: { profiles: PROFILES, runs: RUNS, speed: SPEED, level: LEVEL, exclude: [...EXCLUDE], cfg: CFG_STRING, seed: SEED, maxGameSec: MAX_GAME_SEC, campaign: CAMPAIGN, meta: META_FIXED },
     campaign: CAMPAIGN ? { n: CAMPAIGN, series, metaTable: META } : undefined,
     towerTable: TABLE,
     summary: summarize(games),
@@ -1088,7 +1103,7 @@ try {
       let game = null;
       for (let attempt = 1; attempt <= 2 && !game; attempt++) {
         try {
-          game = await playGame(browser, server.url, profile, run);
+          game = await playGame(browser, server.url, profile, run, META_FIXED);
         } catch (error) {
           if (error instanceof FatalConsole) {
             fatal = `Остановлено: в партии «${PROFILE_TITLES[profile]} ${run}» консоль игры сообщила о проблеме. Замер с такой партией был бы недостоверным.\n   ${error.message}`;
