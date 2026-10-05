@@ -5,7 +5,7 @@
  * `GameScene` при старте (`setCurrentLevel`). Таблица «с какого уровня открыта башня» — `CONFIG.levels.towerUnlock`; таблица уровней — `CONFIG.levels.specs`.
  */
 import { CONFIG, type KindId, type LevelSpec } from './config';
-import { LEVEL_WAVES } from './debug';
+import { LEVEL_WAVES, QA_MODE } from './debug';
 import { buildLevelWaves, type WaveRow } from './waveGen';
 
 /** Номер уровня из адреса (1…`levels.count`); без параметра — 1. */
@@ -14,6 +14,13 @@ export function levelFromUrl(): number {
   if (!Number.isFinite(raw) || raw < 1) return 1;
   return Math.min(CONFIG.levels.count, Math.floor(raw));
 }
+
+/** Открывать ли игру на главном меню: в игровой сборке — всегда, кроме адреса с `?level=N` (он открывает партию сразу); в режиме проверки — только с `&menu`
+ *  (иначе все прежние сценарии `smoke` и бот, которые открывают игру без номера уровня, оказывались бы в меню). */
+export const START_IN_MENU: boolean = (() => {
+  const params = new URLSearchParams(window.location.search);
+  return QA_MODE ? params.has('menu') : !params.has('level');
+})();
 
 let current: number = levelFromUrl();
 
@@ -76,4 +83,29 @@ export function levelParams(level: number): LevelParams {
     generated.set(level, params);
   }
   return params;
+}
+
+/** Типы бактерий уровня по таблице уровней (не зависит от режима проверки): у уровня 1 — все, что есть в `waves.list`; у остальных — `intro` и боссы. */
+export function levelKinds(level: number): KindId[] {
+  const found = new Set<KindId>();
+  const spec: LevelSpec = CONFIG.levels.specs[level - 1] ?? {};
+  if (level <= 1 || !spec.intro) {
+    for (const row of CONFIG.waves.list) for (const kind of Object.keys(row) as KindId[]) found.add(kind);
+  } else {
+    for (const kind of Object.keys(spec.intro) as KindId[]) found.add(kind);
+    for (const boss of Object.values(spec.bosses ?? {})) for (const kind of Object.keys(boss) as KindId[]) found.add(kind);
+  }
+  return KINDS.filter((kind) => found.has(kind));
+}
+
+/** Типы бактерий, которых не было на предыдущем уровне (на уровне 1 — пустой список: там все типы «первые», карточка про них не говорит). */
+export function levelNewKinds(level: number): KindId[] {
+  if (level <= 1) return [];
+  const before = new Set(levelKinds(level - 1));
+  return levelKinds(level).filter((kind) => !before.has(kind));
+}
+
+/** Башни, открывающиеся именно на этом уровне. */
+export function levelNewTowers(level: number): string[] {
+  return Object.keys(CONFIG.towers).filter((id) => unlockLevel(id) === level);
 }

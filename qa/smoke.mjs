@@ -78,6 +78,8 @@
  *                          без `&levelwaves` на любом уровне волны уровня 1 (так идут остальные проверки и бот)
  *   progress-save          сохранение версии 2 (этап 5, шаг 2): прогресс по уровням (звёзды, лучшая волна) и показанные плашки — чтение, версия 1 без прогресса, чужие и испорченные значения, плашки не повторяются после обновления страницы
  *   stars                  звёзды: победа без потерь — три, пороги по потерянным жизням, очки ДНК только за впервые полученные звёзды, результат не ухудшается, лучшая волна при проигрыше, звёзды на экране конца уровня
+ *   menu-flow              главное меню и выбор уровня (этап 5, шаг 3; компьютер ru, телефон en): игра открывается на меню (`?qa&menu`), «Играть» → 10 карточек (уровень 1 открыт, остальные закрыты), тап по закрытой ничего не делает, по открытой — партия, пауза → «В меню», «Улучшения» из меню и возврат
+ *   levels-lock            открытие уровней по звёздам (`&stars=`), экран конца уровня: «Следующий уровень» после победы (не на последнем уровне), «В меню», тап по «Следующий уровень» открывает уровень 2
  *   restart-button         конец уровня (проигрыш и победа, компьютер ru и телефон en): есть кнопка «Заново» (endButton), тапы мимо неё не перезапускают, тап по ней — перезапускает
  *   deflation              economy.rewardMul: ×0,5 — два кокка номиналом 5 дают 2 + 3 = 5 монет (дробная часть копится); ×0,1 — 0 + 1, «+N» всплывает только при N ≥ 1
  *   camera-fit             самое сильное отдаление (считает игра, ≈ 0,499): высота карты × масштаб ≤ 720,5, ширина влезает, камера по центру и сдвигом не уводится
@@ -134,7 +136,7 @@ if (['stage-1', 'stage-1b', 'stage-1b-qa', 'td-1-mockup', 'tmp'].includes(tag)) 
   process.exit(2);
 }
 
-const SCENARIOS = ['desktop-ru', 'phone-ru', 'desktop-en', 'phone-en', 'rules', 'graph', 'combat', 'dash', 'split', 'spore', 'armored', 'intro', 'lose-ru', 'lose-en', 'win-ru', 'win-en', 'towers', 'card', 'merge', 'mutations', 'sell', 'special', 'danger', 'rotate', 'production', 'fullgame', 'plaques', 'locked', 'strip', 'restart-button', 'deflation', 'camera-fit', 'colors', 'meta-save', 'meta-dna', 'meta-shop', 'meta-effects', 'level-waves', 'progress-save', 'stars']
+const SCENARIOS = ['desktop-ru', 'phone-ru', 'desktop-en', 'phone-en', 'rules', 'graph', 'combat', 'dash', 'split', 'spore', 'armored', 'intro', 'lose-ru', 'lose-en', 'win-ru', 'win-en', 'towers', 'card', 'merge', 'mutations', 'sell', 'special', 'danger', 'rotate', 'production', 'fullgame', 'plaques', 'locked', 'strip', 'restart-button', 'deflation', 'camera-fit', 'colors', 'meta-save', 'meta-dna', 'meta-shop', 'meta-effects', 'level-waves', 'progress-save', 'stars', 'menu-flow', 'levels-lock']
 const only = args.only === undefined ? null : String(args.only);
 if (only !== null && !SCENARIOS.includes(only)) {
   console.error(`Неизвестный сценарий --only=${only}. Есть: ${SCENARIOS.join(', ')}`);
@@ -1577,7 +1579,8 @@ async function runProduction(browser, prodUrl, qaUrl) {
   };
   const page = await context.newPage();
   watchConsole(page, p);
-  await page.goto(`${prodUrl}?qa&speed=10${query}&cfg=${hostile}`, { waitUntil: 'load', timeout: 90000 });
+  // С этапа 5 игровая сборка без ?level=N открывается на главном меню; сценарий проверяет партию, поэтому адрес с уровнем 1
+  await page.goto(`${prodUrl}?qa&level=1&speed=10${query}&cfg=${hostile}`, { waitUntil: 'load', timeout: 90000 });
   await sleep(1500);
   const plaqueBrightness = await brightness(page);
   await shot(page, 'production-plaque');
@@ -1596,7 +1599,7 @@ async function runProduction(browser, prodUrl, qaUrl) {
   // Игра в игровой сборке работает: выбрать башню и поставить её тапом (по цвету пикселей вокруг клетки ${FREE.a} на старте камеры)
   const play = await context.newPage();
   watchConsole(play, p);
-  await play.goto(prodUrl, { waitUntil: 'load', timeout: 90000 });
+  await play.goto(`${prodUrl}?level=1`, { waitUntil: 'load', timeout: 90000 });
   await sleep(1500);
   await closePlaques(play);
   await sleep(600);
@@ -5300,6 +5303,151 @@ async function runStars(browser, baseUrl) {
   await ctx2.close();
 }
 
+/** Открывает игру на главном меню (`&menu`) и ждёт экраны по описанию `window.__pvbUi` (экраны вне партии). */
+async function openMenu(context, baseUrl, prefix, { query = '', isTouch = false } = {}) {
+  const page = await context.newPage();
+  watchConsole(page, prefix);
+  await page.goto(`${baseUrl}?qa&menu&speed=4&noplaque&cfg=waves.firstDelaySec:600${query}`, { waitUntil: 'load', timeout: 90000 });
+  const cdp = await context.newCDPSession(page);
+  const input = createInput(page, cdp, isTouch);
+  const ui = () => page.evaluate(() => window.__pvbUi?.get() ?? null);
+  const waitUi = async (scene, label, timeoutMs = 30000) => {
+    const started = Date.now();
+    while (Date.now() - started < timeoutMs) {
+      const u = await ui();
+      if (u && u.scene === scene) return u;
+      await sleep(60);
+    }
+    throw new Error(`Не дождались экрана «${scene}»: ${label}`);
+  };
+  await waitUi('menu', 'главное меню');
+  const rect = await page.evaluate(() => {
+    const r = document.querySelector('canvas').getBoundingClientRect();
+    return { left: r.left, top: r.top, width: r.width, height: r.height };
+  });
+  const g = (x, y) => ({ x: rect.left + (x * rect.width) / W, y: rect.top + (y * rect.height) / H });
+  const tapRect = async (r) => {
+    await input.tap(g(r.x, r.y));
+    await settle();
+  };
+  return { page, input, ui, waitUi, g, tapRect };
+}
+
+const insideScreen = (r) => r.x - r.w / 2 >= 0 && r.x + r.w / 2 <= W && r.y - r.h / 2 >= 0 && r.y + r.h / 2 <= H;
+
+/** Главное меню → выбор уровня → партия → пауза → «В меню»; «Улучшения» из меню (этап 5, шаг 3). */
+async function runMenuFlow(browser, baseUrl) {
+  for (const [deviceKey, lang] of [['desktop', 'ru'], ['phone', 'en']]) {
+    const device = VIEWPORTS[deviceKey];
+    const p = `[меню, ${device.label}, ${lang}]`;
+    const li = lang === 'ru' ? 0 : 1;
+    const context = await newDeviceContext(browser, device, lang);
+    const app = await openMenu(context, baseUrl, p, { isTouch: device.hasTouch });
+    let u = await app.ui();
+    check(`${p} игра открывается на главном меню: название «${TITLES[lang]}», кнопки «Играть» и «Улучшения» внутри экрана и не налезают друг на друга`, u.texts[0] === TITLES[lang] && insideScreen(u.buttons.play) && insideScreen(u.buttons.upgrades) && !overlaps(u.buttons.play, u.buttons.upgrades), JSON.stringify(u));
+    await shot(app.page, `menu-main-${deviceKey}-${lang}`);
+
+    await app.tapRect(u.buttons.play);
+    u = await app.waitUi('levels', 'выбор уровня');
+    check(`${p} выбор уровня: 10 карточек; в новой игре открыт только уровень 1`, u.levels.length === 10 && u.levels[0].open && u.levels.slice(1).every((c) => !c.open), u.levels.map((c) => `${c.level}:${c.open ? 'открыт' : 'закрыт'}`).join(' '));
+    const rects = [...u.levels.map((c) => c.rect), u.buttons.back];
+    let clash = '';
+    for (let i = 0; i < rects.length; i++) {
+      if (!insideScreen(rects[i])) clash += ` вне экрана ${i};`;
+      for (let j = i + 1; j < rects.length; j++) if (overlaps(rects[i], rects[j])) clash += ` ${i}×${j};`;
+    }
+    check(`${p} карточки уровней и кнопка «Назад» внутри экрана и не налезают друг на друга`, clash === '', clash);
+    const label1 = readI18n('levelLabel')[li].replace('{n}', '1');
+    const name1 = readI18n('levelName1')[li];
+    check(`${p} карточка уровня 1: «${label1}», название «${name1}»; закрытая карточка уровня 2 говорит, что сначала нужен уровень 1`, u.levels[0].texts[0] === label1 && u.levels[0].texts[1] === name1 && u.levels[1].texts.includes(readI18n('levelLocked')[li].replace('{n}', '1')), JSON.stringify([u.levels[0].texts, u.levels[1].texts]));
+    await shot(app.page, `menu-levels-${deviceKey}-${lang}`);
+
+    await app.tapRect(u.levels[1].rect); // закрытый уровень
+    await sleep(500);
+    u = await app.ui();
+    check(`${p} тап по закрытому уровню 2 ничего не запускает: остаёмся на выборе уровня`, u && u.scene === 'levels', JSON.stringify(u && u.scene));
+    await app.tapRect(u.levels[0].rect);
+    let s = await waitFor(app.page, (x) => x.state === 'playing' || x.state === 'info', 30000, 'партия после выбора уровня 1');
+    check(`${p} тап по открытому уровню 1 начинает партию уровня 1`, s.level === 1 && s.wave >= 0, `уровень ${s.level}, состояние ${s.state}`);
+
+    await app.input.tap(app.g(s.ui.pauseButton.x, s.ui.pauseButton.y));
+    s = await waitFor(app.page, (x) => x.state === 'paused', 10000, 'пауза');
+    await sleep(500);
+    check(`${p} на паузе есть кнопка «В меню» (внутри экрана)`, s.pauseMenuButton !== null && insideScreen(s.pauseMenuButton), JSON.stringify(s.pauseMenuButton));
+    await app.input.tap(app.g(s.pauseMenuButton.x, s.pauseMenuButton.y));
+    u = await app.waitUi('menu', 'меню после паузы');
+    check(`${p} «В меню» с паузы ведёт в главное меню`, u.scene === 'menu', '');
+
+    await app.tapRect(u.buttons.upgrades);
+    u = await app.waitUi('upgrades', 'экран «Улучшения» из меню');
+    check(`${p} «Улучшения» из меню открывают экран улучшений; кнопки «Играть» и «В меню» внутри экрана, не налезают друг на друга`, insideScreen(u.buttons.play) && insideScreen(u.buttons.menu) && !overlaps(u.buttons.play, u.buttons.menu), JSON.stringify(u.buttons));
+    await shot(app.page, `menu-upgrades-${deviceKey}-${lang}`);
+    await app.tapRect(u.buttons.play);
+    u = await app.waitUi('levels', 'выбор уровня после «Играть» из улучшений');
+    check(`${p} «Играть» на экране улучшений, открытом из меню, ведёт на выбор уровня`, u.scene === 'levels', '');
+    await app.tapRect(u.buttons.back);
+    u = await app.waitUi('menu', 'меню после «Назад»');
+    check(`${p} «Назад» с выбора уровня ведёт в главное меню`, u.scene === 'menu', '');
+    await app.tapRect(u.buttons.upgrades);
+    u = await app.waitUi('upgrades', 'улучшения второй раз');
+    await app.tapRect(u.buttons.menu);
+    u = await app.waitUi('menu', 'меню после «В меню» из улучшений');
+    check(`${p} «В меню» на экране улучшений ведёт в главное меню`, u.scene === 'menu', '');
+    await context.close();
+  }
+}
+
+/** Открытие уровней по звёздам и экран конца уровня с кнопками «Следующий уровень» и «В меню» (этап 5, шаг 3). */
+async function runLevelsLock(browser, baseUrl) {
+  const p = '[открытие уровней и конец уровня]';
+  const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
+  const app = await openMenu(context, baseUrl, p, { query: '&stars=1,3' });
+  let u = await app.ui();
+  await app.tapRect(u.buttons.play);
+  u = await app.waitUi('levels', 'выбор уровня');
+  const open = u.levels.map((c) => (c.open ? 1 : 0)).join('');
+  check(`${p} звёзды 1 и 3 на уровнях 1–2 открывают уровни 1, 2 и 3 (уровень открыт, когда предыдущий пройден); остальные закрыты`, open === '1110000000', `открыты: ${open}`);
+  check(`${p} на карточках звёзды уровней 1–3: 1, 3, 0`, u.levels[0].stars === 1 && u.levels[1].stars === 3 && u.levels[2].stars === 0, u.levels.slice(0, 3).map((c) => c.stars).join());
+  await shot(app.page, 'levels-stars');
+  await app.tapRect(u.levels[1].rect);
+  const s2 = await waitFor(app.page, (x) => x.state === 'playing' || x.state === 'info', 30000, 'партия уровня 2');
+  check(`${p} тап по открытому уровню 2 начинает партию уровня 2`, s2.level === 2, `уровень ${s2.level}`);
+  await app.page.close();
+
+  // ---- победа на уровне 1: «Следующий уровень» и «В меню»
+  const winCfg = `${wavesOnlyCfg({ coccus: 1 })},waves.firstDelaySec:1,towers.pill.range:900,towers.pill.damage:50,economy.startCoins:500,lives.start:3`;
+  const win = await openGame(context, baseUrl, p, { speed: 4, cfg: winCfg });
+  for (const cell of [FREE.a, FREE.b]) await placeSure(win, 'pill', cell);
+  let s = await waitFor(win.page, (x) => x.state === 'won', WAIT_MS, 'победа');
+  await sleep(CFG.restartLockMs + 250);
+  const btns = [s.endButton, s.upgradesButton, s.nextButton, s.menuButton];
+  check(`${p} после победы на уровне 1 есть все четыре кнопки («Заново», «Улучшения», «Следующий уровень», «В меню»), внутри экрана и не налезают друг на друга`, btns.every((b) => b && insideScreen(b)) && btns.every((a, i) => btns.every((b, j) => i === j || !overlaps(a, b))), JSON.stringify(btns));
+  await shot(win.page, 'levels-win-buttons');
+  await win.input.tap(win.g(s.nextButton.x, s.nextButton.y));
+  s = await waitFor(win.page, (x) => x.state === 'playing' && x.level === 2 && x.elapsed < 3, 30000, 'партия уровня 2 после «Следующий уровень»');
+  check(`${p} «Следующий уровень» после победы начинает партию уровня 2`, s.level === 2, `уровень ${s.level}`);
+  await win.page.close();
+
+  // ---- победа на последнем уровне: «Следующего уровня» нет, «В меню» по центру
+  const last = await openGame(context, baseUrl, p, { speed: 4, cfg: winCfg, query: '&level=10' });
+  for (const cell of [FREE.a, FREE.b]) await placeSure(last, 'pill', cell);
+  s = await waitFor(last.page, (x) => x.state === 'won', WAIT_MS, 'победа на уровне 10');
+  check(`${p} на последнем уровне после победы кнопки «Следующий уровень» нет, «В меню» стоит по центру`, s.nextButton === null && s.menuButton !== null && Math.abs(s.menuButton.x - W / 2) < 1, JSON.stringify([s.nextButton, s.menuButton]));
+  await last.page.close();
+
+  // ---- проигрыш: «Следующего уровня» нет; «В меню» ведёт в меню
+  const lose = await openGame(context, baseUrl, p, { speed: 4, cfg: META_LOSE_CFG });
+  s = await waitFor(lose.page, (x) => x.state === 'lost', WAIT_MS, 'проигрыш');
+  await sleep(CFG.restartLockMs + 250);
+  check(`${p} после проигрыша «Следующего уровня» нет, есть «Заново», «Улучшения» и «В меню»`, s.nextButton === null && s.endButton && s.upgradesButton && s.menuButton && !overlaps(s.menuButton, s.endButton) && !overlaps(s.menuButton, s.upgradesButton), JSON.stringify([s.endButton, s.upgradesButton, s.menuButton]));
+  await shot(lose.page, 'levels-lose-buttons');
+  await lose.input.tap(lose.g(s.menuButton.x, s.menuButton.y));
+  await sleep(600);
+  u = await lose.page.evaluate(() => window.__pvbUi?.get() ?? null);
+  check(`${p} «В меню» после проигрыша ведёт в главное меню`, u !== null && u.scene === 'menu', JSON.stringify(u && u.scene));
+  await context.close();
+}
+
 /** Начисление очков: за победу и за проигрыш, один раз за партию, накопление, запись в хранилище. */
 async function runMetaDna(browser, baseUrl) {
   const p = '[очки ДНК: начисление]';
@@ -5605,6 +5753,8 @@ try {
   if (wants('level-waves')) await safe('[состав волн уровней]', () => runLevelWaves(browser, qaServer.url));
   if (wants('progress-save')) await safe('[прогресс: сохранение]', () => runProgressSave(browser, qaServer.url));
   if (wants('stars')) await safe('[звёзды]', () => runStars(browser, qaServer.url));
+  if (wants('menu-flow')) await safe('[меню и выбор уровня]', () => runMenuFlow(browser, qaServer.url));
+  if (wants('levels-lock')) await safe('[открытие уровней и конец уровня]', () => runLevelsLock(browser, qaServer.url));
 } catch (error) {
   crashed = error;
   check('Проверка дошла до конца', false, error.message);

@@ -3,7 +3,10 @@ import { CONFIG } from './config';
 import { QA_MODE } from './debug';
 import { t } from './i18n';
 import { getLang, setLang } from './lang';
+import { START_IN_MENU } from './progress';
 import { GameScene } from './scenes/GameScene';
+import { LevelsScene } from './scenes/LevelsScene';
+import { MenuScene } from './scenes/MenuScene';
 import { UpgradesScene } from './scenes/UpgradesScene';
 import { COLORS } from './theme';
 
@@ -35,7 +38,8 @@ const game = new Phaser.Game({
   audio: { noAudio: true },
   render: { antialias: true, powerPreference: 'high-performance' },
   banner: false,
-  scene: [GameScene, UpgradesScene],
+  // Первая сцена в списке запускается сама: меню или, при адресе с `?level=N` (и в режиме проверки без `&menu`), сразу партия
+  scene: START_IN_MENU ? [MenuScene, LevelsScene, GameScene, UpgradesScene] : [GameScene, MenuScene, LevelsScene, UpgradesScene],
 });
 
 // Поворот телефона и смена размера окна. Phaser иногда уже знает новый размер страницы, но не

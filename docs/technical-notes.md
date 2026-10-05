@@ -116,6 +116,12 @@ dist/, dist-qa/            результаты сборки (в git нет)
 - `GameScene.endGame` один раз за партию: очки за волны и победу (`awardDna`), звёзды по потерянным жизням, запись итога (`recordResult`), три звезды (`drawStars`).
 - Для проверок: `window.__pvbMeta.getMeta()` отдаёт ещё `progress` и `seen`; `?qa&stars=3,2`; `?qa&persistseen`; в снимке игры `stars`, `starDna`, `plannedHp`.
 
+## Меню и выбор уровня (этап 5, шаг 3)
+- Сцены: `Menu` (`src/scenes/MenuScene.ts`), `Levels` (`LevelsScene.ts`), `Game`, `Upgrades`. Первая в списке сцен запускается сама: `START_IN_MENU` (`src/progress.ts`) — в игровой сборке «в адресе нет `?level=N`», в `?qa` — «есть `&menu`»; иначе первой идёт `Game`.
+- Переходы: `Menu → Levels → Game {level}`; `Menu → Upgrades {from:'menu'}`; конец уровня → `Game {level+1}` / `Game` (заново) / `Upgrades` / `Menu`; пауза → `Menu` (`GameScene.leaveToMenu`).
+- `src/screens.ts`: `addButton`, `drawStar`, `drawLock`, `textStyle`, `setScreenInfo` (описание экрана для проверок: `window.__pvbUi.get()` → `{ scene, buttons, texts, levels[] }`, только `?qa`; `null`, когда идёт партия).
+- Данные карточек: `levelNewKinds(level)`, `levelNewTowers(level)` (`src/progress.ts`), звёзды и лучшая волна — `src/meta.ts`.
+
 ## Круг 14: уровень 1, плашки, открытие башен (устройство)
 - `src/progress.ts`: номер уровня из адреса `?level=N` (по умолчанию 1; работает и в игровой сборке до меню этапа 5), `isTowerOpen(id)`, `newTowersOfLevel(ids)`. Таблица — `CONFIG.levels.towerUnlock`
   (подмена для проб: `?qa&cfg=levels.towerUnlock.fizz:1`).

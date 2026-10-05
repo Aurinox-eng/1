@@ -3,6 +3,7 @@ import { CameraRig } from '../cameraRig';
 import { CONFIG } from '../config';
 import { exposeDebug, NO_PLAQUES, QA_MODE, STRESS, TIME_SCALE, type DebugSnapshot } from '../debug';
 import { Effects } from '../effects';
+import { drawStar, setScreenInfo } from '../screens';
 import { awardDna, coinsBonus, exposeMetaDebug, HIDDEN_SCREEN, livesBonus, markSeen, metaDna, metaSeen, recordResult, rewardMul, starsForLoss } from '../meta';
 import { num, t, type TextKey } from '../i18n';
 import { aimAngle, BLOCKED_TILES, EDGES, ENTRANCE_EDGES, LEVEL, PATH_TILES, WORLD, cellKey, worldToCell } from '../level';
@@ -163,6 +164,10 @@ export class GameScene extends Phaser.Scene {
   private endButton: { x: number; y: number; w: number; h: number } | null = null;
   /** Кнопка «Улучшения» на экране конца уровня и сколько очков ДНК начислено за эту партию (0, пока партия идёт). */
   private upgradesButton: { x: number; y: number; w: number; h: number } | null = null;
+  /** Кнопки «Следующий уровень» и «В меню» на экране конца уровня и «В меню» на паузе (или null). */
+  private nextButton: { x: number; y: number; w: number; h: number } | null = null;
+  private menuButton: { x: number; y: number; w: number; h: number } | null = null;
+  private pauseMenuButton: { x: number; y: number; w: number; h: number } | null = null;
   private dnaGained = 0;
   private dnaAwarded = false;
   /** Звёзды, заработанные в этой партии (0 при проигрыше), и очки ДНК за впервые полученные звёзды. */
@@ -230,6 +235,10 @@ export class GameScene extends Phaser.Scene {
     this.infoClosableAt = 0;
     this.endButton = null;
     this.upgradesButton = null;
+    this.nextButton = null;
+    this.menuButton = null;
+    this.pauseMenuButton = null;
+    setScreenInfo(null);
     this.dnaGained = 0;
     this.stars = 0;
     this.starDna = 0;
@@ -1171,11 +1180,26 @@ export class GameScene extends Phaser.Scene {
   }
 
   /** Любое касание экрана: на паузе — продолжить, на плашке — закрыть её. После конца уровня тап по экрану ничего не делает: заново — только кнопкой. */
-  private onScreenTap(): void {
+  private onScreenTap(pointer?: Phaser.Input.Pointer): void {
     if (isPortraitPhone()) return;
     const now = performance.now();
+    // Тап по кнопке «В меню» на паузе игру не возобновляет (кнопка сама уводит в меню)
+    const b = this.pauseMenuButton;
+    if (this.state === 'paused' && b && pointer && Math.abs(pointer.x - b.x) <= b.w / 2 && Math.abs(pointer.y - b.y) <= b.h / 2) return;
     if (this.state === 'paused' && now >= this.resumeAllowedAt) this.togglePause();
     else if (this.state === 'info' && now >= this.infoClosableAt) this.advanceInfo();
+  }
+
+  /** «В меню» с паузы: партия считается проигранной без экрана конца уровня — очки ДНК за пройденные волны начисляются, лучшая волна уровня записывается, звёзд нет. */
+  private leaveToMenu(): void {
+    if (this.state !== 'paused' || performance.now() < this.resumeAllowedAt) return;
+    if (!this.dnaAwarded) {
+      this.dnaAwarded = true;
+      const cleared = Math.max(0, this.waveIdx - 1);
+      awardDna(cleared, false);
+      recordResult(currentLevel(), cleared, 0);
+    }
+    this.scene.start('Menu');
   }
 
   private togglePause(): void {
@@ -1185,10 +1209,12 @@ export class GameScene extends Phaser.Scene {
       this.resumeAllowedAt = performance.now() + 250;
       this.ghost.setVisible(false);
       this.showOverlay(t('paused'), TEXT_COLORS.accent, t('tapToResume'));
+      this.pauseMenuButton = this.addEndButton(W / 2, H / 2 + 190, 320, 76, t('toMenu'), 0x2a3550, 0x4a5c82, () => this.leaveToMenu());
     } else if (this.state === 'paused') {
       this.state = 'playing';
       this.overlay?.destroy();
       this.overlay = null;
+      this.pauseMenuButton = null;
     }
   }
 
@@ -1347,29 +1373,42 @@ export class GameScene extends Phaser.Scene {
     }
     this.showOverlay(won ? t('victory') : t('gameOver'), TEXT_COLORS.accent, t('killed', { n: this.kills }), t('dnaGained', { n: this.dnaGained + this.starDna, total: metaDna() }));
     if (won) this.drawStars(this.stars);
-    this.addEndButtons();
+    this.addEndButtons(won);
   }
 
-  /** Кнопки экрана конца уровня: «Заново» (перезапуск только ею: тап мимо кнопки уровень не перезапускает) и «Улучшения» (экран трат очков ДНК). */
-  private addEndButtons(): void {
+  /**
+   * Кнопки экрана конца уровня: первый ряд «Заново» (перезапуск только ею: тап мимо кнопки уровень не перезапускает) и «Улучшения» (экран трат очков ДНК);
+   * второй ряд — «Следующий уровень» (только после победы и не на последнем уровне) и «В меню».
+   */
+  private addEndButtons(won: boolean): void {
     const w = 320;
     const h = 76;
     const y = H / 2 + 190;
+    const y2 = y + h + 14;
     const restart = this.addEndButton(W / 2 - 180, y, w, h, t('restart'), 0x2a8a4a, COLORS.merge, () => {
       if (performance.now() >= this.restartAllowedAt) this.scene.restart();
     });
     const upgrades = this.addEndButton(W / 2 + 180, y, w, h, t('upgradesBtn'), 0x2a5c9a, COLORS.gold, () => {
       if (performance.now() >= this.restartAllowedAt) this.scene.start('Upgrades');
     });
+    const hasNext = won && currentLevel() < CONFIG.levels.count;
+    if (hasNext) {
+      this.nextButton = this.addEndButton(W / 2 - 180, y2, w, h, t('nextLevel'), 0x2a8a4a, COLORS.merge, () => {
+        if (performance.now() >= this.restartAllowedAt) this.scene.start('Game', { level: currentLevel() + 1 });
+      }, 28);
+    }
+    this.menuButton = this.addEndButton(hasNext ? W / 2 + 180 : W / 2, y2, w, h, t('toMenu'), 0x2a3550, 0x4a5c82, () => {
+      if (performance.now() >= this.restartAllowedAt) this.scene.start('Menu');
+    });
     this.endButton = restart;
     this.upgradesButton = upgrades;
   }
 
-  private addEndButton(x: number, y: number, w: number, h: number, label: string, fill: number, line: number, onTap: () => void): { x: number; y: number; w: number; h: number } {
+  private addEndButton(x: number, y: number, w: number, h: number, label: string, fill: number, line: number, onTap: () => void, fontSize = 34): { x: number; y: number; w: number; h: number } {
     const g = this.add.graphics();
     g.fillStyle(fill, 1).fillRoundedRect(x - w / 2, y - h / 2, w, h, 18);
     g.lineStyle(4, line, 1).strokeRoundedRect(x - w / 2, y - h / 2, w, h, 18);
-    const text = this.add.text(x, y, label, this.textStyle(34)).setOrigin(0.5);
+    const text = this.add.text(x, y, label, this.textStyle(fontSize)).setOrigin(0.5);
     const zone = this.add.zone(x, y, w, h).setInteractive({ useHandCursor: true }).on('pointerdown', onTap);
     this.overlay?.add([g, text, zone]);
     return { x, y, w, h };
@@ -1388,21 +1427,7 @@ export class GameScene extends Phaser.Scene {
   /** Три звезды над надписью конца уровня: заработанные — золотые, остальные — тёмные (рисуются кодом). */
   private drawStars(count: number): void {
     const g = this.add.graphics();
-    const outer = 46;
-    const inner = 20;
-    for (let i = 0; i < 3; i++) {
-      const cx = W / 2 + (i - 1) * 110;
-      const cy = H / 2 - 200;
-      const points: Phaser.Math.Vector2[] = [];
-      for (let k = 0; k < 10; k++) {
-        const angle = -Math.PI / 2 + (k * Math.PI) / 5;
-        const radius = k % 2 === 0 ? outer : inner;
-        points.push(new Phaser.Math.Vector2(cx + Math.cos(angle) * radius, cy + Math.sin(angle) * radius));
-      }
-      const earned = i < count;
-      g.fillStyle(earned ? COLORS.gold : 0x3a3a4a, 1).fillPoints(points, true);
-      g.lineStyle(4, earned ? 0xfff2b0 : 0x6a6a7a, 1).strokePoints(points, true);
-    }
+    for (let i = 0; i < 3; i++) drawStar(g, W / 2 + (i - 1) * 110, H / 2 - 200, 46, i < count);
     this.overlay?.add(g);
   }
 
@@ -1484,6 +1509,9 @@ export class GameScene extends Phaser.Scene {
       info: { ...this.plaque.geometry(), queue: this.infoQueue.length },
       endButton: this.endButton ? { ...this.endButton } : null,
       upgradesButton: this.upgradesButton ? { ...this.upgradesButton } : null,
+      nextButton: this.nextButton ? { ...this.nextButton } : null,
+      menuButton: this.menuButton ? { ...this.menuButton } : null,
+      pauseMenuButton: this.pauseMenuButton ? { ...this.pauseMenuButton } : null,
       dnaGained: this.dnaGained,
       stars: this.stars,
       starDna: this.starDna,
