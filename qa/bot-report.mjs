@@ -249,7 +249,7 @@ for (const r of campaignResults) {
 if (args.plan && fs.existsSync(String(args.plan))) {
   try {
     const plan = JSON.parse(fs.readFileSync(String(args.plan), 'utf8'));
-    const seen = new Set(results.map((r) => r.tag));
+    const seen = new Set([...results, ...campaignResults].map((r) => r.tag)); // результаты серий (--campaign) тоже считаются присланными
     for (const job of Array.isArray(plan) ? plan : plan.include ?? []) {
       if (!seen.has(job.tag)) problems.push(`задача «${job.tag}» (${PROFILE_TITLES[job.profile] ?? job.profile}${job.exclude ? `, без ${job.exclude}` : ''}) не прислала результата: упала или не закончилась (см. лог задачи)`);
     }
