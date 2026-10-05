@@ -76,6 +76,8 @@
  *   meta-effects           улучшения в партии: жизни, стартовые монеты, урон башен, награда за бактерий
  *   level-waves            уровни (этап 5, шаг 1): с `&levelwaves` на уровне 1 состав волн из таблицы `waves.list`, на уровнях 2–10 — от генератора (30 волн, суммарная прочность бактерий больше, чем на уровне 1, и не меньше, чем на предыдущем уровне);
  *                          без `&levelwaves` на любом уровне волны уровня 1 (так идут остальные проверки и бот)
+ *   progress-save          сохранение версии 2 (этап 5, шаг 2): прогресс по уровням (звёзды, лучшая волна) и показанные плашки — чтение, версия 1 без прогресса, чужие и испорченные значения, плашки не повторяются после обновления страницы
+ *   stars                  звёзды: победа без потерь — три, пороги по потерянным жизням, очки ДНК только за впервые полученные звёзды, результат не ухудшается, лучшая волна при проигрыше, звёзды на экране конца уровня
  *   restart-button         конец уровня (проигрыш и победа, компьютер ru и телефон en): есть кнопка «Заново» (endButton), тапы мимо неё не перезапускают, тап по ней — перезапускает
  *   deflation              economy.rewardMul: ×0,5 — два кокка номиналом 5 дают 2 + 3 = 5 монет (дробная часть копится); ×0,1 — 0 + 1, «+N» всплывает только при N ≥ 1
  *   camera-fit             самое сильное отдаление (считает игра, ≈ 0,499): высота карты × масштаб ≤ 720,5, ширина влезает, камера по центру и сдвигом не уводится
@@ -132,7 +134,7 @@ if (['stage-1', 'stage-1b', 'stage-1b-qa', 'td-1-mockup', 'tmp'].includes(tag)) 
   process.exit(2);
 }
 
-const SCENARIOS = ['desktop-ru', 'phone-ru', 'desktop-en', 'phone-en', 'rules', 'graph', 'combat', 'dash', 'split', 'spore', 'armored', 'intro', 'lose-ru', 'lose-en', 'win-ru', 'win-en', 'towers', 'card', 'merge', 'mutations', 'sell', 'special', 'danger', 'rotate', 'production', 'fullgame', 'plaques', 'locked', 'strip', 'restart-button', 'deflation', 'camera-fit', 'colors', 'meta-save', 'meta-dna', 'meta-shop', 'meta-effects', 'level-waves']
+const SCENARIOS = ['desktop-ru', 'phone-ru', 'desktop-en', 'phone-en', 'rules', 'graph', 'combat', 'dash', 'split', 'spore', 'armored', 'intro', 'lose-ru', 'lose-en', 'win-ru', 'win-en', 'towers', 'card', 'merge', 'mutations', 'sell', 'special', 'danger', 'rotate', 'production', 'fullgame', 'plaques', 'locked', 'strip', 'restart-button', 'deflation', 'camera-fit', 'colors', 'meta-save', 'meta-dna', 'meta-shop', 'meta-effects', 'level-waves', 'progress-save', 'stars']
 const only = args.only === undefined ? null : String(args.only);
 if (only !== null && !SCENARIOS.includes(only)) {
   console.error(`Неизвестный сценарий --only=${only}. Есть: ${SCENARIOS.join(', ')}`);
@@ -332,7 +334,8 @@ async function openGame(context, baseUrl, prefix, { speed = 1, cfg = '', isTouch
   const page = await context.newPage();
   watchConsole(page, prefix);
   // QA_EXTRA_CFG нужна только для проверки самих проверок: подмешивает «поломку» (например camera.tapMaxMovePx:14) — соответствующая проверка обязана покраснеть
-  const allCfg = [cfg, process.env.QA_EXTRA_CFG].filter(Boolean).join(',');
+  // `levels.starDna:0` идёт первым: очки за звёзды не мешают проверкам очков ДНК; сценарий звёзд подменяет это число своим (позднее в списке — главнее)
+  const allCfg = ['levels.starDna:0', cfg, process.env.QA_EXTRA_CFG].filter(Boolean).join(',');
   // `noplaque`: игра не встаёт на паузу сама (плашки с описанием проверяет отдельный сценарий `plaques`, остальным они мешают)
   const plaqueFlag = query.includes('plaques') ? '' : '&noplaque';
   // QA_CANVAS=1 (GitHub, группы со временем и скоростью): рисование через canvas — на сервере без видеокарты программный WebGL даёт 2–6 кадров/с, шаг игрового времени
@@ -5207,6 +5210,96 @@ async function runLevelWaves(browser, baseUrl) {
   await context.close();
 }
 
+/** Прогресс по уровням в сохранении версии 2 и показанные плашки (этап 5, шаг 2). */
+async function runProgressSave(browser, baseUrl) {
+  const p = '[прогресс: сохранение]';
+  const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
+  const game = await openGame(context, baseUrl, p, { speed: 1, cfg: 'waves.firstDelaySec:600' });
+  const { page } = game;
+  let m = await metaOf(page);
+  const zeros = (a) => Array.isArray(a) && a.length === 10 && a.every((v) => v === 0);
+  check(`${p} новая игра: звёзды и лучшие волны всех 10 уровней — нули, показанных плашек нет`, zeros(m.progress.stars) && zeros(m.progress.best) && m.seen.length === 0, JSON.stringify(m.progress));
+  const reloadWith = async (value, query = '') => {
+    await page.evaluate((v) => (v === null ? window.localStorage.removeItem('pvb.meta') : window.localStorage.setItem('pvb.meta', v)), value);
+    await page.goto(`${baseUrl}?qa&speed=1&noplaque&cfg=waves.firstDelaySec:600${query}`, { waitUntil: 'load', timeout: 90000 });
+    await waitFor(page, (x) => x.state === 'playing' || x.state === 'info', 20000, 'запуск после перезагрузки');
+    return metaOf(page);
+  };
+  m = await reloadWith(JSON.stringify({ v: 1, dna: 40, levels: { lives: 1, coins: 0, damage: 2, reward: 0 } }));
+  check(`${p} сохранение версии 1 (без прогресса) читается: очки 40 и улучшения на месте, звёзды и волны — нули`, m.dna === 40 && m.levels.lives === 1 && m.levels.damage === 2 && zeros(m.progress.stars) && zeros(m.progress.best), JSON.stringify(m));
+  const stars = [3, 2, 1, 0, 0, 0, 0, 0, 0, 0];
+  const best = [30, 30, 17, 4, 0, 0, 0, 0, 0, 0];
+  m = await reloadWith(JSON.stringify({ v: 2, dna: 7, levels: { lives: 0, coins: 0, damage: 0, reward: 0 }, progress: { stars, best }, seen: ['b:rod', 't:pill'] }));
+  check(`${p} сохранение версии 2 читается: звёзды ${stars.join('')}, лучшие волны ${best.slice(0, 4).join('/')}, плашки b:rod и t:pill`, JSON.stringify(m.progress.stars) === JSON.stringify(stars) && JSON.stringify(m.progress.best) === JSON.stringify(best) && m.seen.join() === 'b:rod,t:pill', JSON.stringify(m.progress) + ' ' + m.seen.join());
+  m = await reloadWith(JSON.stringify({ v: 2, dna: 0, levels: {}, progress: { stars: [9, -1, 'x', 2.7, null, 1, 1, 1, 1, 1, 3, 3, 3], best: [5000, 12.9, -3] }, seen: [5, '', 'ok', 'x'.repeat(50), null] }));
+  check(`${p} чужие значения исправляются: звёзды 9 → 3, −1 → 0, «x» → 0, 2,7 → 2, лишние (после 10-го) отброшены; волна 5000 → 1000, 12,9 → 12; из плашек остаётся только «ok»`, m.progress.stars.length === 10 && m.progress.stars.slice(0, 4).join() === '3,0,0,2' && m.progress.stars[9] === 1 && m.progress.best[0] === 1000 && m.progress.best[1] === 12 && m.progress.best[2] === 0 && m.seen.join() === 'ok', JSON.stringify(m.progress) + ' ' + m.seen.join());
+  m = await reloadWith(JSON.stringify({ v: 2, dna: 5, levels: {}, progress: 5, seen: 'нет' }));
+  check(`${p} progress и seen неверного вида: очки 5 сохранились, звёзды и волны — нули, плашек нет`, m.dna === 5 && zeros(m.progress.stars) && zeros(m.progress.best) && m.seen.length === 0, JSON.stringify(m));
+  // ---- подмена звёзд из адреса (только ?qa): в сохранение ничего не пишется
+  m = await reloadWith(JSON.stringify({ v: 2, dna: 5, levels: {}, progress: { stars: [1], best: [3] }, seen: [] }), '&stars=3,2');
+  const stored = await page.evaluate(() => JSON.parse(window.localStorage.getItem('pvb.meta')));
+  check(`${p} &stars=3,2 задаёт звёзды уровней 1 и 2, остальные — 0; сохранённое не затронуто (в хранилище звёзды уровня 1 — 1)`, m.progress.stars.join() === '3,2,0,0,0,0,0,0,0,0' && stored.progress.stars[0] === 1, JSON.stringify(m.progress.stars) + ' ' + JSON.stringify(stored.progress));
+  await context.close();
+
+  // ---- плашки: показанные запоминаются в сохранении (в режиме проверки — только с &persistseen) и не повторяются после обновления страницы
+  const ctx2 = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
+  const g2 = await openGame(ctx2, baseUrl, p, { speed: 1, cfg: 'waves.firstDelaySec:600', query: '&plaques&persistseen' });
+  let s = await g2.state();
+  check(`${p} без &noplaque в начале уровня показывается плашка (игра на паузе)`, s.state === 'info' && s.info.visible, `состояние ${s.state}`);
+  m = await metaOf(g2.page);
+  check(`${p} показанные плашки записаны: башни t:pill и t:syrup, бактерия b:coccus`, ['t:pill', 't:syrup', 'b:coccus'].every((k) => m.seen.includes(k)), m.seen.join());
+  await g2.page.reload({ waitUntil: 'load', timeout: 90000 });
+  await waitFor(g2.page, (x) => x.state === 'playing' || x.state === 'info', 20000, 'запуск после обновления');
+  s = await g2.state();
+  check(`${p} после обновления страницы те же плашки не повторяются: игра идёт, плашек нет`, s.state === 'playing' && !s.info.visible, `состояние ${s.state}`);
+  await ctx2.close();
+}
+
+/** Звёзды за победу и очки ДНК за них (этап 5, шаг 2). Победа за одну волну: быстро и без потерь; пороги подменяются числами, чтобы получить 1 и 2 звезды без утечек. */
+async function runStars(browser, baseUrl) {
+  const p = '[звёзды]';
+  const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
+  const base = `${wavesOnlyCfg({ coccus: 1 })},waves.firstDelaySec:1,towers.pill.range:900,towers.pill.damage:50,economy.startCoins:500,lives.start:3,levels.starDna:10`;
+  const playWin = async (thresholds, label) => {
+    const game = await openGame(context, baseUrl, p, { speed: 4, cfg: [base, thresholds].filter(Boolean).join(',') });
+    for (const cell of [FREE.a, FREE.b]) await placeSure(game, 'pill', cell);
+    const s = await waitFor(game.page, (x) => x.state === 'won', WAIT_MS, `победа (${label})`);
+    const m = await metaOf(game.page);
+    await game.page.close();
+    return { s, m };
+  };
+  // порог −1: потерь 0 > −1, поэтому тройка недостижима; maxLostFor2 −1 — недостижима и двойка
+  let r = await playWin('levels.stars.maxLostFor3:-1,levels.stars.maxLostFor2:-1', 'одна звезда');
+  check(`${p} победа выше порогов двух и трёх звёзд: одна звезда, +10 очков ДНК за неё`, r.s.stars === 1 && r.s.starDna === 10 && r.m.progress.stars[0] === 1, `звёзд ${r.s.stars}, очков за звёзды ${r.s.starDna}, сохранено ${r.m.progress.stars[0]}`);
+  check(`${p} лучшая волна уровня 1 записана (1 волна), очки: за волну 5 + победа 15 + звезда 10 = 30`, r.m.progress.best[0] === 1 && r.m.dna === 30, `лучшая ${r.m.progress.best[0]}, очков ${r.m.dna}`);
+  r = await playWin('levels.stars.maxLostFor3:-1,levels.stars.maxLostFor2:0', 'две звезды');
+  check(`${p} потеряно 0 жизней при пороге двух звёзд 0 и недостижимой тройке: две звезды; за новую вторую звезду +10 (не 20)`, r.s.stars === 2 && r.s.starDna === 10 && r.m.progress.stars[0] === 2, `звёзд ${r.s.stars}, очков за звёзды ${r.s.starDna}`);
+  r = await playWin('', 'три звезды');
+  check(`${p} победа без потерь при обычных порогах: три звезды; за новую третью +10`, r.s.stars === 3 && r.s.starDna === 10 && r.m.progress.stars[0] === 3, `звёзд ${r.s.stars}, очков за звёзды ${r.s.starDna}`);
+  const dnaAfter = r.m.dna;
+  r = await playWin('', 'повторные три звезды');
+  check(`${p} повторная победа на три звезды новых звёзд не даёт: очки за звёзды 0, на счёте прибавилось только за волну и победу (5 + 15)`, r.s.stars === 3 && r.s.starDna === 0 && r.m.dna === dnaAfter + 20, `очков за звёзды ${r.s.starDna}, счёт ${dnaAfter} → ${r.m.dna}`);
+  r = await playWin('levels.stars.maxLostFor3:-1,levels.stars.maxLostFor2:-1', 'худший результат');
+  check(`${p} худший результат (одна звезда) звёзды уровня не снижает: в сохранении по-прежнему 3, очков за звёзды 0`, r.s.stars === 1 && r.s.starDna === 0 && r.m.progress.stars[0] === 3, `за партию ${r.s.stars}, в сохранении ${r.m.progress.stars[0]}`);
+
+  // ---- проигрыш: звёзд нет, очков за звёзды нет, лучшая волна — достигнутая; при проигрыше на меньшей волне лучшая не уменьшается
+  const lose = await openGame(context, baseUrl, p, { speed: 4, cfg: `${META_LOSE_CFG},levels.starDna:10` });
+  const ls = await waitFor(lose.page, (x) => x.state === 'lost', WAIT_MS, 'проигрыш');
+  const lm = await metaOf(lose.page);
+  check(`${p} проигрыш: звёзд 0, очков за звёзды 0; сохранённые звёзды (3) и лучшая волна (1 и выше) не уменьшились`, ls.stars === 0 && ls.starDna === 0 && lm.progress.stars[0] === 3 && lm.progress.best[0] >= 1, `звёзд ${ls.stars}, в сохранении ${lm.progress.stars[0]}, лучшая ${lm.progress.best[0]}`);
+  await lose.page.close();
+  await context.close();
+
+  // ---- вид: три звезды на экране победы (снимок для глаз)
+  const ctx2 = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
+  const g = await openGame(ctx2, baseUrl, p, { speed: 4, cfg: base });
+  for (const cell of [FREE.a, FREE.b]) await placeSure(g, 'pill', cell);
+  await waitFor(g.page, (x) => x.state === 'won', WAIT_MS, 'победа для снимка');
+  await sleep(CFG.restartLockMs + 250);
+  await shot(g.page, 'stars-win');
+  await ctx2.close();
+}
+
 /** Начисление очков: за победу и за проигрыш, один раз за партию, накопление, запись в хранилище. */
 async function runMetaDna(browser, baseUrl) {
   const p = '[очки ДНК: начисление]';
@@ -5226,7 +5319,7 @@ async function runMetaDna(browser, baseUrl) {
   m = await metaOf(lose.page);
   check(`${p} очки за партию начисляются один раз (через 1,5 с на счёте по-прежнему ${wantLose})`, m.dna === wantLose, `на счёте ${m.dna}`);
   const stored = await lose.page.evaluate(() => JSON.parse(window.localStorage.getItem('pvb.meta') ?? 'null'));
-  check(`${p} очки записаны в хранилище браузера (pvb.meta)`, stored !== null && stored.dna === wantLose && stored.v === 1, JSON.stringify(stored));
+  check(`${p} очки записаны в хранилище браузера (pvb.meta)`, stored !== null && stored.dna === wantLose && stored.v === 2, JSON.stringify(stored));
   await shot(lose.page, 'meta-dna-lost');
   await lose.page.close();
 
@@ -5510,6 +5603,8 @@ try {
   if (wants('meta-shop')) await safe('[улучшения]', () => runMetaShop(browser, qaServer.url));
   if (wants('meta-effects')) await safe('[улучшения в партии]', () => runMetaEffects(browser, qaServer.url));
   if (wants('level-waves')) await safe('[состав волн уровней]', () => runLevelWaves(browser, qaServer.url));
+  if (wants('progress-save')) await safe('[прогресс: сохранение]', () => runProgressSave(browser, qaServer.url));
+  if (wants('stars')) await safe('[звёзды]', () => runStars(browser, qaServer.url));
 } catch (error) {
   crashed = error;
   check('Проверка дошла до конца', false, error.message);

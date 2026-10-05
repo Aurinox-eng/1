@@ -111,6 +111,11 @@ dist/, dist-qa/            результаты сборки (в git нет)
 - `GameScene.init({ level })` берёт правила уровня; `?level=N` в адресе открывает игру сразу на уровне N. В режиме `?qa` волны и награды уровней 2–10 включает только `&levelwaves` (иначе все уровни идут с волнами уровня 1 — так работают прежние проверки и бот).
 - В `qa/lib.mjs` разбор `src/config.ts` идёт по тексту: в таблице уровней нельзя заводить ключи `waves:` и `list: [` (раздел `waves` ищется по первому вхождению), поэтому поле числа волн называется `count`.
 
+## Прогресс по уровням: сохранение версии 2, звёзды (этап 5, шаг 2)
+- `src/save.ts`: `MetaSave` версии 2 `{ v, dna, levels, progress: { stars[10], best[10] }, seen[] }`, ключ `pvb.meta` прежний; `sanitizeMeta` читает и версию 1. `src/meta.ts`: `levelStars`, `levelBest`, `isLevelOpen`, `starsForLoss`, `recordResult` (лучшая волна, звёзды, очки за новые звёзды), `metaSeen`/`markSeen` (показанные плашки).
+- `GameScene.endGame` один раз за партию: очки за волны и победу (`awardDna`), звёзды по потерянным жизням, запись итога (`recordResult`), три звезды (`drawStars`).
+- Для проверок: `window.__pvbMeta.getMeta()` отдаёт ещё `progress` и `seen`; `?qa&stars=3,2`; `?qa&persistseen`; в снимке игры `stars`, `starDna`, `plannedHp`.
+
 ## Круг 14: уровень 1, плашки, открытие башен (устройство)
 - `src/progress.ts`: номер уровня из адреса `?level=N` (по умолчанию 1; работает и в игровой сборке до меню этапа 5), `isTowerOpen(id)`, `newTowersOfLevel(ids)`. Таблица — `CONFIG.levels.towerUnlock`
   (подмена для проб: `?qa&cfg=levels.towerUnlock.fizz:1`).
