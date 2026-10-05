@@ -74,6 +74,8 @@
  *   meta-dna               очки ДНК: начисление за проигрыш и победу, один раз за партию, накопление, запись в хранилище
  *   meta-shop              экран «Улучшения» (компьютер ru, телефон en): переход с экрана конца уровня, покупка, нехватка очков, наибольший уровень, «Играть», тексты
  *   meta-effects           улучшения в партии: жизни, стартовые монеты, урон башен, награда за бактерий
+ *   level-waves            уровни (этап 5, шаг 1): с `&levelwaves` на уровне 1 состав волн из таблицы `waves.list`, на уровнях 2–10 — от генератора (30 волн, бактерий больше, чем на уровне 1, и не меньше, чем на предыдущем уровне);
+ *                          без `&levelwaves` на любом уровне волны уровня 1 (так идут остальные проверки и бот)
  *   restart-button         конец уровня (проигрыш и победа, компьютер ru и телефон en): есть кнопка «Заново» (endButton), тапы мимо неё не перезапускают, тап по ней — перезапускает
  *   deflation              economy.rewardMul: ×0,5 — два кокка номиналом 5 дают 2 + 3 = 5 монет (дробная часть копится); ×0,1 — 0 + 1, «+N» всплывает только при N ≥ 1
  *   camera-fit             самое сильное отдаление (считает игра, ≈ 0,499): высота карты × масштаб ≤ 720,5, ширина влезает, камера по центру и сдвигом не уводится
@@ -130,7 +132,7 @@ if (['stage-1', 'stage-1b', 'stage-1b-qa', 'td-1-mockup', 'tmp'].includes(tag)) 
   process.exit(2);
 }
 
-const SCENARIOS = ['desktop-ru', 'phone-ru', 'desktop-en', 'phone-en', 'rules', 'graph', 'combat', 'dash', 'split', 'spore', 'armored', 'intro', 'lose-ru', 'lose-en', 'win-ru', 'win-en', 'towers', 'card', 'merge', 'mutations', 'sell', 'special', 'danger', 'rotate', 'production', 'fullgame', 'plaques', 'locked', 'strip', 'restart-button', 'deflation', 'camera-fit', 'colors', 'meta-save', 'meta-dna', 'meta-shop', 'meta-effects']
+const SCENARIOS = ['desktop-ru', 'phone-ru', 'desktop-en', 'phone-en', 'rules', 'graph', 'combat', 'dash', 'split', 'spore', 'armored', 'intro', 'lose-ru', 'lose-en', 'win-ru', 'win-en', 'towers', 'card', 'merge', 'mutations', 'sell', 'special', 'danger', 'rotate', 'production', 'fullgame', 'plaques', 'locked', 'strip', 'restart-button', 'deflation', 'camera-fit', 'colors', 'meta-save', 'meta-dna', 'meta-shop', 'meta-effects', 'level-waves']
 const only = args.only === undefined ? null : String(args.only);
 if (only !== null && !SCENARIOS.includes(only)) {
   console.error(`Неизвестный сценарий --only=${only}. Есть: ${SCENARIOS.join(', ')}`);
@@ -5179,6 +5181,29 @@ async function runMetaSave(browser, baseUrl) {
   await blocked.close();
 }
 
+/** Уровни 1–10 (этап 5, шаг 1): откуда берётся состав волн. Число бактерий на уровне игра отдаёт в `plannedTotal`. */
+async function runLevelWaves(browser, baseUrl) {
+  const p = '[состав волн уровней]';
+  const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
+  const cfg = 'waves.firstDelaySec:600';
+  const totals = [];
+  for (let level = 1; level <= 10; level++) {
+    const game = await openGame(context, baseUrl, p, { speed: 1, cfg, query: `&levelwaves&level=${level}` });
+    const s = await game.state();
+    totals.push(s.plannedTotal);
+    check(`${p} уровень ${level}: номер уровня в игре, 30 волн, бактерии запланированы`, s.level === level && s.waveTotal === 30 && s.plannedTotal > 0, `уровень ${s.level}, волн ${s.waveTotal}, бактерий ${s.plannedTotal}`);
+    await game.page.close();
+  }
+  const base = readWaveList().slice(0, 30).reduce((sum, row) => sum + Object.values(row).reduce((a, b) => a + b, 0), 0);
+  check(`${p} уровень 1 идёт по таблице волн: бактерий столько, сколько в waves.list (${base})`, totals[0] === base, `в игре ${totals[0]}`);
+  check(`${p} на уровне 2 бактерий больше, чем на уровне 1`, totals[1] > totals[0], `уровень 1: ${totals[0]}, уровень 2: ${totals[1]}`);
+  check(`${p} с уровня на уровень бактерий не становится меньше (2–10)`, totals.slice(2).every((n, i) => n >= totals[i + 1]), totals.join(', '));
+  const plain = await openGame(context, baseUrl, p, { speed: 1, cfg, query: '&level=10' });
+  const ps = await plain.state();
+  check(`${p} без &levelwaves уровень 10 идёт с волнами уровня 1 (бактерий ${base}, номер уровня 10)`, ps.level === 10 && ps.plannedTotal === base, `уровень ${ps.level}, бактерий ${ps.plannedTotal}`);
+  await context.close();
+}
+
 /** Начисление очков: за победу и за проигрыш, один раз за партию, накопление, запись в хранилище. */
 async function runMetaDna(browser, baseUrl) {
   const p = '[очки ДНК: начисление]';
@@ -5481,6 +5506,7 @@ try {
   if (wants('meta-dna')) await safe('[очки ДНК: начисление]', () => runMetaDna(browser, qaServer.url));
   if (wants('meta-shop')) await safe('[улучшения]', () => runMetaShop(browser, qaServer.url));
   if (wants('meta-effects')) await safe('[улучшения в партии]', () => runMetaEffects(browser, qaServer.url));
+  if (wants('level-waves')) await safe('[состав волн уровней]', () => runLevelWaves(browser, qaServer.url));
 } catch (error) {
   crashed = error;
   check('Проверка дошла до конца', false, error.message);

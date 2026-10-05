@@ -7,7 +7,7 @@ import { awardDna, coinsBonus, exposeMetaDebug, HIDDEN_SCREEN, livesBonus, metaD
 import { num, t, type TextKey } from '../i18n';
 import { aimAngle, BLOCKED_TILES, EDGES, ENTRANCE_EDGES, LEVEL, PATH_TILES, WORLD, cellKey, worldToCell } from '../level';
 import { isPortraitPhone } from '../orientation';
-import { CURRENT_LEVEL, isTowerOpen, newTowersOfLevel, unlockLevel } from '../progress';
+import { currentLevel, isTowerOpen, levelParams, newTowersOfLevel, setCurrentLevel, unlockLevel, type LevelParams } from '../progress';
 import { addMap } from '../mapArt';
 import { MapGestures } from '../mapGestures';
 import { Bacterium, type BacteriumKind } from '../objects/Bacterium';
@@ -190,6 +190,15 @@ export class GameScene extends Phaser.Scene {
 
   constructor() {
     super('Game');
+  }
+
+  /** Правила текущего уровня: состав волн, рост прочности, кривая наград (`levelParams`). */
+  private params!: LevelParams;
+
+  /** Уровень приходит от экрана выбора (`scene.start('Game', { level })`); без него остаётся прежний (из адреса `?level=N` или последний сыгранный). */
+  init(data?: { level?: number }): void {
+    if (data?.level) setCurrentLevel(data.level);
+    this.params = levelParams(currentLevel());
   }
 
   create(): void {
@@ -461,7 +470,7 @@ export class GameScene extends Phaser.Scene {
 
   /** Множитель наград текущей волны по кривой `economy.rewardCurve` (точки [волна, множитель], между ними — по прямой). */
   private rewardFactor(): number {
-    const pts = CONFIG.economy.rewardCurve;
+    const pts = this.params.rewardCurve;
     const w = Math.max(1, this.waveIdx);
     if (w <= pts[0][0]) return pts[0][1];
     for (let i = 1; i < pts.length; i++) {
@@ -474,20 +483,20 @@ export class GameScene extends Phaser.Scene {
     return pts[pts.length - 1][1];
   }
 
-  /** Во сколько раз прочнее бактерии текущей волны (рост `waves.hpGrowthPerWave` после волны `hpGrowthFromWave` и добавка `hpGrowthLatePerWave` после волны `hpGrowthLateFromWave`); 1 — как в таблице типов. */
+  /** Во сколько раз прочнее бактерии текущей волны (рост `waves.hpGrowthPerWave` после волны `hpGrowthFromWave` и добавка `hpGrowthLatePerWave` после волны `hpGrowthLateFromWave`; у уровней со своим ростом — `growth` из таблицы уровней); 1 — как в таблице типов. */
   private waveHpMul(): number {
-    const { hpGrowthPerWave, hpGrowthFromWave, hpGrowthLatePerWave, hpGrowthLateFromWave } = CONFIG.waves;
-    return 1 + hpGrowthPerWave * Math.max(0, this.waveIdx - hpGrowthFromWave) + hpGrowthLatePerWave * Math.max(0, this.waveIdx - hpGrowthLateFromWave);
+    const { perWave, fromWave, latePerWave, lateFromWave } = this.params.growth;
+    return 1 + perWave * Math.max(0, this.waveIdx - fromWave) + latePerWave * Math.max(0, this.waveIdx - lateFromWave);
   }
 
   /** Сколько волн идёт на уровне. */
   private waveTotal(): number {
-    return Math.min(CONFIG.waves.total, CONFIG.waves.list.length);
+    return this.params.total;
   }
 
   /** Кто выйдет в волне i (по одному элементу на бактерию, в порядке таблицы типов). */
   private waveKinds(i: number): BacteriumKind[] {
-    const row = CONFIG.waves.list[i] ?? {};
+    const row = this.params.rows[i] ?? {};
     const kinds: BacteriumKind[] = [];
     for (const kind of KINDS) for (let n = 0; n < (row[kind] ?? 0); n++) kinds.push(kind);
     return kinds;
@@ -1402,6 +1411,7 @@ export class GameScene extends Phaser.Scene {
       maxLives: this.maxLives(),
       wave: this.waveIdx,
       waveTotal: this.waveTotal(),
+      plannedTotal: this.plannedTotal,
       spawned: this.spawned,
       kills: this.kills,
       leaked: this.leaked,
@@ -1426,7 +1436,7 @@ export class GameScene extends Phaser.Scene {
         worldH: WORLD.h,
       },
       camera: { zoom: this.rig.zoom, cx: this.rig.cx, cy: this.rig.cy, zoomMin: ZOOM_MIN, zoomMax: CONFIG.camera.zoomMax },
-      level: CURRENT_LEVEL,
+      level: currentLevel(),
       info: { ...this.plaque.geometry(), queue: this.infoQueue.length },
       endButton: this.endButton ? { ...this.endButton } : null,
       upgradesButton: this.upgradesButton ? { ...this.upgradesButton } : null,

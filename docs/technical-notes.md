@@ -105,6 +105,12 @@ dist/, dist-qa/            результаты сборки (в git нет)
 - **Для проверок:** `window.__pvbMeta.getMeta()` → `{ dna, levels, screen: { visible, balance, play, cards[{ id, level, max, price, canBuy, rect, buy, texts }] } }`; в `getState()` игры — `upgradesButton` и `dnaGained`. Сценарии `smoke`: `meta-save`, `meta-dna`, `meta-shop`, `meta-effects`.
 - **Бот:** режим `--campaign=N` (серия до N партий одним профилем; после партии начисляет очки по формуле игры и покупает улучшения по порядку `damage, coins, lives, reward`; улучшения передаёт игре через `&meta=`). Поле `campaign` в `balance.yml`; итоговая таблица (`qa/bot-report.mjs`) показывает раздел «Серии партий» (номер партии первой победы).
 
+## Уровни 1–10 и состав волн (этап 5, шаг 1; план — `docs/stage-5-plan.md`)
+- `CONFIG.levels.specs[N-1]` — строка уровня (`count`, `intro`, `hpBudget`, `bosses`, `growth`, `rewards`; все необязательные); `CONFIG.levels.gen` — правила генератора. Уровень 1 — пустая строка: идёт по `waves.list`, `waves.hpGrowth*`, `economy.rewardCurve`.
+- `src/waveGen.ts` — чистая функция `buildLevelWaves` (суммарная прочность волны по кривой, новые типы в первую волну малым числом, доля растёт `rampWaves` волн, боссы сверх бюджета); `src/progress.ts` — `levelParams(level)` (кэширует результат) и `currentLevel()`.
+- `GameScene.init({ level })` берёт правила уровня; `?level=N` в адресе открывает игру сразу на уровне N. В режиме `?qa` волны и награды уровней 2–10 включает только `&levelwaves` (иначе все уровни идут с волнами уровня 1 — так работают прежние проверки и бот).
+- В `qa/lib.mjs` разбор `src/config.ts` идёт по тексту: в таблице уровней нельзя заводить ключи `waves:` и `list: [` (раздел `waves` ищется по первому вхождению), поэтому поле числа волн называется `count`.
+
 ## Круг 14: уровень 1, плашки, открытие башен (устройство)
 - `src/progress.ts`: номер уровня из адреса `?level=N` (по умолчанию 1; работает и в игровой сборке до меню этапа 5), `isTowerOpen(id)`, `newTowersOfLevel(ids)`. Таблица — `CONFIG.levels.towerUnlock`
   (подмена для проб: `?qa&cfg=levels.towerUnlock.fizz:1`).
