@@ -29,6 +29,15 @@ import { applyConfigOverrides } from './debug';
 export type Targeting = 'radius' | 'area' | 'puddle' | 'beam';
 /** Все типы бактерий (ключи таблицы `types`; нужен для таблицы волн — она описана раньше, чем сам список типов). */
 export type KindId = 'coccus' | 'rod' | 'splitter' | 'armored' | 'spore' | 'swarm' | 'runner' | 'healer' | 'slick' | 'regen' | 'commander' | 'brood' | 'giant';
+/** Строка таблицы уровней (`levels.specs`): что отличает уровень от уровня 1. Все поля необязательные; подробности — в комментарии к таблице. */
+export interface LevelSpec {
+  count?: number;
+  intro?: Partial<Record<KindId, number>>;
+  hpBudget?: [number, number];
+  bosses?: Record<number, Partial<Record<KindId, number>>>;
+  growth?: { perWave: number; fromWave: number; latePerWave: number; lateFromWave: number };
+  rewards?: number[][];
+}
 /**
  * Мутация башни (выбор на уровнях 2 и 4): заплатка к числам башни. Все поля необязательны, пропущенное — «не меняет».
  *  damageMul, cooldownMul, blastMul, puddleRadiusMul — множители урона, паузы, радиуса взрыва, радиуса лужи;
@@ -141,6 +150,44 @@ export const CONFIG = {
     /** С какого уровня башня доступна (до него в панели серая, с замком и надписью «Уровень N»). Шприц открывается последним: он слишком сильный.
      *  Игра на уровне 1 идёт только Таблеткой и Сиропом; в начале уровня, на котором башня открылась, показывается плашка с её описанием. */
     towerUnlock: { pill: 1, syrup: 1, fizz: 5, syringe: 10 } as Record<string, number>,
+    /** Звёзды за победу (docs/stage-5-plan.md, раздел 4): ★ — любая победа; ★★ — потеряно жизней не больше maxLostFor2; ★★★ — не больше maxLostFor3 (0 — без потерь).
+     *  Считается по числу потерянных жизней (жизни от улучшений порог не сдвигают); дробные потери (рой отнимает по 0,25) учитываются как есть. */
+    stars: { maxLostFor3: 0, maxLostFor2: 1 },
+    /** Очков ДНК за каждую новую, ещё не получавшуюся звезду уровня (максимум 3 × это число за уровень). 0 — звёзды очков не дают. */
+    starDna: 10,
+    /** Правила генератора состава волн уровней 2–10 (`src/waveGen.ts`; уровень 1 записан вручную в таблице волн раздела ниже и через генератор не идёт).
+     *  curveExp — показатель кривой суммарной прочности волны (1 — прямая; у уровня 1 около 1,5: медленный старт, крутой конец);
+     *  rampWaves — за сколько волн после выхода доля нового типа доходит до полной;
+     *  mix — доля прочности волны у типа на полном росте (относительные веса; взяты из состава 30-й волны уровня 1, у новых типов — по смыслу: сильные поменьше, слабые побольше);
+     *  introCount — сколько штук типа выходит в его первую волну (рой — пачкой в 8; боссы идут отдельно, через bosses). */
+    gen: {
+      curveExp: 1.5,
+      rampWaves: 4,
+      mix: { coccus: 0.06, rod: 0.24, swarm: 0.1, runner: 0.18, splitter: 0.17, armored: 0.26, spore: 0.1, slick: 0.1, regen: 0.1, healer: 0.06, commander: 0.05, brood: 0.1 } as Partial<Record<KindId, number>>,
+      introCount: { rod: 2, swarm: 8, runner: 3, splitter: 2, armored: 2, spore: 3, slick: 2, regen: 2, healer: 2, commander: 1, brood: 1 } as Partial<Record<KindId, number>>,
+    },
+    /** Уровни: строка номер N — уровень N. Пустая строка (уровень 1) — всё из таблицы волн, роста прочности и наград ниже (`waves`, `economy.rewardCurve`).
+     *  Поля строки (все необязательные):
+     *   count    — сколько волн (нет — `waves.total`);
+     *   intro    — первая волна каждого типа бактерий; есть — состав волн строит генератор (тогда нужен и hpBudget);
+     *   hpBudget — суммарная прочность первой и последней волны до роста прочности и без боссов (у уровня 1: 8 и 1012);
+     *   bosses   — боссы: номер волны → сколько каких бактерий добавить сверх бюджета;
+     *   growth   — свой рост прочности {perWave, fromWave, latePerWave, lateFromWave} (нет — как в `waves`);
+     *   rewards  — своя кривая наград (нет — `economy.rewardCurve`).
+     *  Числа уровней 2–10 — предварительные (этап 5а, docs/stage-5-plan.md): итоговый подбор — после расширения дерева улучшений (этап 6б).
+     *  Известные по прошлым уровням типы выходят с 1–6-й волны подряд, новый тип этого уровня — после них. Названия уровней — в `src/i18n.ts`. */
+    specs: [
+      {},
+      { intro: { coccus: 1, rod: 2, swarm: 3, runner: 4, splitter: 5, armored: 6, spore: 8 }, hpBudget: [10, 1093] },
+      { intro: { coccus: 1, rod: 2, swarm: 3, runner: 4, splitter: 5, armored: 6, spore: 7, slick: 9 }, hpBudget: [10, 1174] },
+      { intro: { coccus: 1, rod: 2, swarm: 3, runner: 4, splitter: 5, armored: 6, spore: 7, slick: 8, regen: 10 }, hpBudget: [10, 1255] },
+      { intro: { coccus: 1, rod: 2, swarm: 3, runner: 4, splitter: 5, armored: 6, spore: 7, slick: 8, regen: 9, healer: 11 }, hpBudget: [10, 1336] },
+      { intro: { coccus: 1, rod: 2, swarm: 3, runner: 4, splitter: 5, armored: 6, spore: 7, slick: 8, regen: 9, healer: 10, commander: 12 }, hpBudget: [10, 1417] },
+      { intro: { coccus: 1, rod: 2, swarm: 3, runner: 4, splitter: 5, armored: 6, spore: 7, slick: 8, regen: 9, healer: 10, commander: 11, brood: 13 }, hpBudget: [10, 1498] },
+      { intro: { coccus: 1, rod: 2, swarm: 3, runner: 4, splitter: 5, armored: 6, spore: 7, slick: 8, regen: 9, healer: 10, commander: 11, brood: 12 }, hpBudget: [10, 1579], bosses: { 20: { giant: 1 }, 25: { giant: 1 }, 30: { giant: 2 } } },
+      { intro: { coccus: 1, rod: 2, swarm: 3, runner: 4, splitter: 5, armored: 6, spore: 7, slick: 8, regen: 9, healer: 10, commander: 11, brood: 12 }, hpBudget: [10, 1659], bosses: { 15: { giant: 1 }, 20: { giant: 1 }, 25: { giant: 2 }, 30: { giant: 2 } } },
+      { intro: { coccus: 1, rod: 2, swarm: 3, runner: 4, splitter: 5, armored: 6, spore: 7, slick: 8, regen: 9, healer: 10, commander: 11, brood: 12 }, hpBudget: [10, 1740], bosses: { 20: { giant: 1 }, 25: { giant: 2 }, 30: { giant: 3 } } },
+    ] as LevelSpec[],
   },
 
   // ------------------------------------------------------------

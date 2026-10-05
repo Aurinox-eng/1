@@ -4,6 +4,7 @@ import { exposeMetaDebug, buyUpgrade, canBuy, metaDna, metaLevel, nextPrice, typ
 import { num, t, type TextKey } from '../i18n';
 import { maxLevel, UPGRADE_IDS, type UpgradeId } from '../save';
 import { sfx } from '../sound';
+import { setScreenInfo } from '../screens';
 import { COLORS, FONT, TEXT_COLORS } from '../theme';
 
 const { width: W } = CONFIG.screen;
@@ -19,7 +20,8 @@ const CARD_CENTERS = [
 const BUY = { w: 250, h: 56 };
 /** Центр кнопки покупки: правый нижний угол карточки, под строкой описания (строка кончается выше кнопки). */
 const buyCenter = (c: { x: number; y: number }): { x: number; y: number } => ({ x: c.x + CARD.w / 2 - 24 - BUY.w / 2, y: c.y + CARD.h / 2 - 16 - BUY.h / 2 });
-const PLAY = { x: W / 2, y: 640, w: 360, h: 76 };
+const PLAY = { x: W / 2 + 190, y: 640, w: 340, h: 76 };
+const MENU = { x: W / 2 - 190, y: 640, w: 340, h: 76 };
 
 const NAME_KEY: Record<UpgradeId, TextKey> = { lives: 'upgLives', coins: 'upgCoins', damage: 'upgDamage', reward: 'upgReward' };
 const DESC_KEY: Record<UpgradeId, TextKey> = { lives: 'upgLivesDesc', coins: 'upgCoinsDesc', damage: 'upgDamageDesc', reward: 'upgRewardDesc' };
@@ -48,9 +50,15 @@ interface CardView {
 export class UpgradesScene extends Phaser.Scene {
   private cards: CardView[] = [];
   private balance!: Phaser.GameObjects.Text;
+  /** Откуда пришли: 'menu' — из главного меню («Играть» ведёт на выбор уровня); иначе с экрана конца уровня («Играть» начинает новую партию того же уровня). */
+  private from: 'menu' | 'game' = 'game';
 
   constructor() {
     super('Upgrades');
+  }
+
+  init(data?: { from?: 'menu' | 'game' }): void {
+    this.from = data?.from === 'menu' ? 'menu' : 'game';
   }
 
   create(): void {
@@ -64,6 +72,7 @@ export class UpgradesScene extends Phaser.Scene {
     this.refresh();
 
     exposeMetaDebug(() => this.describe());
+    setScreenInfo(() => (this.scene.isActive() ? { scene: 'upgrades', buttons: { play: PLAY, menu: MENU }, texts: [this.balance.text] } : null));
   }
 
   private addCard(id: UpgradeId, c: { x: number; y: number }): void {
@@ -84,14 +93,16 @@ export class UpgradesScene extends Phaser.Scene {
   }
 
   private addPlayButton(): void {
+    this.addBottomButton(PLAY, t('upgPlay'), 0x2a8a4a, COLORS.merge, () => this.scene.start(this.from === 'menu' ? 'Levels' : 'Game'));
+    this.addBottomButton(MENU, t('toMenu'), 0x2a3550, 0x4a5c82, () => this.scene.start('Menu'));
+  }
+
+  private addBottomButton(r: { x: number; y: number; w: number; h: number }, label: string, fill: number, line: number, onTap: () => void): void {
     const g = this.add.graphics();
-    g.fillStyle(0x2a8a4a, 1).fillRoundedRect(PLAY.x - PLAY.w / 2, PLAY.y - PLAY.h / 2, PLAY.w, PLAY.h, 18);
-    g.lineStyle(4, COLORS.merge, 1).strokeRoundedRect(PLAY.x - PLAY.w / 2, PLAY.y - PLAY.h / 2, PLAY.w, PLAY.h, 18);
-    this.add.text(PLAY.x, PLAY.y, t('upgPlay'), this.style(36)).setOrigin(0.5);
-    this.add
-      .zone(PLAY.x, PLAY.y, PLAY.w, PLAY.h)
-      .setInteractive({ useHandCursor: true })
-      .on('pointerdown', () => this.scene.start('Game'));
+    g.fillStyle(fill, 1).fillRoundedRect(r.x - r.w / 2, r.y - r.h / 2, r.w, r.h, 18);
+    g.lineStyle(4, line, 1).strokeRoundedRect(r.x - r.w / 2, r.y - r.h / 2, r.w, r.h, 18);
+    this.add.text(r.x, r.y, label, this.style(36)).setOrigin(0.5);
+    this.add.zone(r.x, r.y, r.w, r.h).setInteractive({ useHandCursor: true }).on('pointerdown', onTap);
   }
 
   private onBuy(id: UpgradeId): void {
