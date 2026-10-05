@@ -74,7 +74,7 @@
  *   meta-dna               очки ДНК: начисление за проигрыш и победу, один раз за партию, накопление, запись в хранилище
  *   meta-shop              экран «Улучшения» (компьютер ru, телефон en): переход с экрана конца уровня, покупка, нехватка очков, наибольший уровень, «Играть», тексты
  *   meta-effects           улучшения в партии: жизни, стартовые монеты, урон башен, награда за бактерий
- *   level-waves            уровни (этап 5, шаг 1): с `&levelwaves` на уровне 1 состав волн из таблицы `waves.list`, на уровнях 2–10 — от генератора (30 волн, бактерий больше, чем на уровне 1, и не меньше, чем на предыдущем уровне);
+ *   level-waves            уровни (этап 5, шаг 1): с `&levelwaves` на уровне 1 состав волн из таблицы `waves.list`, на уровнях 2–10 — от генератора (30 волн, суммарная прочность бактерий больше, чем на уровне 1, и не меньше, чем на предыдущем уровне);
  *                          без `&levelwaves` на любом уровне волны уровня 1 (так идут остальные проверки и бот)
  *   restart-button         конец уровня (проигрыш и победа, компьютер ru и телефон en): есть кнопка «Заново» (endButton), тапы мимо неё не перезапускают, тап по ней — перезапускает
  *   deflation              economy.rewardMul: ×0,5 — два кокка номиналом 5 дают 2 + 3 = 5 монет (дробная часть копится); ×0,1 — 0 + 1, «+N» всплывает только при N ≥ 1
@@ -5187,17 +5187,20 @@ async function runLevelWaves(browser, baseUrl) {
   const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
   const cfg = 'waves.firstDelaySec:600';
   const totals = [];
+  const hps = [];
   for (let level = 1; level <= 10; level++) {
     const game = await openGame(context, baseUrl, p, { speed: 1, cfg, query: `&levelwaves&level=${level}` });
     const s = await game.state();
     totals.push(s.plannedTotal);
+    hps.push(s.plannedHp);
     check(`${p} уровень ${level}: номер уровня в игре, 30 волн, бактерии запланированы`, s.level === level && s.waveTotal === 30 && s.plannedTotal > 0, `уровень ${s.level}, волн ${s.waveTotal}, бактерий ${s.plannedTotal}`);
     await game.page.close();
   }
   const base = readWaveList().slice(0, 30).reduce((sum, row) => sum + Object.values(row).reduce((a, b) => a + b, 0), 0);
   check(`${p} уровень 1 идёт по таблице волн: бактерий столько, сколько в waves.list (${base})`, totals[0] === base, `в игре ${totals[0]}`);
-  check(`${p} на уровне 2 бактерий больше, чем на уровне 1`, totals[1] > totals[0], `уровень 1: ${totals[0]}, уровень 2: ${totals[1]}`);
-  check(`${p} с уровня на уровень бактерий не становится меньше (2–10)`, totals.slice(2).every((n, i) => n >= totals[i + 1]), totals.join(', '));
+  // Сложность уровня — суммарная прочность бактерий, а не их число: на уровне 2 тяжёлых типов больше, штук может быть меньше
+  check(`${p} на уровне 2 суммарная прочность бактерий больше, чем на уровне 1`, hps[1] > hps[0], `уровень 1: ${hps[0]}, уровень 2: ${hps[1]}`);
+  check(`${p} с уровня на уровень суммарная прочность не становится меньше (2–10)`, hps.slice(2).every((n, i) => n >= hps[i + 1]), hps.join(', '));
   const plain = await openGame(context, baseUrl, p, { speed: 1, cfg, query: '&level=10' });
   const ps = await plain.state();
   check(`${p} без &levelwaves уровень 10 идёт с волнами уровня 1 (бактерий ${base}, номер уровня 10)`, ps.level === 10 && ps.plannedTotal === base, `уровень ${ps.level}, бактерий ${ps.plannedTotal}`);

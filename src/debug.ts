@@ -49,6 +49,8 @@ export interface DebugSnapshot {
   waveTotal: number;
   /** Сколько бактерий выйдет за весь уровень по составу волн (сумма по всем строкам таблицы волн уровня). */
   plannedTotal: number;
+  /** Суммарная прочность (HP из таблицы типов, без роста по волнам) всех бактерий уровня. */
+  plannedHp: number;
   spawned: number;
   kills: number;
   /** Сколько бактерий дошло до организма. */
