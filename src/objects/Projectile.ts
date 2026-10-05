@@ -1,8 +1,12 @@
 import Phaser from 'phaser';
+import { artImage, bakeArt, squareBox } from '../art';
 import { COLORS } from '../theme';
 import type { TowerStats } from '../towerStats';
 import type { Bacterium } from './Bacterium';
 import type { TowerId } from './Tower';
+
+/** Рамка рисунка снаряда (капля сиропа тянется хвостом влево до −26). */
+const SHOT_BOX = squareBox(28);
 
 /** Рисует снаряд башни: таблетка (капсула), капля сиропа, шарик шипучки. Вправо, потом поворачивается по полёту. */
 function drawShot(gfx: Phaser.GameObjects.Graphics, id: TowerId): void {
@@ -45,9 +49,8 @@ export class Projectile {
     this.y = y;
     this.lastX = target.x;
     this.lastY = target.y;
-    const gfx = scene.add.graphics();
-    drawShot(gfx, towerId);
-    this.container = scene.add.container(x, y, [gfx]);
+    const key = bakeArt(scene, `shot-${towerId === 'syrup' || towerId === 'fizz' ? towerId : 'pill'}`, SHOT_BOX, (g) => drawShot(g, towerId));
+    this.container = scene.add.container(x, y, [artImage(scene, key, SHOT_BOX)]);
     layer.add(this.container);
   }
 

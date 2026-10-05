@@ -1,8 +1,9 @@
 import Phaser from 'phaser';
 import { CameraRig } from '../cameraRig';
 import { CONFIG } from '../config';
-import { exposeDebug, NO_PLAQUES, TIME_SCALE, type DebugSnapshot } from '../debug';
+import { exposeDebug, NO_PLAQUES, QA_MODE, STRESS, TIME_SCALE, type DebugSnapshot } from '../debug';
 import { Effects } from '../effects';
+import { awardDna, coinsBonus, exposeMetaDebug, HIDDEN_SCREEN, livesBonus, metaDna, rewardMul } from '../meta';
 import { num, t, type TextKey } from '../i18n';
 import { aimAngle, BLOCKED_TILES, EDGES, ENTRANCE_EDGES, LEVEL, PATH_TILES, WORLD, cellKey, worldToCell } from '../level';
 import { isPortraitPhone } from '../orientation';
@@ -14,10 +15,11 @@ import { GroundShot } from '../objects/GroundShot';
 import { Projectile } from '../objects/Projectile';
 import { Puddle } from '../objects/Puddle';
 import { beamReach, createTowerArt, defaultAim, drawAimLine, Tower, type TowerId } from '../objects/Tower';
-import { tileCenter, type Edge } from '../pathing';
+import { pointAt, tileCenter, type Edge } from '../pathing';
 import { sfx } from '../sound';
 import { MAX_TOWER_LEVEL, mutationOptions, type TowerStats } from '../towerStats';
 import { COLORS, FONT, TEXT_COLORS } from '../theme';
+import { FPS_ENABLED, FpsMeter, frameReport, installFrameStats } from '../perf';
 import { Panel, VIEW_W } from '../ui/Panel';
 import { Plaque, type PlaqueModel } from '../ui/Plaque';
 
@@ -60,6 +62,15 @@ const BEAM_START_PX = 50;
 const SPLITS_INTO: BacteriumKind = 'coccus';
 /** Кого рожает матка (правило игры; сколько и как часто — в таблице типов). */
 const BREWS_INTO: BacteriumKind = 'swarm';
+/** Стресс-сценарий (`?qa&stress`): сколько башен, сколько бактерий держится на карте, скорость игры, во сколько раз прочнее бактерии (чтобы жили дольше). */
+const STRESS_TOWERS = 40;
+const STRESS_BACTERIA = 200;
+const STRESS_SPEED = 3;
+const STRESS_HP_MUL = 3;
+/** Сколько бактерий стресс-сценарий добавляет за кадр взамен погибших. */
+const STRESS_REFILL_PER_FRAME = 20;
+/** Новые бактерии стресс-сценария появляются не ближе стольких клеток к организму. */
+const STRESS_ORGANISM_GAP_TILES = 3;
 
 /** Кто выходит следующим в волне: тип, вход (null — случайный) и сколько секунд ждать до следующего (в пачке — короткая пауза). */
 interface SpawnItem {
@@ -145,6 +156,10 @@ export class GameScene extends Phaser.Scene {
   private plaque!: Plaque;
   /** Кнопка «Заново» на экране конца уровня (центр и размер на экране игры), пока экран не показан — null. */
   private endButton: { x: number; y: number; w: number; h: number } | null = null;
+  /** Кнопка «Улучшения» на экране конца уровня и сколько очков ДНК начислено за эту партию (0, пока партия идёт). */
+  private upgradesButton: { x: number; y: number; w: number; h: number } | null = null;
+  private dnaGained = 0;
+  private dnaAwarded = false;
   private waveInterval = 1;
   private spawnTimer = 0;
   private plannedTotal = 0;
@@ -181,8 +196,8 @@ export class GameScene extends Phaser.Scene {
     // Сцена при перезапуске не создаётся заново, поэтому всё обнуляем вручную.
     this.state = 'playing';
     this.elapsed = 0;
-    this.coins = CONFIG.economy.startCoins;
-    this.lives = CONFIG.lives.start;
+    this.coins = CONFIG.economy.startCoins + coinsBonus();
+    this.lives = this.maxLives();
     this.kills = 0;
     this.splits = 0;
     this.disables = 0;
@@ -195,6 +210,9 @@ export class GameScene extends Phaser.Scene {
     this.infoQueue = [];
     this.infoClosableAt = 0;
     this.endButton = null;
+    this.upgradesButton = null;
+    this.dnaGained = 0;
+    this.dnaAwarded = false;
     this.bacteria = [];
     this.towers = [];
     this.projectiles = [];
@@ -259,7 +277,7 @@ export class GameScene extends Phaser.Scene {
       onRotate: (dir) => this.rotateSelected(dir),
       onCardClose: () => this.deselectTower(),
     });
-    this.panel.init();
+    this.panel.init(this.maxLives());
     this.plaque = new Plaque(this);
     this.panel.setSpeed(this.userSpeed);
     this.panel.setCoins(this.coins);
@@ -273,8 +291,12 @@ export class GameScene extends Phaser.Scene {
       onHoverEnd: () => this.ghost.setVisible(false),
     });
     this.input.on('pointerdown', this.onScreenTap, this);
-    this.announceStart();
+    if (STRESS) this.setupStress();
+    else this.announceStart();
+    if (FPS_ENABLED || QA_MODE) installFrameStats(this.game);
+    if (FPS_ENABLED) new FpsMeter(this);
 
+    exposeMetaDebug(() => HIDDEN_SCREEN);
     exposeDebug({
       getState: () => this.snapshot(),
       getGraph: () => ({
@@ -294,6 +316,24 @@ export class GameScene extends Phaser.Scene {
           this.ghost.setVisible(false);
           this.showInfo();
         }
+      },
+      getPerf: (reset) => {
+        let objects = 0;
+        const count = (list: Phaser.GameObjects.GameObject[]): void => {
+          for (const obj of list) {
+            if ((obj as unknown as { visible?: boolean }).visible === false) continue;
+            objects++;
+            if (obj instanceof Phaser.GameObjects.Container) count(obj.list);
+          }
+        };
+        count(this.children.list);
+        return {
+          ...frameReport(reset),
+          objects,
+          bacteria: this.bacteria.length,
+          towers: this.towers.length,
+          renderer: this.game.renderer.type === Phaser.WEBGL ? 'webgl' : 'canvas',
+        };
       },
       worldToClient: (wx, wy) => {
         const s = this.rig.worldToScreen(wx, wy);
@@ -337,6 +377,10 @@ export class GameScene extends Phaser.Scene {
   // ---------------------------------------------------------------- волны
 
   private updateWaves(dt: number): void {
+    if (STRESS) {
+      this.refillStress(STRESS_REFILL_PER_FRAME);
+      return;
+    }
     if (this.phase === 'done') return;
     if (this.phase === 'countdown' || this.phase === 'pause') {
       this.phaseTimer -= dt;
@@ -410,6 +454,11 @@ export class GameScene extends Phaser.Scene {
     sfx.wave();
   }
 
+  /** Жизней в начале партии: из таблицы плюс купленные улучшения (docs/upgrades.md). */
+  private maxLives(): number {
+    return CONFIG.lives.start + livesBonus();
+  }
+
   /** Множитель наград текущей волны по кривой `economy.rewardCurve` (точки [волна, множитель], между ними — по прямой). */
   private rewardFactor(): number {
     const pts = CONFIG.economy.rewardCurve;
@@ -425,10 +474,10 @@ export class GameScene extends Phaser.Scene {
     return pts[pts.length - 1][1];
   }
 
-  /** Во сколько раз прочнее бактерии текущей волны (рост `waves.hpGrowthPerWave` после волны `hpGrowthFromWave`); 1 — как в таблице типов. */
+  /** Во сколько раз прочнее бактерии текущей волны (рост `waves.hpGrowthPerWave` после волны `hpGrowthFromWave` и добавка `hpGrowthLatePerWave` после волны `hpGrowthLateFromWave`); 1 — как в таблице типов. */
   private waveHpMul(): number {
-    const { hpGrowthPerWave, hpGrowthFromWave } = CONFIG.waves;
-    return 1 + hpGrowthPerWave * Math.max(0, this.waveIdx - hpGrowthFromWave);
+    const { hpGrowthPerWave, hpGrowthFromWave, hpGrowthLatePerWave, hpGrowthLateFromWave } = CONFIG.waves;
+    return 1 + hpGrowthPerWave * Math.max(0, this.waveIdx - hpGrowthFromWave) + hpGrowthLatePerWave * Math.max(0, this.waveIdx - hpGrowthLateFromWave);
   }
 
   /** Сколько волн идёт на уровне. */
@@ -665,7 +714,7 @@ export class GameScene extends Phaser.Scene {
   private killBacterium(bacterium: Bacterium): void {
     this.kills++;
     // «Дефляция»: награда умножается на economy.rewardMul и множитель волны из economy.rewardCurve, дробная часть копится до целой монеты
-    this.rewardPool += bacterium.reward * CONFIG.economy.rewardMul * this.rewardFactor();
+    this.rewardPool += bacterium.reward * CONFIG.economy.rewardMul * this.rewardFactor() * rewardMul();
     const gain = Math.floor(this.rewardPool + 1e-9);
     this.rewardPool -= gain;
     this.coins += gain;
@@ -735,8 +784,9 @@ export class GameScene extends Phaser.Scene {
       this.effects.flash(CONFIG.map.orgW, lastY, 36, COLORS.loseLine);
       return;
     }
-    this.lives = Math.max(0, this.lives - whole);
-    this.panel.setLives(this.lives);
+    // Стресс-сценарий: жизни не убывают (вспышка и тряска остаются — это тоже нагрузка)
+    if (!STRESS) this.lives = Math.max(0, this.lives - whole);
+    this.panel.setLives(this.lives, this.maxLives());
     this.effects.lifeLost();
     sfx.lifeLost();
     if (this.lives <= 0) this.endGame(false);
@@ -1118,6 +1168,53 @@ export class GameScene extends Phaser.Scene {
 
   // ---------------------------------------------------------------- плашки с описанием (игра на паузе)
 
+  // ---------------------------------------------------------------- стресс-сценарий (замер скорости)
+
+  /** 40 башен всех видов (уровни 1–4, мутации выбраны) по свободным клеткам, ≈200 бактерий всех типов по всей сети, скорость ×3. */
+  private setupStress(): void {
+    this.userSpeed = STRESS_SPEED;
+    this.panel.setSpeed(this.userSpeed);
+    const ids = Object.keys(CONFIG.towers) as TowerId[];
+    const free: [number, number][] = [];
+    for (let row = 0; row < LEVEL.rows; row++) {
+      for (let col = 0; col < LEVEL.cols; col++) {
+        const key = cellKey(col, row);
+        if (!PATH_TILES.has(key) && !BLOCKED_TILES.has(key)) free.push([col, row]);
+      }
+    }
+    // Клетки берутся равномерно по всему списку, чтобы башни стояли по всей карте
+    const count = Math.min(STRESS_TOWERS, free.length);
+    for (let i = 0; i < count; i++) {
+      const [col, row] = free[Math.floor((i * free.length) / count)];
+      const center = tileCenter(col, row);
+      const tower = new Tower(this, this.towerLayer, ids[i % ids.length], col, row, center.x, center.y);
+      for (let level = 1; level < 1 + (Math.floor(i / ids.length) % MAX_TOWER_LEVEL); level++) tower.upgrade();
+      while (tower.pendingTier !== null) tower.pickMutation(i % 2);
+      this.occupied.add(cellKey(col, row));
+      this.towers.push(tower);
+    }
+    this.placedAny = true;
+    this.updateHint();
+    this.refillStress(STRESS_BACTERIA);
+  }
+
+  /** Добавляет бактерий случайных типов в случайные места сети (не больше `limit` за раз), пока их меньше STRESS_BACTERIA. */
+  private refillStress(limit: number): void {
+    for (let n = 0; n < limit && this.bacteria.length < STRESS_BACTERIA; n++) {
+      const kind = KINDS[Math.floor(Math.random() * KINDS.length)];
+      // Место — случайная точка сети не ближе STRESS_ORGANISM_GAP_TILES клеток к организму (иначе потеря жизни шла бы каждый кадр)
+      let edge = EDGES[0];
+      let s = 0;
+      for (let attempt = 0; attempt < 20; attempt++) {
+        edge = EDGES[Math.floor(Math.random() * EDGES.length)];
+        s = Math.random() * edge.length;
+        if (pointAt(edge, s).x > CONFIG.map.orgW + STRESS_ORGANISM_GAP_TILES * CONFIG.map.tile) break;
+      }
+      this.bacteria.push(new Bacterium(this, this.bacteriaLayer, kind, edge, s, STRESS_HP_MUL));
+      this.spawned++;
+    }
+  }
+
   /** В начале уровня: плашки башен, открывшихся на этом уровне (на 1-м — Таблетка и Сироп), затем плашки бактерий 1-й волны. */
   private announceStart(): void {
     if (NO_PLAQUES) return;
@@ -1213,28 +1310,38 @@ export class GameScene extends Phaser.Scene {
     this.deselectTower();
     if (won) sfx.win();
     else sfx.lose();
-    this.showOverlay(won ? t('victory') : t('gameOver'), TEXT_COLORS.accent, t('killed', { n: this.kills }));
-    this.addRestartButton();
+    // Очки ДНК за партию начисляются один раз: за каждую пройденную волну (при проигрыше — без текущей) и добавка за победу
+    if (!this.dnaAwarded) {
+      this.dnaAwarded = true;
+      this.dnaGained = awardDna(won ? this.waveTotal() : Math.max(0, this.waveIdx - 1), won);
+    }
+    this.showOverlay(won ? t('victory') : t('gameOver'), TEXT_COLORS.accent, t('killed', { n: this.kills }), t('dnaGained', { n: this.dnaGained, total: metaDna() }));
+    this.addEndButtons();
   }
 
-  /** Кнопка «Заново» на экране конца уровня: перезапуск только ею (тап мимо кнопки уровень не перезапускает). */
-  private addRestartButton(): void {
+  /** Кнопки экрана конца уровня: «Заново» (перезапуск только ею: тап мимо кнопки уровень не перезапускает) и «Улучшения» (экран трат очков ДНК). */
+  private addEndButtons(): void {
     const w = 320;
     const h = 76;
-    const x = W / 2;
-    const y = H / 2 + 120;
+    const y = H / 2 + 190;
+    const restart = this.addEndButton(W / 2 - 180, y, w, h, t('restart'), 0x2a8a4a, COLORS.merge, () => {
+      if (performance.now() >= this.restartAllowedAt) this.scene.restart();
+    });
+    const upgrades = this.addEndButton(W / 2 + 180, y, w, h, t('upgradesBtn'), 0x2a5c9a, COLORS.gold, () => {
+      if (performance.now() >= this.restartAllowedAt) this.scene.start('Upgrades');
+    });
+    this.endButton = restart;
+    this.upgradesButton = upgrades;
+  }
+
+  private addEndButton(x: number, y: number, w: number, h: number, label: string, fill: number, line: number, onTap: () => void): { x: number; y: number; w: number; h: number } {
     const g = this.add.graphics();
-    g.fillStyle(0x2a8a4a, 1).fillRoundedRect(x - w / 2, y - h / 2, w, h, 18);
-    g.lineStyle(4, COLORS.merge, 1).strokeRoundedRect(x - w / 2, y - h / 2, w, h, 18);
-    const label = this.add.text(x, y, t('restart'), this.textStyle(34)).setOrigin(0.5);
-    const zone = this.add
-      .zone(x, y, w, h)
-      .setInteractive({ useHandCursor: true })
-      .on('pointerdown', () => {
-        if (performance.now() >= this.restartAllowedAt) this.scene.restart();
-      });
-    this.overlay?.add([g, label, zone]);
-    this.endButton = { x, y, w, h };
+    g.fillStyle(fill, 1).fillRoundedRect(x - w / 2, y - h / 2, w, h, 18);
+    g.lineStyle(4, line, 1).strokeRoundedRect(x - w / 2, y - h / 2, w, h, 18);
+    const text = this.add.text(x, y, label, this.textStyle(34)).setOrigin(0.5);
+    const zone = this.add.zone(x, y, w, h).setInteractive({ useHandCursor: true }).on('pointerdown', onTap);
+    this.overlay?.add([g, text, zone]);
+    return { x, y, w, h };
   }
 
   private showOverlay(title: string, titleColor: string, line2: string, line3?: string): void {
@@ -1243,7 +1350,7 @@ export class GameScene extends Phaser.Scene {
       this.add.text(W / 2, H / 2 - 90, title, this.textStyle(76, titleColor)).setOrigin(0.5),
       this.add.text(W / 2, H / 2 + 10, line2, this.textStyle(40)).setOrigin(0.5),
     ];
-    if (line3) items.push(this.add.text(W / 2, H / 2 + 100, line3, this.textStyle(32)).setOrigin(0.5));
+    if (line3) items.push(this.add.text(W / 2, H / 2 + 92, line3, this.textStyle(32, TEXT_COLORS.accent)).setOrigin(0.5));
     this.overlay = this.add.container(0, 0, items).setDepth(200);
   }
 
@@ -1292,7 +1399,7 @@ export class GameScene extends Phaser.Scene {
       state: this.state,
       coins: this.coins,
       lives: this.lives,
-      maxLives: CONFIG.lives.start,
+      maxLives: this.maxLives(),
       wave: this.waveIdx,
       waveTotal: this.waveTotal(),
       spawned: this.spawned,
@@ -1322,6 +1429,8 @@ export class GameScene extends Phaser.Scene {
       level: CURRENT_LEVEL,
       info: { ...this.plaque.geometry(), queue: this.infoQueue.length },
       endButton: this.endButton ? { ...this.endButton } : null,
+      upgradesButton: this.upgradesButton ? { ...this.upgradesButton } : null,
+      dnaGained: this.dnaGained,
       selected: this.selected,
       towers: this.towers.map((tw) => ({
         id: tw.id,

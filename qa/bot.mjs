@@ -44,6 +44,7 @@ import {
   parseArgs,
   readConfigNumber,
   readTowerTable,
+  readMetaTable,
   readTowerUnlock,
   ROOT,
   sleep,
@@ -109,6 +110,9 @@ const HELP = `Бот-замерщик баланса: играет целые п
   --verbose                             печатать каждую покупку и раз в 30 с — где идёт партия
   --shots                               снимок экрана в конце партии: qa/bot-results/<tag>-shots/
   --level=N                             номер уровня (1…10, по умолчанию 1): от него зависит, какие башни открыты (levels.towerUnlock в config.ts; на уровне 1 — только Таблетка и Сироп)
+  --campaign=N                          режим «серия партий» (этап 6а): каждая из --runs серий — до N партий подряд одним профилем; после каждой партии бот начисляет очки ДНК
+                                        (по формуле config.ts, раздел meta) и покупает улучшения по порядку damage, coins, lives, reward; серия кончается первой победой.
+                                        Итог — номер партии первой победы. Без этого параметра улучшений нет (уровни 0)
   --canvas                              рисовать игру через canvas вместо WebGL (?qa&canvas): на слабом контейнере партия идёт ≈ втрое быстрее.
                                         Логика игры та же; для замеров баланса годится (картинка не важна)
   --help                                эта справка
@@ -124,7 +128,7 @@ if (args.help || args.h) {
   console.log(HELP);
   process.exit(0);
 }
-const KNOWN = new Set(['profile', 'runs', 'speed', 'exclude', 'cfg', 'tag', 'seed', 'max-game-sec', 'max-real-sec', 'verbose', 'shots', 'canvas', 'level', 'help']);
+const KNOWN = new Set(['profile', 'runs', 'speed', 'exclude', 'cfg', 'tag', 'seed', 'max-game-sec', 'max-real-sec', 'verbose', 'shots', 'canvas', 'level', 'campaign', 'help']);
 for (const key of Object.keys(args)) if (!KNOWN.has(key)) die(`Неизвестный параметр --${key}. Справка: node qa/bot.mjs --help`);
 
 function numArg(name, fallback, { min = -Infinity, max = Infinity, int = false } = {}) {
@@ -145,6 +149,7 @@ if (args.speed !== undefined && SPEED > 4) die('--speed не выше 4.');
 const MAX_GAME_SEC = numArg('max-game-sec', 2400, { min: 30, max: 100000 });
 const MAX_REAL_SEC = numArg('max-real-sec', 3600, { min: 30, max: 100000 });
 const LEVEL = numArg('level', 1, { min: 1, max: 10, int: true });
+const CAMPAIGN = numArg('campaign', 0, { min: 0, max: 40, int: true }); // 0 — обычный замер одной партии; N — серия до N партий с улучшениями
 const SEED = args.seed === undefined ? Math.floor(Math.random() * 1e9) : numArg('seed', 0, { min: 0, max: 4294967295, int: true });
 const TAG = args.tag === undefined ? 'latest' : String(args.tag);
 if (!/^[\w-]+$/.test(TAG)) die(`Неверный --tag=«${TAG}»: только буквы, цифры, «_» и «-».`);
@@ -184,6 +189,41 @@ for (const [cfgPath, value] of CFG_ITEMS) {
   if (m && TABLE[m[1]] && typeof TABLE[m[1]][m[2]] === 'number') TABLE[m[1]][m[2]] = value;
 }
 const MAP_PATH_WIDTH = cfgGet('map.pathWidth') ?? readConfigNumber('map', 'pathWidth');
+
+// Очки ДНК и улучшения (config.ts, раздел meta) с подменой --cfg: цены, очки за волну и за победу
+const META = readMetaTable();
+for (const [cfgPath, value] of CFG_ITEMS) {
+  let m = /^meta\.dna\.(\w+)$/.exec(cfgPath);
+  if (m && typeof META.dna[m[1]] === 'number') META.dna[m[1]] = value;
+  m = /^meta\.upgrades\.(\w+)\.prices\.(\d+)$/.exec(cfgPath);
+  if (m && META.upgrades[m[1]] && Number(m[2]) < META.upgrades[m[1]].prices.length) META.upgrades[m[1]].prices[Number(m[2])] = value;
+  m = /^meta\.upgrades\.(\w+)\.perLevel$/.exec(cfgPath);
+  if (m && META.upgrades[m[1]]) META.upgrades[m[1]].perLevel = value;
+}
+const BUY_ORDER = ['damage', 'coins', 'lives', 'reward']; // в таком порядке бот тратит очки ДНК (docs/upgrades.md, раздел 7)
+const emptyLevels = () => Object.fromEntries(Object.keys(META.upgrades).map((id) => [id, 0]));
+
+/** Очки ДНК за партию: за каждую пройденную волну (при проигрыше — без текущей) и добавка за победу — как в GameScene.endGame. */
+function dnaForGame(game) {
+  const cleared = game.result === 'won' ? game.waveTotal : Math.max(0, game.wave - 1);
+  return cleared * META.dna.perWave + (game.result === 'won' ? META.dna.winBonus : 0);
+}
+
+/** Жадная покупка: пока хватает очков, берёт первое по порядку BUY_ORDER улучшение, у которого есть следующий уровень по цене не выше счёта. */
+function buyUpgrades(levels, dna) {
+  const next = { ...levels };
+  const bought = [];
+  let left = dna;
+  for (;;) {
+    const id = BUY_ORDER.find((x) => META.upgrades[x] && META.upgrades[x].prices[next[x]] !== undefined && META.upgrades[x].prices[next[x]] <= left);
+    if (!id) break;
+    left -= META.upgrades[id].prices[next[id]];
+    next[id]++;
+    bought.push(id);
+  }
+  return { levels: next, dna: left, bought };
+}
+
 
 // ------------------------------------------------------------------ случайные числа (с зерном)
 
@@ -436,6 +476,7 @@ function makePlayer(profile, { world, rng, buttons }) {
   const imperfect = profile === 'strong';
   const patience = imperfect ? STRONG_PATIENCE_SEC : PATIENCE_SEC;
   const noise = imperfect ? STRONG_NOISE : EXPERT_NOISE;
+  const gaveUp = new Set(); // башни, для которых «копить на первую» не вышло (нет подходящих клеток): дальше обычный круг
   let ptr = 0;
   let headSince = 0;
   let lastPtr = -1;
@@ -460,13 +501,15 @@ function makePlayer(profile, { world, rng, buttons }) {
         order = cheapest ? [{ idx: -1, type: cheapest }] : order.filter((o) => TABLE[o.type].damage > 0);
       }
       // «Особо сильный» знает, что с 4-й волны идёт рой, а одними Таблетками он не остановим: до 5-й волны копит монеты на первую Шипучку и ничего другого не покупает (слияния Таблеток при этом идут как обычно)
-      const needFizz = !imperfect && !opening && available('fizz') && !view.towers.some((tw) => tw.id === 'fizz') && view.s.wave <= FIZZ_BY_WAVE;
-      if (needFizz) order = [{ idx: STRONG_CYCLE.indexOf('fizz'), type: 'fizz' }];
+      // Так же он копит на первый Сироп и первый Шприц (без этого в бою, когда «не спокойно», терпение 0 и он до конца партии покупает только дешёвые Таблетки: Сироп не строился ни разу)
+      const firstOf = (id) => available(id) && !gaveUp.has(id) && !view.towers.some((tw) => tw.id === id);
+      const needFirst = imperfect || opening ? null : firstOf('fizz') && view.s.wave <= FIZZ_BY_WAVE ? 'fizz' : ['syrup', 'syringe'].find(firstOf) ?? null;
+      if (needFirst) order = [{ idx: STRONG_CYCLE.indexOf(needFirst), type: needFirst }];
       if (!order.length) return null;
       const calm = view.s.lives >= view.s.maxLives && view.s.bacteria.length <= CALM_MAX_BACTERIA;
       let chosen = null;
       if (view.coins >= TABLE[order[0].type].price) chosen = order[0];
-      else if (!opening && !needFizz && now - headSince >= (calm ? patience : 0)) chosen = order.find((o) => view.coins >= TABLE[o.type].price) ?? null;
+      else if (!opening && !needFirst && now - headSince >= (calm ? patience : 0)) chosen = order.find((o) => view.coins >= TABLE[o.type].price) ?? null;
       if (!chosen) return null;
       const candidates = [];
       for (const c of view.free) {
@@ -482,6 +525,7 @@ function makePlayer(profile, { world, rng, buttons }) {
         best = pool[Math.floor(rng() * pool.length)];
       }
       if (!best) {
+        if (needFirst) gaveUp.add(chosen.type);
         if (chosen.idx >= 0) ptr = chosen.idx + 1; // клеток для этой башни нет — переходит к следующей в списке
         return null;
       }
@@ -513,8 +557,8 @@ async function pollUntil(page, predicate, timeoutMs, pollMs = 35) {
 let WORLD = null; // строится один раз по сети дорожек из первой партии
 
 /** Играет одну партию. Возвращает запись о партии. Бросает FatalConsole (ошибка консоли / «cfg:»), остальные ошибки — наверх. */
-async function playGame(browser, baseUrl, profile, run) {
-  const rng = makeRng(`${SEED}:${profile}:${run}`);
+async function playGame(browser, baseUrl, profile, run, metaLevels = null, salt = '') {
+  const rng = makeRng(`${SEED}:${profile}:${run}${salt}`);
   const context = await browser.newContext({ viewport: { width: W, height: H }, deviceScaleFactor: 1, locale: 'ru-RU' });
   const page = await context.newPage();
   page.setDefaultTimeout(30000);
@@ -542,7 +586,7 @@ async function playGame(browser, baseUrl, profile, run) {
 
   const realStart = Date.now();
   try {
-    await page.goto(`${baseUrl}?qa&speed=${SPEED}${args.canvas ? '&canvas' : ''}${CFG_STRING ? `&cfg=${CFG_STRING}` : ''}&level=${LEVEL}`, { waitUntil: 'load' });
+    await page.goto(`${baseUrl}?qa&speed=${SPEED}${args.canvas ? '&canvas' : ''}${CFG_STRING ? `&cfg=${CFG_STRING}` : ''}&level=${LEVEL}${metaLevels ? `&meta=${Object.entries(metaLevels).map(([id, n]) => `${id}:${n}`).join(',')}` : ''}`, { waitUntil: 'load' });
     // В начале уровня игра сама встаёт на паузу и показывает плашки (башни уровня и бактерии 1-й волны): state 'info'. Бот закрывает их тапом (раньше 0,4 с после показа плашка тап не принимает)
     let s = await pollUntil(page, (x) => x && (x.state === 'playing' || x.state === 'info'), 20000, 100);
     checkConsole();
@@ -846,7 +890,7 @@ async function playGame(browser, baseUrl, profile, run) {
     }
     const counts = {};
     for (const id of KNOWN_TOWERS) counts[id] = last.towers.filter((tw) => tw.id === id).length;
-    const startCoins = cfgGet('economy.startCoins') ?? readConfigNumber('economy', 'startCoins');
+    const startCoins = (cfgGet('economy.startCoins') ?? readConfigNumber('economy', 'startCoins')) + (metaLevels ? metaLevels.coins * META.upgrades.coins.perLevel : 0);
     return {
       profile,
       run,
@@ -953,6 +997,8 @@ try {
 }
 const startedAt = new Date();
 const games = [];
+/** Серии партий (--campaign): профиль, номер серии, сколько партий сыграно, номер партии первой победы (null — не победил за N), волна гибели в каждой партии, купленные улучшения. */
+const series = [];
 const resultsDir = path.join(ROOT, 'qa', 'bot-results');
 fs.mkdirSync(resultsDir, { recursive: true });
 const resultsFile = path.join(resultsDir, `${TAG}.json`);
@@ -960,7 +1006,8 @@ const saveResults = () => {
   const payload = {
     tag: TAG,
     startedAt: startedAt.toISOString(),
-    args: { profiles: PROFILES, runs: RUNS, speed: SPEED, level: LEVEL, exclude: [...EXCLUDE], cfg: CFG_STRING, seed: SEED, maxGameSec: MAX_GAME_SEC },
+    args: { profiles: PROFILES, runs: RUNS, speed: SPEED, level: LEVEL, exclude: [...EXCLUDE], cfg: CFG_STRING, seed: SEED, maxGameSec: MAX_GAME_SEC, campaign: CAMPAIGN },
+    campaign: CAMPAIGN ? { n: CAMPAIGN, series, metaTable: META } : undefined,
     towerTable: TABLE,
     summary: summarize(games),
     games,
@@ -990,6 +1037,54 @@ try {
   outer: for (let run = 1; run <= RUNS; run++) {
     for (const profile of PROFILES) {
       if (stopRequested) break outer;
+      if (CAMPAIGN) {
+        // ---- серия партий: очки ДНК копятся, улучшения покупаются между партиями; серия кончается первой победой или после CAMPAIGN партий
+        let levels = emptyLevels();
+        let dna = 0;
+        const entry = { profile, run, games: 0, firstWin: null, waves: [], bought: [], error: null };
+        for (let n = 1; n <= CAMPAIGN; n++) {
+          if (stopRequested) break;
+          let game = null;
+          for (let attempt = 1; attempt <= 2 && !game; attempt++) {
+            try {
+              game = await playGame(browser, server.url, profile, run, levels, `:${n}`);
+            } catch (error) {
+              if (error instanceof FatalConsole) {
+                fatal = `Остановлено: в серии «${PROFILE_TITLES[profile]} ${run}», партия ${n}, консоль игры сообщила о проблеме. Замер с такой партией был бы недостоверным.\n   ${error.message}`;
+                break outer;
+              }
+              console.log(`   ⚠ [${PROFILE_TITLES[profile]} серия ${run}, партия ${n}] сбой (попытка ${attempt}): ${error.message.split('\n')[0]}`);
+              if (!browser.isConnected()) browser = await launchBrowser();
+              if (attempt === 2) game = { profile, run, result: 'error', error: error.message.split('\n')[0], realSec: 0 };
+            }
+          }
+          Object.assign(game, { series: run, game: n, metaLevels: { ...levels }, dnaBefore: dna });
+          games.push(game);
+          entry.games = n;
+          if (game.result === 'error') {
+            entry.error = game.error;
+            console.log(`[${PROFILE_TITLES[profile]} серия ${run}, партия ${n}] ОШИБКА: ${game.error}`);
+            break;
+          }
+          entry.waves.push(game.result === 'won' ? game.waveTotal : game.wave);
+          const gained = dnaForGame(game);
+          dna += gained;
+          const buy = buyUpgrades(levels, dna);
+          levels = buy.levels;
+          dna = buy.dna;
+          entry.bought.push(buy.bought);
+          console.log(`[${PROFILE_TITLES[profile]} серия ${run}, партия ${n}] ${RESULT_RU[game.result]} · волна ${game.wave}/${game.waveTotal} · очков ДНК +${gained} (остаток ${dna}) · куплено ${buy.bought.length ? buy.bought.join(', ') : '—'} · уровни ${Object.entries(levels).map(([id, v]) => `${id} ${v}`).join(', ')} · игра ${game.gameSec} с, реал. ${game.realSec} с`);
+          for (const a of game.anomalies ?? []) console.log(`      ⚠ ${a}`);
+          if (game.result === 'won') {
+            entry.firstWin = n;
+            break;
+          }
+        }
+        series.push(entry);
+        console.log(`[${PROFILE_TITLES[profile]} серия ${run}/${RUNS}] ${entry.firstWin ? `первая победа в партии ${entry.firstWin}` : `победы за ${entry.games} парт. нет`}`);
+        saveResults();
+        continue;
+      }
       let game = null;
       for (let attempt = 1; attempt <= 2 && !game; attempt++) {
         try {
@@ -1026,8 +1121,18 @@ if (fatal) {
   process.exit(3);
 }
 
-console.log('\nИТОГ ПО ПРОФИЛЯМ');
-printSummary(summarize(games));
+if (CAMPAIGN) {
+  console.log('\nИТОГ ПО СЕРИЯМ ПАРТИЙ (номер партии первой победы)');
+  for (const profile of PROFILES) {
+    const own = series.filter((x) => x.profile === profile && !x.error);
+    if (!own.length) continue;
+    const wins = own.filter((x) => x.firstWin);
+    console.log(`  ${PROFILE_TITLES[profile]}: серий ${own.length}, побед в серии ${wins.length}, первая победа в партии: ${wins.length ? `в среднем ${f1(mean(wins.map((x) => x.firstWin)))} (${wins.map((x) => x.firstWin).join(', ')})` : '—'}; волны по партиям: ${own.map((x) => `[${x.waves.join(' ')}]`).join(' ')}`);
+  }
+} else {
+  console.log('\nИТОГ ПО ПРОФИЛЯМ');
+  printSummary(summarize(games));
+}
 const warningsAll = [...new Set(games.flatMap((g) => g.warnings ?? []))];
 const anomaliesAll = games.flatMap((g) => g.anomalies ?? []);
 const failuresAll = games.flatMap((g) => g.failures ?? []);

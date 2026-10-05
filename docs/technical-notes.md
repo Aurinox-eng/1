@@ -23,7 +23,9 @@ src/orientation.ts                   вертикальный телефон: п
 src/ui/Panel.ts                      правая панель, подсказки
 src/debug.ts               режим проверки ?qa (только dev и тестовая сборка)
 src/main.ts                запуск Phaser, масштабирование
-src/scenes/GameScene.ts    игровой процесс: волны, башни, бой, конец уровня
+src/scenes/GameScene.ts    игровой процесс: волны, башни, бой, конец уровня (начисление очков ДНК, кнопки «Заново» и «Улучшения»)
+src/scenes/UpgradesScene.ts экран «Улучшения» (этап 6а): 4 карточки, покупка за очки ДНК, «Играть»
+src/save.ts, meta.ts       очки ДНК и уровни улучшений: хранение в localStorage (ключ pvb.meta) и бонусы партии; `?qa&meta=lives:1,coins:2,damage:3,reward:0,dna:50` подменяет их
 src/objects/               Bacterium.ts, bacteriumArt.ts, Tower.ts, Projectile.ts
 qa/lib.mjs, smoke.mjs      проверки в браузере (запускает qa-tester); скриншоты — qa/screenshots/<тег>/
 qa/bot.mjs                 бот-замерщик баланса (запускает game-designer); итоги — qa/bot-results/<тег>.json (в git не коммитить)
@@ -94,6 +96,15 @@ dist/, dist-qa/            результаты сборки (в git нет)
   урона нанесла каждая башня, бот не видит (в `getState` нет статистики по башням) — «нужна ли башня» проверяется сравнением профилей
   с `--exclude`; цены, радиусы и стиль стрельбы бот читает из `src/config.ts` (плюс подмена `--cfg`), в `getState` их нет.
 
+## Очки ДНК и улучшения вне партии (этап 6а; проект — `docs/upgrades.md`)
+- **Таблица** `CONFIG.meta` в `src/config.ts`: `dna.perWave`, `dna.winBonus`, `upgrades.<id>.{perLevel, prices[]}` для `lives`, `coins`, `damage`, `reward`. Все числа подменяются через `?qa&cfg=` (цены — `meta.upgrades.lives.prices.0:10`).
+- **Хранилище** — `src/save.ts` (`loadMeta`/`saveMeta`, проверка и исправление чужих значений, любое обращение в `try/catch`); состояние и бонусы — `src/meta.ts`. На этапе 9 тело двух функций хранилища заменяется облачным сохранением Яндекса.
+- **Где применяются:** `GameScene.create` (жизни `CONFIG.lives.start` + улучшение, монеты `economy.startCoins` + улучшение), `towerStats.computeStats` (множитель урона, в конце), `GameScene.killBacterium` (множитель награды), `Panel.setLives(жизни, максимум)` (сердца уменьшаются, когда их больше трёх).
+- **Начисление** — `GameScene.endGame`, один раз за партию (`dnaAwarded`): за проигрыш (достигнутая волна − 1) × `perWave`, за победу — все волны уровня × `perWave` + `winBonus`.
+- **Экраны:** конец уровня — строка «+N очков ДНК (всего M)», кнопки «Заново» (`endButton`) и «Улучшения» (`upgradesButton`); `UpgradesScene` (ключ сцены `Upgrades`). Из экрана конца уровня в «Улучшения» — `scene.start('Upgrades')`, обратно — `scene.start('Game')`.
+- **Для проверок:** `window.__pvbMeta.getMeta()` → `{ dna, levels, screen: { visible, balance, play, cards[{ id, level, max, price, canBuy, rect, buy, texts }] } }`; в `getState()` игры — `upgradesButton` и `dnaGained`. Сценарии `smoke`: `meta-save`, `meta-dna`, `meta-shop`, `meta-effects`.
+- **Бот:** режим `--campaign=N` (серия до N партий одним профилем; после партии начисляет очки по формуле игры и покупает улучшения по порядку `damage, coins, lives, reward`; улучшения передаёт игре через `&meta=`). Поле `campaign` в `balance.yml`; итоговая таблица (`qa/bot-report.mjs`) показывает раздел «Серии партий» (номер партии первой победы).
+
 ## Круг 14: уровень 1, плашки, открытие башен (устройство)
 - `src/progress.ts`: номер уровня из адреса `?level=N` (по умолчанию 1; работает и в игровой сборке до меню этапа 5), `isTowerOpen(id)`, `newTowersOfLevel(ids)`. Таблица — `CONFIG.levels.towerUnlock`
   (подмена для проб: `?qa&cfg=levels.towerUnlock.fizz:1`).
@@ -130,6 +141,11 @@ dist/, dist-qa/            результаты сборки (в git нет)
   блок `#rotate` из `index.html` («Поверните телефон горизонтально», текст ставит `main.ts` из i18n), а игровое время и жесты
   стоят (`src/orientation.ts`). На компьютере с мышью этого нет. Требования Яндекс Игр к ориентации не проверены (этап 9).
 - Текст рисуется с `resolution: 2` (чёткий при масштабировании экрана и приближении карты).
+- **Рисунки заранее** (`src/art.ts`, с 3 октября 2026): бактерии, башни, снаряды, лужи, кольца и ауры рисуются командами Graphics ОДИН раз
+  в текстуру (`bakeArt`, ключ — вид и числа рисунка) и выводятся картинками (`artImage`/`setArt`); плотность — `camera.zoomMax`, сторона
+  не больше 4096 px. У бактерии две картинки: тело (по толщине оболочки) и трещины (по их числу; у круглых типов повёрнута на свой угол).
+  Частицы — один эмиттер (`Effects`), «+монеты» и вспышки — запас с пределом (`feedback.popupMax`, `flashMax`). Новые рисунки делать так же:
+  Graphics в каждом кадре в WebGL заново разбивается на треугольники и к концу партии тормозит. Замеры — `docs/performance.md`.
 - В окружении агента `node_modules` может быть пустой: `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1 npm install` (браузер уже лежит в
   `/opt/pw-browsers`).
 
@@ -138,6 +154,10 @@ dist/, dist-qa/            результаты сборки (в git нет)
 - `QA_ENABLED = import.meta.env.DEV || MODE === 'qa'`. В игровую сборку код `?qa` не попадает вообще; проверка
   `qa/smoke.mjs` убеждается, что в ней нет `?qa`, подмены `?cfg=` и `?lang=`. Это важно для этапа 9: иначе рекорд и рекламу
   можно накрутить из адресной строки.
+- `?fps` — счётчик кадров в углу поля (`src/perf.ts`); работает и в игровой сборке (только показывает число).
+- `?qa&stress` — стресс-сценарий для замера скорости (40 башен, ≈200 бактерий, ×3, без волн и поражения; `setupStress` в `GameScene`);
+  замер «до/после» на GitHub — workflow «Замер скорости» (`perf.yml`, `qa/perf.mjs`; версия «до» — коммит в `.github/perf-base`),
+  `window.__pvb.getPerf(reset)` — кадры в секунду, работа кадра (расчёт/рисование), вызовы рисования и вершины за кадр.
 - Возможности `?qa`: `?qa&canvas` — рисовать через canvas (быстрее на машине без видеокарты); `window.__pvb` — `getState()` (снимок состояния, `DebugSnapshot` в `src/debug.ts`: монеты, жизни, волна,
   башни и бактерии (у обоих `remaining`; у бактерий `slowed`), камера, положение кнопок панели (`ui.towerButtons`), счётчики
   откликов (`effects.blasts`) и замедлений `slows`), `worldToClient / gameToClient / cellToClient`

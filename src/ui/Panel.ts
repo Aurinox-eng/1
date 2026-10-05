@@ -101,6 +101,7 @@ export class Panel {
   private toastTween: Phaser.Tweens.Tween | null = null;
   private selected: TowerId | null = null;
   private lives = 0;
+  private maxLives: number = CONFIG.lives.start;
   private chipDanger: boolean | null = null;
   private waveBtnVisible = false;
   private waveBtnBonusValue = 0;
@@ -248,15 +249,19 @@ export class Panel {
     this.scene.time.delayedCall(350, () => this.coinsText.setColor(TEXT_COLORS.accent));
   }
 
-  setLives(lives: number): void {
+  /** Сердца жизней: max — сколько их всего (с улучшениями вне партии бывает больше трёх); при многих сердцах шаг уменьшается, чтобы они помещались в панель. */
+  setLives(lives: number, max: number = this.maxLives): void {
     this.lives = lives;
+    this.maxLives = max;
     this.hearts.clear();
-    const n = CONFIG.lives.start;
+    const n = max;
+    const step = n > 1 ? Math.min(50, 130 / (n - 1)) : 50;
+    const scale = Math.min(1.2, (1.2 * step) / 46); // шаг 50 — сердца обычного размера; теснее — уменьшаются, чтобы не слипаться
     for (let i = 0; i < n; i++) {
-      const x = CX + (i - (n - 1) / 2) * 50;
-      this.hearts.fillStyle(0x000000, 0.35).fillPoints(heartPoints(x + 1.5, RES_CARD.y + 66, 1.2), true);
+      const x = CX + (i - (n - 1) / 2) * step;
+      this.hearts.fillStyle(0x000000, 0.35).fillPoints(heartPoints(x + 1.5, RES_CARD.y + 66, scale), true);
       this.hearts.fillStyle(i < lives ? COLORS.heart : COLORS.heartLost, 1);
-      this.hearts.fillPoints(heartPoints(x, RES_CARD.y + 64, 1.2), true);
+      this.hearts.fillPoints(heartPoints(x, RES_CARD.y + 64, scale), true);
     }
   }
 
@@ -459,9 +464,9 @@ export class Panel {
   }
 
   /** Первичная отрисовка (после создания всех объектов). */
-  init(): void {
+  init(maxLives: number): void {
     this.setSelected(null);
-    this.setLives(CONFIG.lives.start);
+    this.setLives(maxLives, maxLives);
     this.setSpeed(1);
   }
 }

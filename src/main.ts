@@ -4,6 +4,7 @@ import { QA_MODE } from './debug';
 import { t } from './i18n';
 import { getLang, setLang } from './lang';
 import { GameScene } from './scenes/GameScene';
+import { UpgradesScene } from './scenes/UpgradesScene';
 import { COLORS } from './theme';
 
 // Язык страницы (для тега <html lang> и заголовка вкладки)
@@ -34,7 +35,7 @@ const game = new Phaser.Game({
   audio: { noAudio: true },
   render: { antialias: true, powerPreference: 'high-performance' },
   banner: false,
-  scene: [GameScene],
+  scene: [GameScene, UpgradesScene],
 });
 
 // Поворот телефона и смена размера окна. Phaser иногда уже знает новый размер страницы, но не

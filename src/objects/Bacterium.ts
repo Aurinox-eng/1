@@ -3,9 +3,36 @@ import { CONFIG } from '../config';
 import { EDGES_FROM } from '../level';
 import { pointAt, type Edge } from '../pathing';
 import { COLORS } from '../theme';
-import { drawBody, SPLITTER_LOBE_OFFSET } from './bacteriumArt';
+import { artImage, bakeArt, discImage, ringImage, setArt, squareBox, type ArtBox } from '../art';
+import { bodyHalfSize, crackCount, drawCracks, drawShape, hasRadialCracks, shellWidth, SPLITTER_LOBE_OFFSET } from './bacteriumArt';
 
 export type BacteriumKind = keyof typeof CONFIG.types;
+
+/** Рамка рисунка тела типа (и трещин у некруглых типов). */
+function bodyBox(kind: BacteriumKind): ArtBox {
+  const { hx, hy } = bodyHalfSize(kind);
+  return { x: -hx, y: -hy, w: hx * 2, h: hy * 2 };
+}
+
+/** Толщина оболочки округляется до целого пикселя: столько разных картинок тела у типа (разница в долю пикселя не видна). */
+const SHELL_STEP_PX = 1;
+/** Полное HP в ключе картинки трещин округляется до четверти (от него зависит, где идут трещины у палочки и шаг между трещинами у круглых). */
+const MAXHP_STEP = 0.25;
+
+/** Картинка тела типа с оболочкой толщины sw (рисуется один раз на тип и толщину). */
+function bodyTexture(scene: Phaser.Scene, kind: BacteriumKind, sw: number): string {
+  const q = Math.round(sw / SHELL_STEP_PX) * SHELL_STEP_PX;
+  return bakeArt(scene, `bact-${kind}-${q}`, bodyBox(kind), (g) => drawShape(g, kind, q));
+}
+
+/** Картинка трещин: у круглых типов — от угла 0 (картинка поворачивается на свой угол у каждой бактерии), у остальных — на месте. */
+function cracksTexture(scene: Phaser.Scene, kind: BacteriumKind, damage: number, maxHp: number): { key: string; box: ArtBox } {
+  const radial = hasRadialCracks(kind);
+  const hp = radial ? Math.max(3, Math.min(9, maxHp)) : kind === 'rod' ? maxHp : 0;
+  const q = Math.round(hp / MAXHP_STEP) * MAXHP_STEP;
+  const box = radial ? squareBox(CONFIG.types[kind].radius + 4) : bodyBox(kind);
+  return { key: bakeArt(scene, `crack-${kind}-${damage}-${q}`, box, (g) => drawCracks(g, kind, damage, q, 0)), box };
+}
 
 /** Радиус описанного круга типа (от центра до самой дальней точки). */
 export function extentOf(kind: BacteriumKind): number {
@@ -50,16 +77,20 @@ export class Bacterium {
   /** Замедление от «Сиропа»: сколько секунд ещё действует и во сколько раз медленнее идёт (1 — не замедлена). */
   private slowLeft = 0;
   private slowBy = 1;
-  private slowRing: Phaser.GameObjects.Arc | null = null;
+  private slowRing: Phaser.GameObjects.Image | null = null;
   /** «Кислота» Шипучки: сколько секунд ещё действует и во сколько раз сильнее удары по этой бактерии. */
   private acidLeft = 0;
   private acidBy = 1;
-  private acidRing: Phaser.GameObjects.Arc | null = null;
+  private acidRing: Phaser.GameObjects.Image | null = null;
   /** Какое HP показано на теле (перерисовываем при заметном изменении: лечение идёт каждый кадр). */
   private drawnHp: number;
   private readonly scene: Phaser.Scene;
   private readonly container: Phaser.GameObjects.Container;
-  private readonly gfx: Phaser.GameObjects.Graphics;
+  /** Тело и трещины — готовые картинки (см. art.ts); показанные ключи, чтобы не менять картинку без нужды. */
+  private readonly body: Phaser.GameObjects.Image;
+  private readonly cracks: Phaser.GameObjects.Image;
+  private bodyKey = '';
+  private cracksKey = '';
   private readonly seed = Math.random() * Math.PI * 2;
   /** Часы рывков: у каждой палочки свой сдвиг, чтобы рывки не шли в ногу. */
   private dashClock: number;
@@ -89,15 +120,19 @@ export class Bacterium {
     this.edge = edge;
     this.s = Math.max(0, Math.min(edge.length, s));
 
-    this.gfx = scene.add.graphics();
-    this.container = scene.add.container(0, 0, [this.gfx]);
+    const box = bodyBox(kind);
+    this.body = artImage(scene, bodyTexture(scene, kind, shellWidth(kind, this.hp)), box);
+    this.cracks = artImage(scene, bodyTexture(scene, kind, shellWidth(kind, this.hp)), box).setVisible(false);
+    // Круглые типы: трещины повёрнуты на свой угол у каждой бактерии (как раньше: от угла seed)
+    if (hasRadialCracks(kind)) this.cracks.setRotation(this.seed);
+    this.container = scene.add.container(0, 0, [this.body, this.cracks]);
     // Лекарь: кольцо-аура радиуса лечения, командир — радиуса ускорения (под телом)
     if (cfg.healRadius > 0) {
-      const aura = scene.add.circle(0, 0, cfg.healRadius, COLORS.aura, 0.07).setStrokeStyle(3, COLORS.aura, 0.38);
+      const aura = discImage(scene, cfg.healRadius, COLORS.aura, 0.07, COLORS.aura, 3, 0.38);
       this.container.addAt(aura, 0);
     }
     if (cfg.hasteRadius > 0) {
-      const aura = scene.add.circle(0, 0, cfg.hasteRadius, COLORS.haste, 0.06).setStrokeStyle(3, COLORS.haste, 0.42);
+      const aura = discImage(scene, cfg.hasteRadius, COLORS.haste, 0.06, COLORS.haste, 3, 0.42);
       this.container.addAt(aura, 0);
     }
     layer.add(this.container);
@@ -125,7 +160,7 @@ export class Bacterium {
     this.slowBy = this.slowLeft > 0 ? Math.min(this.slowBy, factor) : factor;
     this.slowLeft = Math.max(this.slowLeft, seconds);
     if (!this.slowRing) {
-      this.slowRing = this.scene.add.circle(0, 0, this.radius + 8).setStrokeStyle(4, COLORS.slowRing, 0.9).setFillStyle();
+      this.slowRing = ringImage(this.scene, 0, 0, this.radius + 8, 4, COLORS.slowRing, 0.9);
       this.container.add(this.slowRing);
     }
     this.slowRing.setVisible(true);
@@ -137,7 +172,7 @@ export class Bacterium {
     this.acidBy = this.acidLeft > 0 ? Math.max(this.acidBy, mul) : mul;
     this.acidLeft = Math.max(this.acidLeft, seconds);
     if (!this.acidRing) {
-      this.acidRing = this.scene.add.circle(0, 0, this.radius + 4).setStrokeStyle(3, COLORS.acid, 0.9).setFillStyle();
+      this.acidRing = ringImage(this.scene, 0, 0, this.radius + 4, 3, COLORS.acid, 0.9);
       this.container.add(this.acidRing);
     }
     this.acidRing.setVisible(true);
@@ -261,6 +296,21 @@ export class Bacterium {
 
   private redraw(): void {
     this.drawnHp = this.hp;
-    drawBody(this.gfx, this.kind, { hp: this.hp, maxHp: this.maxHp, spread: 0, seed: this.seed });
+    const bodyKey = bodyTexture(this.scene, this.kind, shellWidth(this.kind, this.hp));
+    if (bodyKey !== this.bodyKey) {
+      this.bodyKey = bodyKey;
+      setArt(this.body, bodyKey, bodyBox(this.kind));
+    }
+    const damage = crackCount(this.hp, this.maxHp);
+    if (damage === 0) {
+      this.cracks.setVisible(false);
+      return;
+    }
+    const { key, box } = cracksTexture(this.scene, this.kind, damage, this.maxHp);
+    if (key !== this.cracksKey) {
+      this.cracksKey = key;
+      setArt(this.cracks, key, box);
+    }
+    this.cracks.setVisible(true);
   }
 }
