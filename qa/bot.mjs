@@ -36,6 +36,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import {
+  buyGreedy,
+  buyOrder,
   createInput,
   GAME_H as H,
   GAME_W as W,
@@ -215,9 +217,8 @@ for (const [cfgPath, value] of CFG_ITEMS) {
   m = /^meta\.upgrades\.(\w+)\.perLevel$/.exec(cfgPath);
   if (m && META.upgrades[m[1]]) META.upgrades[m[1]].perLevel = value;
 }
-/** Порядок, в котором бот тратит очки ДНК (docs/upgrades.md, разделы 7 и 16): сначала улучшения этапа 6а, затем остальные по порядку таблицы; ветка башни — только если башня открыта на уровне партии. */
-const BUY_ORDER = ['damage', 'coins', 'lives', 'reward', ...Object.keys(META.upgrades).filter((id) => !['damage', 'coins', 'lives', 'reward'].includes(id))];
-const branchOpenAtLevel = (id) => (TOWER_UNLOCK[META.upgrades[id].branch] ?? 1) <= LEVEL;
+/** Порядок, в котором бот тратит очки ДНК (docs/upgrades.md, разделы 7 и 16): сначала улучшения этапа 6а, затем остальные по порядку таблицы; ветка башни — только если башня открыта на уровне партии (общий расчёт — `buyGreedy` в `qa/lib.mjs`). */
+const BUY_ORDER = buyOrder(META.upgrades);
 
 /** Числа башен для решений бота (цена и радиус) на начало партии: строка таблицы с учётом купленных улучшений ветки башни. */
 const TABLE_BASE = JSON.parse(JSON.stringify(TABLE));
@@ -236,19 +237,9 @@ function dnaForGame(game) {
   return cleared * META.dna.perWave + (game.result === 'won' ? META.dna.winBonus : 0);
 }
 
-/** Жадная покупка: пока хватает очков, берёт первое по порядку BUY_ORDER улучшение, у которого есть следующий уровень по цене не выше счёта. */
+/** Жадная покупка очков ДНК между партиями (`buyGreedy`): первое по порядку BUY_ORDER улучшение, на следующий уровень которого хватает очков; ветка башни — если башня открыта на уровне партии. */
 function buyUpgrades(levels, dna) {
-  const next = { ...levels };
-  const bought = [];
-  let left = dna;
-  for (;;) {
-    const id = BUY_ORDER.find((x) => META.upgrades[x] && branchOpenAtLevel(x) && META.upgrades[x].prices[next[x]] !== undefined && META.upgrades[x].prices[next[x]] <= left);
-    if (!id) break;
-    left -= META.upgrades[id].prices[next[id]];
-    next[id]++;
-    bought.push(id);
-  }
-  return { levels: next, dna: left, bought };
+  return buyGreedy({ upgrades: META.upgrades, order: BUY_ORDER, unlock: TOWER_UNLOCK, level: LEVEL, levels, dna });
 }
 
 

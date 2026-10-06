@@ -52,6 +52,8 @@ export interface DebugSnapshot {
   plannedTotal: number;
   /** Суммарная прочность (HP из таблицы типов, без роста по волнам) всех бактерий уровня. */
   plannedHp: number;
+  /** Первая волна каждого типа по составу волн уровня (с единицы): расписание выхода типов. */
+  firstWaves: Record<string, number>;
   spawned: number;
   kills: number;
   /** Сколько бактерий дошло до организма. */

@@ -5202,11 +5202,13 @@ async function runLevelWaves(browser, baseUrl) {
   const cfg = 'waves.firstDelaySec:600';
   const totals = [];
   const hps = [];
+  const firsts = [];
   for (let level = 1; level <= 10; level++) {
     const game = await openGame(context, baseUrl, p, { speed: 1, cfg, query: `&levelwaves&level=${level}` });
     const s = await game.state();
     totals.push(s.plannedTotal);
     hps.push(s.plannedHp);
+    firsts.push(s.firstWaves);
     check(`${p} уровень ${level}: номер уровня в игре, 30 волн, бактерии запланированы`, s.level === level && s.waveTotal === 30 && s.plannedTotal > 0, `уровень ${s.level}, волн ${s.waveTotal}, бактерий ${s.plannedTotal}`);
     await game.page.close();
   }
@@ -5215,6 +5217,15 @@ async function runLevelWaves(browser, baseUrl) {
   // Сложность уровня — суммарная прочность бактерий, а не их число: на уровне 2 тяжёлых типов больше, штук может быть меньше
   check(`${p} на уровне 2 суммарная прочность бактерий больше, чем на уровне 1`, hps[1] > hps[0], `уровень 1: ${hps[0]}, уровень 2: ${hps[1]}`);
   check(`${p} с уровня на уровень суммарная прочность не становится меньше (2–10)`, hps.slice(2).every((n, i) => n >= hps[i + 1]), hps.join(', '));
+  // Сглаживание выхода типов (этап 5б, `levels.gen.introSpread`): на уровне 2 шесть типов уровня 1 выходят в те же волны, что на уровне 1, дальше выход только сдвигается к началу, на уровне 10 — все шесть в первых 6–8 волнах
+  if (readConfigNumber('levels', 'introSpread') === 1) {
+    const six = ['coccus', 'rod', 'swarm', 'runner', 'splitter', 'armored'];
+    const sched = (i) => six.map((k) => firsts[i][k]);
+    check(`${p} уровень 2 выпускает шесть типов уровня 1 в те же волны, что уровень 1 (${sched(0).join(', ')})`, sched(1).join() === sched(0).join(), `уровень 1: ${sched(0).join(', ')}; уровень 2: ${sched(1).join(', ')}`);
+    const rising = firsts.slice(1).every((f, i) => i === 0 || six.every((k, j) => f[k] <= firsts[i][k]));
+    check(`${p} с уровня на уровень первая волна каждого из шести типов не отодвигается (расписание только сжимается)`, rising, firsts.map((f, i) => `${i + 1}: ${six.map((k) => f[k]).join(',')}`).join(' | '));
+    check(`${p} на уровне 10 шесть типов выходят подряд в первых 6–8 волнах: ${sched(9).join(', ')}`, sched(9).every((w, j) => w >= 1 && w <= 8 && (j === 0 || w >= sched(9)[j - 1])), sched(9).join(', '));
+  }
   const plain = await openGame(context, baseUrl, p, { speed: 1, cfg, query: '&level=10' });
   const ps = await plain.state();
   check(`${p} без &levelwaves уровень 10 идёт с волнами уровня 1 (бактерий ${base}, номер уровня 10)`, ps.level === 10 && ps.plannedTotal === base, `уровень ${ps.level}, бактерий ${ps.plannedTotal}`);

@@ -181,6 +181,7 @@ export class GameScene extends Phaser.Scene {
   private plannedTotal = 0;
   /** Суммарная прочность всех запланированных бактерий уровня (HP из таблицы типов, без роста прочности по волнам); для проверок. */
   private plannedHp = 0;
+  private firstWaves: Record<string, number> = {};
   private panelKey = '';
 
   /** Тап по экрану паузы не закрывает её раньше этого момента (реальные часы, мс) — иначе тап по кнопке «пауза» сразу её снимет. */
@@ -274,8 +275,10 @@ export class GameScene extends Phaser.Scene {
     this.spawnTimer = 0;
     this.plannedTotal = 0;
     this.plannedHp = 0;
+    this.firstWaves = {};
     for (let i = 0; i < this.waveTotal(); i++) {
       const kinds = this.waveKinds(i);
+      for (const kind of kinds) if (this.firstWaves[kind] === undefined) this.firstWaves[kind] = i + 1;
       this.plannedTotal += kinds.length;
       for (const kind of kinds) this.plannedHp += CONFIG.types[kind].hp;
     }
@@ -1500,6 +1503,7 @@ export class GameScene extends Phaser.Scene {
       waveTotal: this.waveTotal(),
       plannedTotal: this.plannedTotal,
       plannedHp: this.plannedHp,
+      firstWaves: { ...this.firstWaves },
       spawned: this.spawned,
       kills: this.kills,
       leaked: this.leaked,

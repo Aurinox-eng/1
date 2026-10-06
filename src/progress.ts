@@ -6,7 +6,7 @@
  */
 import { CONFIG, type KindId, type LevelSpec } from './config';
 import { LEVEL_WAVES, QA_MODE } from './debug';
-import { buildLevelWaves, type WaveRow } from './waveGen';
+import { buildLevelWaves, spreadIntro, type WaveRow } from './waveGen';
 
 /** Номер уровня из адреса (1…`levels.count`); без параметра — 1. */
 export function levelFromUrl(): number {
@@ -62,6 +62,24 @@ export interface LevelParams {
 const KINDS = Object.keys(CONFIG.types) as KindId[];
 const generated = new Map<number, LevelParams>();
 
+/** Первая волна каждого типа уровня 1 по таблице волн (расписание, к которому «сглаживаются» уровни 2–10). */
+function levelOneSchedule(): Record<string, number> {
+  const first: Record<string, number> = {};
+  CONFIG.waves.list.forEach((row, i) => {
+    for (const kind of Object.keys(row)) if (first[kind] === undefined) first[kind] = i + 1;
+  });
+  return first;
+}
+
+/** Расписание выхода типов уровня N: строка уровня со «сглаживанием» (`levels.gen.introSpread`, docs/stage-5b-plan.md, раздел 4). */
+function levelIntro(level: number, intro: Record<string, number>): Record<string, number> {
+  const spread = CONFIG.levels.gen.introSpread;
+  const steps = Math.max(1, CONFIG.levels.count - 2);
+  const own = Math.min(1, Math.max(0, (level - 2) / steps));
+  const share = 1 - spread * (1 - own);
+  return share >= 1 ? intro : spreadIntro(intro, levelOneSchedule(), share);
+}
+
 /** Правила уровня. Уровень 1 (и любой уровень без `intro` в таблице) идёт по таблице волн `waves`; остальные — по генератору (`src/waveGen.ts`). */
 export function levelParams(level: number): LevelParams {
   const w = CONFIG.waves;
@@ -74,7 +92,7 @@ export function levelParams(level: number): LevelParams {
   if (!params) {
     const gen = CONFIG.levels.gen;
     const rows = buildLevelWaves(
-      { count, intro: spec.intro as Record<string, number>, hpBudget: spec.hpBudget, bosses: spec.bosses as Record<number, Record<string, number>> | undefined },
+      { count, intro: levelIntro(level, spec.intro as Record<string, number>), hpBudget: spec.hpBudget, bosses: spec.bosses as Record<number, Record<string, number>> | undefined },
       { curveExp: gen.curveExp, rampWaves: gen.rampWaves, mix: gen.mix as Record<string, number>, introCount: gen.introCount as Record<string, number> },
       KINDS,
       (kind) => CONFIG.types[kind as KindId].hp,

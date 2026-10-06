@@ -68,3 +68,18 @@ export function buildLevelWaves(spec: WaveGenSpec, rules: WaveGenRules, kinds: s
   }
   return rows;
 }
+
+/**
+ * Расписание выхода типов уровня N с «сглаживанием» (docs/stage-5b-plan.md, раздел 4): первая волна каждого типа, который есть в расписании уровня 1 (`base`),
+ * берётся между уровнем 1 и строкой уровня: `base + (intro − base) × share`, округляется до целого (не меньше первой волны). `share` 0 — как на уровне 1,
+ * 1 — как в строке уровня. Типы, которых нет в `base` (новые типы уровней 2–8), остаются как в строке.
+ */
+export function spreadIntro(intro: Record<string, number>, base: Record<string, number>, share: number): Record<string, number> {
+  const out: Record<string, number> = { ...intro };
+  for (const [kind, wave] of Object.entries(intro)) {
+    const first = base[kind];
+    if (first === undefined) continue;
+    out[kind] = Math.max(1, Math.round(first + (wave - first) * share));
+  }
+  return out;
+}

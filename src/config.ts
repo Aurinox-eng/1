@@ -187,6 +187,10 @@ export const CONFIG = {
       curveExp: 1.5,
       rampWaves: 4,
       mix: { coccus: 0.06, rod: 0.24, swarm: 0.1, runner: 0.18, splitter: 0.17, armored: 0.26, spore: 0.1, slick: 0.1, regen: 0.1, healer: 0.06, commander: 0.05, brood: 0.1 } as Partial<Record<KindId, number>>,
+      /** Сглаживание выхода известных типов (docs/stage-5b-plan.md, раздел 4): 1 — первая волна типов уровня 1 (кокк, палочка, рой, бегун, делящаяся, бронированная)
+       *  смешивается между расписанием уровня 1 и строкой уровня `intro` с долей строки (N − 2) / (число уровней − 2): уровень 2 выпускает типы как уровень 1,
+       *  уровень 10 — как в своей строке; 0 — везде как в строке уровня (как было до этапа 5б). */
+      introSpread: 1,
       introCount: { rod: 2, swarm: 8, runner: 3, splitter: 2, armored: 2, spore: 3, slick: 2, regen: 2, healer: 2, commander: 1, brood: 1 } as Partial<Record<KindId, number>>,
     },
     /** Уровни: строка номер N — уровень N. Пустая строка (уровень 1) — всё из таблицы волн, роста прочности и наград ниже (`waves`, `economy.rewardCurve`).

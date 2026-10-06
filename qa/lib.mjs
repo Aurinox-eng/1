@@ -473,3 +473,29 @@ export function readMetaTable() {
   if (!Object.keys(upgrades).length) throw new Error('В разделе «meta» config.ts не нашлось улучшений');
   return { dna: { perWave: num('perWave'), winBonus: num('winBonus') }, upgrades };
 }
+
+/**
+ * Жадная покупка улучшений вне партии (один порядок для бота и для расчёта эталонных наборов, docs/stage-5b-plan.md, раздел 5): пока хватает очков,
+ * берётся первое по порядку `order` улучшение, у которого есть следующий уровень по цене не выше остатка; ветка башни доступна, если башня открыта
+ * на уровне `level` (`unlock` — таблица «башня → с какого уровня»; ветки «Организм» и «Защита» — всегда).
+ * `upgrades` — таблица из `readMetaTable().upgrades`, `levels` — текущие уровни улучшений ({id: число}). Возвращает новые уровни, остаток очков и список покупок.
+ */
+export function buyGreedy({ upgrades, order, unlock, level, levels, dna }) {
+  const next = { ...levels };
+  const bought = [];
+  let left = dna;
+  for (;;) {
+    const id = order.find((x) => upgrades[x] && (unlock[upgrades[x].branch] ?? 1) <= level && upgrades[x].prices[next[x] ?? 0] !== undefined && upgrades[x].prices[next[x] ?? 0] <= left);
+    if (!id) break;
+    left -= upgrades[id].prices[next[id] ?? 0];
+    next[id] = (next[id] ?? 0) + 1;
+    bought.push(id);
+  }
+  return { levels: next, dna: left, bought };
+}
+
+/** Порядок покупок бота: улучшения этапа 6а, затем остальные по порядку таблицы. */
+export function buyOrder(upgrades) {
+  const first = ['damage', 'coins', 'lives', 'reward'];
+  return [...first, ...Object.keys(upgrades).filter((id) => !first.includes(id))];
+}
