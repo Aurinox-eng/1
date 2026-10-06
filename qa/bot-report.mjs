@@ -59,7 +59,9 @@ for (const file of findJson(dir)) {
 results.sort((a, b) => a.tag.localeCompare(b.tag));
 // Результаты режима «серия партий» (--campaign) — отдельный раздел: партии одной серии зависят друг от друга, в общую таблицу их складывать нельзя
 const campaignResults = results.filter((r) => r.campaign);
-results.splice(0, results.length, ...results.filter((r) => !r.campaign));
+// «Лестница» (--ladder, этап 5б): тоже отдельный раздел — дорожка идёт по уровням, результаты одной дорожки лежат в нескольких файлах (по одному на уровень)
+const ladderResults = results.filter((r) => r.ladder);
+results.splice(0, results.length, ...results.filter((r) => !r.campaign && !r.ladder));
 
 const towerIds = [...new Set(results.flatMap((r) => Object.keys(r.towerTable ?? {})))];
 const KNOWN_TOWERS = towerIds.length ? towerIds : Object.keys(NAMES);
@@ -141,7 +143,7 @@ const meta = [
 if (meta.length) lines.push(meta.join(' · '));
 lines.push('');
 
-if (!orderedGroups.length && !campaignResults.length) {
+if (!orderedGroups.length && !campaignResults.length && !ladderResults.length) {
   lines.push('**Результатов нет:** ни одна задача не прислала файл с партиями.');
 } else if (orderedGroups.length) {
   const head = ['Вариант', 'Профиль', 'Партий', 'Побед', 'Потеряно жизней', 'Волна гибели', `Башни (${KNOWN_TOWERS.map((id) => SHORT[id] ?? id).join('/')})`, 'Монеты в конце', 'Реал. время партии'];
@@ -226,6 +228,50 @@ if (campaignResults.length) {
   }
 }
 
+// ------------------------------------------------------------------ лестница (этап 5б, Фаза Б)
+if (ladderResults.length) {
+  // дорожка = профиль + номер; записи уровней из разных файлов склеиваются (одна запись на уровень, берётся последняя)
+  const lanes = new Map();
+  for (const r of ladderResults) {
+    for (const lane of r.ladder.lanes) {
+      const key = `${lane.profile}:${lane.run}`;
+      if (!lanes.has(key)) lanes.set(key, { profile: lane.profile, run: lane.run, levels: new Map(), stuckAt: null, dna: 0 });
+      const own = lanes.get(key);
+      for (const rec of lane.perLevel) own.levels.set(rec.level, rec);
+      if (lane.stuckAt) own.stuckAt = lane.stuckAt;
+      own.dna = Math.max(own.dna, lane.dna ?? 0);
+    }
+  }
+  const k = Math.max(...ladderResults.map((r) => r.ladder.k));
+  lines.push(`### Лестница (игрок идёт по уровням подряд; на уровне до ${k} партий до первой победы; очки ДНК за волны, победу и звёзды, улучшения докупаются между партиями)`);
+  lines.push('');
+  lines.push('| Уровень | Дорожек дошло | Выиграли | Партий до первой победы (среднее; по дорожкам) | Волна первой партии (среднее) | Звёзды (среднее) |');
+  lines.push('|---|---|---|---|---|---|');
+  for (let level = 1; level <= 10; level++) {
+    const recs = [...lanes.values()].map((l) => l.levels.get(level)).filter(Boolean);
+    if (!recs.length) continue;
+    const wins = recs.filter((x) => x.firstWin);
+    lines.push(
+      `| ${level} | ${recs.length} | ${wins.length}/${recs.length} | ${wins.length ? `${f1(mean(wins.map((x) => x.firstWin)))} (${wins.map((x) => x.firstWin).sort((x, y) => x - y).join(', ')})` : '—'} | ${f1(mean(recs.map((x) => x.waves[0] ?? 0)))} | ${wins.length ? f1(mean(wins.map((x) => x.stars))) : '—'} |`,
+    );
+  }
+  lines.push('');
+  lines.push('<details><summary>По дорожкам: партии до победы на каждом уровне, на каком уровне застряла, покупки</summary>');
+  lines.push('');
+  lines.push('```');
+  for (const l of [...lanes.values()].sort((a, b) => a.profile.localeCompare(b.profile) || a.run - b.run)) {
+    const parts = [...l.levels.values()].sort((a, b) => a.level - b.level).map((x) => `${x.level}: ${x.firstWin ?? `—(${x.games})`}`);
+    lines.push(`${PROFILE_TITLES[l.profile] ?? l.profile}, дорожка ${l.run}: ${parts.join(' · ')}${l.stuckAt ? ` · застряла на уровне ${l.stuckAt}` : ''} · очков в конце ${l.dna}`);
+    for (const x of [...l.levels.values()].sort((a, b) => a.level - b.level)) {
+      const buys = x.bought.flat();
+      if (buys.length) lines.push(`    уровень ${x.level}: куплено ${buys.join('+')}`);
+    }
+  }
+  lines.push('```');
+  lines.push('</details>');
+  lines.push('');
+}
+
 // ------------------------------------------------------------------ проблемы
 const problems = [];
 for (const g of orderedGroups) {
@@ -247,10 +293,19 @@ for (const r of campaignResults) {
     for (const w of game.warnings ?? []) problems.push(`${name}: консоль: ${w}`);
   }
 }
+for (const r of ladderResults) {
+  for (const game of r.games) {
+    const name = `${PROFILE_TITLES[game.profile] ?? game.profile}, дорожка ${game.run}, уровень ${game.ladderLevel ?? '?'}, партия ${game.ladderGame ?? '?'}`;
+    if (game.result === 'error') problems.push(`${name}: ОШИБКА — ${game.error}`);
+    if (game.result === 'timeout') problems.push(`${name}: timeout (волна ${game.wave})`);
+    for (const a of game.anomalies ?? []) problems.push(`${name}: ⚠ ${a}`);
+    for (const w of game.warnings ?? []) problems.push(`${name}: консоль: ${w}`);
+  }
+}
 if (args.plan && fs.existsSync(String(args.plan))) {
   try {
     const plan = JSON.parse(fs.readFileSync(String(args.plan), 'utf8'));
-    const seen = new Set([...results, ...campaignResults].map((r) => r.tag)); // результаты серий (--campaign) тоже считаются присланными
+    const seen = new Set([...results, ...campaignResults, ...ladderResults].map((r) => r.tag)); // результаты серий (--campaign) и лестницы (--ladder) тоже считаются присланными
     for (const job of Array.isArray(plan) ? plan : plan.include ?? []) {
       if (!seen.has(job.tag)) problems.push(`задача «${job.tag}» (${PROFILE_TITLES[job.profile] ?? job.profile}${job.exclude ? `, без ${job.exclude}` : ''}) не прислала результата: упала или не закончилась (см. лог задачи)`);
     }

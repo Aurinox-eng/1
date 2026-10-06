@@ -117,6 +117,11 @@ const HELP = `Бот-замерщик баланса: играет целые п
   --campaign=N                          режим «серия партий» (этап 6а): каждая из --runs серий — до N партий подряд одним профилем; после каждой партии бот начисляет очки ДНК
                                         (по формуле config.ts, раздел meta) и покупает улучшения по порядку damage, coins, lives, reward, затем остальные по таблице (ветка башни — если башня открыта на уровне партии); серия кончается первой победой.
                                         Итог — номер партии первой победы. Без этого параметра улучшений нет (уровни 0)
+  --ladder=K                            «лестница» (этап 5б): каждая из --runs дорожек проходит уровни 1…10 подряд; на уровне играет до K партий до первой победы,
+                                        получает очки ДНК за волны, победу и звёзды, докупает улучшения (порядок как в --campaign; ветка башни — когда открыт её уровень).
+                                        Дорожка, не выигравшая за K партий, «застряла» и дальше не идёт. Не сочетается с --campaign, --meta, --level
+  --run-offset=N                        (лестница) номер дорожки = номер в --runs + N: так дорожки разных задач различаются
+  --from-level=N, --to-level=M          участок лестницы (по умолчанию 1…10); дорожку между задачами передают --state-in=файл (состояние до) и --state-out=файл (после)
   --canvas                              рисовать игру через canvas вместо WebGL (?qa&canvas): на слабом контейнере партия идёт ≈ втрое быстрее.
                                         Логика игры та же; для замеров баланса годится (картинка не важна)
   --help                                эта справка
@@ -132,7 +137,7 @@ if (args.help || args.h) {
   console.log(HELP);
   process.exit(0);
 }
-const KNOWN = new Set(['profile', 'runs', 'speed', 'exclude', 'cfg', 'tag', 'seed', 'max-game-sec', 'max-real-sec', 'verbose', 'shots', 'canvas', 'level', 'meta', 'campaign', 'help']);
+const KNOWN = new Set(['profile', 'runs', 'speed', 'exclude', 'cfg', 'tag', 'seed', 'max-game-sec', 'max-real-sec', 'verbose', 'shots', 'canvas', 'level', 'meta', 'campaign', 'ladder', 'from-level', 'to-level', 'state-in', 'state-out', 'run-offset', 'help']);
 for (const key of Object.keys(args)) if (!KNOWN.has(key)) die(`Неизвестный параметр --${key}. Справка: node qa/bot.mjs --help`);
 
 function numArg(name, fallback, { min = -Infinity, max = Infinity, int = false } = {}) {
@@ -154,6 +159,16 @@ const MAX_GAME_SEC = numArg('max-game-sec', 2400, { min: 30, max: 100000 });
 const MAX_REAL_SEC = numArg('max-real-sec', 3600, { min: 30, max: 100000 });
 const LEVEL = numArg('level', 1, { min: 1, max: 10, int: true });
 const CAMPAIGN = numArg('campaign', 0, { min: 0, max: 40, int: true }); // 0 — обычный замер одной партии; N — серия до N партий с улучшениями
+// «Лестница» (docs/stage-5b-plan.md, Фаза Б): игрок идёт по уровням подряд; на каждом играет до LADDER партий до первой победы, между партиями получает очки ДНК и докупает улучшения
+const LADDER = numArg('ladder', 0, { min: 0, max: 20, int: true });
+const LADDER_FROM = numArg('from-level', 1, { min: 1, max: 10, int: true });
+const LADDER_TO = numArg('to-level', 10, { min: 1, max: 10, int: true });
+const RUN_OFFSET = numArg('run-offset', 0, { min: 0, max: 1000, int: true }); // номер дорожки лестницы = номер партии в --runs + это число (дорожки разных задач получают разные номера)
+const STATE_IN = args['state-in'] === undefined || args['state-in'] === true ? null : String(args['state-in']);
+const STATE_OUT = args['state-out'] === undefined || args['state-out'] === true ? null : String(args['state-out']);
+if (LADDER && (CAMPAIGN || args.meta !== undefined || args.level !== undefined)) die('--ladder не сочетается с --campaign, --meta и --level: уровни и улучшения ведёт сам бот (участок уровней — --from-level, --to-level).');
+if (!LADDER && (args['from-level'] !== undefined || args['to-level'] !== undefined || args['run-offset'] !== undefined || STATE_IN || STATE_OUT)) die('--from-level, --to-level, --run-offset, --state-in, --state-out работают только вместе с --ladder=K.');
+if (LADDER_FROM > LADDER_TO) die('--from-level не может быть больше --to-level.');
 const SEED = args.seed === undefined ? Math.floor(Math.random() * 1e9) : numArg('seed', 0, { min: 0, max: 4294967295, int: true });
 const TAG = args.tag === undefined ? 'latest' : String(args.tag);
 if (!/^[\w-]+$/.test(TAG)) die(`Неверный --tag=«${TAG}»: только буквы, цифры, «_» и «-».`);
@@ -229,6 +244,13 @@ function applyMetaToTable(levels) {
     TABLE[id].range = TABLE_BASE[id].range * (1 + sum('range'));
   }
 }
+/** Звёзды за победу и очки за новые звёзды — как в игре (`levels.stars`, `levels.starDna` в config.ts). */
+const STARS_RULE = { for3: readConfigNumber('levels', 'maxLostFor3'), for2: readConfigNumber('levels', 'maxLostFor2'), dna: readConfigNumber('levels', 'starDna') };
+function starsOf(game) {
+  if (game.result !== 'won') return 0;
+  const lost = Math.max(0, game.maxLives - game.lives) + (game.shieldAbsorbed ?? 0);
+  return lost <= STARS_RULE.for3 + 1e-9 ? 3 : lost <= STARS_RULE.for2 + 1e-9 ? 2 : 1;
+}
 const emptyLevels = () => Object.fromEntries(Object.keys(META.upgrades).map((id) => [id, 0]));
 
 /** Очки ДНК за партию: за каждую пройденную волну (при проигрыше — без текущей) и добавка за победу — как в GameScene.endGame. */
@@ -238,8 +260,8 @@ function dnaForGame(game) {
 }
 
 /** Жадная покупка очков ДНК между партиями (`buyGreedy`): первое по порядку BUY_ORDER улучшение, на следующий уровень которого хватает очков; ветка башни — если башня открыта на уровне партии. */
-function buyUpgrades(levels, dna) {
-  return buyGreedy({ upgrades: META.upgrades, order: BUY_ORDER, unlock: TOWER_UNLOCK, level: LEVEL, levels, dna });
+function buyUpgrades(levels, dna, level = LEVEL) {
+  return buyGreedy({ upgrades: META.upgrades, order: BUY_ORDER, unlock: TOWER_UNLOCK, level, levels, dna });
 }
 
 
@@ -575,7 +597,7 @@ async function pollUntil(page, predicate, timeoutMs, pollMs = 35) {
 let WORLD = null; // строится один раз по сети дорожек из первой партии
 
 /** Играет одну партию. Возвращает запись о партии. Бросает FatalConsole (ошибка консоли / «cfg:»), остальные ошибки — наверх. */
-async function playGame(browser, baseUrl, profile, run, metaLevels = null, salt = '') {
+async function playGame(browser, baseUrl, profile, run, metaLevels = null, salt = '', level = LEVEL) {
   applyMetaToTable(metaLevels);
   const rng = makeRng(`${SEED}:${profile}:${run}${salt}`);
   const context = await browser.newContext({ viewport: { width: W, height: H }, deviceScaleFactor: 1, locale: 'ru-RU' });
@@ -605,7 +627,7 @@ async function playGame(browser, baseUrl, profile, run, metaLevels = null, salt 
 
   const realStart = Date.now();
   try {
-    await page.goto(`${baseUrl}?qa&speed=${SPEED}${args.canvas ? '&canvas' : ''}${CFG_STRING ? `&cfg=${CFG_STRING}` : ''}&level=${LEVEL}${LEVEL > 1 ? '&levelwaves' : ''}${metaLevels ? `&meta=${Object.entries(metaLevels).map(([id, n]) => `${id}:${n}`).join(',')}` : ''}`, { waitUntil: 'load' });
+    await page.goto(`${baseUrl}?qa&speed=${SPEED}${args.canvas ? '&canvas' : ''}${CFG_STRING ? `&cfg=${CFG_STRING}` : ''}&level=${level}${level > 1 ? '&levelwaves' : ''}${metaLevels ? `&meta=${Object.entries(metaLevels).map(([id, n]) => `${id}:${n}`).join(',')}` : ''}`, { waitUntil: 'load' });
     // В начале уровня игра сама встаёт на паузу и показывает плашки (башни уровня и бактерии 1-й волны): state 'info'. Бот закрывает их тапом (раньше 0,4 с после показа плашка тап не принимает)
     let s = await pollUntil(page, (x) => x && (x.state === 'playing' || x.state === 'info'), 20000, 100);
     checkConsole();
@@ -918,6 +940,7 @@ async function playGame(browser, baseUrl, profile, run, metaLevels = null, salt 
       waveTotal: last.waveTotal,
       lives: last.lives,
       maxLives: last.maxLives,
+      shieldAbsorbed: last.shieldAbsorbed ?? 0,
       minLives,
       lifeLossWaves,
       kills: last.kills,
@@ -1018,6 +1041,9 @@ const startedAt = new Date();
 const games = [];
 /** Серии партий (--campaign): профиль, номер серии, сколько партий сыграно, номер партии первой победы (null — не победил за N), волна гибели в каждой партии, купленные улучшения. */
 const series = [];
+/** Дорожки «лестницы» (--ladder): по одной на пару «профиль + номер»; состояние дорожки передаётся между задачами через --state-in / --state-out. */
+const ladderLanes = [];
+const ladderState = { lanes: {} };
 const resultsDir = path.join(ROOT, 'qa', 'bot-results');
 fs.mkdirSync(resultsDir, { recursive: true });
 const resultsFile = path.join(resultsDir, `${TAG}.json`);
@@ -1027,11 +1053,13 @@ const saveResults = () => {
     startedAt: startedAt.toISOString(),
     args: { profiles: PROFILES, runs: RUNS, speed: SPEED, level: LEVEL, exclude: [...EXCLUDE], cfg: CFG_STRING, seed: SEED, maxGameSec: MAX_GAME_SEC, campaign: CAMPAIGN, meta: META_FIXED },
     campaign: CAMPAIGN ? { n: CAMPAIGN, series, metaTable: META } : undefined,
+    ladder: LADDER ? { k: LADDER, from: LADDER_FROM, to: LADDER_TO, lanes: ladderLanes, metaTable: META } : undefined,
     towerTable: TABLE,
     summary: summarize(games),
     games,
   };
   fs.writeFileSync(resultsFile, JSON.stringify(payload, null, 1));
+  if (LADDER && STATE_OUT) fs.writeFileSync(path.resolve(STATE_OUT), JSON.stringify(ladderState, null, 1));
 };
 
 let stopRequested = false;
@@ -1049,6 +1077,90 @@ if (CFG_STRING) console.log(`  подмена чисел (--cfg): ${CFG_STRING}`
 if (SPEED > 2) console.log(`  ⚠ speed ${SPEED} выше 2: замеры грубее (кадры крупнее, бот тратит больше игрового времени на тап). Для итоговых чисел баланса используйте speed 2.`);
 if (EXCLUDE.has('pill') && PROFILES.includes('novice')) console.log('  ⚠ «новичок» строит только Таблетки: без неё он ничего не построит.');
 
+/**
+ * Одна дорожка «лестницы»: идёт по уровням от следующего непройденного до LADDER_TO; на уровне играет до LADDER партий до первой победы.
+ * После партии: очки за волны и победу + очки за новые звёзды (как в игре), затем жадная покупка улучшений (после победы на уровне N открыт
+ * уровень N + 1, поэтому ветки башен покупаются по нему). Не выиграла за LADDER партий — дорожка «застряла» (stuckAt) и дальше не идёт.
+ * Возвращает false, если замер надо остановить (консоль игры сообщила о проблеме).
+ */
+async function ladderLane(profile, run) {
+  const key = `${profile}:${run}`;
+  const saved = STATE_IN ? JSON.parse(fs.readFileSync(path.resolve(STATE_IN), 'utf8')).lanes?.[key] : null;
+  const lane = saved
+    ? { ...saved, levels: { ...emptyLevels(), ...saved.levels }, stars: [...saved.stars], perLevel: [...saved.perLevel] }
+    : { profile, run, dna: 0, levels: emptyLevels(), stars: Array(10).fill(0), nextLevel: 1, stuckAt: null, perLevel: [] };
+  ladderLanes.push(lane);
+  ladderState.lanes[key] = lane;
+  const tag = `${PROFILE_TITLES[profile]} дорожка ${run}`;
+  if (lane.stuckAt) {
+    console.log(`[${tag}] застряла на уровне ${lane.stuckAt}: дальше не идёт`);
+    return true;
+  }
+  if (lane.nextLevel < LADDER_FROM) die(`Состояние дорожки ${key}: следующий уровень ${lane.nextLevel}, а --from-level=${LADDER_FROM}: пропущены уровни.`);
+  for (let level = Math.max(LADDER_FROM, lane.nextLevel); level <= LADDER_TO; level++) {
+    const rec = { level, games: 0, firstWin: null, waves: [], results: [], stars: 0, dnaIn: lane.dna, levelsIn: { ...lane.levels }, bought: [], dnaGained: [] };
+    lane.perLevel.push(rec);
+    for (let n = 1; n <= LADDER; n++) {
+      if (stopRequested) return true;
+      let game = null;
+      for (let attempt = 1; attempt <= 2 && !game; attempt++) {
+        try {
+          game = await playGame(browser, server.url, profile, run, lane.levels, `:L${level}:${n}`, level);
+        } catch (error) {
+          if (error instanceof FatalConsole) {
+            fatal = `Остановлено: дорожка «${tag}», уровень ${level}, партия ${n}, консоль игры сообщила о проблеме. Замер с такой партией был бы недостоверным.\n   ${error.message}`;
+            return false;
+          }
+          console.log(`   ⚠ [${tag}, уровень ${level}, партия ${n}] сбой (попытка ${attempt}): ${error.message.split('\n')[0]}`);
+          if (!browser.isConnected()) browser = await launchBrowser();
+          if (attempt === 2) game = { profile, run, result: 'error', error: error.message.split('\n')[0], realSec: 0 };
+        }
+      }
+      Object.assign(game, { ladderLevel: level, ladderGame: n, metaLevels: { ...lane.levels }, dnaBefore: lane.dna });
+      games.push(game);
+      rec.games = n;
+      if (game.result === 'error') {
+        console.log(`[${tag}, уровень ${level}, партия ${n}] ОШИБКА: ${game.error}`);
+        rec.results.push('error');
+        lane.stuckAt = level;
+        saveResults();
+        return true;
+      }
+      const stars = starsOf(game);
+      const newStars = Math.max(0, stars - lane.stars[level - 1]);
+      if (stars > lane.stars[level - 1]) lane.stars[level - 1] = stars;
+      const gained = dnaForGame(game) + newStars * STARS_RULE.dna;
+      lane.dna += gained;
+      const buy = buyUpgrades(lane.levels, lane.dna, game.result === 'won' ? Math.min(10, level + 1) : level);
+      lane.levels = buy.levels;
+      lane.dna = buy.dna;
+      rec.waves.push(game.result === 'won' ? game.waveTotal : game.wave);
+      rec.results.push(game.result);
+      rec.bought.push(buy.bought);
+      rec.dnaGained.push(gained);
+      console.log(`[${tag}, уровень ${level}, партия ${n}] ${RESULT_RU[game.result]} · волна ${game.wave}/${game.waveTotal} · жизни ${game.lives}/${game.maxLives}${stars ? ` · звёзд ${stars}` : ''} · очков ДНК +${gained} (остаток ${lane.dna}) · куплено ${buy.bought.length ? buy.bought.join(', ') : '—'} · игра ${game.gameSec} с, реал. ${game.realSec} с`);
+      for (const a of game.anomalies ?? []) console.log(`      ⚠ ${a}`);
+      saveResults();
+      if (game.result === 'won') {
+        rec.firstWin = n;
+        rec.stars = lane.stars[level - 1];
+        break;
+      }
+    }
+    rec.dnaOut = lane.dna;
+    rec.levelsOut = { ...lane.levels };
+    if (!rec.firstWin) {
+      lane.stuckAt = level;
+      console.log(`[${tag}] победы на уровне ${level} за ${LADDER} партий нет: дорожка застряла`);
+      saveResults();
+      return true;
+    }
+    lane.nextLevel = level + 1;
+    saveResults();
+  }
+  return true;
+}
+
 let browser = await launchBrowser();
 let fatal = null;
 let exitCode = 0;
@@ -1056,6 +1168,10 @@ try {
   outer: for (let run = 1; run <= RUNS; run++) {
     for (const profile of PROFILES) {
       if (stopRequested) break outer;
+      if (LADDER) {
+        if (!(await ladderLane(profile, run + RUN_OFFSET))) break outer;
+        continue;
+      }
       if (CAMPAIGN) {
         // ---- серия партий: очки ДНК копятся, улучшения покупаются между партиями; серия кончается первой победой или после CAMPAIGN партий
         let levels = emptyLevels();
@@ -1140,7 +1256,13 @@ if (fatal) {
   process.exit(3);
 }
 
-if (CAMPAIGN) {
+if (LADDER) {
+  console.log('\nИТОГ ЛЕСТНИЦЫ (партий до первой победы по уровням)');
+  for (const lane of ladderLanes) {
+    const parts = lane.perLevel.map((r) => `${r.level}: ${r.firstWin ? r.firstWin : `—(${r.games})`}`);
+    console.log(`  ${PROFILE_TITLES[lane.profile]} ${lane.run}: ${parts.join(' · ')}${lane.stuckAt ? ` · застряла на уровне ${lane.stuckAt}` : ''} · очков ${lane.dna}`);
+  }
+} else if (CAMPAIGN) {
   console.log('\nИТОГ ПО СЕРИЯМ ПАРТИЙ (номер партии первой победы)');
   for (const profile of PROFILES) {
     const own = series.filter((x) => x.profile === profile && !x.error);

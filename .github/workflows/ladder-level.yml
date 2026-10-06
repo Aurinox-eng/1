@@ -1,0 +1,97 @@
+# Один уровень «лестницы» (вызывается из ladder.yml): параллельные дорожки (по задаче на дорожку), каждая берёт состояние предыдущего уровня из вложения,
+# играет уровень до первой победы (не больше k партий) и сохраняет состояние для следующего уровня. Описание — docs/stage-5b-plan.md, раздел 5.
+name: Лестница — один уровень
+on:
+  workflow_call:
+    inputs:
+      level:
+        type: number
+        required: true
+      prev:
+        description: 'Номер предыдущего уровня (его состояние берётся из вложения); у уровня 1 не используется'
+        type: number
+        required: true
+      sha:
+        type: string
+        required: true
+      profile:
+        type: string
+        required: true
+      lanes_json:
+        type: string
+        required: true
+      k:
+        type: string
+        required: true
+      speed:
+        type: string
+        required: true
+      cfg:
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  lane:
+    name: уровень ${{ inputs.level }} · дорожка ${{ matrix.lane }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    strategy:
+      fail-fast: false
+      matrix:
+        lane: ${{ fromJSON(inputs.lanes_json) }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Установить зависимости и браузер
+        env:
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+      - name: Собрать тестовую версию игры
+        run: npm run build:qa
+      - name: Состояние дорожки с прошлого уровня
+        if: ${{ inputs.level > 1 }}
+        uses: actions/download-artifact@v4
+        with:
+          name: ladder-state-L${{ inputs.prev }}-lane${{ matrix.lane }}
+          path: state-in
+      - name: Бот
+        env:
+          PROFILE: ${{ inputs.profile }}
+          LEVEL: ${{ inputs.level }}
+          LANE: ${{ matrix.lane }}
+          K: ${{ inputs.k }}
+          SPEED: ${{ inputs.speed }}
+          CFG: ${{ inputs.cfg }}
+        run: |
+          args=(--profile="$PROFILE" --runs=1 --run-offset=$((LANE - 1)) --speed="$SPEED" --canvas --ladder="$K" --from-level="$LEVEL" --to-level="$LEVEL" --state-out=state-out.json --tag="ladder-L${LEVEL}-lane${LANE}")
+          if [ "$LEVEL" -gt 1 ]; then args+=(--state-in=state-in/state-out.json); fi
+          if [ -n "$CFG" ]; then args+=(--cfg="$CFG"); fi
+          node qa/bot.mjs "${args[@]}" 2>&1 | tee bot.log
+      - name: Сохранить состояние дорожки
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ladder-state-L${{ inputs.level }}-lane${{ matrix.lane }}
+          path: state-out.json
+          if-no-files-found: warn
+          retention-days: 30
+      - name: Сохранить результаты
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ladder-res-L${{ inputs.level }}-lane${{ matrix.lane }}
+          path: |
+            qa/bot-results/*.json
+            bot.log
+          if-no-files-found: warn
+          retention-days: 30

@@ -1,0 +1,8 @@
+{
+  "note": "Пример запроса лестницы (этап 5б). Любое изменение этого файла в push в рабочую ветку запускает ladder.yml. Поля: profile (novice, average, strong, expert), lanes (дорожек, 1–10), k (партий на уровне до первой победы), to_level (до какого уровня), speed, cfg.",
+  "profile": "strong",
+  "lanes": 1,
+  "k": 2,
+  "to_level": 2,
+  "speed": 2
+}
