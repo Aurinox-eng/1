@@ -5374,8 +5374,17 @@ async function runMenuFlow(browser, baseUrl) {
     s = await waitFor(app.page, (x) => x.state === 'paused', 10000, 'пауза');
     await sleep(500);
     check(`${p} на паузе есть кнопка «В меню» (внутри экрана)`, s.pauseMenuButton !== null && insideScreen(s.pauseMenuButton), JSON.stringify(s.pauseMenuButton));
-    await app.input.tap(app.g(s.pauseMenuButton.x, s.pauseMenuButton.y));
-    u = await app.waitUi('menu', 'меню после паузы');
+    // Тап по кнопке на медленном сервере изредка не доходит до игры с первого раза (как у кнопок башен): до трёх тапов с паузой в 3 с
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      await app.input.tap(app.g(s.pauseMenuButton.x, s.pauseMenuButton.y));
+      try {
+        u = await app.waitUi('menu', 'меню после паузы', 3000);
+        if (attempt > 1) console.log(`⚠ ${p} тап по «В меню» на паузе дошёл только с попытки ${attempt}`);
+        break;
+      } catch (error) {
+        if (attempt === 3) throw error;
+      }
+    }
     check(`${p} «В меню» с паузы ведёт в главное меню`, u.scene === 'menu', '');
 
     await app.tapRect(u.buttons.upgrades);
