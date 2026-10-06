@@ -74,6 +74,8 @@
  *   meta-dna               очки ДНК: начисление за проигрыш и победу, один раз за партию, накопление, запись в хранилище
  *   meta-shop              экран «Улучшения» (компьютер ru, телефон en): переход с экрана конца уровня, покупка, нехватка очков, наибольший уровень, «Играть», тексты
  *   meta-effects           улучшения в партии: жизни, стартовые монеты, урон башен, награда за бактерий
+
+ *   tree-shop              экран «Улучшения» с вкладками веток (этап 6б): вкладки, замки закрытых веток, покупка, тексты ru/en
  *   tree-effects           улучшения древа (этап 6б): числа башен по веткам, цена, продажа, щит у линии и звёзды, подкрепление
  *   level-waves            уровни (этап 5, шаг 1): с `&levelwaves` на уровне 1 состав волн из таблицы `waves.list`, на уровнях 2–10 — от генератора (30 волн, суммарная прочность бактерий больше, чем на уровне 1, и не меньше, чем на предыдущем уровне);
  *                          без `&levelwaves` на любом уровне волны уровня 1 (так идут остальные проверки и бот)
@@ -138,7 +140,7 @@ if (['stage-1', 'stage-1b', 'stage-1b-qa', 'td-1-mockup', 'tmp'].includes(tag)) 
   process.exit(2);
 }
 
-const SCENARIOS = ['desktop-ru', 'phone-ru', 'desktop-en', 'phone-en', 'rules', 'graph', 'combat', 'dash', 'split', 'spore', 'armored', 'intro', 'lose-ru', 'lose-en', 'win-ru', 'win-en', 'towers', 'card', 'merge', 'mutations', 'sell', 'special', 'danger', 'rotate', 'production', 'fullgame', 'plaques', 'locked', 'strip', 'restart-button', 'deflation', 'camera-fit', 'colors', 'meta-save', 'meta-dna', 'meta-shop', 'meta-effects', 'tree-effects', 'level-waves', 'progress-save', 'stars', 'menu-flow', 'levels-lock']
+const SCENARIOS = ['desktop-ru', 'phone-ru', 'desktop-en', 'phone-en', 'rules', 'graph', 'combat', 'dash', 'split', 'spore', 'armored', 'intro', 'lose-ru', 'lose-en', 'win-ru', 'win-en', 'towers', 'card', 'merge', 'mutations', 'sell', 'special', 'danger', 'rotate', 'production', 'fullgame', 'plaques', 'locked', 'strip', 'restart-button', 'deflation', 'camera-fit', 'colors', 'meta-save', 'meta-dna', 'meta-shop', 'meta-effects', 'tree-effects', 'tree-shop', 'level-waves', 'progress-save', 'stars', 'menu-flow', 'levels-lock']
 const only = args.only === undefined ? null : String(args.only);
 if (only !== null && !SCENARIOS.includes(only)) {
   console.error(`Неизвестный сценарий --only=${only}. Есть: ${SCENARIOS.join(', ')}`);
@@ -5584,6 +5586,110 @@ async function runMetaEffects(browser, baseUrl) {
   await context.close();
 }
 
+/** Экран «Улучшения» с вкладками (этап 6б, docs/upgrades.md, раздел 14): вкладки, замки закрытых веток, покупка на разных вкладках, тексты ru/en. */
+async function runTreeShop(browser, baseUrl) {
+  const UP = readMetaTable().upgrades;
+  const branches = [...new Set(Object.values(UP).map((u) => u.branch))];
+  const towerUnlock = readTowerUnlock();
+  for (const [deviceKey, lang] of [['desktop', 'ru'], ['phone', 'en']]) {
+    const device = VIEWPORTS[deviceKey];
+    const p = `[вкладки улучшений, ${device.label}, ${lang}]`;
+    const context = await newDeviceContext(browser, device, lang);
+    // звёзды уровней 1–3: открыт уровень 4; ветки Таблетки и Сиропа открыты, Шипучки (уровень 5) и Шприца (уровень 10) закрыты
+    const app = await openMenu(context, baseUrl, p, { isTouch: device.hasTouch, query: '&meta=dna:300&stars=1,1,1' });
+    let u = await app.ui();
+    await app.tapRect(u.buttons.upgrades);
+    await app.waitUi('upgrades', 'экран «Улучшения»');
+    const meta = () => metaOf(app.page);
+    let m = await meta();
+    const tab = (mm, branch) => mm.screen.tabs.find((x) => x.branch === branch);
+    const tapTab = async (branch) => {
+      await app.tapRect(tab(await meta(), branch).rect);
+      await sleep(250);
+      return meta();
+    };
+    const wantTabs = branches.join();
+    check(`${p} вкладки по таблице: ${wantTabs}; открыта первая («Организм»), на ней карточки ${branchIdsOf(UP, branches[0]).join(', ')}`, m.screen.tabs.map((x) => x.branch).join() === wantTabs && m.screen.activeTab === branches[0] && m.screen.cards.map((c) => c.id).join() === branchIdsOf(UP, branches[0]).join(), JSON.stringify(m.screen.tabs.map((x) => x.branch)) + ' ' + m.screen.activeTab);
+    const lockedWant = branches.filter((b) => (towerUnlock[b] ?? 1) > 4).join();
+    check(`${p} закрыты ветки башен, которые открываются после уровня 4: ${lockedWant}; остальные открыты`, m.screen.tabs.filter((x) => x.locked).map((x) => x.branch).join() === lockedWant, JSON.stringify(m.screen.tabs.map((x) => [x.branch, x.locked])));
+    const rects = m.screen.tabs.map((x) => x.rect);
+    let clash = '';
+    rects.forEach((r, i) => {
+      if (!insideScreen(r)) clash += ` вне экрана ${i};`;
+      for (let j = i + 1; j < rects.length; j++) if (overlaps(r, rects[j])) clash += ` ${i}×${j};`;
+    });
+    check(`${p} шесть вкладок внутри экрана и не налезают друг на друга; подписи не пустые`, clash === '' && m.screen.tabs.every((x) => x.label && !/undefined|upg|tower/.test(x.label)), clash || m.screen.tabs.map((x) => x.label).join(' | '));
+    await shot(app.page, `tree-shop-body-${deviceKey}-${lang}`);
+
+    // ---- каждая вкладка: карточки по таблице, тексты помещаются, нет сырых ключей
+    const problems = [];
+    for (const branch of branches) {
+      m = await tapTab(branch);
+      const want = branchIdsOf(UP, branch);
+      if (m.screen.activeTab !== branch || m.screen.cards.map((c) => c.id).join() !== want.join()) problems.push(`${branch}: карточки ${m.screen.cards.map((c) => c.id).join()}`);
+      for (const c of m.screen.cards) {
+        if (!c.fits) problems.push(`${c.id}: текст не помещается (${c.texts.join(' | ')})`);
+        if (c.texts.some((x) => !x || /undefined|upg[A-Z]|\{/.test(x))) problems.push(`${c.id}: сырой ключ (${c.texts.join(' | ')})`);
+        if (!insideScreen(c.rect) || !insideScreen(c.buy)) problems.push(`${c.id}: вне экрана`);
+      }
+      const xs = m.screen.cards.map((c) => c.rect);
+      xs.forEach((r, i) => xs.slice(i + 1).forEach((q, j) => { if (overlaps(r, q)) problems.push(`${branch}: карточки ${i}×${i + j + 1} налезают`); }));
+      await shot(app.page, `tree-shop-${branch}-${deviceKey}-${lang}`);
+    }
+    check(`${p} все ${branches.length} вкладок: карточки как в таблице, тексты помещаются в карточку и над кнопкой, сырых ключей нет, карточки не налезают друг на друга`, problems.length === 0, problems.slice(0, 4).join(' || '));
+
+    // ---- покупка на вкладках «Защита» и «Таблетка»
+    const firstDefense = branchIdsOf(UP, 'defense')[0];
+    const firstPill = branchIdsOf(UP, 'pill')[0];
+    m = await tapTab('defense');
+    const dna0 = m.dna;
+    const price1 = UP[firstDefense].prices[0];
+    let b = m.screen.cards.find((c) => c.id === firstDefense).buy;
+    await app.input.tap(app.g(b.x, b.y));
+    await sleep(250);
+    m = await meta();
+    check(`${p} покупка на вкладке «Защита»: «${firstDefense}» уровень 1 за ${price1}; очков ${dna0} → ${m.dna}`, m.levels[firstDefense] === 1 && m.dna === dna0 - price1, `уровень ${m.levels[firstDefense]}, очков ${m.dna}`);
+    m = await tapTab('pill');
+    const dna1 = m.dna;
+    const price2 = UP[firstPill].prices[0];
+    b = m.screen.cards.find((c) => c.id === firstPill).buy;
+    await app.input.tap(app.g(b.x, b.y));
+    await sleep(250);
+    m = await meta();
+    check(`${p} покупка на вкладке «Таблетка»: «${firstPill}» уровень 1 за ${price2}; очков ${dna1} → ${m.dna}`, m.levels[firstPill] === 1 && m.dna === dna1 - price2, `уровень ${m.levels[firstPill]}, очков ${m.dna}`);
+
+    // ---- закрытая ветка: вкладка серая, кнопки не работают, написано, с какого уровня открывается
+    const lockedBranch = branches.find((x) => (towerUnlock[x] ?? 1) > 4);
+    m = await tapTab(lockedBranch);
+    const lockText = readI18n('upgLocked')[lang === 'ru' ? 0 : 1].replace('{n}', String(towerUnlock[lockedBranch]));
+    check(`${p} вкладка закрытой ветки «${lockedBranch}»: у всех карточек надпись «${lockText}», купить нельзя`, m.screen.cards.length > 0 && m.screen.cards.every((c) => c.locked && !c.canBuy && c.texts[3] === lockText), JSON.stringify(m.screen.cards.map((c) => [c.id, c.locked, c.canBuy, c.texts[3]])));
+    const firstLocked = m.screen.cards[0];
+    const dna2 = m.dna;
+    await app.input.tap(app.g(firstLocked.buy.x, firstLocked.buy.y));
+    await sleep(250);
+    m = await meta();
+    check(`${p} тап по кнопке закрытой ветки ничего не покупает: очки ${dna2} → ${m.dna}, уровень «${firstLocked.id}» ${m.levels[firstLocked.id]}`, m.dna === dna2 && m.levels[firstLocked.id] === 0, `очков ${m.dna}`);
+    await context.close();
+  }
+
+  // ---- ветка открывается, когда пройден предыдущий уровень: при звёздах уровней 1–4 открыта ветка Шипучки, при звёздах 1–9 — Шприца
+  const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
+  const p = '[вкладки улучшений: открытие веток]';
+  for (const [stars, openBranch, closedBranch] of [['1,1,1,1', 'fizz', 'syringe'], ['1,1,1,1,1,1,1,1,1', 'syringe', null]]) {
+    const app = await openMenu(context, baseUrl, p, { query: `&meta=dna:0&stars=${stars}` });
+    const u = await app.ui();
+    await app.tapRect(u.buttons.upgrades);
+    await app.waitUi('upgrades', 'экран «Улучшения»');
+    const m = await metaOf(app.page);
+    const tb = (x) => m.screen.tabs.find((y) => y.branch === x);
+    check(`${p} при звёздах уровней ${stars}: ветка «${openBranch}» открыта${closedBranch ? `, «${closedBranch}» закрыта` : ''}`, tb(openBranch) && !tb(openBranch).locked && (!closedBranch || tb(closedBranch).locked), JSON.stringify(m.screen.tabs.map((x) => [x.branch, x.locked])));
+    await app.page.close();
+  }
+  await context.close();
+}
+
+const branchIdsOf = (up, branch) => Object.keys(up).filter((id) => up[id].branch === branch);
+
 /** Улучшения древа защиты (этап 6б, docs/upgrades.md, разделы 12 и 15): числа башен по веткам, цена и продажа, щит у линии и звёзды, подкрепление. Все ожидаемые числа — из таблицы `meta.upgrades` в config.ts. */
 async function runTreeEffects(browser, baseUrl) {
   const p = '[улучшения древа]';
@@ -5871,6 +5977,7 @@ try {
   if (wants('meta-dna')) await safe('[очки ДНК: начисление]', () => runMetaDna(browser, qaServer.url));
   if (wants('meta-shop')) await safe('[улучшения]', () => runMetaShop(browser, qaServer.url));
   if (wants('meta-effects')) await safe('[улучшения в партии]', () => runMetaEffects(browser, qaServer.url));
+  if (wants('tree-shop')) await safe('[вкладки улучшений]', () => runTreeShop(browser, qaServer.url));
   if (wants('tree-effects')) await safe('[улучшения древа]', () => runTreeEffects(browser, qaServer.url));
   if (wants('level-waves')) await safe('[состав волн уровней]', () => runLevelWaves(browser, qaServer.url));
   if (wants('progress-save')) await safe('[прогресс: сохранение]', () => runProgressSave(browser, qaServer.url));

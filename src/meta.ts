@@ -194,10 +194,13 @@ export const waveCoinsBonus = (): number => Math.floor(upgradeBonus('waveCoins')
 
 type Rect = { x: number; y: number; w: number; h: number };
 
-/** Что видно на экране «Улучшения» (для проверок): карточки с кнопками покупки и кнопка «Играть» — центры и размеры на экране игры. */
+/** Что видно на экране «Улучшения» (для проверок): вкладки веток, карточки выбранной вкладки с кнопками покупки и кнопка «Играть» — центры и размеры на экране игры. */
 export interface MetaScreenInfo {
   visible: boolean;
-  cards: { id: UpgradeId; level: number; max: number; price: number | null; canBuy: boolean; rect: Rect; buy: Rect; texts: string[] }[];
+  /** Выбранная вкладка (ветка) и все вкладки: ветка, закрыта ли, с какого уровня открывается, подпись, прямоугольник. */
+  activeTab: string;
+  tabs: { branch: string; locked: boolean; unlockLevel: number; label: string; rect: Rect }[];
+  cards: { id: UpgradeId; level: number; max: number; price: number | null; canBuy: boolean; locked: boolean; fits: boolean; rect: Rect; buy: Rect; texts: string[] }[];
   play: Rect | null;
   balance: string;
 }
@@ -221,4 +224,4 @@ export function exposeMetaDebug(screen: () => MetaScreenInfo): void {
   if (QA_MODE) window.__pvbMeta = { getMeta: () => ({ dna: state.dna, levels: metaLevels(), progress: { stars: [...state.progress.stars], best: [...state.progress.best] }, seen: [...state.seen], screen: screen() }) };
 }
 
-export const HIDDEN_SCREEN: MetaScreenInfo = { visible: false, cards: [], play: null, balance: '' };
+export const HIDDEN_SCREEN: MetaScreenInfo = { visible: false, activeTab: '', tabs: [], cards: [], play: null, balance: '' };
