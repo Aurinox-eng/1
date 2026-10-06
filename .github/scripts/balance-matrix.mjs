@@ -59,7 +59,7 @@ const cfg = (env.CFG ?? '').trim();
 if (cfg && !/^[\w.\-]+:-?[\d.]+(,[\w.\-]+:-?[\d.]+)*$/.test(cfg)) fail(`CFG=«${cfg}»: нужно «путь:число,путь:число», например economy.rewardMul:0.85`);
 
 const meta = (env.META ?? '').trim();
-if (meta && !/^(lives|coins|damage|reward):\d+(,(lives|coins|damage|reward):\d+)*$/.test(meta)) fail(`META=«${meta}»: нужно «lives:2,coins:5,damage:5,reward:5» (любые из четырёх улучшений)`);
+if (meta && !/^[A-Za-z]\w*:\d+(,[A-Za-z]\w*:\d+)*$/.test(meta)) fail(`META=«${meta}»: нужно «lives:2,coins:5,shield:1,pillRate:3» (id улучшений из таблицы meta.upgrades в config.ts, через запятую)`);
 if (meta && campaign) fail('META не сочетается с CAMPAIGN: в серии улучшения покупает сам бот');
 
 const include = [];
