@@ -3,6 +3,7 @@ import { CONFIG } from '../config';
 import { t, type TextKey } from '../i18n';
 import { createTowerArt, type TowerId } from '../objects/Tower';
 import { isTowerOpen, unlockLevel } from '../progress';
+import { towerPrice } from '../towerStats';
 import { COLORS, FONT, TEXT_COLORS } from '../theme';
 import { card, drawPlate, panelBackground, roundButton, slot as slotTexture, waveButton as waveButtonTexture } from './panelArt';
 import { TowerCard, type CardGeometry, type CardModel } from './TowerCard';
@@ -143,7 +144,7 @@ export class Panel {
       track(this.text(r.x + 74, r.y + 50, t(TOWER_TEXT[id].tag), 16, TEXT_COLORS.soft, 0, 0.5).setFontStyle('normal'));
       if (open) {
         track(this.coin(r.x + 84, r.y + 76, 10));
-        const price = track(this.text(r.x + 100, r.y + 76, String(CONFIG.towers[id].price), 24, TEXT_COLORS.accent, 0, 0.5));
+        const price = track(this.text(r.x + 100, r.y + 76, String(towerPrice(id)), 24, TEXT_COLORS.accent, 0, 0.5));
         this.priceTexts.set(id, price);
       } else {
         // Серая «шторка» поверх кнопки, замок справа и надпись вместо цены
@@ -239,7 +240,7 @@ export class Panel {
   setCoins(n: number): void {
     this.coinsText.setText(String(n));
     for (const texts of [this.priceTexts, this.stripPrices]) {
-      for (const [id, text] of texts) text.setColor(n >= CONFIG.towers[id].price ? TEXT_COLORS.accent : TEXT_COLORS.bad);
+      for (const [id, text] of texts) text.setColor(n >= towerPrice(id) ? TEXT_COLORS.accent : TEXT_COLORS.bad);
     }
   }
 
@@ -444,7 +445,7 @@ export class Panel {
       plate.lineStyle(2, 0x3a5f9c, 1).strokeRoundedRect(x, y, w, STRIP.h, 12);
       const icon = this.scene.add.container(cx, y + 15).setDepth(D.item + 9).setScale(0.3);
       createTowerArt(this.scene, icon, id);
-      const price = this.text(cx, y + STRIP.h - 9, String(CONFIG.towers[id].price), 14, TEXT_COLORS.accent).setDepth(D.item + 9);
+      const price = this.text(cx, y + STRIP.h - 9, String(towerPrice(id)), 14, TEXT_COLORS.accent).setDepth(D.item + 9);
       const zone = this.scene.add
         .zone(cx, y + STRIP.h / 2, w, STRIP.h)
         .setDepth(D.item + 10)

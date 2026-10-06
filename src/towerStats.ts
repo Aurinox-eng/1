@@ -1,5 +1,5 @@
-import { damageMul } from './meta';
-import { CONFIG, type MutationSpec, type Targeting, type TowerSide } from './config';
+import { damageMul, upgradeBonus } from './meta';
+import { CONFIG, type MutationSpec, type Targeting, type TowerSide, type UpgradeBranch, type UpgradeEffect } from './config';
 
 export type TowerKey = keyof typeof CONFIG.towers;
 /** Строка таблицы башен (числа башни уровня 1 без мутаций); колонки описаны в config.ts. */
@@ -35,6 +35,11 @@ export interface TowerStats extends TowerRow {
   acidMul: number;
   secondBeam: boolean;
   spiral: number;
+}
+
+/** Цена постройки башни в монетах: строка таблицы с учётом улучшения «цена башни» (округляется вверх до целого). Слияние бесплатно, продажа считается от этой цены. */
+export function towerPrice(id: TowerKey): number {
+  return Math.max(1, Math.ceil(CONFIG.towers[id].price * (1 + upgradeBonus('price', id as UpgradeBranch)) - 1e-9));
 }
 
 /** Самый высокий уровень башни. */
@@ -100,6 +105,18 @@ export function computeStats(id: TowerKey, level: number, picks: readonly string
     if (spec.secondBeam) s.secondBeam = true;
     if (spec.spiral) s.spiral += spec.spiral;
   });
+  // Улучшения вне партии ветки этой башни (docs/upgrades.md, раздел 12): пауза, радиусы, лужа, замедление, луч
+  const bonus = (effect: UpgradeEffect): number => upgradeBonus(effect, id as UpgradeBranch);
+  s.cooldownMs *= 1 + bonus('cooldown');
+  s.range *= 1 + bonus('range');
+  s.blastRadius *= 1 + bonus('blast');
+  s.puddleSec *= 1 + bonus('puddleSec');
+  s.puddleRadius *= 1 + bonus('puddleRadius');
+  if (s.slowFactor < 1 && bonus('slowFactor') !== 0) s.slowFactor = Math.max(CONFIG.meta.minSlowFactor, s.slowFactor + bonus('slowFactor'));
+  if (s.beamPulses > 0) {
+    s.beamPulses += Math.floor(bonus('pulses'));
+    s.beamHalfWidthPx += bonus('beamWidth');
+  }
   // Улучшение вне партии «Сильное вещество»: урон всех башен (docs/upgrades.md)
   s.damage *= damageMul();
   return s;

@@ -74,6 +74,7 @@
  *   meta-dna               очки ДНК: начисление за проигрыш и победу, один раз за партию, накопление, запись в хранилище
  *   meta-shop              экран «Улучшения» (компьютер ru, телефон en): переход с экрана конца уровня, покупка, нехватка очков, наибольший уровень, «Играть», тексты
  *   meta-effects           улучшения в партии: жизни, стартовые монеты, урон башен, награда за бактерий
+ *   tree-effects           улучшения древа (этап 6б): числа башен по веткам, цена, продажа, щит у линии и звёзды, подкрепление
  *   level-waves            уровни (этап 5, шаг 1): с `&levelwaves` на уровне 1 состав волн из таблицы `waves.list`, на уровнях 2–10 — от генератора (30 волн, суммарная прочность бактерий больше, чем на уровне 1, и не меньше, чем на предыдущем уровне);
  *                          без `&levelwaves` на любом уровне волны уровня 1 (так идут остальные проверки и бот)
  *   progress-save          сохранение версии 2 (этап 5, шаг 2): прогресс по уровням (звёзды, лучшая волна) и показанные плашки — чтение, версия 1 без прогресса, чужие и испорченные значения, плашки не повторяются после обновления страницы
@@ -113,6 +114,7 @@ import {
   readI18n,
   readKinds,
   readLevel,
+  readMetaTable,
   readTitles,
   readTowerTable,
   readTowerUnlock,
@@ -136,7 +138,7 @@ if (['stage-1', 'stage-1b', 'stage-1b-qa', 'td-1-mockup', 'tmp'].includes(tag)) 
   process.exit(2);
 }
 
-const SCENARIOS = ['desktop-ru', 'phone-ru', 'desktop-en', 'phone-en', 'rules', 'graph', 'combat', 'dash', 'split', 'spore', 'armored', 'intro', 'lose-ru', 'lose-en', 'win-ru', 'win-en', 'towers', 'card', 'merge', 'mutations', 'sell', 'special', 'danger', 'rotate', 'production', 'fullgame', 'plaques', 'locked', 'strip', 'restart-button', 'deflation', 'camera-fit', 'colors', 'meta-save', 'meta-dna', 'meta-shop', 'meta-effects', 'level-waves', 'progress-save', 'stars', 'menu-flow', 'levels-lock']
+const SCENARIOS = ['desktop-ru', 'phone-ru', 'desktop-en', 'phone-en', 'rules', 'graph', 'combat', 'dash', 'split', 'spore', 'armored', 'intro', 'lose-ru', 'lose-en', 'win-ru', 'win-en', 'towers', 'card', 'merge', 'mutations', 'sell', 'special', 'danger', 'rotate', 'production', 'fullgame', 'plaques', 'locked', 'strip', 'restart-button', 'deflation', 'camera-fit', 'colors', 'meta-save', 'meta-dna', 'meta-shop', 'meta-effects', 'tree-effects', 'level-waves', 'progress-save', 'stars', 'menu-flow', 'levels-lock']
 const only = args.only === undefined ? null : String(args.only);
 if (only !== null && !SCENARIOS.includes(only)) {
   console.error(`Неизвестный сценарий --only=${only}. Есть: ${SCENARIOS.join(', ')}`);
@@ -5582,6 +5584,112 @@ async function runMetaEffects(browser, baseUrl) {
   await context.close();
 }
 
+/** Улучшения древа защиты (этап 6б, docs/upgrades.md, разделы 12 и 15): числа башен по веткам, цена и продажа, щит у линии и звёзды, подкрепление. Все ожидаемые числа — из таблицы `meta.upgrades` в config.ts. */
+async function runTreeEffects(browser, baseUrl) {
+  const p = '[улучшения древа]';
+  const UP = readMetaTable().upgrades;
+  const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
+  const idle = 'waves.firstDelaySec:9999,economy.startCoins:5000';
+  const branchIds = (branch) => Object.keys(UP).filter((id) => UP[id].branch === branch);
+  const maxMeta = (ids) => ids.map((id) => `${id}:${UP[id].prices.length}`).join(',');
+  const effectOf = (branch, effect) => Object.values(UP).filter((u) => u.branch === branch && u.effect === effect).reduce((sum, u) => sum + u.perLevel * u.prices.length, 0);
+  const near = (a, b) => Math.abs(a - b) <= 1e-6 * Math.max(1, Math.abs(b));
+
+  // ---- числа башен: у каждой ветки башни при максимуме всех уровней; остальные башни не меняются
+  const stats = async (meta, ids) => {
+    const game = await openGame(context, baseUrl, p, { speed: 1, cfg: idle, query: `${ALL_TOWERS}&meta=${meta}` });
+    const cells = [FREE.a, FREE.b];
+    for (let i = 0; i < ids.length; i++) await placeSure(game, ids[i], cells[i]);
+    const s = await game.state();
+    await game.page.close();
+    return { s };
+  };
+  const pairs = { pill: 'fizz', syrup: 'syringe', fizz: 'pill', syringe: 'syrup' };
+  for (const tower of ['pill', 'syrup', 'fizz', 'syringe']) {
+    const other = pairs[tower];
+    const ids = [tower, other];
+    const base = await stats('dna:0', ids);
+    const full = await stats(`dna:0,${maxMeta(branchIds(tower))}`, ids);
+    const a = base.s.towers[0].stats;
+    const b = full.s.towers[0].stats;
+    const o0 = base.s.towers[1].stats;
+    const o1 = full.s.towers[1].stats;
+    const issues = [];
+    const ratio = (name, x, y, effect) => {
+      const want = 1 + effectOf(tower, effect);
+      if (!near(y / x, want)) issues.push(`${name}: ${x} → ${y}, ждали ×${want}`);
+    };
+    if (Object.values(UP).some((u) => u.branch === tower && u.effect === 'cooldown')) ratio('пауза', a.cooldownMs, b.cooldownMs, 'cooldown');
+    if (Object.values(UP).some((u) => u.branch === tower && u.effect === 'range')) ratio('радиус стрельбы', a.range, b.range, 'range');
+    if (Object.values(UP).some((u) => u.branch === tower && u.effect === 'blast')) ratio('радиус взрыва', a.blastRadius, b.blastRadius, 'blast');
+    if (Object.values(UP).some((u) => u.branch === tower && u.effect === 'puddleSec')) ratio('время лужи', a.puddleSec, b.puddleSec, 'puddleSec');
+    if (Object.values(UP).some((u) => u.branch === tower && u.effect === 'puddleRadius')) ratio('радиус лужи', a.puddleRadius, b.puddleRadius, 'puddleRadius');
+    if (Object.values(UP).some((u) => u.branch === tower && u.effect === 'slowFactor') && !near(b.slowFactor, Math.max(0.1, a.slowFactor + effectOf(tower, 'slowFactor')))) issues.push(`замедление: ${a.slowFactor} → ${b.slowFactor}`);
+    if (Object.values(UP).some((u) => u.branch === tower && u.effect === 'beamWidth') && !near(b.beamHalfWidthPx - a.beamHalfWidthPx, effectOf(tower, 'beamWidth'))) issues.push(`полуширина луча: ${a.beamHalfWidthPx} → ${b.beamHalfWidthPx}`);
+    if (Object.values(UP).some((u) => u.branch === tower && u.effect === 'pulses') && b.beamPulses - a.beamPulses !== effectOf(tower, 'pulses')) issues.push(`удары очереди: ${a.beamPulses} → ${b.beamPulses}`);
+    if (Object.values(UP).some((u) => u.branch === tower && u.effect === 'price')) {
+      const want = Math.ceil(base.s.towerPrices[tower] * (1 + effectOf(tower, 'price')) - 1e-9);
+      if (full.s.towerPrices[tower] !== want) issues.push(`цена: ${base.s.towerPrices[tower]} → ${full.s.towerPrices[tower]}, ждали ${want}`);
+    } else if (full.s.towerPrices[tower] !== base.s.towerPrices[tower]) {
+      issues.push(`цена изменилась без улучшения цены: ${base.s.towerPrices[tower]} → ${full.s.towerPrices[tower]}`);
+    }
+    check(`${p} ветка «${tower}», все уровни куплены: числа башни изменились на величину из таблицы (${branchIds(tower).length} улучшений)`, issues.length === 0, issues.join(' | '));
+    check(`${p} ветка «${tower}» не меняет башню «${other}» (число стреляющих и радиусы те же, цена та же)`, JSON.stringify(o0) === JSON.stringify(o1) && base.s.towerPrices[other] === full.s.towerPrices[other], `${JSON.stringify(o0)} → ${JSON.stringify(o1)}`);
+  }
+
+  // ---- продажа и скидка: возврат считается от уплаченной цены (со скидкой) и растёт с «Утилизацией»
+  {
+    const cfg = `${idle},towers.pill.price:100`;
+    const meta = `dna:0,recycle:${UP.recycle.prices.length},pillCheap:${UP.pillCheap.prices.length}`;
+    const game = await openGame(context, baseUrl, p, { speed: 1, cfg, query: `${ALL_TOWERS}&meta=${meta}` });
+    let s = await placeSure(game, 'pill', FREE.a);
+    const paid = Math.ceil(100 * (1 + UP.pillCheap.perLevel * UP.pillCheap.prices.length) - 1e-9);
+    const share = 0.7 + UP.recycle.perLevel * UP.recycle.prices.length;
+    check(`${p} цена Таблетки со скидкой: 100 → ${paid}; в снимке доля возврата ${f2(share)}`, s.towerPrices.pill === paid && near(s.sellRefundShare, share), `цена ${s.towerPrices.pill}, доля ${s.sellRefundShare}`);
+    const before = s.coins;
+    await selectPlaced(game, FREE.a);
+    s = await tapCard(game, 'sell');
+    const refund = Math.round(paid * share);
+    check(`${p} продажа возвращает долю уплаченной цены: ${paid} × ${f2(share)} = ${refund} монет (от цены без скидки было бы ${Math.round(100 * share)}): ${before} → ${s.coins}`, s.coins - before === refund, `получено ${s.coins - before}`);
+    await game.page.close();
+  }
+
+  // ---- щит у линии: гасит столько бактерий, сколько уровней; для звёзд погашенные считаются потерянными жизнями
+  {
+    const cfg = `${wavesOnlyCfg({ coccus: 3 })},waves.firstDelaySec:1,bacteria.baseSpeed:250,lives.start:3`;
+    const run = async (shield) => {
+      const game = await openGame(context, baseUrl, p, { speed: 4, cfg, query: `&meta=dna:0${shield ? `,shield:${shield}` : ''}` });
+      const s = await waitFor(game.page, (x) => x.state === 'won' || x.state === 'lost', WAIT_MS, 'конец партии со щитом');
+      await game.page.close();
+      return s;
+    };
+    const none = await run(0);
+    check(`${p} без щита три дошедшие бактерии отнимают все 3 жизни (состояние ${none.state}, жизни ${none.lives}, щит ${none.shieldLeft})`, none.state === 'lost' && none.lives === 0 && none.shieldLeft === 0, `${none.state} ${none.lives}`);
+    const two = await run(2);
+    check(`${p} щит на 2 бактерии: гасит первые две, третья отнимает жизнь (жизни ${two.lives} из 3, щит ${two.shieldLeft}, погашено жизней ${two.shieldAbsorbed}, дошло ${two.leaked})`, two.state === 'won' && two.lives === 2 && two.shieldLeft === 0 && two.shieldAbsorbed === 2 && two.leaked === 3, JSON.stringify([two.state, two.lives, two.shieldLeft, two.shieldAbsorbed, two.leaked]));
+    check(`${p} звёзды при щите считают погашенное потерей: потеряно 1 + погашено 2 = 3 жизни → одна звезда (звёзд ${two.stars})`, two.stars === 1, `звёзд ${two.stars}`);
+    const three = await run(3);
+    check(`${p} щит на 3 бактерии: жизни целы (${three.lives} из 3), но звезда одна, а не три (звёзд ${three.stars})`, three.state === 'won' && three.lives === 3 && three.shieldAbsorbed === 3 && three.stars === 1, JSON.stringify([three.state, three.lives, three.shieldAbsorbed, three.stars]));
+  }
+
+  // ---- подкрепление: монеты в начале каждой волны
+  {
+    const levels = UP.reinforce.prices.length;
+    const each = UP.reinforce.perLevel * levels;
+    const cfg = `${wavesOnlyCfg({ coccus: 1 })},waves.firstDelaySec:1,waves.total:3,${NO_LIFE_LOSS},economy.startCoins:500`;
+    const game = await openGame(context, baseUrl, p, { speed: 4, cfg, query: `&meta=dna:0,reinforce:${levels}` });
+    const seen = new Map();
+    await pollUntil(game, async (x) => {
+      if (x.wave >= 1 && !seen.has(x.wave)) seen.set(x.wave, x.coins);
+      return x.wave >= 2 || x.state === 'won' || x.state === 'lost';
+    }, WAIT_MS, 40).catch(() => null);
+    const rows = [...seen.entries()].map(([w, c]) => `волна ${w}: ${c}`);
+    check(`${p} подкрепление: +${each} монет в начале каждой волны (500 + ${each} × номер волны): ${rows.join('; ')}`, seen.size >= 1 && [...seen.entries()].every(([w, c]) => c === 500 + each * w), rows.join('; '));
+    await game.page.close();
+  }
+  await context.close();
+}
+
 async function runDeflation(browser, baseUrl) {
   for (const [mul, perKill, total] of [[0.5, [2, 3], 5], [0.1, [0, 1], 1]]) {
     const q = `[дефляция ×${mul}]`;
@@ -5763,6 +5871,7 @@ try {
   if (wants('meta-dna')) await safe('[очки ДНК: начисление]', () => runMetaDna(browser, qaServer.url));
   if (wants('meta-shop')) await safe('[улучшения]', () => runMetaShop(browser, qaServer.url));
   if (wants('meta-effects')) await safe('[улучшения в партии]', () => runMetaEffects(browser, qaServer.url));
+  if (wants('tree-effects')) await safe('[улучшения древа]', () => runTreeEffects(browser, qaServer.url));
   if (wants('level-waves')) await safe('[состав волн уровней]', () => runLevelWaves(browser, qaServer.url));
   if (wants('progress-save')) await safe('[прогресс: сохранение]', () => runProgressSave(browser, qaServer.url));
   if (wants('stars')) await safe('[звёзды]', () => runStars(browser, qaServer.url));

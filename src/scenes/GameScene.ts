@@ -4,7 +4,7 @@ import { CONFIG } from '../config';
 import { exposeDebug, NO_PLAQUES, QA_MODE, STRESS, TIME_SCALE, type DebugSnapshot } from '../debug';
 import { Effects } from '../effects';
 import { drawStar, setScreenInfo } from '../screens';
-import { awardDna, coinsBonus, exposeMetaDebug, HIDDEN_SCREEN, livesBonus, markSeen, metaDna, metaSeen, recordResult, rewardMul, starsForLoss } from '../meta';
+import { awardDna, coinsBonus, exposeMetaDebug, HIDDEN_SCREEN, livesBonus, markSeen, metaDna, metaSeen, recordResult, refundBonus, rewardMul, shieldCharges, starsForLoss, waveCoinsBonus } from '../meta';
 import { num, t, type TextKey } from '../i18n';
 import { aimAngle, BLOCKED_TILES, EDGES, ENTRANCE_EDGES, LEVEL, PATH_TILES, WORLD, cellKey, worldToCell } from '../level';
 import { isPortraitPhone } from '../orientation';
@@ -18,7 +18,7 @@ import { Puddle } from '../objects/Puddle';
 import { beamReach, createTowerArt, defaultAim, drawAimLine, Tower, type TowerId } from '../objects/Tower';
 import { pointAt, tileCenter, type Edge } from '../pathing';
 import { sfx } from '../sound';
-import { MAX_TOWER_LEVEL, mutationOptions, type TowerStats } from '../towerStats';
+import { computeStats, MAX_TOWER_LEVEL, mutationOptions, towerPrice, type TowerStats } from '../towerStats';
 import { COLORS, FONT, TEXT_COLORS } from '../theme';
 import { FPS_ENABLED, FpsMeter, frameReport, installFrameStats } from '../perf';
 import { Panel, VIEW_W } from '../ui/Panel';
@@ -117,6 +117,9 @@ export class GameScene extends Phaser.Scene {
   private spawned = 0;
   /** Накопленный урон по жизням от «дробных» бактерий (рой): целые жизни списываются, остаток ждёт следующих. */
   private lifePool = 0;
+  /** Сколько бактерий ещё погасит щит у линии (улучшение «Щит у линии») и сколько жизней они отняли бы: для звёзд считаются потерянными. */
+  private shieldLeft = 0;
+  private shieldAbsorbed = 0;
   /** Скорость игры, выбранная игроком кнопкой (1, 2, 3 …): множитель времени сверх тестового `?speed`. */
   private userSpeed = 1;
   /** Накопленная дробная часть наград (`economy.rewardMul`): целые монеты зачисляются, остаток ждёт следующих бактерий. */
@@ -230,6 +233,8 @@ export class GameScene extends Phaser.Scene {
     this.slows = 0;
     this.spawned = 0;
     this.lifePool = 0;
+    this.shieldLeft = shieldCharges();
+    this.shieldAbsorbed = 0;
     this.rewardPool = 0;
     this.infoQueue = [];
     this.infoClosableAt = 0;
@@ -445,6 +450,12 @@ export class GameScene extends Phaser.Scene {
 
   private startWave(): void {
     const w = CONFIG.waves;
+    // Улучшение «Подкрепление»: монеты в начале каждой волны (число бактерий на сумму не влияет)
+    const reinforcement = waveCoinsBonus();
+    if (reinforcement > 0) {
+      this.coins += reinforcement;
+      this.panel.setCoins(this.coins);
+    }
     const i = this.waveIdx;
     const k = w.intervalRampWaves > 1 ? Math.min(1, i / (w.intervalRampWaves - 1)) : 1;
     this.waveInterval = w.intervalStartSec + (w.intervalEndSec - w.intervalStartSec) * k;
@@ -805,9 +816,17 @@ export class GameScene extends Phaser.Scene {
     let lastY = 0;
     for (const bacterium of [...this.bacteria]) {
       if (!bacterium.reachedOrganism) continue;
-      damage += bacterium.lifeDamage;
       lastY = bacterium.y;
       this.leaked++;
+      if (this.shieldLeft > 0) {
+        // «Щит у линии»: бактерия гасится, жизни не отнимаются (для звёзд она считается потерянной жизнью)
+        this.shieldLeft--;
+        this.shieldAbsorbed += bacterium.lifeDamage;
+        this.effects.flash(CONFIG.map.orgW, bacterium.y, 44, COLORS.shield);
+        sfx.place();
+      } else {
+        damage += bacterium.lifeDamage;
+      }
       this.removeBacterium(bacterium);
     }
     if (damage === 0) return;
@@ -856,7 +875,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private towerInfo(id: TowerId): string | null {
-    const cfg = CONFIG.towers[id];
+    const cfg = computeStats(id, 1, []);
     if (id === 'syrup') return t('infoSyrup', { pct: Math.round((1 - cfg.slowFactor) * 100) });
     if (id === 'fizz') return t('infoFizz');
     if (id === 'syringe') return t('infoSyringe');
@@ -986,9 +1005,9 @@ export class GameScene extends Phaser.Scene {
     tower.destroy();
   }
 
-  /** Сколько монет вернёт продажа: доля цены × число обычных башен, «вложенных» в эту (2^(уровень−1)). */
+  /** Сколько монет вернёт продажа: доля уплаченной цены (с учётом скидки) × число обычных башен, «вложенных» в эту (2^(уровень−1)); долю повышает улучшение «Утилизация». */
   private sellValue(tower: Tower): number {
-    return Math.round(tower.cfg.price * 2 ** (tower.level - 1) * CONFIG.economy.sellRefund);
+    return Math.round(towerPrice(tower.id) * 2 ** (tower.level - 1) * (CONFIG.economy.sellRefund + refundBonus()));
   }
 
   private sellSelected(): void {
@@ -1063,19 +1082,19 @@ export class GameScene extends Phaser.Scene {
 
   private tryPlace(id: TowerId, col: number, row: number): void {
     if (!isTowerOpen(id)) return;
-    const cfg = CONFIG.towers[id];
+    const price = towerPrice(id);
     const key = cellKey(col, row);
     if (PATH_TILES.has(key) || BLOCKED_TILES.has(key) || this.occupied.has(key)) {
       this.deny(t('hintCantBuild'));
       return;
     }
-    if (this.coins < cfg.price) {
+    if (this.coins < price) {
       this.panel.flashCoins();
       this.deny(t('hintNoCoins'));
       return;
     }
     const center = tileCenter(col, row);
-    this.coins -= cfg.price;
+    this.coins -= price;
     this.occupied.add(key);
     this.towers.push(new Tower(this, this.towerLayer, id, col, row, center.x, center.y));
     this.effects.placed(center.x, center.y);
@@ -1085,7 +1104,7 @@ export class GameScene extends Phaser.Scene {
     this.updateHint();
     this.ghost.setVisible(false);
     this.refreshCard();
-    if (cfg.targeting === 'beam' && !this.rotateHinted) {
+    if (CONFIG.towers[id].targeting === 'beam' && !this.rotateHinted) {
       this.rotateHinted = true;
       this.panel.toast(t('hintRotate'), 3200);
     }
@@ -1109,7 +1128,7 @@ export class GameScene extends Phaser.Scene {
     this.ghost.setPosition(center.x, center.y).setVisible(true);
     this.ghostRange.clear();
     this.ghostAim.clear();
-    const cfg = CONFIG.towers[this.selected];
+    const cfg = computeStats(this.selected, 1, []);
     if (cfg.targeting === 'beam') {
       // Луч: вместо круга радиуса — пунктир по лучшему направлению (так башня встанет, если не поворачивать)
       const angle = aimAngle(defaultAim(cfg, center.x, center.y));
@@ -1332,7 +1351,7 @@ export class GameScene extends Phaser.Scene {
 
   private towerPlaque(id: TowerId): PlaqueModel {
     const key = id.charAt(0).toUpperCase() + id.slice(1);
-    const vars = { pct: Math.round((1 - CONFIG.towers.syrup.slowFactor) * 100) };
+    const vars = { pct: Math.round((1 - computeStats('syrup', 1, []).slowFactor) * 100) };
     return {
       kind: 'tower',
       id,
@@ -1368,7 +1387,7 @@ export class GameScene extends Phaser.Scene {
       const cleared = won ? this.waveTotal() : Math.max(0, this.waveIdx - 1);
       this.dnaGained = awardDna(cleared, won);
       // Звёзды по потерянным жизням (docs/stage-5-plan.md, раздел 4) и лучшая волна уровня; за новые звёзды — очки ДНК
-      this.stars = won ? starsForLoss(Math.max(0, this.maxLives() - this.lives)) : 0;
+      this.stars = won ? starsForLoss(Math.max(0, this.maxLives() - this.lives) + this.shieldAbsorbed) : 0;
       this.starDna = recordResult(currentLevel(), cleared, this.stars).starDna;
     }
     this.showOverlay(won ? t('victory') : t('gameOver'), TEXT_COLORS.accent, t('killed', { n: this.kills }), t('dnaGained', { n: this.dnaGained + this.starDna, total: metaDna() }));
@@ -1484,6 +1503,10 @@ export class GameScene extends Phaser.Scene {
       spawned: this.spawned,
       kills: this.kills,
       leaked: this.leaked,
+      shieldLeft: this.shieldLeft,
+      shieldAbsorbed: this.shieldAbsorbed,
+      towerPrices: Object.fromEntries(Object.keys(CONFIG.towers).map((id) => [id, towerPrice(id as TowerId)])),
+      sellRefundShare: CONFIG.economy.sellRefund + refundBonus(),
       introduced: [...this.introduced],
       splits: this.splits,
       disables: this.disables,
@@ -1535,7 +1558,9 @@ export class GameScene extends Phaser.Scene {
           beamPulses: tw.stats.beamPulses,
           blastRadius: tw.stats.blastRadius,
           puddleRadius: tw.stats.puddleRadius,
+          puddleSec: tw.stats.puddleSec,
           slowFactor: tw.stats.slowFactor,
+          beamHalfWidthPx: tw.stats.beamHalfWidthPx,
         },
       })),
       selectedTower: this.selectedTower ? { col: this.selectedTower.col, row: this.selectedTower.row } : null,

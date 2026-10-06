@@ -53,9 +53,9 @@ jobs:
           - group: 'Конец уровня, плашки, экономика, игровая сборка (lose, win, restart-button, deflation, camera-fit, colors, locked, plaques, production)'
             key: end
             scenarios: 'lose-ru lose-en win-ru win-en restart-button deflation camera-fit colors locked plaques production'
-          - group: 'Очки ДНК, улучшения, уровни (meta-save, meta-dna, meta-shop, meta-effects, level-waves, progress-save, stars, menu-flow, levels-lock)'
+          - group: 'Очки ДНК, улучшения, уровни (meta-save, meta-dna, meta-shop, meta-effects, tree-effects, level-waves, progress-save, stars, menu-flow, levels-lock)'
             key: meta
-            scenarios: 'meta-save meta-dna meta-shop meta-effects level-waves progress-save stars menu-flow levels-lock'
+            scenarios: 'meta-save meta-dna meta-shop meta-effects tree-effects level-waves progress-save stars menu-flow levels-lock'
           - group: 'Полная партия (fullgame)'
             key: fullgame
             scenarios: 'fullgame'
