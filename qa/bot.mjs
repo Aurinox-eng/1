@@ -111,9 +111,9 @@ const HELP = `Бот-замерщик баланса: играет целые п
   --shots                               снимок экрана в конце партии: qa/bot-results/<tag>-shots/
   --level=N                             номер уровня (1…10, по умолчанию 1): от него зависит, какие башни открыты (levels.towerUnlock в config.ts; на уровне 1 — только Таблетка и Сироп);
                                         на уровнях 2–10 партия идёт по составу волн своего уровня (levels.specs; адрес получает &levelwaves)
-  --meta=lives:2,coins:5,damage:5,reward:5   фиксированные улучшения вне партии (уровни по таблице из config.ts; не больше наибольшего уровня; без параметра — 0). Не сочетается с --campaign
+  --meta=lives:2,coins:5,damage:5,reward:5,shield:1,pillRate:3   фиксированные улучшения вне партии (id и уровни по таблице meta.upgrades из config.ts, в том числе ветки башен; не больше наибольшего уровня; без параметра — 0). Не сочетается с --campaign
   --campaign=N                          режим «серия партий» (этап 6а): каждая из --runs серий — до N партий подряд одним профилем; после каждой партии бот начисляет очки ДНК
-                                        (по формуле config.ts, раздел meta) и покупает улучшения по порядку damage, coins, lives, reward; серия кончается первой победой.
+                                        (по формуле config.ts, раздел meta) и покупает улучшения по порядку damage, coins, lives, reward, затем остальные по таблице (ветка башни — если башня открыта на уровне партии); серия кончается первой победой.
                                         Итог — номер партии первой победы. Без этого параметра улучшений нет (уровни 0)
   --canvas                              рисовать игру через canvas вместо WebGL (?qa&canvas): на слабом контейнере партия идёт ≈ втрое быстрее.
                                         Логика игры та же; для замеров баланса годится (картинка не важна)
@@ -194,14 +194,14 @@ const MAP_PATH_WIDTH = cfgGet('map.pathWidth') ?? readConfigNumber('map', 'pathW
 
 // Очки ДНК и улучшения (config.ts, раздел meta) с подменой --cfg: цены, очки за волну и за победу
 const META = readMetaTable();
-/** Фиксированные улучшения (--meta=lives:2,coins:5,...): null — нет; иначе уровни четырёх улучшений. Нужны, чтобы замерять уровни 2–10 «с полным деревом» без прохождения серии партий. */
+/** Фиксированные улучшения (--meta=lives:2,coins:5,shield:1,pillRate:3,...): null — нет; иначе уровни всех улучшений таблицы (не названные — 0). Нужны, чтобы замерять уровни 2–10 «с полным деревом» без прохождения серии партий. */
 const META_FIXED = (() => {
   if (args.meta === undefined) return null;
-  const levels = { lives: 0, coins: 0, damage: 0, reward: 0 };
+  const levels = Object.fromEntries(Object.keys(META.upgrades).map((id) => [id, 0]));
   for (const item of String(args.meta).split(',')) {
     const [key, valueText] = item.split(':');
     const value = Number(valueText);
-    if (!(key in levels) || !Number.isInteger(value) || value < 0) die(`--meta: не понял «${item}». Нужно вид lives:2,coins:5,damage:5,reward:5`);
+    if (!(key in levels) || !Number.isInteger(value) || value < 0) die(`--meta: не понял «${item}». Нужно вид lives:2,coins:5,damage:5,reward:5,shield:1,pillRate:3 (id — из таблицы meta.upgrades в config.ts: ${Object.keys(META.upgrades).join(', ')})`);
     levels[key] = Math.min(META.upgrades[key].prices.length, value);
   }
   return levels;
@@ -215,7 +215,19 @@ for (const [cfgPath, value] of CFG_ITEMS) {
   m = /^meta\.upgrades\.(\w+)\.perLevel$/.exec(cfgPath);
   if (m && META.upgrades[m[1]]) META.upgrades[m[1]].perLevel = value;
 }
-const BUY_ORDER = ['damage', 'coins', 'lives', 'reward']; // в таком порядке бот тратит очки ДНК (docs/upgrades.md, раздел 7)
+/** Порядок, в котором бот тратит очки ДНК (docs/upgrades.md, разделы 7 и 16): сначала улучшения этапа 6а, затем остальные по порядку таблицы; ветка башни — только если башня открыта на уровне партии. */
+const BUY_ORDER = ['damage', 'coins', 'lives', 'reward', ...Object.keys(META.upgrades).filter((id) => !['damage', 'coins', 'lives', 'reward'].includes(id))];
+const branchOpenAtLevel = (id) => (TOWER_UNLOCK[META.upgrades[id].branch] ?? 1) <= LEVEL;
+
+/** Числа башен для решений бота (цена и радиус) на начало партии: строка таблицы с учётом купленных улучшений ветки башни. */
+const TABLE_BASE = JSON.parse(JSON.stringify(TABLE));
+function applyMetaToTable(levels) {
+  for (const id of KNOWN_TOWERS) {
+    const sum = (effect) => Object.entries(META.upgrades).filter(([, u]) => u.branch === id && u.effect === effect).reduce((acc, [uid, u]) => acc + (levels?.[uid] ?? 0) * u.perLevel, 0);
+    TABLE[id].price = Math.max(1, Math.ceil(TABLE_BASE[id].price * (1 + sum('price')) - 1e-9));
+    TABLE[id].range = TABLE_BASE[id].range * (1 + sum('range'));
+  }
+}
 const emptyLevels = () => Object.fromEntries(Object.keys(META.upgrades).map((id) => [id, 0]));
 
 /** Очки ДНК за партию: за каждую пройденную волну (при проигрыше — без текущей) и добавка за победу — как в GameScene.endGame. */
@@ -230,7 +242,7 @@ function buyUpgrades(levels, dna) {
   const bought = [];
   let left = dna;
   for (;;) {
-    const id = BUY_ORDER.find((x) => META.upgrades[x] && META.upgrades[x].prices[next[x]] !== undefined && META.upgrades[x].prices[next[x]] <= left);
+    const id = BUY_ORDER.find((x) => META.upgrades[x] && branchOpenAtLevel(x) && META.upgrades[x].prices[next[x]] !== undefined && META.upgrades[x].prices[next[x]] <= left);
     if (!id) break;
     left -= META.upgrades[id].prices[next[id]];
     next[id]++;
@@ -573,6 +585,7 @@ let WORLD = null; // строится один раз по сети дороже
 
 /** Играет одну партию. Возвращает запись о партии. Бросает FatalConsole (ошибка консоли / «cfg:»), остальные ошибки — наверх. */
 async function playGame(browser, baseUrl, profile, run, metaLevels = null, salt = '') {
+  applyMetaToTable(metaLevels);
   const rng = makeRng(`${SEED}:${profile}:${run}${salt}`);
   const context = await browser.newContext({ viewport: { width: W, height: H }, deviceScaleFactor: 1, locale: 'ru-RU' });
   const page = await context.newPage();

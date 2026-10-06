@@ -47,7 +47,7 @@ on:
         type: string
         default: '2'
       meta:
-        description: 'Фиксированные улучшения вне партии для всех партий замера, например lives:2,coins:5,damage:5,reward:5 (пусто — без улучшений; не сочетается с «campaign»)'
+        description: 'Фиксированные улучшения вне партии для всех партий замера, например lives:2,coins:5,damage:5,reward:5,shield:1,pillRate:3 (id — из таблицы meta.upgrades в config.ts; пусто — без улучшений; не сочетается с «campaign»)'
         type: string
         default: ''
       campaign:
