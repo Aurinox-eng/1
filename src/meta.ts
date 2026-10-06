@@ -6,9 +6,10 @@
  * `?qa&stars=3,2,0` задаёт звёзды уровней 1, 2, 3… (остальные — 0), в сохранение тоже ничего не пишется.
  * Прогресс по уровням (звёзды, лучшая волна, показанные плашки) — этап 5, docs/stage-5-plan.md.
  */
-import { CONFIG } from './config';
+import { CONFIG, type UpgradeBranch, type UpgradeEffect } from './config';
 import { QA_MODE } from './debug';
 import { emptyMeta, loadMeta, maxLevel, saveMeta, UPGRADE_IDS, type MetaSave, type UpgradeId } from './save';
+import { unlockLevel } from './progress';
 
 function readOverride(): MetaSave | null {
   if (!QA_MODE) return null;
@@ -20,7 +21,7 @@ function readOverride(): MetaSave | null {
     const value = Number(valueText);
     if (!Number.isFinite(value) || value < 0) continue;
     if (key === 'dna') out.dna = Math.floor(value);
-    else if ((UPGRADE_IDS as string[]).includes(key)) out.levels[key as UpgradeId] = Math.min(maxLevel(key as UpgradeId), Math.floor(value));
+    else if (UPGRADE_IDS.includes(key)) out.levels[key] = Math.min(maxLevel(key), Math.floor(value));
     else console.warn(`meta: не понял «${item}» — пропускаю`);
   }
   return out;
@@ -63,13 +64,13 @@ export function nextPrice(id: UpgradeId): number | null {
 
 export function canBuy(id: UpgradeId): boolean {
   const price = nextPrice(id);
-  return price !== null && state.dna >= price;
+  return price !== null && state.dna >= price && isBranchOpen(CONFIG.meta.upgrades[id].branch);
 }
 
 /** Покупает следующий уровень улучшения; false, если куплен наибольший уровень или не хватает очков. */
 export function buyUpgrade(id: UpgradeId): boolean {
   const price = nextPrice(id);
-  if (price === null || state.dna < price) return false;
+  if (price === null || state.dna < price || !isBranchOpen(CONFIG.meta.upgrades[id].branch)) return false;
   state = { ...state, dna: state.dna - price, levels: { ...state.levels, [id]: state.levels[id] + 1 } };
   persist();
   return true;
@@ -155,11 +156,39 @@ export function markSeen(key: string): void {
   persist();
 }
 
+// ---------------------------------------------------------------- ветки и бонусы партии
+
+/** С какого уровня открыта ветка: «Организм» и «Защита» — с первого, ветка башни — с уровня, на котором башня становится доступной (`levels.towerUnlock`). */
+export function branchUnlockLevel(branch: UpgradeBranch): number {
+  return branch === 'body' || branch === 'defense' ? 1 : unlockLevel(branch);
+}
+
+/** Открыта ли ветка для покупок: открыт ли на карте уровней уровень, на котором ветка открывается. */
+export function isBranchOpen(branch: UpgradeBranch): boolean {
+  return isLevelOpen(branchUnlockLevel(branch));
+}
+
+/** Сумма эффектов купленных улучшений вида `effect` (уровень × эффект уровня); `branch` ограничивает ветку (для башен — id башни). 0, если таких улучшений нет или не куплено. */
+export function upgradeBonus(effect: UpgradeEffect, branch?: UpgradeBranch): number {
+  let sum = 0;
+  for (const id of UPGRADE_IDS) {
+    const spec = CONFIG.meta.upgrades[id];
+    if (spec.effect === effect && (branch === undefined || spec.branch === branch)) sum += (state.levels[id] ?? 0) * spec.perLevel;
+  }
+  return sum;
+}
+
 /** Бонусы партии от купленных улучшений. */
-export const livesBonus = (): number => state.levels.lives * CONFIG.meta.upgrades.lives.perLevel;
-export const coinsBonus = (): number => state.levels.coins * CONFIG.meta.upgrades.coins.perLevel;
-export const damageMul = (): number => 1 + state.levels.damage * CONFIG.meta.upgrades.damage.perLevel;
-export const rewardMul = (): number => 1 + state.levels.reward * CONFIG.meta.upgrades.reward.perLevel;
+export const livesBonus = (): number => upgradeBonus('lives');
+export const coinsBonus = (): number => upgradeBonus('coins');
+export const damageMul = (): number => 1 + upgradeBonus('damage');
+export const rewardMul = (): number => 1 + upgradeBonus('reward');
+/** Сколько бактерий за партию, дошедших до организма, щит гасит без потери жизни. */
+export const shieldCharges = (): number => Math.floor(upgradeBonus('shield'));
+/** Прибавка к доле возврата при продаже башни (0,05 = +5 пунктов). */
+export const refundBonus = (): number => upgradeBonus('sellRefund');
+/** Монет в начале каждой волны. */
+export const waveCoinsBonus = (): number => Math.floor(upgradeBonus('waveCoins'));
 
 // ---------------------------------------------------------------- доступ для проверок (только ?qa)
 

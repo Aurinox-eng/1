@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { CONFIG } from '../config';
+import { CONFIG, type UpgradeEffect } from '../config';
 import { exposeMetaDebug, buyUpgrade, canBuy, metaDna, metaLevel, nextPrice, type MetaScreenInfo } from '../meta';
 import { num, t, type TextKey } from '../i18n';
 import { maxLevel, UPGRADE_IDS, type UpgradeId } from '../save';
@@ -23,14 +23,31 @@ const buyCenter = (c: { x: number; y: number }): { x: number; y: number } => ({ 
 const PLAY = { x: W / 2 + 190, y: 640, w: 340, h: 76 };
 const MENU = { x: W / 2 - 190, y: 640, w: 340, h: 76 };
 
-const NAME_KEY: Record<UpgradeId, TextKey> = { lives: 'upgLives', coins: 'upgCoins', damage: 'upgDamage', reward: 'upgReward' };
-const DESC_KEY: Record<UpgradeId, TextKey> = { lives: 'upgLivesDesc', coins: 'upgCoinsDesc', damage: 'upgDamageDesc', reward: 'upgRewardDesc' };
+/** Ключ названия улучшения: `upg` + id с заглавной буквы (`lives` → `upgLives`). */
+const nameKey = (id: UpgradeId): TextKey => `upg${id[0].toUpperCase()}${id.slice(1)}` as TextKey;
+/** Ключ описания по действию улучшения (`UpgradeEffect`): у 6а — `upgLivesDesc` и т. д., у остальных — `upgDesc` + действие с заглавной буквы. */
+const DESC_KEY: Partial<Record<UpgradeEffect, TextKey>> = { lives: 'upgLivesDesc', coins: 'upgCoinsDesc', damage: 'upgDamageDesc', reward: 'upgRewardDesc' };
+const descKey = (effect: UpgradeEffect): TextKey => DESC_KEY[effect] ?? (`upgDesc${effect[0].toUpperCase()}${effect.slice(1)}` as TextKey);
 
-/** Что даёт улучшение на уровне level (суммарно): жизней и монет — числом, урон и награда — в процентах. */
+/** Что даёт улучшение на уровне level (суммарно): числом (жизни, монеты, щит, удары, пиксели), процентами (урон, награда, цена, пауза, радиусы, время лужи, возврат) или множителем (скорость в луже). */
 function effectText(id: UpgradeId, level: number): string {
-  const per = CONFIG.meta.upgrades[id].perLevel;
-  const value = id === 'damage' || id === 'reward' ? Math.round(per * level * 100) : per * level;
-  return t(DESC_KEY[id], { n: num(value) });
+  const spec = CONFIG.meta.upgrades[id];
+  const total = spec.perLevel * level;
+  let value: number;
+  switch (spec.effect) {
+    case 'sellRefund':
+      value = Math.round((CONFIG.economy.sellRefund + total) * 100);
+      break;
+    case 'slowFactor':
+      value = Math.round(Math.max(CONFIG.meta.minSlowFactor, CONFIG.towers.syrup.slowFactor + total) * 100) / 100;
+      break;
+    case 'damage': case 'reward': case 'price': case 'cooldown': case 'range': case 'blast': case 'puddleSec': case 'puddleRadius':
+      value = Math.round(Math.abs(total) * 100);
+      break;
+    default:
+      value = total;
+  }
+  return t(descKey(spec.effect), { n: num(value) });
 }
 
 interface CardView {
@@ -67,7 +84,7 @@ export class UpgradesScene extends Phaser.Scene {
     this.add.text(W / 2, 52, t('upgradesTitle'), this.style(54, TEXT_COLORS.accent)).setOrigin(0.5);
     this.balance = this.add.text(W / 2, 112, '', this.style(34)).setOrigin(0.5);
 
-    UPGRADE_IDS.forEach((id, i) => this.addCard(id, CARD_CENTERS[i]));
+    UPGRADE_IDS.filter((id) => CONFIG.meta.upgrades[id].branch === 'body').forEach((id, i) => this.addCard(id, CARD_CENTERS[i]));
     this.addPlayButton();
     this.refresh();
 
@@ -81,7 +98,7 @@ export class UpgradesScene extends Phaser.Scene {
     const g = this.add.graphics();
     g.fillStyle(0x14264b, 1).fillRoundedRect(x0, y0, CARD.w, CARD.h, 20);
     g.lineStyle(4, 0x3a5f9c, 1).strokeRoundedRect(x0, y0, CARD.w, CARD.h, 20);
-    const name = this.add.text(x0 + 24, y0 + 18, t(NAME_KEY[id]), this.style(36, TEXT_COLORS.accent)).setOrigin(0, 0);
+    const name = this.add.text(x0 + 24, y0 + 18, t(nameKey(id)), this.style(36, TEXT_COLORS.accent)).setOrigin(0, 0);
     const level = this.add.text(x0 + 24, y0 + 66, '', this.style(24, TEXT_COLORS.soft, false)).setOrigin(0, 0);
     const effect = this.add.text(x0 + 24, y0 + 98, '', this.style(24, TEXT_COLORS.main, false)).setOrigin(0, 0).setWordWrapWidth(CARD.w - 48);
     const { x: buyX, y: buyY } = buyCenter(c);

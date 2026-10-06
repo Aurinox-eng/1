@@ -67,6 +67,29 @@ export interface MutationSpec {
   secondBeam?: boolean;
   spiral?: number;
 }
+/**
+ * Что делает улучшение вне партии (колонка `effect` таблицы `meta.upgrades`, docs/upgrades.md):
+ *  lives, coins, damage, reward — жизни, стартовые монеты, урон всех башен, награда (этап 6а);
+ *  shield — сколько бактерий за партию, дошедших до организма, не отнимают жизнь; sellRefund — прибавка к доле возврата при продаже;
+ *  waveCoins — монет в начале каждой волны;
+ *  price, cooldown, range, blast, puddleSec, puddleRadius — доля, на которую меняются цена башни, пауза между выстрелами, радиус стрельбы, радиус взрыва,
+ *  время жизни лужи, радиус лужи (−0,05 = на 5 % меньше); slowFactor — прибавка к множителю скорости в луже (меньше — бактерия медленнее);
+ *  beamWidth — прибавка к полуширине луча, пикселей; pulses — ударов в очереди луча сверх обычных.
+ *  Эффекты башен действуют на башню, чьё имя совпадает с веткой улучшения.
+ */
+export type UpgradeEffect =
+  | 'lives' | 'coins' | 'damage' | 'reward'
+  | 'shield' | 'sellRefund' | 'waveCoins'
+  | 'price' | 'cooldown' | 'range' | 'blast' | 'puddleSec' | 'puddleRadius' | 'slowFactor' | 'beamWidth' | 'pulses';
+/** Ветка улучшений: «body» (Организм, этап 6а), «defense» (Защита) или id башни (`pill`, `syrup`, `fizz`, `syringe`). Ветка башни открыта, когда открыт уровень, на котором башня становится доступной. */
+export type UpgradeBranch = 'body' | 'defense' | 'pill' | 'syrup' | 'fizz' | 'syringe';
+/** Строка таблицы улучшений вне партии: ветка, действие, эффект одного уровня и цены уровней. */
+export interface UpgradeSpec {
+  branch: UpgradeBranch;
+  effect: UpgradeEffect;
+  perLevel: number;
+  prices: number[];
+}
 /** Куда смотрит башня: любых в радиусе, только «вперёд» (ещё не дошли до башни) или только «назад» (уже прошли). */
 export type TowerSide = 'both' | 'forward' | 'back';
 
@@ -529,15 +552,33 @@ export const CONFIG = {
       /** Добавка за победу, очков ДНК. */
       winBonus: 15,
     },
-    /** Улучшения вне партии (одна строка — одно улучшение). perLevel — эффект одного уровня: lives — жизней, coins — стартовых монет,
-     *  damage — доля к урону всех башен (0,1 = +10 %), reward — доля к награде за бактерий (0,08 = +8 %). prices — цена каждого уровня, очков ДНК
-     *  (число цен = наибольший уровень). Подобрано замером серий партий (docs/balance-history.md, «Этап 6а»): проектные 1 очко за волну и +10 % урона за уровень давали слишком слабый рост. */
+    /** Улучшения вне партии (одна строка — одно улучшение; порядок строк — порядок на экране внутри ветки и порядок в сохранении).
+     *  branch — вкладка экрана; effect — что меняется (список — у типа `UpgradeEffect`); perLevel — эффект одного уровня; prices — цена каждого уровня, очков ДНК
+     *  (число цен = наибольший уровень). Строки этапа 6а (`body`) подобраны замером серий партий (docs/balance-history.md, «Этап 6а»): проектные 1 очко за волну и
+     *  +10 % урона за уровень давали слишком слабый рост. Строки остальных веток — проект этапа 6б (docs/upgrades.md, раздел 12), первое приближение. */
     upgrades: {
-      lives: { perLevel: 1, prices: [12, 30] },
-      coins: { perLevel: 150, prices: [8, 14, 20, 28, 36] },
-      damage: { perLevel: 0.5, prices: [15, 25, 40, 60, 90] },
-      reward: { perLevel: 0.2, prices: [10, 18, 28, 42, 60] },
-    } as Record<string, { perLevel: number; prices: number[] }>,
+      lives: { branch: 'body', effect: 'lives', perLevel: 1, prices: [12, 30] },
+      coins: { branch: 'body', effect: 'coins', perLevel: 150, prices: [8, 14, 20, 28, 36] },
+      damage: { branch: 'body', effect: 'damage', perLevel: 0.5, prices: [15, 25, 40, 60, 90] },
+      reward: { branch: 'body', effect: 'reward', perLevel: 0.2, prices: [10, 18, 28, 42, 60] },
+      shield: { branch: 'defense', effect: 'shield', perLevel: 1, prices: [30, 60, 100] },
+      recycle: { branch: 'defense', effect: 'sellRefund', perLevel: 0.05, prices: [20, 35, 55] },
+      reinforce: { branch: 'defense', effect: 'waveCoins', perLevel: 4, prices: [25, 45, 75] },
+      pillRate: { branch: 'pill', effect: 'cooldown', perLevel: -0.06, prices: [20, 35, 55] },
+      pillRange: { branch: 'pill', effect: 'range', perLevel: 0.05, prices: [20, 35, 55] },
+      pillCheap: { branch: 'pill', effect: 'price', perLevel: -0.05, prices: [25, 45, 70] },
+      syrupTime: { branch: 'syrup', effect: 'puddleSec', perLevel: 0.1, prices: [20, 35, 55] },
+      syrupSlow: { branch: 'syrup', effect: 'slowFactor', perLevel: -0.03, prices: [25, 45, 70] },
+      syrupWide: { branch: 'syrup', effect: 'puddleRadius', perLevel: 0.06, prices: [20, 35, 55] },
+      fizzBlast: { branch: 'fizz', effect: 'blast', perLevel: 0.06, prices: [30, 50, 80] },
+      fizzRate: { branch: 'fizz', effect: 'cooldown', perLevel: -0.06, prices: [30, 50, 80] },
+      fizzRange: { branch: 'fizz', effect: 'range', perLevel: 0.05, prices: [25, 45, 70] },
+      syringeRate: { branch: 'syringe', effect: 'cooldown', perLevel: -0.06, prices: [35, 60, 95] },
+      syringeWidth: { branch: 'syringe', effect: 'beamWidth', perLevel: 3, prices: [30, 50, 80] },
+      syringePulse: { branch: 'syringe', effect: 'pulses', perLevel: 1, prices: [120] },
+    } as Record<string, UpgradeSpec>,
+    /** Нижняя граница множителя скорости бактерии в луже Сиропа после всех улучшений и мутаций (меньше — бактерия почти стоит). */
+    minSlowFactor: 0.1,
   },
 
   // ------------------------------------------------------------

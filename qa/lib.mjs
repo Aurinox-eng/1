@@ -451,7 +451,7 @@ export async function heapMb(cdp) {
 }
 
 /**
- * Очки ДНК и улучшения вне партии из src/config.ts (раздел meta): { dna: { perWave, winBonus }, upgrades: { id: { perLevel, prices: [...] } } }.
+ * Очки ДНК и улучшения вне партии из src/config.ts (раздел meta): { dna: { perWave, winBonus }, upgrades: { id: { branch, effect, perLevel, prices: [...] } } }.
  * Порядок ключей — порядок строк в таблице (как на экране «Улучшения»).
  */
 export function readMetaTable() {
@@ -467,8 +467,8 @@ export function readMetaTable() {
   const upStart = body.indexOf('upgrades:');
   if (upStart < 0) throw new Error('В разделе «meta» config.ts нет «upgrades»');
   const upgrades = {};
-  for (const m of body.slice(upStart).matchAll(/(\w+):\s*\{\s*perLevel:\s*(-?[\d.]+),\s*prices:\s*\[([^\]]*)\]\s*\}/g)) {
-    upgrades[m[1]] = { perLevel: Number(m[2]), prices: m[3].split(',').map((x) => Number(x.trim())).filter((x) => Number.isFinite(x)) };
+  for (const m of body.slice(upStart).matchAll(/(\w+):\s*\{\s*branch:\s*'(\w+)',\s*effect:\s*'(\w+)',\s*perLevel:\s*(-?[\d.]+),\s*prices:\s*\[([^\]]*)\]\s*\}/g)) {
+    upgrades[m[1]] = { branch: m[2], effect: m[3], perLevel: Number(m[4]), prices: m[5].split(',').map((x) => Number(x.trim())).filter((x) => Number.isFinite(x)) };
   }
   if (!Object.keys(upgrades).length) throw new Error('В разделе «meta» config.ts не нашлось улучшений');
   return { dna: { perWave: num('perWave'), winBonus: num('winBonus') }, upgrades };

@@ -5174,6 +5174,10 @@ async function runMetaSave(browser, baseUrl) {
   check(`${p} повреждённая запись: игра запускается с нулевым прогрессом`, m.dna === 0 && Object.values(m.levels).every((v) => v === 0), JSON.stringify(m));
   m = await reloadWith(JSON.stringify({ v: 1, dna: -5, levels: { lives: 99, coins: 'много', damage: 2.7, reward: -1 } }));
   check(`${p} чужие значения исправляются: очки −5 → 0, уровень 99 → наибольший 2, «много» → 0, 2,7 → 2, −1 → 0`, m.dna === 0 && m.levels.lives === 2 && m.levels.coins === 0 && m.levels.damage === 2 && m.levels.reward === 0, JSON.stringify(m));
+  // ---- версия 3 (этап 6б): улучшения всех веток по id таблицы; неизвестные id отбрасываются, значения выше максимума и отрицательные исправляются
+  m = await reloadWith(JSON.stringify({ v: 3, dna: 12, levels: { lives: 1, shield: 2, recycle: 3, pillRate: 3, syrupSlow: 'много', fizzBlast: -2, syringePulse: 5, nope: 4 } }));
+  check(`${p} версия 3: уровни новых улучшений читаются (щит 2, утилизация 3, быстрый приём 3), 5 → наибольший 1, −2 и «много» → 0, неизвестный id отброшен`, m.dna === 12 && m.levels.lives === 1 && m.levels.shield === 2 && m.levels.recycle === 3 && m.levels.pillRate === 3 && m.levels.syringePulse === 1 && m.levels.fizzBlast === 0 && m.levels.syrupSlow === 0 && !('nope' in m.levels), JSON.stringify(m.levels));
+  check(`${p} в состоянии есть все 19 улучшений дерева (по строкам таблицы), включая ветки башен`, Object.keys(m.levels).length >= 19 && ['shield', 'pillCheap', 'syrupTime', 'fizzRange', 'syringeWidth'].every((id) => id in m.levels), Object.keys(m.levels).join());
   await context.close();
 
   // хранилище недоступно: обращение к localStorage бросает ошибку
@@ -5476,7 +5480,7 @@ async function runMetaDna(browser, baseUrl) {
   m = await metaOf(lose.page);
   check(`${p} очки за партию начисляются один раз (через 1,5 с на счёте по-прежнему ${wantLose})`, m.dna === wantLose, `на счёте ${m.dna}`);
   const stored = await lose.page.evaluate(() => JSON.parse(window.localStorage.getItem('pvb.meta') ?? 'null'));
-  check(`${p} очки записаны в хранилище браузера (pvb.meta)`, stored !== null && stored.dna === wantLose && stored.v === 2, JSON.stringify(stored));
+  check(`${p} очки записаны в хранилище браузера (pvb.meta)`, stored !== null && stored.dna === wantLose && stored.v === 3, JSON.stringify(stored));
   await shot(lose.page, 'meta-dna-lost');
   await lose.page.close();
 

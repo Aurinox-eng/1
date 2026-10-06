@@ -7,17 +7,18 @@
  */
 import { CONFIG } from './config';
 
-export type UpgradeId = 'lives' | 'coins' | 'damage' | 'reward';
+/** Id улучшения: ключ строки таблицы `CONFIG.meta.upgrades` (новая строка таблицы — новое улучшение без правок кода сохранения). */
+export type UpgradeId = string;
 
-/** Порядок улучшений на экране (и порядок строк в `CONFIG.meta.upgrades`). */
-export const UPGRADE_IDS: UpgradeId[] = ['lives', 'coins', 'damage', 'reward'];
+/** Порядок улучшений: порядок строк в `CONFIG.meta.upgrades`. */
+export const UPGRADE_IDS: UpgradeId[] = Object.keys(CONFIG.meta.upgrades);
 
 export interface MetaSave {
-  /** Версия формата: 1 — очки и улучшения (этап 6а); 2 — плюс прогресс по уровням и показанные плашки (этап 5). Версия 1 читается без преобразования. */
-  v: 2;
+  /** Версия формата: 1 — очки и улучшения (этап 6а); 2 — плюс прогресс по уровням и показанные плашки (этап 5); 3 — улучшения всех веток древа (этап 6б). Версии 1 и 2 читаются без преобразования. */
+  v: 3;
   /** Очки ДНК на счёте (целое число ≥ 0). */
   dna: number;
-  /** Уровень каждого улучшения (0 — не куплено). */
+  /** Уровень каждого улучшения по id из таблицы (0 — не куплено; id, которых нет в записи, читаются как 0). */
   levels: Record<UpgradeId, number>;
   /** Прогресс по уровням: звёзды (0–3) и лучшая достигнутая волна (0 — уровень не играли); индекс 0 — уровень 1. Длина — `CONFIG.levels.count`. */
   progress: { stars: number[]; best: number[] };
@@ -39,7 +40,7 @@ export function maxLevel(id: UpgradeId): number {
 
 export function emptyMeta(): MetaSave {
   const zeros = (): number[] => Array.from({ length: CONFIG.levels.count }, () => 0);
-  return { v: 2, dna: 0, levels: { lives: 0, coins: 0, damage: 0, reward: 0 }, progress: { stars: zeros(), best: zeros() }, seen: [] };
+  return { v: 3, dna: 0, levels: Object.fromEntries(UPGRADE_IDS.map((id) => [id, 0])), progress: { stars: zeros(), best: zeros() }, seen: [] };
 }
 
 /** Приводит прочитанное к допустимому виду: чужие или испорченные значения заменяются нулём, уровни ограничиваются наибольшим. */
