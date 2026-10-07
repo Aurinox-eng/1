@@ -74,6 +74,9 @@
  *   meta-dna               очки ДНК: начисление за проигрыш и победу, один раз за партию, накопление, запись в хранилище
  *   meta-shop              экран «Улучшения» (компьютер ru, телефон en): переход с экрана конца уровня, покупка, нехватка очков, наибольший уровень, «Играть», тексты
  *   meta-effects           улучшения в партии: жизни, стартовые монеты, урон башен, награда за бактерий
+
+ *   tree-shop              экран «Улучшения» с вкладками веток (этап 6б): вкладки, замки закрытых веток, покупка, тексты ru/en
+ *   tree-effects           улучшения древа (этап 6б): числа башен по веткам, цена, продажа, щит у линии и звёзды, подкрепление
  *   level-waves            уровни (этап 5, шаг 1): с `&levelwaves` на уровне 1 состав волн из таблицы `waves.list`, на уровнях 2–10 — от генератора (30 волн, суммарная прочность бактерий больше, чем на уровне 1, и не меньше, чем на предыдущем уровне);
  *                          без `&levelwaves` на любом уровне волны уровня 1 (так идут остальные проверки и бот)
  *   progress-save          сохранение версии 2 (этап 5, шаг 2): прогресс по уровням (звёзды, лучшая волна) и показанные плашки — чтение, версия 1 без прогресса, чужие и испорченные значения, плашки не повторяются после обновления страницы
@@ -113,6 +116,7 @@ import {
   readI18n,
   readKinds,
   readLevel,
+  readMetaTable,
   readTitles,
   readTowerTable,
   readTowerUnlock,
@@ -136,7 +140,7 @@ if (['stage-1', 'stage-1b', 'stage-1b-qa', 'td-1-mockup', 'tmp'].includes(tag)) 
   process.exit(2);
 }
 
-const SCENARIOS = ['desktop-ru', 'phone-ru', 'desktop-en', 'phone-en', 'rules', 'graph', 'combat', 'dash', 'split', 'spore', 'armored', 'intro', 'lose-ru', 'lose-en', 'win-ru', 'win-en', 'towers', 'card', 'merge', 'mutations', 'sell', 'special', 'danger', 'rotate', 'production', 'fullgame', 'plaques', 'locked', 'strip', 'restart-button', 'deflation', 'camera-fit', 'colors', 'meta-save', 'meta-dna', 'meta-shop', 'meta-effects', 'level-waves', 'progress-save', 'stars', 'menu-flow', 'levels-lock']
+const SCENARIOS = ['desktop-ru', 'phone-ru', 'desktop-en', 'phone-en', 'rules', 'graph', 'combat', 'dash', 'split', 'spore', 'armored', 'intro', 'lose-ru', 'lose-en', 'win-ru', 'win-en', 'towers', 'card', 'merge', 'mutations', 'sell', 'special', 'danger', 'rotate', 'production', 'fullgame', 'plaques', 'locked', 'strip', 'restart-button', 'deflation', 'camera-fit', 'colors', 'meta-save', 'meta-dna', 'meta-shop', 'meta-effects', 'tree-effects', 'tree-shop', 'level-waves', 'progress-save', 'stars', 'menu-flow', 'levels-lock']
 const only = args.only === undefined ? null : String(args.only);
 if (only !== null && !SCENARIOS.includes(only)) {
   console.error(`Неизвестный сценарий --only=${only}. Есть: ${SCENARIOS.join(', ')}`);
@@ -5174,6 +5178,10 @@ async function runMetaSave(browser, baseUrl) {
   check(`${p} повреждённая запись: игра запускается с нулевым прогрессом`, m.dna === 0 && Object.values(m.levels).every((v) => v === 0), JSON.stringify(m));
   m = await reloadWith(JSON.stringify({ v: 1, dna: -5, levels: { lives: 99, coins: 'много', damage: 2.7, reward: -1 } }));
   check(`${p} чужие значения исправляются: очки −5 → 0, уровень 99 → наибольший 2, «много» → 0, 2,7 → 2, −1 → 0`, m.dna === 0 && m.levels.lives === 2 && m.levels.coins === 0 && m.levels.damage === 2 && m.levels.reward === 0, JSON.stringify(m));
+  // ---- версия 3 (этап 6б): улучшения всех веток по id таблицы; неизвестные id отбрасываются, значения выше максимума и отрицательные исправляются
+  m = await reloadWith(JSON.stringify({ v: 3, dna: 12, levels: { lives: 1, shield: 2, recycle: 3, pillRate: 3, syrupSlow: 'много', fizzBlast: -2, syringePulse: 5, nope: 4 } }));
+  check(`${p} версия 3: уровни новых улучшений читаются (щит 2, утилизация 3, быстрый приём 3), 5 → наибольший 1, −2 и «много» → 0, неизвестный id отброшен`, m.dna === 12 && m.levels.lives === 1 && m.levels.shield === 2 && m.levels.recycle === 3 && m.levels.pillRate === 3 && m.levels.syringePulse === 1 && m.levels.fizzBlast === 0 && m.levels.syrupSlow === 0 && !('nope' in m.levels), JSON.stringify(m.levels));
+  check(`${p} в состоянии есть все 19 улучшений дерева (по строкам таблицы), включая ветки башен`, Object.keys(m.levels).length >= 19 && ['shield', 'pillCheap', 'syrupTime', 'fizzRange', 'syringeWidth'].every((id) => id in m.levels), Object.keys(m.levels).join());
   await context.close();
 
   // хранилище недоступно: обращение к localStorage бросает ошибку
@@ -5194,11 +5202,13 @@ async function runLevelWaves(browser, baseUrl) {
   const cfg = 'waves.firstDelaySec:600';
   const totals = [];
   const hps = [];
+  const firsts = [];
   for (let level = 1; level <= 10; level++) {
     const game = await openGame(context, baseUrl, p, { speed: 1, cfg, query: `&levelwaves&level=${level}` });
     const s = await game.state();
     totals.push(s.plannedTotal);
     hps.push(s.plannedHp);
+    firsts.push(s.firstWaves);
     check(`${p} уровень ${level}: номер уровня в игре, 30 волн, бактерии запланированы`, s.level === level && s.waveTotal === 30 && s.plannedTotal > 0, `уровень ${s.level}, волн ${s.waveTotal}, бактерий ${s.plannedTotal}`);
     await game.page.close();
   }
@@ -5207,6 +5217,15 @@ async function runLevelWaves(browser, baseUrl) {
   // Сложность уровня — суммарная прочность бактерий, а не их число: на уровне 2 тяжёлых типов больше, штук может быть меньше
   check(`${p} на уровне 2 суммарная прочность бактерий больше, чем на уровне 1`, hps[1] > hps[0], `уровень 1: ${hps[0]}, уровень 2: ${hps[1]}`);
   check(`${p} с уровня на уровень суммарная прочность не становится меньше (2–10)`, hps.slice(2).every((n, i) => n >= hps[i + 1]), hps.join(', '));
+  // Сглаживание выхода типов (этап 5б, `levels.gen.introSpread`): на уровне 2 шесть типов уровня 1 выходят в те же волны, что на уровне 1, дальше выход только сдвигается к началу, на уровне 10 — все шесть в первых 6–8 волнах
+  if (readConfigNumber('levels', 'introSpread') === 1) {
+    const six = ['coccus', 'rod', 'swarm', 'runner', 'splitter', 'armored'];
+    const sched = (i) => six.map((k) => firsts[i][k]);
+    check(`${p} уровень 2 выпускает шесть типов уровня 1 в те же волны, что уровень 1 (${sched(0).join(', ')})`, sched(1).join() === sched(0).join(), `уровень 1: ${sched(0).join(', ')}; уровень 2: ${sched(1).join(', ')}`);
+    const rising = firsts.slice(1).every((f, i) => i === 0 || six.every((k, j) => f[k] <= firsts[i][k]));
+    check(`${p} с уровня на уровень первая волна каждого из шести типов не отодвигается (расписание только сжимается)`, rising, firsts.map((f, i) => `${i + 1}: ${six.map((k) => f[k]).join(',')}`).join(' | '));
+    check(`${p} на уровне 10 шесть типов выходят подряд в первых 6–8 волнах: ${sched(9).join(', ')}`, sched(9).every((w, j) => w >= 1 && w <= 8 && (j === 0 || w >= sched(9)[j - 1])), sched(9).join(', '));
+  }
   const plain = await openGame(context, baseUrl, p, { speed: 1, cfg, query: '&level=10' });
   const ps = await plain.state();
   check(`${p} без &levelwaves уровень 10 идёт с волнами уровня 1 (бактерий ${base}, номер уровня 10)`, ps.level === 10 && ps.plannedTotal === base, `уровень ${ps.level}, бактерий ${ps.plannedTotal}`);
@@ -5476,7 +5495,7 @@ async function runMetaDna(browser, baseUrl) {
   m = await metaOf(lose.page);
   check(`${p} очки за партию начисляются один раз (через 1,5 с на счёте по-прежнему ${wantLose})`, m.dna === wantLose, `на счёте ${m.dna}`);
   const stored = await lose.page.evaluate(() => JSON.parse(window.localStorage.getItem('pvb.meta') ?? 'null'));
-  check(`${p} очки записаны в хранилище браузера (pvb.meta)`, stored !== null && stored.dna === wantLose && stored.v === 2, JSON.stringify(stored));
+  check(`${p} очки записаны в хранилище браузера (pvb.meta)`, stored !== null && stored.dna === wantLose && stored.v === 3, JSON.stringify(stored));
   await shot(lose.page, 'meta-dna-lost');
   await lose.page.close();
 
@@ -5575,6 +5594,216 @@ async function runMetaEffects(browser, baseUrl) {
   s = await waitFor(game.page, (x) => x.kills >= 1 || x.state === 'won', WAIT_MS, 'первое убийство');
   const gain = s.coins - before;
   check(`${p} награда за бактерию: номинал ${BASE.reward} × (1 + 0,08 × 5) = ${BASE.reward * 1.4} (получено ${gain})`, gain === BASE.reward * 1.4, `получено ${gain}`);
+  await context.close();
+}
+
+/** Экран «Улучшения» с вкладками (этап 6б, docs/upgrades.md, раздел 14): вкладки, замки закрытых веток, покупка на разных вкладках, тексты ru/en. */
+async function runTreeShop(browser, baseUrl) {
+  const UP = readMetaTable().upgrades;
+  const branches = [...new Set(Object.values(UP).map((u) => u.branch))];
+  const towerUnlock = readTowerUnlock();
+  for (const [deviceKey, lang] of [['desktop', 'ru'], ['phone', 'en']]) {
+    const device = VIEWPORTS[deviceKey];
+    const p = `[вкладки улучшений, ${device.label}, ${lang}]`;
+    const context = await newDeviceContext(browser, device, lang);
+    // звёзды уровней 1–3: открыт уровень 4; ветки Таблетки и Сиропа открыты, Шипучки (уровень 5) и Шприца (уровень 10) закрыты
+    const app = await openMenu(context, baseUrl, p, { isTouch: device.hasTouch, query: '&meta=dna:300&stars=1,1,1' });
+    let u = await app.ui();
+    await app.tapRect(u.buttons.upgrades);
+    await app.waitUi('upgrades', 'экран «Улучшения»');
+    const meta = () => metaOf(app.page);
+    let m = await meta();
+    const tab = (mm, branch) => mm.screen.tabs.find((x) => x.branch === branch);
+    const tapTab = async (branch) => {
+      await app.tapRect(tab(await meta(), branch).rect);
+      await sleep(250);
+      return meta();
+    };
+    const wantTabs = branches.join();
+    check(`${p} вкладки по таблице: ${wantTabs}; открыта первая («Организм»), на ней карточки ${branchIdsOf(UP, branches[0]).join(', ')}`, m.screen.tabs.map((x) => x.branch).join() === wantTabs && m.screen.activeTab === branches[0] && m.screen.cards.map((c) => c.id).join() === branchIdsOf(UP, branches[0]).join(), JSON.stringify(m.screen.tabs.map((x) => x.branch)) + ' ' + m.screen.activeTab);
+    const lockedWant = branches.filter((b) => (towerUnlock[b] ?? 1) > 4).join();
+    check(`${p} закрыты ветки башен, которые открываются после уровня 4: ${lockedWant}; остальные открыты`, m.screen.tabs.filter((x) => x.locked).map((x) => x.branch).join() === lockedWant, JSON.stringify(m.screen.tabs.map((x) => [x.branch, x.locked])));
+    const rects = m.screen.tabs.map((x) => x.rect);
+    let clash = '';
+    rects.forEach((r, i) => {
+      if (!insideScreen(r)) clash += ` вне экрана ${i};`;
+      for (let j = i + 1; j < rects.length; j++) if (overlaps(r, rects[j])) clash += ` ${i}×${j};`;
+    });
+    check(`${p} шесть вкладок внутри экрана и не налезают друг на друга; подписи не пустые`, clash === '' && m.screen.tabs.every((x) => x.label && !/undefined|upg|tower/.test(x.label)), clash || m.screen.tabs.map((x) => x.label).join(' | '));
+    await shot(app.page, `tree-shop-body-${deviceKey}-${lang}`);
+
+    // ---- каждая вкладка: карточки по таблице, тексты помещаются, нет сырых ключей
+    const problems = [];
+    for (const branch of branches) {
+      m = await tapTab(branch);
+      const want = branchIdsOf(UP, branch);
+      if (m.screen.activeTab !== branch || m.screen.cards.map((c) => c.id).join() !== want.join()) problems.push(`${branch}: карточки ${m.screen.cards.map((c) => c.id).join()}`);
+      for (const c of m.screen.cards) {
+        if (!c.fits) problems.push(`${c.id}: текст не помещается (${c.texts.join(' | ')})`);
+        if (c.texts.some((x) => !x || /undefined|upg[A-Z]|\{/.test(x))) problems.push(`${c.id}: сырой ключ (${c.texts.join(' | ')})`);
+        if (!insideScreen(c.rect) || !insideScreen(c.buy)) problems.push(`${c.id}: вне экрана`);
+      }
+      const xs = m.screen.cards.map((c) => c.rect);
+      xs.forEach((r, i) => xs.slice(i + 1).forEach((q, j) => { if (overlaps(r, q)) problems.push(`${branch}: карточки ${i}×${i + j + 1} налезают`); }));
+      await shot(app.page, `tree-shop-${branch}-${deviceKey}-${lang}`);
+    }
+    check(`${p} все ${branches.length} вкладок: карточки как в таблице, тексты помещаются в карточку и над кнопкой, сырых ключей нет, карточки не налезают друг на друга`, problems.length === 0, problems.slice(0, 4).join(' || '));
+
+    // ---- покупка на вкладках «Защита» и «Таблетка»
+    const firstDefense = branchIdsOf(UP, 'defense')[0];
+    const firstPill = branchIdsOf(UP, 'pill')[0];
+    m = await tapTab('defense');
+    const dna0 = m.dna;
+    const price1 = UP[firstDefense].prices[0];
+    let b = m.screen.cards.find((c) => c.id === firstDefense).buy;
+    await app.input.tap(app.g(b.x, b.y));
+    await sleep(250);
+    m = await meta();
+    check(`${p} покупка на вкладке «Защита»: «${firstDefense}» уровень 1 за ${price1}; очков ${dna0} → ${m.dna}`, m.levels[firstDefense] === 1 && m.dna === dna0 - price1, `уровень ${m.levels[firstDefense]}, очков ${m.dna}`);
+    m = await tapTab('pill');
+    const dna1 = m.dna;
+    const price2 = UP[firstPill].prices[0];
+    b = m.screen.cards.find((c) => c.id === firstPill).buy;
+    await app.input.tap(app.g(b.x, b.y));
+    await sleep(250);
+    m = await meta();
+    check(`${p} покупка на вкладке «Таблетка»: «${firstPill}» уровень 1 за ${price2}; очков ${dna1} → ${m.dna}`, m.levels[firstPill] === 1 && m.dna === dna1 - price2, `уровень ${m.levels[firstPill]}, очков ${m.dna}`);
+
+    // ---- закрытая ветка: вкладка серая, кнопки не работают, написано, с какого уровня открывается
+    const lockedBranch = branches.find((x) => (towerUnlock[x] ?? 1) > 4);
+    m = await tapTab(lockedBranch);
+    const lockText = readI18n('upgLocked')[lang === 'ru' ? 0 : 1].replace('{n}', String(towerUnlock[lockedBranch]));
+    check(`${p} вкладка закрытой ветки «${lockedBranch}»: у всех карточек надпись «${lockText}», купить нельзя`, m.screen.cards.length > 0 && m.screen.cards.every((c) => c.locked && !c.canBuy && c.texts[3] === lockText), JSON.stringify(m.screen.cards.map((c) => [c.id, c.locked, c.canBuy, c.texts[3]])));
+    const firstLocked = m.screen.cards[0];
+    const dna2 = m.dna;
+    await app.input.tap(app.g(firstLocked.buy.x, firstLocked.buy.y));
+    await sleep(250);
+    m = await meta();
+    check(`${p} тап по кнопке закрытой ветки ничего не покупает: очки ${dna2} → ${m.dna}, уровень «${firstLocked.id}» ${m.levels[firstLocked.id]}`, m.dna === dna2 && m.levels[firstLocked.id] === 0, `очков ${m.dna}`);
+    await context.close();
+  }
+
+  // ---- ветка открывается, когда пройден предыдущий уровень: при звёздах уровней 1–4 открыта ветка Шипучки, при звёздах 1–9 — Шприца
+  const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
+  const p = '[вкладки улучшений: открытие веток]';
+  for (const [stars, openBranch, closedBranch] of [['1,1,1,1', 'fizz', 'syringe'], ['1,1,1,1,1,1,1,1,1', 'syringe', null]]) {
+    const app = await openMenu(context, baseUrl, p, { query: `&meta=dna:0&stars=${stars}` });
+    const u = await app.ui();
+    await app.tapRect(u.buttons.upgrades);
+    await app.waitUi('upgrades', 'экран «Улучшения»');
+    const m = await metaOf(app.page);
+    const tb = (x) => m.screen.tabs.find((y) => y.branch === x);
+    check(`${p} при звёздах уровней ${stars}: ветка «${openBranch}» открыта${closedBranch ? `, «${closedBranch}» закрыта` : ''}`, tb(openBranch) && !tb(openBranch).locked && (!closedBranch || tb(closedBranch).locked), JSON.stringify(m.screen.tabs.map((x) => [x.branch, x.locked])));
+    await app.page.close();
+  }
+  await context.close();
+}
+
+const branchIdsOf = (up, branch) => Object.keys(up).filter((id) => up[id].branch === branch);
+
+/** Улучшения древа защиты (этап 6б, docs/upgrades.md, разделы 12 и 15): числа башен по веткам, цена и продажа, щит у линии и звёзды, подкрепление. Все ожидаемые числа — из таблицы `meta.upgrades` в config.ts. */
+async function runTreeEffects(browser, baseUrl) {
+  const p = '[улучшения древа]';
+  const UP = readMetaTable().upgrades;
+  const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
+  const idle = 'waves.firstDelaySec:9999,economy.startCoins:5000';
+  const branchIds = (branch) => Object.keys(UP).filter((id) => UP[id].branch === branch);
+  const maxMeta = (ids) => ids.map((id) => `${id}:${UP[id].prices.length}`).join(',');
+  const effectOf = (branch, effect) => Object.values(UP).filter((u) => u.branch === branch && u.effect === effect).reduce((sum, u) => sum + u.perLevel * u.prices.length, 0);
+  const near = (a, b) => Math.abs(a - b) <= 1e-6 * Math.max(1, Math.abs(b));
+
+  // ---- числа башен: у каждой ветки башни при максимуме всех уровней; остальные башни не меняются
+  const stats = async (meta, ids) => {
+    const game = await openGame(context, baseUrl, p, { speed: 1, cfg: idle, query: `${ALL_TOWERS}&meta=${meta}` });
+    const cells = [FREE.a, FREE.b];
+    for (let i = 0; i < ids.length; i++) await placeSure(game, ids[i], cells[i]);
+    const s = await game.state();
+    await game.page.close();
+    return { s };
+  };
+  const pairs = { pill: 'fizz', syrup: 'syringe', fizz: 'pill', syringe: 'syrup' };
+  for (const tower of ['pill', 'syrup', 'fizz', 'syringe']) {
+    const other = pairs[tower];
+    const ids = [tower, other];
+    const base = await stats('dna:0', ids);
+    const full = await stats(`dna:0,${maxMeta(branchIds(tower))}`, ids);
+    const a = base.s.towers[0].stats;
+    const b = full.s.towers[0].stats;
+    const o0 = base.s.towers[1].stats;
+    const o1 = full.s.towers[1].stats;
+    const issues = [];
+    const ratio = (name, x, y, effect) => {
+      const want = 1 + effectOf(tower, effect);
+      if (!near(y / x, want)) issues.push(`${name}: ${x} → ${y}, ждали ×${want}`);
+    };
+    if (Object.values(UP).some((u) => u.branch === tower && u.effect === 'cooldown')) ratio('пауза', a.cooldownMs, b.cooldownMs, 'cooldown');
+    if (Object.values(UP).some((u) => u.branch === tower && u.effect === 'range')) ratio('радиус стрельбы', a.range, b.range, 'range');
+    if (Object.values(UP).some((u) => u.branch === tower && u.effect === 'blast')) ratio('радиус взрыва', a.blastRadius, b.blastRadius, 'blast');
+    if (Object.values(UP).some((u) => u.branch === tower && u.effect === 'puddleSec')) ratio('время лужи', a.puddleSec, b.puddleSec, 'puddleSec');
+    if (Object.values(UP).some((u) => u.branch === tower && u.effect === 'puddleRadius')) ratio('радиус лужи', a.puddleRadius, b.puddleRadius, 'puddleRadius');
+    if (Object.values(UP).some((u) => u.branch === tower && u.effect === 'slowFactor') && !near(b.slowFactor, Math.max(0.1, a.slowFactor + effectOf(tower, 'slowFactor')))) issues.push(`замедление: ${a.slowFactor} → ${b.slowFactor}`);
+    if (Object.values(UP).some((u) => u.branch === tower && u.effect === 'beamWidth') && !near(b.beamHalfWidthPx - a.beamHalfWidthPx, effectOf(tower, 'beamWidth'))) issues.push(`полуширина луча: ${a.beamHalfWidthPx} → ${b.beamHalfWidthPx}`);
+    if (Object.values(UP).some((u) => u.branch === tower && u.effect === 'pulses') && b.beamPulses - a.beamPulses !== effectOf(tower, 'pulses')) issues.push(`удары очереди: ${a.beamPulses} → ${b.beamPulses}`);
+    if (Object.values(UP).some((u) => u.branch === tower && u.effect === 'price')) {
+      const want = Math.ceil(base.s.towerPrices[tower] * (1 + effectOf(tower, 'price')) - 1e-9);
+      if (full.s.towerPrices[tower] !== want) issues.push(`цена: ${base.s.towerPrices[tower]} → ${full.s.towerPrices[tower]}, ждали ${want}`);
+    } else if (full.s.towerPrices[tower] !== base.s.towerPrices[tower]) {
+      issues.push(`цена изменилась без улучшения цены: ${base.s.towerPrices[tower]} → ${full.s.towerPrices[tower]}`);
+    }
+    check(`${p} ветка «${tower}», все уровни куплены: числа башни изменились на величину из таблицы (${branchIds(tower).length} улучшений)`, issues.length === 0, issues.join(' | '));
+    check(`${p} ветка «${tower}» не меняет башню «${other}» (число стреляющих и радиусы те же, цена та же)`, JSON.stringify(o0) === JSON.stringify(o1) && base.s.towerPrices[other] === full.s.towerPrices[other], `${JSON.stringify(o0)} → ${JSON.stringify(o1)}`);
+  }
+
+  // ---- продажа и скидка: возврат считается от уплаченной цены (со скидкой) и растёт с «Утилизацией»
+  {
+    const cfg = `${idle},towers.pill.price:100`;
+    const meta = `dna:0,recycle:${UP.recycle.prices.length},pillCheap:${UP.pillCheap.prices.length}`;
+    const game = await openGame(context, baseUrl, p, { speed: 1, cfg, query: `${ALL_TOWERS}&meta=${meta}` });
+    let s = await placeSure(game, 'pill', FREE.a);
+    const paid = Math.ceil(100 * (1 + UP.pillCheap.perLevel * UP.pillCheap.prices.length) - 1e-9);
+    const share = 0.7 + UP.recycle.perLevel * UP.recycle.prices.length;
+    check(`${p} цена Таблетки со скидкой: 100 → ${paid}; в снимке доля возврата ${f2(share)}`, s.towerPrices.pill === paid && near(s.sellRefundShare, share), `цена ${s.towerPrices.pill}, доля ${s.sellRefundShare}`);
+    const before = s.coins;
+    await selectPlaced(game, FREE.a);
+    s = await tapCard(game, 'sell');
+    const refund = Math.round(paid * share);
+    check(`${p} продажа возвращает долю уплаченной цены: ${paid} × ${f2(share)} = ${refund} монет (от цены без скидки было бы ${Math.round(100 * share)}): ${before} → ${s.coins}`, s.coins - before === refund, `получено ${s.coins - before}`);
+    await game.page.close();
+  }
+
+  // ---- щит у линии: гасит столько бактерий, сколько уровней; для звёзд погашенные считаются потерянными жизнями
+  {
+    const cfg = `${wavesOnlyCfg({ coccus: 3 })},waves.firstDelaySec:1,bacteria.baseSpeed:250,lives.start:3`;
+    const run = async (shield) => {
+      const game = await openGame(context, baseUrl, p, { speed: 4, cfg, query: `&meta=dna:0${shield ? `,shield:${shield}` : ''}` });
+      const s = await waitFor(game.page, (x) => x.state === 'won' || x.state === 'lost', WAIT_MS, 'конец партии со щитом');
+      await game.page.close();
+      return s;
+    };
+    const none = await run(0);
+    check(`${p} без щита три дошедшие бактерии отнимают все 3 жизни (состояние ${none.state}, жизни ${none.lives}, щит ${none.shieldLeft})`, none.state === 'lost' && none.lives === 0 && none.shieldLeft === 0, `${none.state} ${none.lives}`);
+    const two = await run(2);
+    check(`${p} щит на 2 бактерии: гасит первые две, третья отнимает жизнь (жизни ${two.lives} из 3, щит ${two.shieldLeft}, погашено жизней ${two.shieldAbsorbed}, дошло ${two.leaked})`, two.state === 'won' && two.lives === 2 && two.shieldLeft === 0 && two.shieldAbsorbed === 2 && two.leaked === 3, JSON.stringify([two.state, two.lives, two.shieldLeft, two.shieldAbsorbed, two.leaked]));
+    check(`${p} звёзды при щите считают погашенное потерей: потеряно 1 + погашено 2 = 3 жизни → одна звезда (звёзд ${two.stars})`, two.stars === 1, `звёзд ${two.stars}`);
+    const three = await run(3);
+    check(`${p} щит на 3 бактерии: жизни целы (${three.lives} из 3), но звезда одна, а не три (звёзд ${three.stars})`, three.state === 'won' && three.lives === 3 && three.shieldAbsorbed === 3 && three.stars === 1, JSON.stringify([three.state, three.lives, three.shieldAbsorbed, three.stars]));
+  }
+
+  // ---- подкрепление: монеты в начале каждой волны
+  {
+    const levels = UP.reinforce.prices.length;
+    const each = UP.reinforce.perLevel * levels;
+    const cfg = `${wavesOnlyCfg({ coccus: 1 })},waves.firstDelaySec:1,waves.total:3,${NO_LIFE_LOSS},economy.startCoins:500`;
+    const game = await openGame(context, baseUrl, p, { speed: 4, cfg, query: `&meta=dna:0,reinforce:${levels}` });
+    const seen = new Map();
+    await pollUntil(game, async (x) => {
+      if (x.wave >= 1 && !seen.has(x.wave)) seen.set(x.wave, x.coins);
+      return x.wave >= 2 || x.state === 'won' || x.state === 'lost';
+    }, WAIT_MS, 40).catch(() => null);
+    const rows = [...seen.entries()].map(([w, c]) => `волна ${w}: ${c}`);
+    check(`${p} подкрепление: +${each} монет в начале каждой волны (500 + ${each} × номер волны): ${rows.join('; ')}`, seen.size >= 1 && [...seen.entries()].every(([w, c]) => c === 500 + each * w), rows.join('; '));
+    await game.page.close();
+  }
   await context.close();
 }
 
@@ -5759,6 +5988,8 @@ try {
   if (wants('meta-dna')) await safe('[очки ДНК: начисление]', () => runMetaDna(browser, qaServer.url));
   if (wants('meta-shop')) await safe('[улучшения]', () => runMetaShop(browser, qaServer.url));
   if (wants('meta-effects')) await safe('[улучшения в партии]', () => runMetaEffects(browser, qaServer.url));
+  if (wants('tree-shop')) await safe('[вкладки улучшений]', () => runTreeShop(browser, qaServer.url));
+  if (wants('tree-effects')) await safe('[улучшения древа]', () => runTreeEffects(browser, qaServer.url));
   if (wants('level-waves')) await safe('[состав волн уровней]', () => runLevelWaves(browser, qaServer.url));
   if (wants('progress-save')) await safe('[прогресс: сохранение]', () => runProgressSave(browser, qaServer.url));
   if (wants('stars')) await safe('[звёзды]', () => runStars(browser, qaServer.url));

@@ -217,7 +217,7 @@ export class Tower {
     this.container = scene.add.container(x, y);
     if (this.isBeam) {
       // Сразу смотрит туда, где под лучом больше всего дорожки; игрок потом повернёт тапом
-      this.aim = defaultAim(this.cfg, x, y);
+      this.aim = defaultAim(this.stats, x, y);
       this.aimLine = aimLineImage(scene, null, 1);
       this.container.add(this.aimLine);
     }

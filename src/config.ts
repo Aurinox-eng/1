@@ -67,6 +67,29 @@ export interface MutationSpec {
   secondBeam?: boolean;
   spiral?: number;
 }
+/**
+ * Что делает улучшение вне партии (колонка `effect` таблицы `meta.upgrades`, docs/upgrades.md):
+ *  lives, coins, damage, reward — жизни, стартовые монеты, урон всех башен, награда (этап 6а);
+ *  shield — сколько бактерий за партию, дошедших до организма, не отнимают жизнь; sellRefund — прибавка к доле возврата при продаже;
+ *  waveCoins — монет в начале каждой волны;
+ *  price, cooldown, range, blast, puddleSec, puddleRadius — доля, на которую меняются цена башни, пауза между выстрелами, радиус стрельбы, радиус взрыва,
+ *  время жизни лужи, радиус лужи (−0,05 = на 5 % меньше); slowFactor — прибавка к множителю скорости в луже (меньше — бактерия медленнее);
+ *  beamWidth — прибавка к полуширине луча, пикселей; pulses — ударов в очереди луча сверх обычных.
+ *  Эффекты башен действуют на башню, чьё имя совпадает с веткой улучшения.
+ */
+export type UpgradeEffect =
+  | 'lives' | 'coins' | 'damage' | 'reward'
+  | 'shield' | 'sellRefund' | 'waveCoins'
+  | 'price' | 'cooldown' | 'range' | 'blast' | 'puddleSec' | 'puddleRadius' | 'slowFactor' | 'beamWidth' | 'pulses';
+/** Ветка улучшений: «body» (Организм, этап 6а), «defense» (Защита) или id башни (`pill`, `syrup`, `fizz`, `syringe`). Ветка башни открыта, когда открыт уровень, на котором башня становится доступной. */
+export type UpgradeBranch = 'body' | 'defense' | 'pill' | 'syrup' | 'fizz' | 'syringe';
+/** Строка таблицы улучшений вне партии: ветка, действие, эффект одного уровня и цены уровней. */
+export interface UpgradeSpec {
+  branch: UpgradeBranch;
+  effect: UpgradeEffect;
+  perLevel: number;
+  prices: number[];
+}
 /** Куда смотрит башня: любых в радиусе, только «вперёд» (ещё не дошли до башни) или только «назад» (уже прошли). */
 export type TowerSide = 'both' | 'forward' | 'back';
 
@@ -164,6 +187,10 @@ export const CONFIG = {
       curveExp: 1.5,
       rampWaves: 4,
       mix: { coccus: 0.06, rod: 0.24, swarm: 0.1, runner: 0.18, splitter: 0.17, armored: 0.26, spore: 0.1, slick: 0.1, regen: 0.1, healer: 0.06, commander: 0.05, brood: 0.1 } as Partial<Record<KindId, number>>,
+      /** Сглаживание выхода известных типов (docs/stage-5b-plan.md, раздел 4): 1 — первая волна типов уровня 1 (кокк, палочка, рой, бегун, делящаяся, бронированная)
+       *  смешивается между расписанием уровня 1 и строкой уровня `intro` с долей строки (N − 2) / (число уровней − 2): уровень 2 выпускает типы как уровень 1,
+       *  уровень 10 — как в своей строке; 0 — везде как в строке уровня (как было до этапа 5б). */
+      introSpread: 1,
       introCount: { rod: 2, swarm: 8, runner: 3, splitter: 2, armored: 2, spore: 3, slick: 2, regen: 2, healer: 2, commander: 1, brood: 1 } as Partial<Record<KindId, number>>,
     },
     /** Уровни: строка номер N — уровень N. Пустая строка (уровень 1) — всё из таблицы волн, роста прочности и наград ниже (`waves`, `economy.rewardCurve`).
@@ -174,19 +201,20 @@ export const CONFIG = {
      *   bosses   — боссы: номер волны → сколько каких бактерий добавить сверх бюджета;
      *   growth   — свой рост прочности {perWave, fromWave, latePerWave, lateFromWave} (нет — как в `waves`);
      *   rewards  — своя кривая наград (нет — `economy.rewardCurve`).
-     *  Числа уровней 2–10 — предварительные (этап 5а, docs/stage-5-plan.md): итоговый подбор — после расширения дерева улучшений (этап 6б).
+     *  Числа уровней 2–10 подбираются этапом 5б (docs/stage-5b-plan.md, docs/balance-history.md): сложность растёт не числом бактерий (оно удлиняет партию до потолка времени), а прочностью поздних
+     *  волн — `growth.latePerWave` (у уровня 1 — 0,6). Значения подобраны ботом (docs/balance-history.md, «Этап 5б»), проверка полной лестницей — в работе.
      *  Известные по прошлым уровням типы выходят с 1–6-й волны подряд, новый тип этого уровня — после них. Названия уровней — в `src/i18n.ts`. */
     specs: [
       {},
-      { intro: { coccus: 1, rod: 2, swarm: 3, runner: 4, splitter: 5, armored: 6, spore: 8 }, hpBudget: [10, 1093] },
-      { intro: { coccus: 1, rod: 2, swarm: 3, runner: 4, splitter: 5, armored: 6, spore: 7, slick: 9 }, hpBudget: [10, 1174] },
-      { intro: { coccus: 1, rod: 2, swarm: 3, runner: 4, splitter: 5, armored: 6, spore: 7, slick: 8, regen: 10 }, hpBudget: [10, 1255] },
-      { intro: { coccus: 1, rod: 2, swarm: 3, runner: 4, splitter: 5, armored: 6, spore: 7, slick: 8, regen: 9, healer: 11 }, hpBudget: [10, 1336] },
-      { intro: { coccus: 1, rod: 2, swarm: 3, runner: 4, splitter: 5, armored: 6, spore: 7, slick: 8, regen: 9, healer: 10, commander: 12 }, hpBudget: [10, 1417] },
-      { intro: { coccus: 1, rod: 2, swarm: 3, runner: 4, splitter: 5, armored: 6, spore: 7, slick: 8, regen: 9, healer: 10, commander: 11, brood: 13 }, hpBudget: [10, 1498] },
-      { intro: { coccus: 1, rod: 2, swarm: 3, runner: 4, splitter: 5, armored: 6, spore: 7, slick: 8, regen: 9, healer: 10, commander: 11, brood: 12 }, hpBudget: [10, 1579], bosses: { 20: { giant: 1 }, 25: { giant: 1 }, 30: { giant: 2 } } },
-      { intro: { coccus: 1, rod: 2, swarm: 3, runner: 4, splitter: 5, armored: 6, spore: 7, slick: 8, regen: 9, healer: 10, commander: 11, brood: 12 }, hpBudget: [10, 1659], bosses: { 15: { giant: 1 }, 20: { giant: 1 }, 25: { giant: 2 }, 30: { giant: 2 } } },
-      { intro: { coccus: 1, rod: 2, swarm: 3, runner: 4, splitter: 5, armored: 6, spore: 7, slick: 8, regen: 9, healer: 10, commander: 11, brood: 12 }, hpBudget: [10, 1740], bosses: { 20: { giant: 1 }, 25: { giant: 2 }, 30: { giant: 3 } } },
+      { intro: { coccus: 1, rod: 2, swarm: 3, runner: 4, splitter: 5, armored: 6, spore: 8 }, hpBudget: [10, 1093], growth: { perWave: 0.08, fromWave: 8, latePerWave: 0.8, lateFromWave: 16 } },
+      { intro: { coccus: 1, rod: 2, swarm: 3, runner: 4, splitter: 5, armored: 6, spore: 7, slick: 9 }, hpBudget: [10, 1174], growth: { perWave: 0.08, fromWave: 8, latePerWave: 1.9, lateFromWave: 16 } },
+      { intro: { coccus: 1, rod: 2, swarm: 3, runner: 4, splitter: 5, armored: 6, spore: 7, slick: 8, regen: 10 }, hpBudget: [10, 1255], growth: { perWave: 0.08, fromWave: 8, latePerWave: 2.3, lateFromWave: 16 } },
+      { intro: { coccus: 1, rod: 2, swarm: 3, runner: 4, splitter: 5, armored: 6, spore: 7, slick: 8, regen: 9, healer: 11 }, hpBudget: [10, 1336], growth: { perWave: 0.08, fromWave: 8, latePerWave: 3.4, lateFromWave: 16 } },
+      { intro: { coccus: 1, rod: 2, swarm: 3, runner: 4, splitter: 5, armored: 6, spore: 7, slick: 8, regen: 9, healer: 10, commander: 12 }, hpBudget: [10, 1417], growth: { perWave: 0.08, fromWave: 8, latePerWave: 4.4, lateFromWave: 16 } },
+      { intro: { coccus: 1, rod: 2, swarm: 3, runner: 4, splitter: 5, armored: 6, spore: 7, slick: 8, regen: 9, healer: 10, commander: 11, brood: 13 }, hpBudget: [10, 1498], growth: { perWave: 0.08, fromWave: 8, latePerWave: 4.0, lateFromWave: 16 } },
+      { intro: { coccus: 1, rod: 2, swarm: 3, runner: 4, splitter: 5, armored: 6, spore: 7, slick: 8, regen: 9, healer: 10, commander: 11, brood: 12 }, hpBudget: [10, 1579], growth: { perWave: 0.08, fromWave: 8, latePerWave: 4.0, lateFromWave: 16 }, bosses: { 20: { giant: 1 }, 25: { giant: 1 }, 30: { giant: 2 } } },
+      { intro: { coccus: 1, rod: 2, swarm: 3, runner: 4, splitter: 5, armored: 6, spore: 7, slick: 8, regen: 9, healer: 10, commander: 11, brood: 12 }, hpBudget: [10, 1659], growth: { perWave: 0.08, fromWave: 8, latePerWave: 4.0, lateFromWave: 16 }, bosses: { 15: { giant: 1 }, 20: { giant: 1 }, 25: { giant: 2 }, 30: { giant: 2 } } },
+      { intro: { coccus: 1, rod: 2, swarm: 3, runner: 4, splitter: 5, armored: 6, spore: 7, slick: 8, regen: 9, healer: 10, commander: 11, brood: 12 }, hpBudget: [10, 1740], growth: { perWave: 0.08, fromWave: 8, latePerWave: 6.1, lateFromWave: 16 }, bosses: { 20: { giant: 1 }, 25: { giant: 2 }, 30: { giant: 3 } } },
     ] as LevelSpec[],
   },
 
@@ -529,15 +557,33 @@ export const CONFIG = {
       /** Добавка за победу, очков ДНК. */
       winBonus: 15,
     },
-    /** Улучшения вне партии (одна строка — одно улучшение). perLevel — эффект одного уровня: lives — жизней, coins — стартовых монет,
-     *  damage — доля к урону всех башен (0,1 = +10 %), reward — доля к награде за бактерий (0,08 = +8 %). prices — цена каждого уровня, очков ДНК
-     *  (число цен = наибольший уровень). Подобрано замером серий партий (docs/balance-history.md, «Этап 6а»): проектные 1 очко за волну и +10 % урона за уровень давали слишком слабый рост. */
+    /** Улучшения вне партии (одна строка — одно улучшение; порядок строк — порядок на экране внутри ветки и порядок в сохранении).
+     *  branch — вкладка экрана; effect — что меняется (список — у типа `UpgradeEffect`); perLevel — эффект одного уровня; prices — цена каждого уровня, очков ДНК
+     *  (число цен = наибольший уровень). Строки этапа 6а (`body`) подобраны замером серий партий (docs/balance-history.md, «Этап 6а»): проектные 1 очко за волну и
+     *  +10 % урона за уровень давали слишком слабый рост. Строки остальных веток — проект этапа 6б (docs/upgrades.md, раздел 12), первое приближение. */
     upgrades: {
-      lives: { perLevel: 1, prices: [12, 30] },
-      coins: { perLevel: 150, prices: [8, 14, 20, 28, 36] },
-      damage: { perLevel: 0.5, prices: [15, 25, 40, 60, 90] },
-      reward: { perLevel: 0.2, prices: [10, 18, 28, 42, 60] },
-    } as Record<string, { perLevel: number; prices: number[] }>,
+      lives: { branch: 'body', effect: 'lives', perLevel: 1, prices: [12, 30] },
+      coins: { branch: 'body', effect: 'coins', perLevel: 150, prices: [8, 14, 20, 28, 36] },
+      damage: { branch: 'body', effect: 'damage', perLevel: 0.5, prices: [15, 25, 40, 60, 90] },
+      reward: { branch: 'body', effect: 'reward', perLevel: 0.2, prices: [10, 18, 28, 42, 60] },
+      shield: { branch: 'defense', effect: 'shield', perLevel: 1, prices: [30, 60, 100] },
+      recycle: { branch: 'defense', effect: 'sellRefund', perLevel: 0.05, prices: [20, 35, 55] },
+      reinforce: { branch: 'defense', effect: 'waveCoins', perLevel: 4, prices: [25, 45, 75] },
+      pillRate: { branch: 'pill', effect: 'cooldown', perLevel: -0.06, prices: [20, 35, 55] },
+      pillRange: { branch: 'pill', effect: 'range', perLevel: 0.05, prices: [20, 35, 55] },
+      pillCheap: { branch: 'pill', effect: 'price', perLevel: -0.05, prices: [25, 45, 70] },
+      syrupTime: { branch: 'syrup', effect: 'puddleSec', perLevel: 0.1, prices: [20, 35, 55] },
+      syrupSlow: { branch: 'syrup', effect: 'slowFactor', perLevel: -0.03, prices: [25, 45, 70] },
+      syrupWide: { branch: 'syrup', effect: 'puddleRadius', perLevel: 0.06, prices: [20, 35, 55] },
+      fizzBlast: { branch: 'fizz', effect: 'blast', perLevel: 0.06, prices: [30, 50, 80] },
+      fizzRate: { branch: 'fizz', effect: 'cooldown', perLevel: -0.06, prices: [30, 50, 80] },
+      fizzRange: { branch: 'fizz', effect: 'range', perLevel: 0.05, prices: [25, 45, 70] },
+      syringeRate: { branch: 'syringe', effect: 'cooldown', perLevel: -0.06, prices: [35, 60, 95] },
+      syringeWidth: { branch: 'syringe', effect: 'beamWidth', perLevel: 3, prices: [30, 50, 80] },
+      syringePulse: { branch: 'syringe', effect: 'pulses', perLevel: 1, prices: [120] },
+    } as Record<string, UpgradeSpec>,
+    /** Нижняя граница множителя скорости бактерии в луже Сиропа после всех улучшений и мутаций (меньше — бактерия почти стоит). */
+    minSlowFactor: 0.1,
   },
 
   // ------------------------------------------------------------

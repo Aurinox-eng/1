@@ -52,10 +52,18 @@ export interface DebugSnapshot {
   plannedTotal: number;
   /** Суммарная прочность (HP из таблицы типов, без роста по волнам) всех бактерий уровня. */
   plannedHp: number;
+  /** Первая волна каждого типа по составу волн уровня (с единицы): расписание выхода типов. */
+  firstWaves: Record<string, number>;
   spawned: number;
   kills: number;
   /** Сколько бактерий дошло до организма. */
   leaked: number;
+  /** «Щит у линии»: сколько бактерий щит ещё погасит и сколько жизней они отняли бы (для звёзд считаются потерянными). */
+  shieldLeft: number;
+  shieldAbsorbed: number;
+  /** Цена постройки каждой башни с учётом улучшений и доля возврата при продаже (0,7 + «Утилизация»). */
+  towerPrices: Record<string, number>;
+  sellRefundShare: number;
   /** Какие типы бактерий уже появлялись (в порядке появления); сколько делящихся распалось; сколько раз спора заглушила башню;
    *  сколько бактерий «Сироп» (лужа) замедлил. */
   introduced: string[];
@@ -111,7 +119,7 @@ export interface DebugSnapshot {
     level: number;
     picks: string[];
     pending: number | null;
-    stats: { damage: number; cooldownMs: number; range: number; beamPulses: number; blastRadius: number; puddleRadius: number; slowFactor: number };
+    stats: { damage: number; cooldownMs: number; range: number; beamPulses: number; blastRadius: number; puddleRadius: number; puddleSec: number; slowFactor: number; beamHalfWidthPx: number };
   }[];
   /** Выбранная на карте башня (клетка), идёт ли режим выбора пары для слияния, сколько слияний, продаж и выборов мутаций было за партию. */
   selectedTower: { col: number; row: number } | null;

@@ -15,7 +15,7 @@ import fs from 'node:fs';
 const env = { ...process.env };
 if (env.EVENT_NAME === 'push') {
   const request = JSON.parse(fs.readFileSync('.github/balance-request.json', 'utf8'));
-  for (const name of ['PROFILES', 'RUNS', 'SHARDS', 'EXCLUDES', 'CFG', 'LEVEL', 'SPEED', 'CAMPAIGN', 'META']) {
+  for (const name of ['PROFILES', 'RUNS', 'SHARDS', 'EXCLUDES', 'CFG', 'LEVEL', 'SPEED', 'CAMPAIGN', 'META', 'MAX_GAME_SEC', 'MAX_REAL_SEC']) {
     const value = request[name.toLowerCase()];
     if (value !== undefined && value !== null) env[name] = String(value);
   }
@@ -58,8 +58,16 @@ if (excludeSets.length === 0) excludeSets.push('');
 const cfg = (env.CFG ?? '').trim();
 if (cfg && !/^[\w.\-]+:-?[\d.]+(,[\w.\-]+:-?[\d.]+)*$/.test(cfg)) fail(`CFG=«${cfg}»: нужно «путь:число,путь:число», например economy.rewardMul:0.85`);
 
+const limitField = (name) => {
+  const text = (env[name] ?? '').trim();
+  if (!text) return '';
+  if (!/^\d+$/.test(text) || Number(text) < 30 || Number(text) > 100000) fail(`${name}=«${text}»: нужно целое число секунд от 30 до 100000`);
+  return text;
+};
+const max_game_sec = limitField('MAX_GAME_SEC');
+const max_real_sec = limitField('MAX_REAL_SEC');
 const meta = (env.META ?? '').trim();
-if (meta && !/^(lives|coins|damage|reward):\d+(,(lives|coins|damage|reward):\d+)*$/.test(meta)) fail(`META=«${meta}»: нужно «lives:2,coins:5,damage:5,reward:5» (любые из четырёх улучшений)`);
+if (meta && !/^[A-Za-z]\w*:\d+(,[A-Za-z]\w*:\d+)*$/.test(meta)) fail(`META=«${meta}»: нужно «lives:2,coins:5,shield:1,pillRate:3» (id улучшений из таблицы meta.upgrades в config.ts, через запятую)`);
 if (meta && campaign) fail('META не сочетается с CAMPAIGN: в серии улучшения покупает сам бот');
 
 const include = [];
@@ -70,7 +78,7 @@ for (const profile of profiles) {
       const variant = exclude ? `no-${exclude.replace(/,/g, '-')}` : 'base';
       const tag = `${profile}-${variant}${level !== 1 ? `-L${level}` : ''}${meta ? '-m' : ''}-s${shard + 1}`;
       const title = `${TITLES[profile]}${exclude ? ` · без ${exclude}` : ''}${campaign ? ` · серии до ${campaign}` : ''}${level !== 1 ? ` · уровень ${level}` : ''}${meta ? ` · улучшения ${meta}` : ''}${shards > 1 ? ` · доля ${shard + 1}/${shards}` : ''} (${games} парт.)`;
-      include.push({ profile, exclude, runs: games, tag, title, cfg, level, speed, campaign, meta });
+      include.push({ profile, exclude, runs: games, tag, title, cfg, level, speed, campaign, meta, max_game_sec, max_real_sec });
     }
   }
 }

@@ -47,7 +47,15 @@ on:
         type: string
         default: '2'
       meta:
-        description: 'Фиксированные улучшения вне партии для всех партий замера, например lives:2,coins:5,damage:5,reward:5 (пусто — без улучшений; не сочетается с «campaign»)'
+        description: 'Фиксированные улучшения вне партии для всех партий замера, например lives:2,coins:5,damage:5,reward:5,shield:1,pillRate:3 (id — из таблицы meta.upgrades в config.ts; пусто — без улучшений; не сочетается с «campaign»)'
+        type: string
+        default: ''
+      max_game_sec:
+        description: 'Потолок игрового времени одной партии, секунд (пусто — как в боте, 2400; на поздних уровнях партия длиннее 30 минут игрового времени)'
+        type: string
+        default: ''
+      max_real_sec:
+        description: 'Потолок реального времени одной партии, секунд (пусто — как в боте, 3600; при большом потолке игрового времени поднять до 7200)'
         type: string
         default: ''
       campaign:
@@ -88,6 +96,8 @@ jobs:
           SPEED: ${{ inputs.speed }}
           CAMPAIGN: ${{ inputs.campaign }}
           META: ${{ inputs.meta }}
+          MAX_GAME_SEC: ${{ inputs.max_game_sec }}
+          MAX_REAL_SEC: ${{ inputs.max_real_sec }}
         run: node .github/scripts/balance-matrix.mjs
       - uses: actions/upload-artifact@v4
         with:
@@ -129,6 +139,8 @@ jobs:
           SPEED: ${{ matrix.speed }}
           CAMPAIGN: ${{ matrix.campaign }}
           META: ${{ matrix.meta }}
+          MAX_GAME_SEC: ${{ matrix.max_game_sec }}
+          MAX_REAL_SEC: ${{ matrix.max_real_sec }}
           TAG: ${{ matrix.tag }}
         run: |
           args=(--profile="$PROFILE" --runs="$RUNS" --speed="$SPEED" --canvas --level="$LEVEL" --tag="$TAG")
@@ -136,6 +148,8 @@ jobs:
           if [ -n "$CFG" ]; then args+=(--cfg="$CFG"); fi
           if [ -n "$CAMPAIGN" ] && [ "$CAMPAIGN" != "0" ]; then args+=(--campaign="$CAMPAIGN"); fi
           if [ -n "$META" ]; then args+=(--meta="$META"); fi
+          if [ -n "$MAX_GAME_SEC" ]; then args+=(--max-game-sec="$MAX_GAME_SEC"); fi
+          if [ -n "$MAX_REAL_SEC" ]; then args+=(--max-real-sec="$MAX_REAL_SEC"); fi
           node qa/bot.mjs "${args[@]}" 2>&1 | tee bot.log
       - name: Сохранить результаты
         if: always()
