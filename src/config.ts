@@ -202,18 +202,18 @@ export const CONFIG = {
      *   growth   — свой рост прочности {perWave, fromWave, latePerWave, lateFromWave} (нет — как в `waves`);
      *   rewards  — своя кривая наград (нет — `economy.rewardCurve`).
      *  Числа уровней 2–10 подбираются этапом 5б (docs/stage-5b-plan.md, docs/balance-history.md): сложность растёт не числом бактерий (оно удлиняет партию до потолка времени), а прочностью поздних
-     *  волн — `growth.latePerWave` (у уровня 1 — 0,6). Значения предварительные (круг А-3 ждёт замера).
+     *  волн — `growth.latePerWave` (у уровня 1 — 0,6). Значения подобраны ботом (docs/balance-history.md, «Этап 5б»), проверка полной лестницей — в работе.
      *  Известные по прошлым уровням типы выходят с 1–6-й волны подряд, новый тип этого уровня — после них. Названия уровней — в `src/i18n.ts`. */
     specs: [
       {},
       { intro: { coccus: 1, rod: 2, swarm: 3, runner: 4, splitter: 5, armored: 6, spore: 8 }, hpBudget: [10, 1093], growth: { perWave: 0.08, fromWave: 8, latePerWave: 0.8, lateFromWave: 16 } },
-      { intro: { coccus: 1, rod: 2, swarm: 3, runner: 4, splitter: 5, armored: 6, spore: 7, slick: 9 }, hpBudget: [10, 1174], growth: { perWave: 0.08, fromWave: 8, latePerWave: 1.95, lateFromWave: 16 } },
+      { intro: { coccus: 1, rod: 2, swarm: 3, runner: 4, splitter: 5, armored: 6, spore: 7, slick: 9 }, hpBudget: [10, 1174], growth: { perWave: 0.08, fromWave: 8, latePerWave: 1.9, lateFromWave: 16 } },
       { intro: { coccus: 1, rod: 2, swarm: 3, runner: 4, splitter: 5, armored: 6, spore: 7, slick: 8, regen: 10 }, hpBudget: [10, 1255], growth: { perWave: 0.08, fromWave: 8, latePerWave: 2.3, lateFromWave: 16 } },
       { intro: { coccus: 1, rod: 2, swarm: 3, runner: 4, splitter: 5, armored: 6, spore: 7, slick: 8, regen: 9, healer: 11 }, hpBudget: [10, 1336], growth: { perWave: 0.08, fromWave: 8, latePerWave: 3.4, lateFromWave: 16 } },
       { intro: { coccus: 1, rod: 2, swarm: 3, runner: 4, splitter: 5, armored: 6, spore: 7, slick: 8, regen: 9, healer: 10, commander: 12 }, hpBudget: [10, 1417], growth: { perWave: 0.08, fromWave: 8, latePerWave: 4.4, lateFromWave: 16 } },
       { intro: { coccus: 1, rod: 2, swarm: 3, runner: 4, splitter: 5, armored: 6, spore: 7, slick: 8, regen: 9, healer: 10, commander: 11, brood: 13 }, hpBudget: [10, 1498], growth: { perWave: 0.08, fromWave: 8, latePerWave: 4.0, lateFromWave: 16 } },
-      { intro: { coccus: 1, rod: 2, swarm: 3, runner: 4, splitter: 5, armored: 6, spore: 7, slick: 8, regen: 9, healer: 10, commander: 11, brood: 12 }, hpBudget: [10, 1579], growth: { perWave: 0.08, fromWave: 8, latePerWave: 4.2, lateFromWave: 16 }, bosses: { 20: { giant: 1 }, 25: { giant: 1 }, 30: { giant: 2 } } },
-      { intro: { coccus: 1, rod: 2, swarm: 3, runner: 4, splitter: 5, armored: 6, spore: 7, slick: 8, regen: 9, healer: 10, commander: 11, brood: 12 }, hpBudget: [10, 1659], growth: { perWave: 0.08, fromWave: 8, latePerWave: 4.3, lateFromWave: 16 }, bosses: { 15: { giant: 1 }, 20: { giant: 1 }, 25: { giant: 2 }, 30: { giant: 2 } } },
+      { intro: { coccus: 1, rod: 2, swarm: 3, runner: 4, splitter: 5, armored: 6, spore: 7, slick: 8, regen: 9, healer: 10, commander: 11, brood: 12 }, hpBudget: [10, 1579], growth: { perWave: 0.08, fromWave: 8, latePerWave: 4.0, lateFromWave: 16 }, bosses: { 20: { giant: 1 }, 25: { giant: 1 }, 30: { giant: 2 } } },
+      { intro: { coccus: 1, rod: 2, swarm: 3, runner: 4, splitter: 5, armored: 6, spore: 7, slick: 8, regen: 9, healer: 10, commander: 11, brood: 12 }, hpBudget: [10, 1659], growth: { perWave: 0.08, fromWave: 8, latePerWave: 4.0, lateFromWave: 16 }, bosses: { 15: { giant: 1 }, 20: { giant: 1 }, 25: { giant: 2 }, 30: { giant: 2 } } },
       { intro: { coccus: 1, rod: 2, swarm: 3, runner: 4, splitter: 5, armored: 6, spore: 7, slick: 8, regen: 9, healer: 10, commander: 11, brood: 12 }, hpBudget: [10, 1740], growth: { perWave: 0.08, fromWave: 8, latePerWave: 6.1, lateFromWave: 16 }, bosses: { 20: { giant: 1 }, 25: { giant: 2 }, 30: { giant: 3 } } },
     ] as LevelSpec[],
   },
