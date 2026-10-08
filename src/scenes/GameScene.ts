@@ -16,7 +16,8 @@ import { GroundShot } from '../objects/GroundShot';
 import { Projectile } from '../objects/Projectile';
 import { Puddle } from '../objects/Puddle';
 import { beamReach, createTowerArt, defaultAim, drawAimLine, Tower, type TowerId } from '../objects/Tower';
-import { pointAt, tileCenter, type Edge } from '../pathing';
+import { ringImage } from '../art';
+import { pointAt, tileCenter, unitCenter, type Edge } from '../pathing';
 import { sfx } from '../sound';
 import { computeStats, MAX_TOWER_LEVEL, mutationOptions, towerPrice, type TowerStats } from '../towerStats';
 import { COLORS, FONT, TEXT_COLORS } from '../theme';
@@ -141,6 +142,8 @@ export class GameScene extends Phaser.Scene {
   /** Поставленная башня, выбранная на карте (её карточка — в правой панели), и идёт ли выбор пары для слияния. */
   private selectedTower: Tower | null = null;
   private mergeMode = false;
+  /** Круг слияния вокруг выбранной башни. */
+  private mergeRing!: Phaser.GameObjects.Image;
   private merges = 0;
   private sells = 0;
   private mutationsPicked = 0;
@@ -301,11 +304,13 @@ export class GameScene extends Phaser.Scene {
     addMap(this, mapLayer);
 
     this.rig = new CameraRig(this.world, { w: VIEW_W, h: H }, WORLD, { min: ZOOM_MIN, max: CONFIG.camera.zoomMax });
-    const start = tileCenter(LEVEL.startCenter[0], LEVEL.startCenter[1]);
+    const start = unitCenter(LEVEL.startCenter[0], LEVEL.startCenter[1]);
     this.rig.set(CONFIG.camera.zoomStart, start.x, start.y);
 
     this.effects = new Effects(this, this.fxLayer);
     this.buildGhost();
+    this.mergeRing = ringImage(this, 0, 0, CONFIG.mergeRadiusPx, 5, COLORS.merge, 0.45).setVisible(false);
+    this.ghostLayer.add(this.mergeRing);
     this.userSpeed = this.loadSpeed();
     this.panel = new Panel(this, {
       onTower: (id) => this.toggleTower(id),
@@ -940,14 +945,30 @@ export class GameScene extends Phaser.Scene {
     this.cancelMerge(false);
     this.selectedTower?.setSelected(false);
     this.selectedTower = null;
+    this.updateMergeRing();
     this.panel.hideCard();
     this.updateHint();
   }
 
-  /** С какими башнями можно слить эту: другие того же вида и уровня (если уровень не высший). */
+  /** С какими башнями можно слить эту: другие того же вида и уровня в радиусе слияния `mergeRadiusPx` (если уровень не высший и мутация выбрана у обеих). */
   private mergeCandidates(tower: Tower): Tower[] {
-    if (tower.level >= MAX_TOWER_LEVEL) return [];
-    return this.towers.filter((other) => other !== tower && other.id === tower.id && other.level === tower.level);
+    if (tower.level >= MAX_TOWER_LEVEL || tower.pendingTier !== null) return [];
+    return this.towers.filter(
+      (other) =>
+        other !== tower &&
+        other.id === tower.id &&
+        other.level === tower.level &&
+        other.pendingTier === null &&
+        Math.hypot(other.x - tower.x, other.y - tower.y) <= CONFIG.mergeRadiusPx,
+    );
+  }
+
+  /** Круг слияния вокруг выбранной башни (пока она может сливаться); без выбранной башни скрыт. */
+  private updateMergeRing(): void {
+    const tower = this.selectedTower;
+    const show = Boolean(tower) && tower!.level < MAX_TOWER_LEVEL && tower!.pendingTier === null;
+    this.mergeRing.setVisible(show);
+    if (show) this.mergeRing.setPosition(tower!.x, tower!.y);
   }
 
   /** Кнопка «Слить» / «Отмена» в карточке. */
@@ -1059,6 +1080,7 @@ export class GameScene extends Phaser.Scene {
   /** Перерисовать карточку выбранной башни (или скрыть, если башня не выбрана). */
   private refreshCard(): void {
     const tower = this.selectedTower;
+    this.updateMergeRing();
     if (!tower) {
       this.panel.hideCard();
       return;
@@ -1075,7 +1097,10 @@ export class GameScene extends Phaser.Scene {
       maxLevel: MAX_TOWER_LEVEL,
       stats: this.cardStats(tower),
       pending: tier === null ? null : mutationOptions(tower.id, tier).map((m) => label(m.id)),
-      picked: tower.picks.map(label),
+      picked: [...new Map(tower.picks.map((id) => [id, tower.picks.filter((p) => p === id).length] as const))].map(([id, n]) => {
+        const l = label(id);
+        return n > 1 ? { ...l, name: `${l.name} ×${n}` } : l;
+      }),
       beam: tower.isBeam,
       merge,
       sell: this.sellValue(tower),

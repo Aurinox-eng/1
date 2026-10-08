@@ -48,7 +48,7 @@
  *                          результат — в клетке второй башни и бесплатно, мутации цели сохраняются, числа уровней 1…4 по towerLevels; две башни высшего уровня не сливаются
  *   mutations              мутации: pending, видимость вариантов в карточке и числа башни (towers[].stats) по towerLevels и mutations для каждой из 16 мутаций на настоящих
  *                          порогах (уровни 2 и 4); выбор окончателен
- *   sell                   продажа: возврат round(цена × 2^(уровень−1) × sellRefund) на всех уровнях и у всех видов, клетка свободна, продажа в режиме слияния,
+ *   sell                   продажа: возврат round(цена × 2^(уровень−1) × sellRefund) на всех уровнях и у всех видов, клетка свободна, в режиме слияния «Продать» скрыта,
  *                          проданный Шприц обрывает очередь луча
  *   special                особые мутации в бою (с контролем без мутации): «Бронебойная» Таблетка (урон по брони), «Двойной выстрел» (прирост выстрелов по 2), «Едкая» лужа Сиропа
  *                          убивает сама, «Цепная» Шипучка (взрывов больше выстрелов), «Второй луч» Шприца (вспышек вдвое больше). QA_SPECIAL_ONLY=pierce,double,caustic,chain,twin
@@ -59,14 +59,8 @@
  *   fullgame               ПОЛНАЯ партия: настоящие волны и бактерии уровня 1 (30 волн, шесть типов), скорость ×10, canvas, 40 Таблеток со сверхсильным уроном и без
  *                          потери жизней (проверка не должна краснеть от подбора баланса); ждёт «победу», проверяет состав волн, порядок появления типов и учёт,
  *                          печатает заметку о реальном времени (≈ 15–35 минут)
- *   plaques                круг 14, плашки с автопаузой (без &noplaque): в начале уровня 1 state 'info' и очередь из трёх плашек (Таблетка, Сироп, кокк) по порядку, игра стоит,
- *                          тап раньше 0,4 с не закрывает, три тапа — 'playing'; перед волной нового типа (палочка, скорость ×10) плашка в начале паузы, пауза длиннее на
- *                          waves.newTypePauseSec (по игровому времени и бонусу «Начать волну»); после перезапуска кнопкой «Заново» плашки не повторяются; снимки всех
- *                          плашек через window.__pvb.showPlaque (13 типов и 4 башни: ru и en на компьютере, самые длинные — на телефоне) и разбор по пикселям: текст
- *                          целиком внутри плашки, не налезает на подсказку внизу
  *   locked                 открытие башен по уровням (levels.towerUnlock): на уровне 1 Шипучка и Шприц закрыты (ui.towerButtons[].locked), тап по ним не выбирает
- *                          башню, показывает сообщение «откроется на уровне N» и звук «нельзя», поставить нельзя; ?level=5 и ?level=10; открывшиеся башни ставятся;
- *                          в начале уровней 5 и 10 из плашек башен — только открывшаяся на этом уровне (компьютер ru, телефон en)
+ *                          башню, показывает сообщение «откроется на уровне N» и звук «нельзя», поставить нельзя; ?level=5 и ?level=10; открывшиеся башни ставятся (компьютер ru, телефон en)
  *   strip                  полоса компактных кнопок над карточкой (ui.towerStrip, ?level=10): видна только при открытой карточке, кнопки только открытых башен (на
  *                          уровне 1 — две), тап по кнопке полосы закрывает карточку и выбирает башню; карточка Шприца уровня 2 с выбором мутации помещается: второй
  *                          вариант выше «Слить», кнопки не налезают друг на друга, на полосу и «Начать волну» и не выходят за панель (компьютер ru, телефон en)
@@ -79,13 +73,18 @@
  *   tree-effects           улучшения древа (этап 6б): числа башен по веткам, цена, продажа, щит у линии и звёзды, подкрепление
  *   level-waves            уровни (этап 5, шаг 1): с `&levelwaves` на уровне 1 состав волн из таблицы `waves.list`, на уровнях 2–10 — от генератора (30 волн, суммарная прочность бактерий больше, чем на уровне 1, и не меньше, чем на предыдущем уровне);
  *                          без `&levelwaves` на любом уровне волны уровня 1 (так идут остальные проверки и бот)
- *   progress-save          сохранение версии 2 (этап 5, шаг 2): прогресс по уровням (звёзды, лучшая волна) и показанные плашки — чтение, версия 1 без прогресса, чужие и испорченные значения, плашки не повторяются после обновления страницы
+ *   progress-save          сохранение версии 2 (этап 5, шаг 2): прогресс по уровням (звёзды, лучшая волна) и показанные уведомления — чтение, версия 1 без прогресса, чужие и испорченные значения, показанные уведомления остаются записанными после обновления страницы (&persistseen)
  *   stars                  звёзды: победа без потерь — три, пороги по потерянным жизням, очки ДНК только за впервые полученные звёзды, результат не ухудшается, лучшая волна при проигрыше, звёзды на экране конца уровня
  *   menu-flow              главное меню и выбор уровня (этап 5, шаг 3; компьютер ru, телефон en): игра открывается на меню (`?qa&menu`), «Играть» → 10 карточек (уровень 1 открыт, остальные закрыты), тап по закрытой ничего не делает, по открытой — партия, пауза → «В меню», «Улучшения» из меню и возврат
  *   levels-lock            открытие уровней по звёздам (`&stars=`), экран конца уровня: «Следующий уровень» после победы (не на последнем уровне), «В меню», тап по «Следующий уровень» открывает уровень 2
  *   restart-button         конец уровня (проигрыш и победа, компьютер ru и телефон en): есть кнопка «Заново» (endButton), тапы мимо неё не перезапускают, тап по ней — перезапускает
  *   deflation              economy.rewardMul: ×0,5 — два кокка номиналом 5 дают 2 + 3 = 5 монет (дробная часть копится); ×0,1 — 0 + 1, «+N» всплывает только при N ≥ 1
  *   camera-fit             самое сильное отдаление (считает игра, ≈ 0,499): высота карты × масштаб ≤ 720,5, ширина влезает, камера по центру и сдвигом не уводится
+ *   almanac                экран «Альманах» из главного меню (?qa&menu; компьютер ru и телефон ru, en один раз на компьютере): кнопка almanac → сцена 'almanac', вкладка «Башни» — 4 строки, «Бактерии» — 13, «Назад» → меню
+ *   almanac-pause          «Альманах» с паузы партии (компьютер ru, телефон en): на паузе есть pauseAlmanacButton и pauseMenuButton, тап открывает альманах (сцена 'almanac'), «Назад» возвращает на паузу
+ *                          (state 'paused', getState отвечает), тап по экрану возобновляет игру
+ *   damage-numbers         числа урона над бактериями: после попаданий башни effects.damageNumbers растёт
+ *   sell-gap               карточка башни: между «Слить» и «Продать» зазор ≥ 20 px; в режиме слияния кнопка «Продать» скрыта (sell.w = 0), отмена слияния её возвращает
  *   colors                 снимки для глаз: делящаяся, бегун, лекарь, спора и лужа Сиропа рядом на одном экране (компьютер ru, телефон en; на компьютере ещё крупно)
  * Дополнительно: --only=combat (или любое другое имя из списка) запускает один сценарий; для production нужна свежая
  * `npm run build`, для остальных — `npm run build:qa`.
@@ -93,7 +92,7 @@
  * Скриншоты — в qa/screenshots/<tag>/ (папка тега очищается только при запуске всех сценариев). Итог печатается в консоль;
  * при любой ошибке код выхода 1. Строки «📝» в конце — заметки (в счёт проверок не входят).
  *
- * Плашки с описанием (круг 14) openGame отключает сам (&noplaque); их включает только сценарий plaques (в query слово «plaques»). Уровень — query '&level=N'.
+ * Плашек с описанием и автопаузы больше нет (8 октября 2026): описания — в «Альманахе», о новом сообщает строка-уведомление сверху (игра не встаёт на паузу). Уровень — query '&level=N'.
  *
  * Проверка самих проверок: QA_EXTRA_CFG=types.rod.dashFactor:1 node qa/smoke.mjs --tag=mut --only=dash подмешивает «поломку»
  * в адрес игры — соответствующая проверка обязана покраснеть (так проверяли, что проверки не пустые). Примеры: types.rod.dashFactor:1,
@@ -140,7 +139,7 @@ if (['stage-1', 'stage-1b', 'stage-1b-qa', 'td-1-mockup', 'tmp'].includes(tag)) 
   process.exit(2);
 }
 
-const SCENARIOS = ['desktop-ru', 'phone-ru', 'desktop-en', 'phone-en', 'rules', 'graph', 'combat', 'dash', 'split', 'spore', 'armored', 'intro', 'lose-ru', 'lose-en', 'win-ru', 'win-en', 'towers', 'card', 'merge', 'mutations', 'sell', 'special', 'danger', 'rotate', 'production', 'fullgame', 'plaques', 'locked', 'strip', 'restart-button', 'deflation', 'camera-fit', 'colors', 'meta-save', 'meta-dna', 'meta-shop', 'meta-effects', 'tree-effects', 'tree-shop', 'level-waves', 'progress-save', 'stars', 'menu-flow', 'levels-lock']
+const SCENARIOS = ['desktop-ru', 'phone-ru', 'desktop-en', 'phone-en', 'rules', 'graph', 'combat', 'dash', 'split', 'spore', 'armored', 'intro', 'lose-ru', 'lose-en', 'win-ru', 'win-en', 'towers', 'card', 'merge', 'mutations', 'sell', 'special', 'danger', 'rotate', 'production', 'fullgame', 'locked', 'strip', 'restart-button', 'deflation', 'camera-fit', 'colors', 'meta-save', 'meta-dna', 'meta-shop', 'meta-effects', 'tree-effects', 'tree-shop', 'level-waves', 'progress-save', 'stars', 'menu-flow', 'levels-lock']
 const only = args.only === undefined ? null : String(args.only);
 if (only !== null && !SCENARIOS.includes(only)) {
   console.error(`Неизвестный сценарий --only=${only}. Есть: ${SCENARIOS.join(', ')}`);
@@ -342,14 +341,12 @@ async function openGame(context, baseUrl, prefix, { speed = 1, cfg = '', isTouch
   // QA_EXTRA_CFG нужна только для проверки самих проверок: подмешивает «поломку» (например camera.tapMaxMovePx:14) — соответствующая проверка обязана покраснеть
   // `levels.starDna:0` идёт первым: очки за звёзды не мешают проверкам очков ДНК; сценарий звёзд подменяет это число своим (позднее в списке — главнее)
   const allCfg = ['levels.starDna:0', cfg, process.env.QA_EXTRA_CFG].filter(Boolean).join(',');
-  // `noplaque`: игра не встаёт на паузу сама (плашки с описанием проверяет отдельный сценарий `plaques`, остальным они мешают)
-  const plaqueFlag = query.includes('plaques') ? '' : '&noplaque';
   // QA_CANVAS=1 (GitHub, группы со временем и скоростью): рисование через canvas — на сервере без видеокарты программный WebGL даёт 2–6 кадров/с, шаг игрового времени
   // ограничен 50 мс, и проверки, считающие секунды, скорости и паузы между ударами, ломаются; canvas даёт ≈ 20 кадров/с (docs/performance.md)
   // canvas: true — рисование через canvas для отдельного сценария. Проба 3 октября: красные проверки со временем (Шприц, скорость, командир) от этого не прошли — причина в скорости сервера; сейчас нигде не включено
   const canvasFlag = (canvas || process.env.QA_CANVAS === '1') && !query.includes('canvas') ? '&canvas' : '';
-  await page.goto(`${baseUrl}?qa&speed=${speed}${plaqueFlag}${canvasFlag}${allCfg ? `&cfg=${allCfg}` : ''}${query}`, { waitUntil: 'load', timeout: 90000 });
-  await waitFor(page, (s) => s.state === 'playing' || s.state === 'info', 20000, 'запуск игры');
+  await page.goto(`${baseUrl}?qa&speed=${speed}${canvasFlag}${allCfg ? `&cfg=${allCfg}` : ''}${query}`, { waitUntil: 'load', timeout: 90000 });
+  await waitFor(page, (s) => s.state === 'playing', 20000, 'запуск игры');
   const cdp = await context.newCDPSession(page);
   const input = createInput(page, cdp, isTouch);
   const rect = await page.evaluate(() => {
@@ -1568,29 +1565,11 @@ async function runProduction(browser, prodUrl, qaUrl) {
   await control.page.close();
   check(`${p} контроль: в тестовой сборке подмена чисел и языка из адреса действует (иначе проверка ниже бессмысленна)`, controlLost && controlLang === 'en' && controlBrightness < normalBrightness * 0.5, `проигрыш ${controlLost}, язык ${controlLang}, яркость ${f1(controlBrightness)} против ${f1(normalBrightness)}`);
 
-  // С круга 14 в начале уровня игра сама встаёт на паузу с плашками (уровень 1: Таблетка, Сироп, кокк); в игровой сборке их не отключить (&noplaque — только с ?qa).
-  // Плашку закрывает тап (не раньше 0,4 с после показа): три тапа по пустому месту поля
-  const closePlaques = async (pg) => {
-    const r = await pg.evaluate(() => {
-      const c = document.querySelector('canvas').getBoundingClientRect();
-      return { left: c.left, top: c.top, width: c.width, height: c.height };
-    });
-    for (let i = 0; i < 3; i++) {
-      await sleep(600);
-      await pg.touchscreen.tap(r.left + (640 * r.width) / W, r.top + (668 * r.height) / H);
-    }
-    await sleep(400);
-  };
   const page = await context.newPage();
   watchConsole(page, p);
   // С этапа 5 игровая сборка без ?level=N открывается на главном меню; сценарий проверяет партию, поэтому адрес с уровнем 1
   await page.goto(`${prodUrl}?qa&level=1&speed=10${query}&cfg=${hostile}`, { waitUntil: 'load', timeout: 90000 });
-  await sleep(1500);
-  const plaqueBrightness = await brightness(page);
-  await shot(page, 'production-plaque');
-  await closePlaques(page);
-  await sleep(6000);
-  check(`${p} в начале уровня плашка с описанием затемняет поле, три тапа её закрывают (яркость ${f1(plaqueBrightness)} → ${f1(await brightness(page))}, обычный старт ${f1(normalBrightness)})`, plaqueBrightness < normalBrightness * 0.9 && (await brightness(page)) > normalBrightness * 0.8, '');
+  await sleep(7500);
   const hook = await page.evaluate(() => typeof window.__pvb);
   check(`${p} режима проверки (?qa) нет: window.__pvb не существует`, hook === 'undefined', `typeof __pvb = ${hook}`);
   const lang = await page.evaluate(() => document.documentElement.lang);
@@ -1604,9 +1583,7 @@ async function runProduction(browser, prodUrl, qaUrl) {
   const play = await context.newPage();
   watchConsole(play, p);
   await play.goto(`${prodUrl}?level=1`, { waitUntil: 'load', timeout: 90000 });
-  await sleep(1500);
-  await closePlaques(play);
-  await sleep(600);
+  await sleep(2100);
   const rect = await play.evaluate(() => {
     const r = document.querySelector('canvas').getBoundingClientRect();
     return { left: r.left, top: r.top, width: r.width, height: r.height };
@@ -4076,7 +4053,7 @@ function cardTexts() {
   const cap = (id) => id.charAt(0).toUpperCase() + id.slice(1);
   const ids = TOWER_IDS.flatMap((tw) => S4.mutations[tw].flat().map((m) => m.id));
   const keys = [
-    'cardLevel', 'cardMerge', 'cardMergeCancel', 'cardNoPair', 'cardMaxLevel', 'cardSell', 'cardPick', 'cardMutations', 'statDamage', 'statCooldown', 'statRange', 'statPuddle', 'statSlow',
+    'cardLevel', 'cardMerge', 'cardMergeCancel', 'cardNoPair', 'cardMaxLevel', 'cardSell', 'cardPick', 'cardMutations', 'statDamage', 'statDps', 'statCooldown', 'statRange', 'statPuddle', 'statSlow',
     'statBlast', 'statBeam', 'statBeams', 'hintMerge', 'toastMerged', 'toastPickMutation', 'toastSold',
     ...ids.flatMap((id) => [`mut${cap(id)}`, `mutd${cap(id)}`]),
   ];
@@ -4094,7 +4071,7 @@ function cardTexts() {
   const bad = rows.filter((r) => r.ok && (!r.ru.trim() || !r.en.trim() || r.ru === r.en || !cyr.test(r.ru) || cyr.test(r.en)));
   check(`${p} русские строки по-русски, английские по-английски, не пустые и различаются`, bad.length === 0, bad.map((r) => `${r.k}: «${r.ru}» / «${r.en}»`).join('; '));
   const holes = {
-    cardLevel: ['{n}', '{max}'], cardSell: ['{n}'], toastMerged: ['{n}'], toastSold: ['{n}'], statDamage: ['{n}'], statCooldown: ['{n}'], statRange: ['{n}'], statPuddle: ['{r}', '{s}'], statSlow: ['{n}'], statBlast: ['{r}'], statBeam: ['{n}'], statBeams: ['{n}'],
+    cardLevel: ['{n}', '{max}'], cardSell: ['{n}'], toastMerged: ['{n}'], toastSold: ['{n}'], statDamage: ['{n}'], statDps: ['{n}'], statCooldown: ['{n}'], statRange: ['{n}'], statPuddle: ['{r}', '{s}'], statSlow: ['{n}'], statBlast: ['{r}'], statBeam: ['{n}'], statBeams: ['{n}'],
   };
   const noHole = rows.filter((r) => r.ok && holes[r.k] && !holes[r.k].every((h) => r.ru.includes(h) && r.en.includes(h))).map((r) => r.k);
   check(`${p} строки со вставками (${Object.keys(holes).join(', ')}) содержат вставки на обоих языках`, noHole.length === 0, noHole.join(', '));
@@ -4447,7 +4424,7 @@ async function mutationsFlow(browser, baseUrl) {
 
 // ---------------------------------------------------------------- продажа
 
-/** Продажа: возврат долей цены на каждом уровне, свободная клетка, продажа в режиме слияния, очередь луча проданного Шприца обрывается. */
+/** Продажа: возврат долей цены на каждом уровне, свободная клетка, «Продать» скрыта в режиме слияния, очередь луча проданного Шприца обрывается. */
 async function sellFlow(browser, baseUrl) {
   const p = '[продажа]';
   const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
@@ -4499,15 +4476,18 @@ async function sellFlow(browser, baseUrl) {
   }
   check(`${p} продажа башен промежуточных уровней: ${levelRows.map((r) => `ур.${r.level} +${r.got} (ждали +${r.refund})`).join('; ')}`, levelRows.every((r) => r.ok), levelRows.filter((r) => !r.ok).map((r) => `ур.${r.level}: +${r.got} вместо +${r.refund}`).join('; '));
 
-  // ---- продажа в режиме слияния: режим выключается, вторая башня остаётся и больше не подсвечена
+  // ---- продажа в режиме слияния: кнопка «Продать» скрыта (случайной продажи нет); отмена слияния её возвращает; после этого продажа обычная, вторая башня остаётся
   await placeAt(game, 'pill', cells[0]);
   await placeAt(game, 'pill', cells[1]);
   await selectPlaced(game, cells[0]);
   s = await tapCard(game, 'merge');
   const inMode = s.mergeMode;
+  const hiddenInMode = s.ui.card.sell.w === 0;
+  s = await tapCard(game, 'merge');
+  const backAfterCancel = !s.mergeMode && s.ui.card.sell.w > 0;
   const beforeSell = s.coins;
   s = await tapCard(game, 'sell');
-  check(`${p} продажа в режиме слияния: режим выключился (было ${inMode}, стало ${s.mergeMode}), продана выбранная (+${s.coins - beforeSell}), вторая Таблетка осталась (башен ${s.towers.length}), `, inMode && !s.mergeMode && s.towers.length === 1 && cellEq(s.towers[0], cells[1]) && s.coins - beforeSell === Math.round(TW.pill.price * S4.sellRefund) && !s.ui.card.visible);
+  check(`${p} в режиме слияния «Продать» скрыта (было: режим ${inMode}, кнопка скрыта ${hiddenInMode}), после отмены слияния вернулась (${backAfterCancel}); продажа выбранной (+${s.coins - beforeSell}), вторая Таблетка осталась (башен ${s.towers.length})`, inMode && hiddenInMode && backAfterCancel && !s.mergeMode && s.towers.length === 1 && cellEq(s.towers[0], cells[1]) && s.coins - beforeSell === Math.round(TW.pill.price * S4.sellRefund) && !s.ui.card.visible);
   s = await selectPlaced(game, cells[1]);
   check(`${p} у оставшейся Таблетки пары больше нет: «Слить» недоступна`, !s.ui.card.merge.enabled);
   await game.page.close();
@@ -4742,98 +4722,6 @@ async function runTowers(browser, baseUrl) {
 const TOWER_ORDER = Object.keys(readTowerTable());
 const UNLOCK = readTowerUnlock();
 const unlockOf = (id) => UNLOCK[id] ?? 1;
-/** Какие плашки игра должна показать в начале уровня: башни, открывшиеся на нём (в порядке таблицы башен), затем типы бактерий 1-й волны (в порядке таблицы типов). */
-const startPlaques = (level) => [
-  ...TOWER_ORDER.filter((id) => unlockOf(id) === level).map((id) => `tower:${id}`),
-  ...KINDS.filter((k) => (WAVE_LIST[0][k] ?? 0) > 0).map((k) => `bacterium:${k}`),
-];
-const plaqueKey = (s) => `${s.info.kind}:${s.info.id}`;
-
-/**
- * Разбор снимка с плашкой по цвету пикселей (координаты — экран игры 1280×720; плашка 960×500 по центру: x 160…1120, y 110…610, подсказка внизу — y ≈ 576).
- * rows — сколько «текстовых» точек (белые, жёлтые, серо-голубые подписи) в каждой строке y = 112…608 правой колонки x 515…1112 (рисунок слева в неё не попадает);
- * outside — сколько ярких точек вне плашки (под затемнением ярче 190 ничего не бывает, значит там вылезший текст); rightEdge — текстовые точки у правого края плашки (x 1098…1116).
- */
-async function plaqueScan(game, png) {
-  return game.page.evaluate(
-    async ({ b64, rect, GW, GH }) => {
-      const img = new Image();
-      img.src = `data:image/png;base64,${b64}`;
-      await img.decode();
-      const k = img.width / innerWidth;
-      const canvas = document.createElement('canvas');
-      canvas.width = img.width;
-      canvas.height = img.height;
-      const g = canvas.getContext('2d', { willReadFrequently: true });
-      g.drawImage(img, 0, 0);
-      const data = g.getImageData(0, 0, img.width, img.height).data;
-      const at = (gx, gy) => {
-        const px = Math.max(0, Math.min(img.width - 1, Math.round((rect.left + (gx * rect.width) / GW) * k)));
-        const py = Math.max(0, Math.min(img.height - 1, Math.round((rect.top + (gy * rect.height) / GH) * k)));
-        const i = (py * img.width + px) * 4;
-        return [data[i], data[i + 1], data[i + 2]];
-      };
-      const isText = ([r, gg, b]) => (r >= 200 && gg >= 200 && b >= 200) || (r >= 215 && gg >= 175 && b <= 150) || (r >= 120 && r <= 200 && gg >= 145 && gg <= 215 && b >= 185 && b <= 245);
-      const rows = [];
-      for (let y = 112; y <= 608; y++) {
-        let n = 0;
-        for (let x = 515; x <= 1112; x += 2) if (isText(at(x, y))) n++;
-        rows.push(n);
-      }
-      let outside = 0;
-      for (let y = 0; y < GH; y += 2) {
-        for (let x = 0; x < GW; x += 2) {
-          if (x >= 154 && x <= 1126 && y >= 104 && y <= 616) continue;
-          const [r, gg, b] = at(x, y);
-          // текст плашки лежит поверх затемнения и ярок (белый, жёлтый); поле и панель под затемнением такими не бывают
-          if (Math.max(r, gg, b) > 190) outside++;
-        }
-      }
-      let rightEdge = 0;
-      for (let y = 112; y <= 608; y++) for (let x = 1098; x <= 1116; x++) if (isText(at(x, y))) rightEdge++;
-      return { rows, outside, rightEdge };
-    },
-    { b64: png.toString('base64'), rect: game.screen.rect, GW: W, GH: H },
-  );
-}
-
-/** Строки текста на плашке (полосы строк с текстом) и вывод: всё ли внутри плашки и не налезает ли текст на подсказку внизу. */
-function plaqueLayout(scan) {
-  const bands = [];
-  scan.rows.forEach((n, i) => {
-    const y = 112 + i;
-    if (n < 1) return;
-    const last = bands[bands.length - 1];
-    if (last && y - last.b <= 2) last.b = y;
-    else bands.push({ t: y, b: y });
-  });
-  const hint = bands[bands.length - 1];
-  const prev = bands[bands.length - 2];
-  const hintOk = Boolean(hint) && (hint.t + hint.b) / 2 >= 560 && (hint.t + hint.b) / 2 <= 594 && hint.b - hint.t <= 36;
-  const gap = hint && prev ? hint.t - prev.b : -1;
-  const ok = bands.length >= 5 && hintOk && gap >= 4 && scan.outside === 0 && scan.rightEdge === 0;
-  return { ok, bands: bands.length, gap, hint: hint ? `${hint.t}…${hint.b}` : '—', lastText: prev ? prev.b : -1, outside: scan.outside, rightEdge: scan.rightEdge };
-}
-
-/** Ждёт, пока плашка можно будет закрыть (0,4 с после показа — с запасом), и тапает в пустое место поля. */
-async function closePlaque(game) {
-  await sleep(480);
-  const before = await game.state();
-  await game.input.tap(game.g(640, 668));
-  return waitFor(game.page, (x) => x.state !== 'info' || plaqueKey(x) !== plaqueKey(before) || x.info.queue !== before.info.queue, 4000, 'плашка закрылась по тапу');
-}
-
-/** Закрывает все плашки подряд; возвращает список показанных («kind:id») и состояние после. */
-async function closeAllPlaques(game) {
-  const seen = [];
-  let s = await game.state();
-  for (let i = 0; i < 20 && s.state === 'info'; i++) {
-    seen.push(plaqueKey(s));
-    s = await closePlaque(game);
-  }
-  return { seen, s };
-}
-
 /** Ставит башню, как placeAt, но с повтором: на только что открытой странице первый тап по кнопке башни изредка не доходит до игры (см. заметку в «проигрыш с башнями»). */
 async function placeSure(game, id, cell, tries = 3) {
   for (let i = 1; ; i++) {
@@ -4845,128 +4733,6 @@ async function placeSure(game, id, cell, tries = 3) {
       if (s.selected) await game.selectTower(s.selected);
       await sleep(300);
     }
-  }
-}
-
-async function runPlaques(browser, baseUrl) {
-  const p = '[плашки]';
-  const PAUSE = readConfigNumber('waves', 'pauseSec');
-  const EXTRA = readConfigNumber('waves', 'newTypePauseSec');
-  const BONUS = readConfigNumber('waves', 'skipBonusPerSec');
-  const expected = startPlaques(1);
-
-  // ---- A. начало уровня 1: очередь плашек, игра стоит, ранний тап не закрывает; после перезапуска кнопкой плашек нет
-  {
-    const ctx = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
-    const game = await openGame(ctx, baseUrl, p, { speed: 4, cfg: 'lives.start:1,waves.firstDelaySec:1,bacteria.baseSpeed:250', query: '&plaques' });
-    const { page } = game;
-    let s = await game.state();
-    check(`${p} в начале уровня 1 игра сама на паузе: state 'info', плашка «${expected[0]}», в очереди ${expected.length} (${expected.join(', ')})`, s.state === 'info' && s.info.visible && plaqueKey(s) === expected[0] && s.info.queue === expected.length, `state ${s.state}, info ${JSON.stringify(s.info)}`);
-    await frames(page, 3);
-    await shot(page, 'plaques-start-ru');
-    const e0 = s.elapsed;
-    await sleep(900);
-    s = await game.state();
-    check(`${p} пока плашка на экране, игровое время стоит и волна не начинается`, s.elapsed === e0 && s.wave === 0 && s.spawned === 0, `время ${f2(e0)} → ${f2(s.elapsed)}, волна ${s.wave}, вышло ${s.spawned}`);
-    const seen = [];
-    let early = null;
-    let shownAt = Date.now();
-    for (let i = 0; i < expected.length + 2 && s.state === 'info'; i++) {
-      seen.push(`${plaqueKey(s)}#${s.info.queue}`);
-      if (i === 1) {
-        // эта плашка показана только что (тапом по прошлой): тап сразу же её не закрывает
-        const dt = Date.now() - shownAt;
-        await game.input.tap(game.g(640, 668));
-        await sleep(150);
-        const s2 = await game.state();
-        early = { dt, kept: s2.state === 'info' && plaqueKey(s2) === plaqueKey(s) && s2.info.queue === s.info.queue };
-      }
-      await sleep(480);
-      const before = s;
-      await game.input.tap(game.g(640, 668));
-      shownAt = Date.now();
-      s = await waitFor(page, (x) => x.state !== 'info' || plaqueKey(x) !== plaqueKey(before) || x.info.queue !== before.info.queue, 4000, 'плашка закрылась по тапу');
-    }
-    check(`${p} три тапа по очереди показывают и закрывают плашки по порядку: ${expected.map((k, i) => `${k}#${expected.length - i}`).join(' → ')}`, seen.join() === expected.map((k, i) => `${k}#${expected.length - i}`).join(), `было ${seen.join(' → ')}`);
-    check(`${p} после последнего тапа игра идёт: state 'playing', плашки нет, очередь пуста`, s.state === 'playing' && !s.info.visible && s.info.queue === 0, `state ${s.state}, info ${JSON.stringify(s.info)}`);
-    check(`${p} тап раньше 0,4 с после показа плашку не закрывает (тап через ${early?.dt ?? '—'} мс после показа)`, early !== null && early.dt < 380 && early.kept, early ? `плашка ${early.kept ? 'осталась' : 'закрылась'}, тап через ${early.dt} мс` : 'вторая плашка не появилась');
-    // проигрыш (1 жизнь, без башен), перезапуск кнопкой — плашки второй раз не показываются
-    s = await waitFor(page, (x) => x.state === 'lost', WAIT_MS, 'проигрыш');
-    await sleep(CFG.restartLockMs + 250);
-    await tapToRestart(game);
-    s = await waitFor(page, (x) => x.state !== 'lost', 5000, 'перезапуск кнопкой');
-    const states = new Set([s.state]);
-    let infoSeen = s.info.visible;
-    const started = Date.now();
-    while (Date.now() - started < 3500) {
-      s = await game.state();
-      states.add(s.state);
-      infoSeen ||= s.info.visible;
-      await sleep(40);
-    }
-    check(`${p} после перезапуска кнопкой «Заново» плашки не показываются повторно (за 3,5 с, скорость ×4: волна ${s.wave}, состояния ${[...states].join(', ')})`, !states.has('info') && !infoSeen && s.wave >= 1, `состояния ${[...states].join(', ')}, плашка ${infoSeen}`);
-    await ctx.close();
-  }
-
-  // ---- B. новая бактерия перед волной: плашка в начале паузы, пауза длиннее на newTypePauseSec
-  {
-    const kind = INTRO_ORDER[1];
-    const wave = FIRST_WAVE[kind];
-    const cum = (n) => WAVE_LIST.slice(0, n).reduce((sum, row) => sum + Object.values(row).reduce((a, b) => a + b, 0), 0);
-    const ctx = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
-    const game = await openGame(ctx, baseUrl, `${p} [волна ${wave}]`, { speed: 10, cfg: NO_LIFE_LOSS, query: '&plaques' });
-    const { page } = game;
-    await closeAllPlaques(game);
-    const spawnDone = {};
-    const waveAt = {};
-    let s = await game.state();
-    const started = Date.now();
-    while (Date.now() - started < WAIT_MS * 2) {
-      s = await game.state();
-      for (let k = 1; k < wave; k++) if (spawnDone[k] === undefined && s.spawned >= cum(k)) spawnDone[k] = s.elapsed;
-      for (let k = 1; k <= wave; k++) if (waveAt[k] === undefined && s.wave >= k) waveAt[k] = s.elapsed;
-      if (s.state === 'info' || s.state === 'lost') break;
-      await sleep(15);
-    }
-    const expBonus = Math.floor((PAUSE + EXTRA) * BONUS);
-    check(`${p} перед волной ${wave} (новый тип «${kind}») игра сама встаёт на паузу с плашкой — в начале паузы после волны ${wave - 1}`, s.state === 'info' && s.info.kind === 'bacterium' && s.info.id === kind && s.wave === wave - 1 && s.spawned === cum(wave - 1), `state ${s.state}, info ${JSON.stringify(s.info)}, волна ${s.wave}, вышло ${s.spawned} (ждали ${cum(wave - 1)})`);
-    await frames(page, 3);
-    await shot(page, `plaques-wave${wave}-${kind}-ru`);
-    const atInfo = s.elapsed;
-    s = await closePlaque(game);
-    // панель обновляется только во время игры: бонус «Начать волну» читаем в первом кадре после плашки (за кадр при ×10 уходит не больше 0,5 с)
-    s = await waitFor(page, (x) => x.state === 'playing' && x.ui.waveButton.visible, 5000, 'кнопка «Начать волну» после плашки', 10);
-    check(`${p} после плашки отсчёт до волны ${wave} — pauseSec ${PAUSE} + newTypePauseSec ${EXTRA}: бонус «Начать волну» ${expBonus - 1}…${expBonus}`, s.ui.waveButton.bonus >= expBonus - 1 && s.ui.waveButton.bonus <= expBonus, `бонус ${s.ui.waveButton.bonus}, прошло после плашки ${f2(s.elapsed - atInfo)} с`);
-    s = await waitFor(page, (x) => x.wave >= wave, WAIT_MS, `волна ${wave}`);
-    const pauseNew = s.elapsed - atInfo;
-    const pausePrev = waveAt[wave - 1] !== undefined && spawnDone[wave - 2] !== undefined ? waveAt[wave - 1] - spawnDone[wave - 2] : NaN;
-    check(`${p} пауза перед волной ${wave} ≈ ${PAUSE + EXTRA} с игрового времени, перед волной ${wave - 1} (без нового типа) ≈ ${PAUSE} с (±1,2 с — шаг кадра при ×10)`, Math.abs(pauseNew - (PAUSE + EXTRA)) <= 1.2 && Math.abs(pausePrev - PAUSE) <= 1.2, `перед ${wave}: ${f2(pauseNew)} с; перед ${wave - 1}: ${f2(pausePrev)} с`);
-    await ctx.close();
-  }
-
-  // ---- C. все плашки (13 типов и 4 башни) через window.__pvb.showPlaque: снимки, текст целиком внутри плашки, не налезает на подсказку
-  const allIds = [...TOWER_ORDER.map((id) => ['tower', id]), ...KINDS.map((k) => ['bacterium', k])];
-  const longest = [['bacterium', 'swarm'], ['bacterium', 'spore'], ['bacterium', 'armored'], ['bacterium', 'giant'], ['tower', 'syrup'], ['tower', 'syringe']];
-  for (const [deviceKey, lang, list] of [['desktop', 'ru', allIds], ['desktop', 'en', allIds], ['phone', 'ru', longest], ['phone', 'en', longest]]) {
-    const device = VIEWPORTS[deviceKey];
-    const q = `${p} [${device.label}, ${lang}]`;
-    const ctx = await newDeviceContext(browser, device, lang);
-    const game = await openGame(ctx, baseUrl, q, { cfg: 'waves.firstDelaySec:9999', isTouch: device.hasTouch });
-    const bad = [];
-    const wrong = [];
-    for (const [kind, id] of list) {
-      await game.page.evaluate(([k, i]) => window.__pvb.showPlaque(k, i), [kind, id]);
-      const s = await waitFor(game.page, (x) => x.state === 'info' && x.info.visible, 4000, `плашка ${kind}:${id}`);
-      if (s.info.kind !== kind || s.info.id !== id) wrong.push(`${kind}:${id} → ${plaqueKey(s)}`);
-      await frames(game.page, 3);
-      const png = await shot(game.page, `plaque-${deviceKey}-${lang}-${kind}-${id}`);
-      const lay = plaqueLayout(await plaqueScan(game, png));
-      if (!lay.ok) bad.push(`${id}: строк ${lay.bands}, подсказка ${lay.hint}, зазор до неё ${lay.gap}, вне плашки ${lay.outside}, у правого края ${lay.rightEdge}`);
-      await closePlaque(game);
-    }
-    check(`${q} showPlaque показывает нужную плашку (${list.length} шт.)`, wrong.length === 0, wrong.join('; '));
-    check(`${q} на всех ${list.length} плашках текст целиком внутри плашки и не налезает на подсказку внизу`, bad.length === 0, bad.join('; '));
-    await ctx.close();
   }
 }
 
@@ -5021,18 +4787,6 @@ async function runLocked(browser, baseUrl) {
       }
       await ctx.close();
     }
-  }
-  // плашки в начале уровня: только башни, открывшиеся на нём
-  for (const level of [5, 10]) {
-    const q = `${p} [плашки в начале уровня ${level}]`;
-    const ctx = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
-    const game = await openGame(ctx, baseUrl, q, { cfg: 'waves.firstDelaySec:9999', query: `&plaques&level=${level}` });
-    await frames(game.page, 3);
-    await shot(game.page, `locked-plaque-level${level}-ru`);
-    const { seen, s } = await closeAllPlaques(game);
-    const want = startPlaques(level);
-    check(`${q} показаны ${want.join(', ')} (из башен — только открывшиеся на этом уровне)`, seen.join() === want.join() && s.state === 'playing', `показаны ${seen.join(', ')}, state ${s.state}`);
-    await ctx.close();
   }
 }
 
@@ -5169,7 +4923,7 @@ async function runMetaSave(browser, baseUrl) {
   const reloadWith = async (value) => {
     await page.evaluate((v) => (v === null ? window.localStorage.removeItem('pvb.meta') : window.localStorage.setItem('pvb.meta', v)), value);
     await page.reload({ waitUntil: 'load', timeout: 90000 });
-    await waitFor(page, (x) => x.state === 'playing' || x.state === 'info', 20000, 'запуск после перезагрузки');
+    await waitFor(page, (x) => x.state === 'playing', 20000, 'запуск после перезагрузки');
     return metaOf(page);
   };
   m = await reloadWith(JSON.stringify({ v: 1, dna: 40, levels: { lives: 1, coins: 0, damage: 2, reward: 0 } }));
@@ -5232,7 +4986,7 @@ async function runLevelWaves(browser, baseUrl) {
   await context.close();
 }
 
-/** Прогресс по уровням в сохранении версии 2 и показанные плашки (этап 5, шаг 2). */
+/** Прогресс по уровням в сохранении версии 2 и показанные уведомления (этап 5, шаг 2). */
 async function runProgressSave(browser, baseUrl) {
   const p = '[прогресс: сохранение]';
   const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
@@ -5240,11 +4994,11 @@ async function runProgressSave(browser, baseUrl) {
   const { page } = game;
   let m = await metaOf(page);
   const zeros = (a) => Array.isArray(a) && a.length === 10 && a.every((v) => v === 0);
-  check(`${p} новая игра: звёзды и лучшие волны всех 10 уровней — нули, показанных плашек нет`, zeros(m.progress.stars) && zeros(m.progress.best) && m.seen.length === 0, JSON.stringify(m.progress));
+  check(`${p} новая игра: звёзды и лучшие волны всех 10 уровней — нули, показанных уведомлений нет`, zeros(m.progress.stars) && zeros(m.progress.best) && m.seen.length === 0, JSON.stringify(m.progress));
   const reloadWith = async (value, query = '') => {
     await page.evaluate((v) => (v === null ? window.localStorage.removeItem('pvb.meta') : window.localStorage.setItem('pvb.meta', v)), value);
-    await page.goto(`${baseUrl}?qa&speed=1&noplaque&cfg=waves.firstDelaySec:600${query}`, { waitUntil: 'load', timeout: 90000 });
-    await waitFor(page, (x) => x.state === 'playing' || x.state === 'info', 20000, 'запуск после перезагрузки');
+    await page.goto(`${baseUrl}?qa&speed=1&cfg=waves.firstDelaySec:600${query}`, { waitUntil: 'load', timeout: 90000 });
+    await waitFor(page, (x) => x.state === 'playing', 20000, 'запуск после перезагрузки');
     return metaOf(page);
   };
   m = await reloadWith(JSON.stringify({ v: 1, dna: 40, levels: { lives: 1, coins: 0, damage: 2, reward: 0 } }));
@@ -5252,28 +5006,29 @@ async function runProgressSave(browser, baseUrl) {
   const stars = [3, 2, 1, 0, 0, 0, 0, 0, 0, 0];
   const best = [30, 30, 17, 4, 0, 0, 0, 0, 0, 0];
   m = await reloadWith(JSON.stringify({ v: 2, dna: 7, levels: { lives: 0, coins: 0, damage: 0, reward: 0 }, progress: { stars, best }, seen: ['b:rod', 't:pill'] }));
-  check(`${p} сохранение версии 2 читается: звёзды ${stars.join('')}, лучшие волны ${best.slice(0, 4).join('/')}, плашки b:rod и t:pill`, JSON.stringify(m.progress.stars) === JSON.stringify(stars) && JSON.stringify(m.progress.best) === JSON.stringify(best) && m.seen.join() === 'b:rod,t:pill', JSON.stringify(m.progress) + ' ' + m.seen.join());
+  check(`${p} сохранение версии 2 читается: звёзды ${stars.join('')}, лучшие волны ${best.slice(0, 4).join('/')}, показанные уведомления b:rod и t:pill`, JSON.stringify(m.progress.stars) === JSON.stringify(stars) && JSON.stringify(m.progress.best) === JSON.stringify(best) && m.seen.join() === 'b:rod,t:pill', JSON.stringify(m.progress) + ' ' + m.seen.join());
   m = await reloadWith(JSON.stringify({ v: 2, dna: 0, levels: {}, progress: { stars: [9, -1, 'x', 2.7, null, 1, 1, 1, 1, 1, 3, 3, 3], best: [5000, 12.9, -3] }, seen: [5, '', 'ok', 'x'.repeat(50), null] }));
-  check(`${p} чужие значения исправляются: звёзды 9 → 3, −1 → 0, «x» → 0, 2,7 → 2, лишние (после 10-го) отброшены; волна 5000 → 1000, 12,9 → 12; из плашек остаётся только «ok»`, m.progress.stars.length === 10 && m.progress.stars.slice(0, 4).join() === '3,0,0,2' && m.progress.stars[9] === 1 && m.progress.best[0] === 1000 && m.progress.best[1] === 12 && m.progress.best[2] === 0 && m.seen.join() === 'ok', JSON.stringify(m.progress) + ' ' + m.seen.join());
+  check(`${p} чужие значения исправляются: звёзды 9 → 3, −1 → 0, «x» → 0, 2,7 → 2, лишние (после 10-го) отброшены; волна 5000 → 1000, 12,9 → 12; из записей остаётся только «ok»`, m.progress.stars.length === 10 && m.progress.stars.slice(0, 4).join() === '3,0,0,2' && m.progress.stars[9] === 1 && m.progress.best[0] === 1000 && m.progress.best[1] === 12 && m.progress.best[2] === 0 && m.seen.join() === 'ok', JSON.stringify(m.progress) + ' ' + m.seen.join());
   m = await reloadWith(JSON.stringify({ v: 2, dna: 5, levels: {}, progress: 5, seen: 'нет' }));
-  check(`${p} progress и seen неверного вида: очки 5 сохранились, звёзды и волны — нули, плашек нет`, m.dna === 5 && zeros(m.progress.stars) && zeros(m.progress.best) && m.seen.length === 0, JSON.stringify(m));
+  check(`${p} progress и seen неверного вида: очки 5 сохранились, звёзды и волны — нули, записей нет`, m.dna === 5 && zeros(m.progress.stars) && zeros(m.progress.best) && m.seen.length === 0, JSON.stringify(m));
   // ---- подмена звёзд из адреса (только ?qa): в сохранение ничего не пишется
   m = await reloadWith(JSON.stringify({ v: 2, dna: 5, levels: {}, progress: { stars: [1], best: [3] }, seen: [] }), '&stars=3,2');
   const stored = await page.evaluate(() => JSON.parse(window.localStorage.getItem('pvb.meta')));
   check(`${p} &stars=3,2 задаёт звёзды уровней 1 и 2, остальные — 0; сохранённое не затронуто (в хранилище звёзды уровня 1 — 1)`, m.progress.stars.join() === '3,2,0,0,0,0,0,0,0,0' && stored.progress.stars[0] === 1, JSON.stringify(m.progress.stars) + ' ' + JSON.stringify(stored.progress));
   await context.close();
 
-  // ---- плашки: показанные запоминаются в сохранении (в режиме проверки — только с &persistseen) и не повторяются после обновления страницы
+  // ---- уведомления «Новая бактерия» / «Открыта башня»: показанные запоминаются в сохранении (в режиме проверки — только с &persistseen) и после обновления страницы остаются записанными
   const ctx2 = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
-  const g2 = await openGame(ctx2, baseUrl, p, { speed: 1, cfg: 'waves.firstDelaySec:600', query: '&plaques&persistseen' });
+  const g2 = await openGame(ctx2, baseUrl, p, { speed: 1, cfg: 'waves.firstDelaySec:600', query: '&persistseen' });
   let s = await g2.state();
-  check(`${p} без &noplaque в начале уровня показывается плашка (игра на паузе)`, s.state === 'info' && s.info.visible, `состояние ${s.state}`);
+  check(`${p} в начале уровня игра не встаёт на паузу (state 'playing', уведомления идут строкой сверху)`, s.state === 'playing', `состояние ${s.state}`);
   m = await metaOf(g2.page);
-  check(`${p} показанные плашки записаны: башни t:pill и t:syrup, бактерия b:coccus`, ['t:pill', 't:syrup', 'b:coccus'].every((k) => m.seen.includes(k)), m.seen.join());
+  check(`${p} показанные уведомления записаны: башни t:pill и t:syrup, бактерия b:coccus`, ['t:pill', 't:syrup', 'b:coccus'].every((k) => m.seen.includes(k)), m.seen.join());
   await g2.page.reload({ waitUntil: 'load', timeout: 90000 });
-  await waitFor(g2.page, (x) => x.state === 'playing' || x.state === 'info', 20000, 'запуск после обновления');
+  await waitFor(g2.page, (x) => x.state === 'playing', 20000, 'запуск после обновления');
   s = await g2.state();
-  check(`${p} после обновления страницы те же плашки не повторяются: игра идёт, плашек нет`, s.state === 'playing' && !s.info.visible, `состояние ${s.state}`);
+  m = await metaOf(g2.page);
+  check(`${p} после обновления страницы записи на месте (t:pill, t:syrup, b:coccus), игра идёт`, s.state === 'playing' && ['t:pill', 't:syrup', 'b:coccus'].every((k) => m.seen.includes(k)), `состояние ${s.state}, записано ${m.seen.join()}`);
   await ctx2.close();
 }
 
@@ -5326,7 +5081,7 @@ async function runStars(browser, baseUrl) {
 async function openMenu(context, baseUrl, prefix, { query = '', isTouch = false } = {}) {
   const page = await context.newPage();
   watchConsole(page, prefix);
-  await page.goto(`${baseUrl}?qa&menu&speed=4&noplaque&cfg=waves.firstDelaySec:600${query}`, { waitUntil: 'load', timeout: 90000 });
+  await page.goto(`${baseUrl}?qa&menu&speed=4&cfg=waves.firstDelaySec:600${query}`, { waitUntil: 'load', timeout: 90000 });
   const cdp = await context.newCDPSession(page);
   const input = createInput(page, cdp, isTouch);
   const ui = () => page.evaluate(() => window.__pvbUi?.get() ?? null);
@@ -5386,7 +5141,7 @@ async function runMenuFlow(browser, baseUrl) {
     u = await app.ui();
     check(`${p} тап по закрытому уровню 2 ничего не запускает: остаёмся на выборе уровня`, u && u.scene === 'levels', JSON.stringify(u && u.scene));
     await app.tapRect(u.levels[0].rect);
-    let s = await waitFor(app.page, (x) => x.state === 'playing' || x.state === 'info', 30000, 'партия после выбора уровня 1');
+    let s = await waitFor(app.page, (x) => x.state === 'playing', 30000, 'партия после выбора уровня 1');
     check(`${p} тап по открытому уровню 1 начинает партию уровня 1`, s.level === 1 && s.wave >= 0, `уровень ${s.level}, состояние ${s.state}`);
 
     await app.input.tap(app.g(s.ui.pauseButton.x, s.ui.pauseButton.y));
@@ -5438,7 +5193,7 @@ async function runLevelsLock(browser, baseUrl) {
   check(`${p} на карточках звёзды уровней 1–3: 1, 3, 0`, u.levels[0].stars === 1 && u.levels[1].stars === 3 && u.levels[2].stars === 0, u.levels.slice(0, 3).map((c) => c.stars).join());
   await shot(app.page, 'levels-stars');
   await app.tapRect(u.levels[1].rect);
-  const s2 = await waitFor(app.page, (x) => x.state === 'playing' || x.state === 'info', 30000, 'партия уровня 2');
+  const s2 = await waitFor(app.page, (x) => x.state === 'playing', 30000, 'партия уровня 2');
   check(`${p} тап по открытому уровню 2 начинает партию уровня 2`, s2.level === 2, `уровень ${s2.level}`);
   await app.page.close();
 
@@ -5947,7 +5702,7 @@ try {
     const ctx = await browser.newContext({ viewport: { width: 1280, height: 720 } });
     const page = await ctx.newPage();
     watchConsole(page, '[сеть дорожек]');
-    await page.goto(`${qaServer.url}?qa&noplaque&cfg=waves.firstDelaySec:9999`, { waitUntil: 'load' });
+    await page.goto(`${qaServer.url}?qa&cfg=waves.firstDelaySec:9999`, { waitUntil: 'load' });
     await waitFor(page, (x) => x.state === 'playing', 20000, 'запуск игры для чтения сети дорожек');
     setupWorld(await page.evaluate(() => window.__pvb.getGraph()));
     await ctx.close();
@@ -5977,7 +5732,6 @@ try {
   if (wants('rotate')) await safe('[поворот]', () => runRotate(browser, qaServer.url));
   if (wants('production')) await safe('[игровая сборка]', () => runProduction(browser, prodServer.url, qaServer.url));
   if (wants('fullgame')) await safe('[полная партия]', () => runFullGame(browser, qaServer.url));
-  if (wants('plaques')) await safe('[плашки]', () => runPlaques(browser, qaServer.url));
   if (wants('locked')) await safe('[закрытые башни]', () => runLocked(browser, qaServer.url));
   if (wants('strip')) await safe('[полоса кнопок]', () => runStrip(browser, qaServer.url));
   if (wants('restart-button')) await safe('[кнопка «Заново»]', () => runRestartButton(browser, qaServer.url));

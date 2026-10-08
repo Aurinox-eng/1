@@ -31,8 +31,14 @@ export function tileCenter(col: number, row: number): Vec {
   return { x: orgW + tile * (col + 0.5), y: tile * (row + 0.5) };
 }
 
+/** Центр точки сети дорожек (координаты в единицах `map.pathUnit`, как в `LEVEL.nodes`) в пикселях мира: сеть не зависит от размера клетки под башню. */
+export function unitCenter(u: number, v: number): Vec {
+  const { orgW, pathUnit } = CONFIG.map;
+  return { x: orgW + pathUnit * (u + 0.5), y: pathUnit * (v + 0.5) };
+}
+
 /**
- * Строит ребро между двумя узлами (их координаты — в клетках). Кривая — кубическая Безье с горизонтальными касательными на
+ * Строит ребро между двумя узлами (их координаты — в единицах `map.pathUnit`). Кривая — кубическая Безье с горизонтальными касательными на
  * концах: поэтому в узле все рёбра стыкуются гладко, а между разными рядами получается плавная S-образная дорожка.
  */
 export function buildEdge(id: number, from: string, to: string, a: readonly [number, number], b: readonly [number, number]): Edge {
@@ -47,7 +53,7 @@ export function buildEdge(id: number, from: string, to: string, a: readonly [num
     const v = 1 - u;
     const col = v * v * v * x1 + 3 * v * v * u * c1[0] + 3 * v * u * u * c2[0] + u * u * u * x2;
     const row = v * v * v * y1 + 3 * v * v * u * c1[1] + 3 * v * u * u * c2[1] + u * u * u * y2;
-    pts.push(tileCenter(col, row));
+    pts.push(unitCenter(col, row));
   }
   const cum = [0];
   for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y));
