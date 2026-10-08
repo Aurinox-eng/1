@@ -123,6 +123,8 @@ export interface DebugSnapshot {
   mergeMode: boolean;
   /** Самый высокий уровень башни. */
   maxTowerLevel: number;
+  /** Радиус слияния башен, пикселей между центрами (`mergeRadiusPx`). */
+  mergeRadiusPx: number;
   merges: number;
   sells: number;
   mutationsPicked: number;

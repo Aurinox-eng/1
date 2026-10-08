@@ -1551,6 +1551,7 @@ export class GameScene extends Phaser.Scene {
       selectedTower: this.selectedTower ? { col: this.selectedTower.col, row: this.selectedTower.row } : null,
       mergeMode: this.mergeMode,
       maxTowerLevel: MAX_TOWER_LEVEL,
+      mergeRadiusPx: CONFIG.mergeRadiusPx,
       merges: this.merges,
       sells: this.sells,
       mutationsPicked: this.mutationsPicked,
