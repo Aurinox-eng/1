@@ -171,7 +171,17 @@ const check = (name, ok, details = '') => {
 // ------------------------------------------------------------------ что игра должна показывать (из исходников)
 
 const LEVEL = readLevel();
-const MAP = { orgW: readConfigNumber('map', 'orgW'), tile: readConfigNumber('map', 'tile'), pathWidth: readConfigNumber('map', 'pathWidth') };
+/**
+ * Карта. С 8 октября 2026 клетка под башню (`tile`, 77,25 px) и единица сети дорожек (`pathUnit`, 103 px: в ней записаны узлы и старт камеры в src/level.ts) — разные числа.
+ * orgW, tile, cols, rows на старте сценариев перечитываются из состояния игры (setupWorld); pathWidth и pathUnit в состояние не входят — они из config.ts.
+ */
+const MAP = { orgW: readConfigNumber('map', 'orgW'), tile: readConfigNumber('map', 'tile'), pathWidth: readConfigNumber('map', 'pathWidth'), pathUnit: readConfigNumber('map', 'pathUnit') };
+/** Радиус слияния башен, px между центрами (config.ts: mergeRadiusPx; на старте сверяется с состоянием игры). Слияние только в нём и только у башен без невыбранной мутации. */
+let MERGE_RADIUS = (() => {
+  const found = /\bmergeRadiusPx:\s*([\d.]+)/.exec(fs.readFileSync(path.join(ROOT, 'src', 'config.ts'), 'utf8'));
+  if (!found) throw new Error('В config.ts нет mergeRadiusPx');
+  return Number(found[1]);
+})();
 const WAVE_LIST = readWaveList();
 /** Все 13 типов бактерий в порядке таблицы `types` config.ts (в этом порядке игра выпускает новые типы в волне). */
 const KINDS = readKinds();
@@ -211,10 +221,26 @@ let PATH = [];
 /** Окно старта камеры в координатах экрана игры: клетки дальше от краёв, чтобы сдвиги и приближения их не уводили за экран. */
 const CELL_WINDOW = { x0: 170, x1: 910, y0: 130, y1: 590 };
 
-function setupWorld(graph) {
+/**
+ * Клетки и сеть для проверок. `state` — состояние игры при старте (getState()): размеры карты (orgW, tile, cols, rows) и радиус слияния берутся из него, а не из исходников.
+ * Центр камеры при старте (`LEVEL.startCenter`) записан в единицах сети дорожек (pathUnit), а не в клетках: в пиксели он переводится через GEO.unitCenter.
+ */
+function setupWorld(graph, state) {
   GRAPH = graph;
+  // Размеры карты в игре должны совпадать с исходниками (src/level.ts, src/config.ts): расхождение — сигнал, что проверка читает не те числа; дальше берём числа игры
+  check(
+    `[карта] размеры карты в состоянии игры (${state.map.cols}×${state.map.rows}, клетка ${state.map.tile} px, организм ${state.map.orgW} px) совпадают с исходниками (${LEVEL.cols}×${LEVEL.rows}, ${MAP.tile}, ${MAP.orgW}); радиус слияния ${state.mergeRadiusPx} = ${MERGE_RADIUS}`,
+    state.map.cols === LEVEL.cols && state.map.rows === LEVEL.rows && state.map.tile === MAP.tile && state.map.orgW === MAP.orgW && state.mergeRadiusPx === MERGE_RADIUS,
+    JSON.stringify(state.map),
+  );
+  MAP.orgW = state.map.orgW;
+  MAP.tile = state.map.tile;
+  LEVEL.cols = state.map.cols;
+  LEVEL.rows = state.map.rows;
+  if (state.mergeRadiusPx) MERGE_RADIUS = state.mergeRadiusPx;
+  CFG.zoomMin = Math.min((W - readConfigNumber('map', 'panelW')) / (MAP.orgW + LEVEL.cols * MAP.tile), H / (LEVEL.rows * MAP.tile));
   GEO = makeGraphGeometry(graph, MAP, LEVEL.cols, LEVEL.rows);
-  const sc = GEO.center(LEVEL.startCenter[0], LEVEL.startCenter[1]);
+  const sc = GEO.unitCenter(LEVEL.startCenter[0], LEVEL.startCenter[1]);
   const visible = [];
   for (let col = 0; col < LEVEL.cols; col++) {
     for (let row = 0; row < LEVEL.rows; row++) {
@@ -227,13 +253,50 @@ function setupWorld(graph) {
   }
   const free = visible.filter((c) => !c.path).sort((a, b) => b.cov - a.cov || a.col - b.col || a.row - b.row);
   const keys = ['a', 'b', 'c', 'd', 'e', 'f', 'g'];
+  // a — клетка с наибольшим покрытием. Дальше клетки берутся так, чтобы a…e стояли ПАРАМИ в радиусе слияния (с запасом 10 %): сценарии слияния сливают любую пару из них.
+  // f и g — тоже рядом с a, но без требования к парам.
+  const close = MERGE_RADIUS * 0.9;
+  const dist = (p, q) => Math.hypot(GEO.center(p.col, p.row).x - GEO.center(q.col, q.row).x, GEO.center(p.col, p.row).y - GEO.center(q.col, q.row).y);
+  const chosen = free.length ? [free[0]] : [];
+  for (const c of free.slice(1)) {
+    if (chosen.length >= 5) break;
+    if (chosen.every((q) => dist(q, c) <= close)) chosen.push(c);
+  }
+  for (const c of free) {
+    if (chosen.length >= keys.length) break;
+    if (!chosen.includes(c) && dist(chosen[0], c) <= close) chosen.push(c);
+  }
+  for (const c of free) {
+    if (chosen.length >= keys.length) break;
+    if (!chosen.includes(c)) chosen.push(c);
+  }
   FREE = {};
   keys.forEach((k, i) => {
-    if (free[i]) FREE[k] = [free[i].col, free[i].row];
+    if (chosen[i]) FREE[k] = [chosen[i].col, chosen[i].row];
   });
   PATH = visible.filter((c) => c.path).sort((a, b) => a.d - b.d).slice(0, 3).map((c) => [c.col, c.row]);
 }
 
+/** Расстояние между центрами двух клеток, px. */
+const cellDist = (a, b) => Math.hypot(GEO.center(...a).x - GEO.center(...b).x, GEO.center(...a).y - GEO.center(...b).y);
+/** Центр камеры при старте уровня, px мира (LEVEL.startCenter — в единицах сети дорожек, а не клеток). */
+const startCenterPx = () => GEO.unitCenter(LEVEL.startCenter[0], LEVEL.startCenter[1]);
+/**
+ * Свободные клетки (не дорожка и не закрытые), чьи центры не дальше `radius` px от центра клетки `cell`, ближайшие первыми; `exclude` — клетки, которые брать нельзя.
+ * По умолчанию радиус — 0,9 радиуса слияния (запас от округлений): башни в таких клетках можно слить с башней в `cell`.
+ */
+function freeCellsNear(cell, radius = MERGE_RADIUS * 0.9, exclude = []) {
+  const bad = new Set([cell, ...exclude].map((q) => q.join(',')));
+  const out = [];
+  for (let col = 0; col < LEVEL.cols; col++) {
+    for (let row = 0; row < LEVEL.rows; row++) {
+      if (GEO.isPathCell(col, row) || bad.has(`${col},${row}`)) continue;
+      const d = cellDist(cell, [col, row]);
+      if (d <= radius) out.push({ cell: [col, row], d });
+    }
+  }
+  return out.sort((a, b) => a.d - b.d || a.cell[0] - b.cell[0] || a.cell[1] - b.cell[1]).map((q) => q.cell);
+}
 /** Числа боя, которые проверки задают сами, чтобы не зависеть от баланса. */
 const BASE = { baseSpeed: 112, speedFactor: 0.8, spread: 0.1, reward: 10, price: 50, range: 200 };
 const FIXED_BALANCE = [
@@ -340,7 +403,9 @@ async function openGame(context, baseUrl, prefix, { speed = 1, cfg = '', isTouch
   watchConsole(page, prefix);
   // QA_EXTRA_CFG нужна только для проверки самих проверок: подмешивает «поломку» (например camera.tapMaxMovePx:14) — соответствующая проверка обязана покраснеть
   // `levels.starDna:0` идёт первым: очки за звёзды не мешают проверкам очков ДНК; сценарий звёзд подменяет это число своим (позднее в списке — главнее)
-  const allCfg = ['levels.starDna:0', cfg, process.env.QA_EXTRA_CFG].filter(Boolean).join(',');
+  // `waves.hpScale:1` тоже идёт первым: с 8 октября 2026 игра умножает HP всех бактерий на waves.hpScale (2,5), а проверки ждут HP из таблицы типов (бронированная 20, гигант 100,
+  // регенератор 10, кокк с hp:1 гибнет с одного выстрела Таблетки) — множитель сводится к 1; сценарий может подменить его своим числом (позднее в списке — главнее)
+  const allCfg = ['levels.starDna:0', 'waves.hpScale:1', cfg, process.env.QA_EXTRA_CFG].filter(Boolean).join(',');
   // QA_CANVAS=1 (GitHub, группы со временем и скоростью): рисование через canvas — на сервере без видеокарты программный WebGL даёт 2–6 кадров/с, шаг игрового времени
   // ограничен 50 мс, и проверки, считающие секунды, скорости и паузы между ударами, ломаются; canvas даёт ≈ 20 кадров/с (docs/performance.md)
   // canvas: true — рисование через canvas для отдельного сценария. Проба 3 октября: красные проверки со временем (Шприц, скорость, командир) от этого не прошли — причина в скорости сервера; сейчас нигде не включено
@@ -559,8 +624,6 @@ function shortestChain() {
   return best;
 }
 
-const startCenterPx = () => GEO.center(LEVEL.startCenter[0], LEVEL.startCenter[1]);
-
 /** Диапазон скоростей кокка (px/с) при базовой скорости и разбросе; рывки у кокка нет. */
 const coccusSpeed = (base = BASE.baseSpeed, factor = BASE.speedFactor, spread = BASE.spread) => [base * factor * (1 - spread) - 1.5, base * factor * (1 + spread) + 1.5];
 const cocciOnly = (range) => (kind, mode) => (kind === 'coccus' && mode === 'normal' ? range : null);
@@ -586,7 +649,7 @@ async function profileLoadAndCamera(c) {
   check(`${p} размеры: экран ${W}×${H}, окно карты 1080, карта ${LEVEL.cols}×${LEVEL.rows}`, s0.width === W && s0.height === H && s0.viewW === W - 200 && s0.map.cols === LEVEL.cols && s0.map.rows === LEVEL.rows, `${s0.width}×${s0.height}, viewW=${s0.viewW}, карта ${s0.map.cols}×${s0.map.rows}`);
   check(`${p} старт: монеты ${CFG.startCoins}, жизни ${CFG.lives} (сердец на панели ${s0.ui.lives})`, s0.coins === CFG.startCoins && s0.lives === CFG.lives && s0.maxLives === CFG.lives && s0.ui.lives === CFG.lives);
   check(`${p} старт: волна 0 из ${CFG.waves}, никого нет, башен нет, башня не выбрана`, s0.wave === 0 && s0.waveTotal === CFG.waves && s0.spawned === 0 && s0.bacteria.length === 0 && s0.towers.length === 0 && s0.selected === null && s0.state === 'playing');
-  const startCenter = GEO.center(LEVEL.startCenter[0], LEVEL.startCenter[1]);
+  const startCenter = startCenterPx(); // LEVEL.startCenter — в единицах сети дорожек (pathUnit 103 px), не в клетках под башню
   check(`${p} старт: приближение ${CFG.zoomStart}, камера у слияния дорожек`, Math.abs(s0.camera.zoom - CFG.zoomStart) < 0.001 && Math.abs(s0.camera.cx - startCenter.x) < 3 && Math.abs(s0.camera.cy - startCenter.y) < 3, `zoom ${f2(s0.camera.zoom)}, центр (${f1(s0.camera.cx)}; ${f1(s0.camera.cy)}), ждали (${f1(startCenter.x)}; ${f1(startCenter.y)})`);
   const rot0 = await rotateInfo(page);
   check(`${p} подсказка «Поверните телефон» в горизонтальном положении (и на компьютере) не показана`, rot0.display === 'none', `display=${rot0.display}, pointer:coarse=${rot0.coarse}`);
@@ -596,12 +659,29 @@ async function profileLoadAndCamera(c) {
     btn.x - btn.w / 2 >= s0.viewW && btn.x + btn.w / 2 <= W && btn.y - btn.h / 2 >= 0 && btn.y + btn.h / 2 <= H && s0.ui.pauseButton.x > s0.viewW && s0.ui.pauseButton.x < W && s0.ui.pauseButton.y > 0 && s0.ui.pauseButton.y < H,
     `кнопка башни (${btn.x}; ${btn.y}) ${btn.w}×${btn.h}, пауза (${s0.ui.pauseButton.x}; ${s0.ui.pauseButton.y})`,
   );
-  // Карта: сколько клеток задето дорожкой (по заданию: 252 всего, 94 задеты, 158 свободны; правило — центр клетки ближе pathWidth/2 + 0,45·tile = 88,5 px к точке ребра). Если цифры не сойдутся — сигнал об ошибке правила или карты.
+  // Карта: клетки под башню (tile) и дорожки считаются независимо. Клетка «задета дорожкой», если её центр ближе pathWidth/2 + 0,55·tile к ТОЧКЕ какого-нибудь ребра
+  // (так в игре: PATH_TILES в src/level.ts). Числа клеток не заданы заранее (они зависят от tile и сети): проверка пересчитывает их по точкам рёбер заново, не через GEO.isPathCell,
+  // и сверяет с GEO, с размерами карты из состояния игры и со списком закрытых клеток, который отдала сама игра (закрытая клетка не может быть задета дорожкой).
   const totalCells = LEVEL.cols * LEVEL.rows;
+  const lane = new Set();
+  for (let col = 0; col < LEVEL.cols; col++) {
+    for (let row = 0; row < LEVEL.rows; row++) {
+      const cx = MAP.orgW + MAP.tile * (col + 0.5);
+      const cy = MAP.tile * (row + 0.5);
+      if (GRAPH.edges.some((e) => e.pts.some((q) => Math.hypot(q[0] - cx, q[1] - cy) < GEO.limit))) lane.add(`${col},${row}`);
+    }
+  }
+  const laneCount = lane.size;
+  const blockedInLane = GRAPH.blockedCells.filter(([c, r]) => lane.has(`${c},${r}`)).length;
   const freeCells = totalCells - GEO.pathCellCount;
-  // этап 3б: 158 бывших свободных клеток делятся на открытые и закрытые (дальше buildMaxDistPx от дорожки) — сколько закрыто, считает игра
-  check(`${p} карта: клеток ${totalCells}, задето дорожкой ${GEO.lanePathCellCount} (ждали 94), закрыто как далёкие ${GEO.blockedCellCount}, свободных ${freeCells}`, totalCells === 252 && GEO.lanePathCellCount === 94 && GEO.blockedCellCount > 0 && freeCells === 158 - GEO.blockedCellCount, `по точкам рёбер: ${GEO.lanePathCellCount}; закрытых ${GEO.blockedCellCount}`);
-  check(`${p} клетки для проверок подобраны (свободные ${Object.keys(FREE).length}, дорожные ${PATH.length})`, Object.keys(FREE).length === 7 && PATH.length === 3 && Object.values(FREE).every(([c, r]) => !GEO.isPathCell(c, r)) && PATH.every(([c, r]) => GEO.isPathCell(c, r)), `FREE ${Object.values(FREE).map((q) => `(${q})`).join(' ')}; PATH ${PATH.map((q) => `(${q})`).join(' ')}`);
+  check(
+    `${p} карта: клеток ${totalCells} (${s0.map.cols}×${s0.map.rows}, клетка ${s0.map.tile} px), задето дорожкой ${GEO.lanePathCellCount} (по точкам рёбер ${laneCount}), закрыто как далёкие ${GEO.blockedCellCount}, свободных ${freeCells}`,
+    totalCells === s0.map.cols * s0.map.rows && s0.map.tile === MAP.tile && s0.map.orgW === MAP.orgW && GEO.lanePathCellCount === laneCount && laneCount > totalCells * 0.1 && laneCount < totalCells * 0.5 && GEO.blockedCellCount > 0 && blockedInLane === 0 && freeCells === totalCells - laneCount - GEO.blockedCellCount && freeCells > 0,
+    `клетка в игре ${s0.map.tile} (ждали ${MAP.tile}), orgW ${s0.map.orgW}; закрытых клеток, задетых дорожкой по нашему счёту: ${blockedInLane}; граница ${f1(GEO.limit)} px`,
+  );
+  const five = [FREE.a, FREE.b, FREE.c, FREE.d, FREE.e];
+  const widest = Math.max(...five.flatMap((x, i) => five.slice(i + 1).map((y) => cellDist(x, y))));
+  check(`${p} клетки для проверок подобраны (свободные ${Object.keys(FREE).length}, дорожные ${PATH.length}); первые пять — парами в радиусе слияния ${s0.mergeRadiusPx} px (наибольшее расстояние ${f1(widest)})`, Object.keys(FREE).length === 7 && PATH.length === 3 && Object.values(FREE).every(([c, r]) => !GEO.isPathCell(c, r)) && PATH.every(([c, r]) => GEO.isPathCell(c, r)) && s0.mergeRadiusPx === MERGE_RADIUS && widest <= MERGE_RADIUS, `FREE ${Object.values(FREE).map((q) => `(${q})`).join(' ')}; PATH ${PATH.map((q) => `(${q})`).join(' ')}`);
 
   await sleep(400);
   const startPng = await shot(page, `${name}-01-start`);
@@ -1035,16 +1115,22 @@ async function runProfile(browser, baseUrl, deviceKey, lang) {
 
 // ================================================================== правила клеток
 
-/** Запас башен от дорожки: центр башни ≥ 88 px от ближайшей точки ребра; основание (радиус 36) не заходит на полосу с каймой (полуширина 43 + кайма 6). */
+/**
+ * Запас башен от дорожки. Игра закрывает клетки, чей центр ближе pathWidth/2 + 0,55·tile (≈ 85,5 px) к точке ребра (GEO.limit, считается от параметров карты, а не числом).
+ * Поэтому (1) центр каждой башни не ближе этого запаса к ближайшей ТОЧКЕ ребра (допуск 0,5 px), (2) основание башни (радиус 36) не заходит на полосу дорожки с каймой
+ * (полуширина + 6): расстояние до самой КРИВОЙ не меньше полуширины + 6 + 36 — с поправкой на то, что кривая между точками ребра может пройти ближе, чем сами точки
+ * (не больше GEO.sagPx ≈ 1 px: длинный отрезок² / (8 · запас)).
+ */
 function towerClearance(s, prefix) {
-  const limit = MAP.pathWidth / 2 + 0.45 * MAP.tile;
+  const limit = GEO.limit;
   const base = 36;
   const edgeHalf = MAP.pathWidth / 2 + 6;
+  const needCurve = edgeHalf + base - GEO.sagPx;
   const pts = s.towers.map((t) => GEO.distToAnyPoint({ x: t.x, y: t.y }));
   const curves = s.towers.map((t) => GEO.distToAnyCurve({ x: t.x, y: t.y }));
   const minPt = Math.min(...pts);
   const minCurve = Math.min(...curves);
-  check(`${prefix}: центр каждой из ${s.towers.length} башен дальше ${f1(limit - 0.5)} px от ближайшей точки ребра (минимум ${f1(minPt)}), основание башни не заходит на полосу дорожки с каймой (до кривой ≥ ${edgeHalf + base} px, минимум ${f1(minCurve)})`, s.towers.length > 20 && minPt >= limit - 0.5 && minCurve >= edgeHalf + base, `точки рёбер: ${f1(minPt)}, кривая: ${f1(minCurve)}`);
+  check(`${prefix}: центр каждой из ${s.towers.length} башен дальше ${f1(limit - 0.5)} px от ближайшей точки ребра (минимум ${f1(minPt)}), основание башни не заходит на полосу дорожки с каймой (до кривой ≥ ${f1(needCurve)} px = ${edgeHalf} + ${base} − ${f1(GEO.sagPx)} на изгиб, минимум ${f1(minCurve)})`, s.towers.length > 20 && limit >= edgeHalf + base - GEO.sagPx && minPt >= limit - 0.5 && minCurve >= needCurve, `точки рёбер: ${f1(minPt)}, кривая: ${f1(minCurve)}, запас клетки ${f1(limit)}`);
 }
 
 async function runRules(browser, baseUrl) {
@@ -1358,7 +1444,7 @@ async function runLose(browser, baseUrl, lang, deviceKey, full) {
     await sleep(Math.max(0, CFG.restartLockMs + 200 - (Date.now() - detectedAt)));
     await tapToRestart(game);
     const r = await waitFor(page, (x) => x.state === 'playing', 5000, 'перезапуск кнопкой «Заново»');
-    const camOk = Math.abs(r.camera.zoom - CFG.zoomStart) < 0.001 && Math.abs(r.camera.cx - GEO.center(...LEVEL.startCenter).x) < 3;
+    const camOk = Math.abs(r.camera.zoom - CFG.zoomStart) < 0.001 && Math.abs(r.camera.cx - startCenterPx().x) < 3 && Math.abs(r.camera.cy - startCenterPx().y) < 3;
     if (cycle === 1) {
       check(`${p} перезапуск кнопкой «Заново» после паузы блокировки: монеты ${CFG.startCoins}, жизни ${CFG.lives}, волна 0, никого нет`, r.coins === CFG.startCoins && r.lives === CFG.lives && r.wave === 0 && r.bacteria.length === 0 && r.towers.length === 0 && r.kills === 0 && r.leaked === 0 && r.shots === 0 && r.selected === null && r.elapsed < 2, `монеты ${r.coins}, жизни ${r.lives}, волна ${r.wave}, время ${f2(r.elapsed)}`);
       check(`${p} после перезапуска камера вернулась на старт`, camOk, `zoom ${f2(r.camera.zoom)}, центр (${f1(r.camera.cx)}; ${f1(r.camera.cy)})`);
@@ -1563,7 +1649,8 @@ async function runProduction(browser, prodUrl, qaUrl) {
   const controlBrightness = await brightness(control.page);
   const controlLang = (await getState(control.page)).lang;
   await control.page.close();
-  check(`${p} контроль: в тестовой сборке подмена чисел и языка из адреса действует (иначе проверка ниже бессмысленна)`, controlLost && controlLang === 'en' && controlBrightness < normalBrightness * 0.5, `проигрыш ${controlLost}, язык ${controlLang}, яркость ${f1(controlBrightness)} против ${f1(normalBrightness)}`);
+  // Порог 0,65, а не 0,5: в окне замера (x 40…760, y 30…360 страницы) кроме затемнённой карты лежат яркие кнопки экрана конца уровня («Заново», «Улучшения», «В меню»), поэтому отношение к обычному старту вышло 0,53 (при пороге 0,5 проверка краснела). Незатемнённая игровая сборка даёт больше 0,8 (проверка ниже), так что порог по-прежнему различает.
+  check(`${p} контроль: в тестовой сборке подмена чисел и языка из адреса действует (иначе проверка ниже бессмысленна)`, controlLost && controlLang === 'en' && controlBrightness < normalBrightness * 0.65, `проигрыш ${controlLost}, язык ${controlLang}, яркость ${f1(controlBrightness)} против ${f1(normalBrightness)}`);
 
   const page = await context.newPage();
   watchConsole(page, p);
@@ -2261,9 +2348,17 @@ async function runFullGame(browser, baseUrl) {
   const game = await openGame(context, baseUrl, p, { speed: 10, cfg, query: '&canvas' });
   for (let i = 0; i < 3; i++) await game.input.wheel(game.g(540, 360), 500); // минимальное приближение: видна вся карта
   await settle();
-  const cells = spreadCells(TOWERS);
-  await game.placeTowers(cells);
-  const placed = await game.state();
+  // Запас из 6 лишних клеток (жадный выбор даёт те же первые TOWERS клеток): клетка у самого края экрана при минимальном приближении изредка не принимает тап, тогда добираем из запасных
+  const cells = spreadCells(TOWERS + 6);
+  await game.placeTowers(cells.slice(0, TOWERS));
+  let placed = await game.state();
+  const missed = placed.towers.length < TOWERS;
+  for (const extra of cells.slice(TOWERS)) {
+    if (placed.towers.length >= TOWERS) break;
+    await game.tapCell(...extra);
+    placed = await game.state();
+  }
+  if (missed) note(`${p} часть башен с первого тапа не встала (из ${TOWERS} клеток поставлено ${cells.slice(0, TOWERS).filter(([c, r]) => placed.towers.some((t) => t.col === c && t.row === r)).length}), добрали из запасных клеток`);
   // пока ставились башни, игра шла (первая волна через 8 с игрового времени), так что остаток монет — награды за первых убитых, а не недостача
   check(`${p} ${TOWERS} башен поставлены вдоль всей сети при минимальном приближении (монет осталось ${placed.coins}: стартовых хватило ровно на башни, остаток — награды за первых убитых)`, placed.towers.length === TOWERS && placed.coins >= 0 && placed.coins < CFG.pillPrice * 2, `башен ${placed.towers.length}, монет ${placed.coins}`);
   const started = Date.now();
@@ -3894,7 +3989,11 @@ function readStage4Tables() {
   for (const id of TOWER_IDS) {
     if (!mutations[id] || mutations[id].length !== mutationLevels.length || mutations[id].some((tier) => tier.length !== 2)) throw new Error(`В таблице mutations config.ts для «${id}» не два варианта на каждый порог`);
   }
-  return { levels, mutationLevels, mutations, sellRefund: readConfigNumber('economy', 'sellRefund') };
+  // доли отдачи повторных мутаций при слиянии (mutationStack.copyShares: 1-й экземпляр 100 %, 2-й 50 %, 3-й и дальше — последняя доля)
+  const cs = /copyShares:\s*\[([^\]]*)\]/.exec(src);
+  if (!cs) throw new Error('В config.ts нет mutationStack.copyShares');
+  const copyShares = cs[1].split(',').map((x) => Number(x.trim())).filter((x) => Number.isFinite(x));
+  return { levels, mutationLevels, mutations, copyShares, sellRefund: readConfigNumber('economy', 'sellRefund') };
 }
 let S4 = null;
 const prepareStage4 = () => {
@@ -3903,8 +4002,9 @@ const prepareStage4 = () => {
 };
 
 /**
- * Числа башни по таблицам config.ts (так же, как src/towerStats.ts: строка таблицы × строка уровня × мутации по порядку порогов):
- * то, что игра должна отдать в getState().towers[].stats.
+ * Числа башни по таблицам config.ts (так же, как src/towerStats.ts: строка таблицы × строка уровня × мутации по порядку в списке `picks`):
+ * то, что игра должна отдать в getState().towers[].stats. С 8 октября 2026 у башни после слияний мутации складываются: в `picks` есть и свои выборы, и принесённые слиянием,
+ * бывают повторы; k-й экземпляр одной и той же мутации даёт долю copyShares[k] своего эффекта (100 % / 50 % / 25 %), целые числа (дополнительные удары) — с округлением.
  */
 function expectedStats(id, level, picks) {
   const base = TW[id];
@@ -3919,16 +4019,23 @@ function expectedStats(id, level, picks) {
     slowFactor: b.slowFactor < 1 ? b.slowFactor ** lv.slowPower : 1,
     beamPulses: b.beamPulses > 0 ? b.beamPulses + lv.pulsesAdd : 0,
   };
-  picks.forEach((pickId, tier) => {
-    const spec = S4.mutations[id][tier].find((m) => m.id === pickId);
-    if (!spec) return;
-    if (spec.damageMul) s.damage *= spec.damageMul;
-    if (spec.cooldownMul) s.cooldownMs *= spec.cooldownMul;
-    if (spec.blastMul) s.blastRadius *= spec.blastMul;
-    if (spec.puddleRadiusMul) s.puddleRadius *= spec.puddleRadiusMul;
-    if (spec.slowFactor !== undefined) s.slowFactor = Math.min(s.slowFactor, spec.slowFactor);
-    if (spec.pulsesAdd && s.beamPulses > 0) s.beamPulses += spec.pulsesAdd;
-  });
+  const shares = S4.copyShares;
+  const seen = new Map();
+  for (const pickId of picks) {
+    const spec = S4.mutations[id].flat().find((m) => m.id === pickId);
+    if (!spec) continue;
+    const k = seen.get(pickId) ?? 0;
+    seen.set(pickId, k + 1);
+    const share = shares[Math.min(k, shares.length - 1)];
+    const scaled = (mul) => 1 + (mul - 1) * share;
+    const whole = (n) => (k === 0 ? n : Math.floor(n * share + 0.5));
+    if (spec.damageMul) s.damage *= scaled(spec.damageMul);
+    if (spec.cooldownMul) s.cooldownMs *= scaled(spec.cooldownMul);
+    if (spec.blastMul) s.blastRadius *= scaled(spec.blastMul);
+    if (spec.puddleRadiusMul) s.puddleRadius *= scaled(spec.puddleRadiusMul);
+    if (spec.slowFactor !== undefined) s.slowFactor = k === 0 ? Math.min(s.slowFactor, spec.slowFactor) : Math.max(0.1, s.slowFactor * (1 - (1 - spec.slowFactor) * share));
+    if (spec.pulsesAdd && s.beamPulses > 0) s.beamPulses += whole(spec.pulsesAdd);
+  }
   return s;
 }
 /** Чем числа башни из игры отличаются от ожидаемых по таблицам (пустой список — совпали). */
@@ -4019,20 +4126,43 @@ async function mergeInto(game, src, dst) {
   if (s.merges !== before + 1 || s.mergeMode) throw new Error(`слияние ${src.join(';')} → ${dst.join(';')} не состоялось (слияний ${before} → ${s.merges}, режим ${s.mergeMode})`);
   return s;
 }
+/** Если у башни в клетке cell ждёт выбора мутация — выбирает вариант index (0 или 1) через карточку; возвращает состояние. Слить можно только башни без невыбранной мутации. */
+async function settlePick(game, cell, index = 0) {
+  let s = await game.state();
+  const tw = towerIn(s, cell);
+  if (tw && tw.pending !== null) {
+    if (!(selectedIs(s, cell) && s.ui.card.visible)) s = await selectPlaced(game, cell);
+    s = await tapCard(game, 'pick', index);
+    if (towerIn(s, cell)?.pending !== null) throw new Error(`мутация башни в клетке ${cell.join(';')} не выбралась (pending ${towerIn(s, cell)?.pending})`);
+  }
+  return s;
+}
 /**
- * Поднимает башню вида id в клетке cell до уровня top слияниями: нужные «помощники» ставятся в клетки pool (нужно top−1 клеток) и вливаются в неё — результат остаётся в cell,
- * потому что тапается вторым. onLevel(уровень, состояние) вызывается после каждого уровня (в том числе первого): там проверка чисел и выбор мутаций.
+ * Поднимает башню вида id в клетке cell до уровня top слияниями: нужные «помощники» ставятся в клетки pool (нужно top−1 клеток; помощник i должен стоять в радиусе слияния от помощника i−1 (первый — от cell); клетки FREE.a…FREE.e выбраны так, что любая пара из них в радиусе) и вливаются в неё — результат остаётся в cell, потому что тапается вторым.
+ * С 8 октября 2026 слияние идёт по радиусу и только между башнями без невыбранной мутации, а мутации обеих башен складываются (у результата: свои, затем принесённые). Поэтому:
+ *  — каждая башня, которую собираются сливать дальше (помощник, и сама cell, пока её уровень ниже top), получает выбор мутации через карточку (вариант helperPick; на пороге второго
+ *    уровня башня выбирает сама), если его не сделал onLevel;
+ *  — после каждого слияния проверяется, что у результата мутации = его прежние + мутации помощника (в этом порядке).
+ * onLevel(уровень, состояние, принесённые) вызывается после каждого уровня (в том числе первого; принесённые — мутации помощника, у первого уровня пусто): там проверка чисел и выбор мутаций.
+ * toMerge — внутренний флаг: башня сама станет помощником (её выбор мутации нужен и на её высшем уровне).
  */
-async function growTo(game, id, top, cell, pool, onLevel = null) {
+async function growTo(game, id, top, cell, pool, onLevel = null, { helperPick = 0, toMerge = false } = {}) {
   await placeAt(game, id, cell);
-  if (onLevel) await onLevel(1, await game.state());
+  if (onLevel) await onLevel(1, await game.state(), []);
   for (let level = 2; level <= top; level++) {
     const helper = pool[0];
-    await growTo(game, id, level - 1, helper, pool.slice(1));
+    if (!helper) throw new Error(`для башни в клетке ${cell.join(';')} уровня ${top} не хватает клеток-помощников`);
+    if (cellDist(cell, helper) > MERGE_RADIUS) throw new Error(`помощник ${helper.join(';')} дальше радиуса слияния ${MERGE_RADIUS} px от клетки ${cell.join(';')} (${f1(cellDist(cell, helper))})`);
+    await growTo(game, id, level - 1, helper, pool.slice(1), null, { helperPick, toMerge: true });
+    const before = await game.state();
+    const mainPicks = [...towerIn(before, cell).picks];
+    const helperPicks = [...towerIn(before, helper).picks];
     const s = await mergeInto(game, helper, cell);
     const tw = towerIn(s, cell);
     if (!tw || tw.level !== level || towerIn(s, helper)) throw new Error(`после слияния в клетке ${cell.join(';')} ждали уровень ${level} и свободную клетку помощника, получили уровень ${tw?.level}`);
-    if (onLevel) await onLevel(level, s);
+    if (JSON.stringify(tw.picks) !== JSON.stringify([...mainPicks, ...helperPicks])) throw new Error(`слияние в клетке ${cell.join(';')}: мутации результата [${tw.picks.join(', ')}] вместо своих [${mainPicks.join(', ')}] и принесённых [${helperPicks.join(', ')}]`);
+    if (onLevel) await onLevel(level, s, helperPicks);
+    if (level < top || toMerge) await settlePick(game, cell, helperPick);
   }
   return game.state();
 }
@@ -4240,10 +4370,60 @@ async function runCard(browser, baseUrl) {
 
 // ---------------------------------------------------------------- слияние
 
-/** Слияние: выбор пары, режим и отмена, пара из разных видов не сливается, уровни не смешиваются, мутации цели сохраняются, бесплатно; до высшего уровня и после него. */
+/**
+ * Слияние по радиусу (решение владельца 8 октября 2026): две одинаковые башни одного уровня сливаются, только если расстояние между центрами не больше mergeRadiusPx.
+ * Берутся клетки у самой границы: самая дальняя внутри радиуса и ближайшая за его пределами (на экране при старте камеры).
+ */
+async function mergeRadiusFlow(context, baseUrl) {
+  const p = '[слияние: радиус]';
+  const game = await openGame(context, baseUrl, p, { query: ALL_TOWERS, speed: 1, cfg: s4Cfg() });
+  const s0 = await game.state();
+  const A = FREE.a;
+  const sc = startCenterPx();
+  const cand = [];
+  for (let col = 0; col < LEVEL.cols; col++) {
+    for (let row = 0; row < LEVEL.rows; row++) {
+      if (GEO.isPathCell(col, row) || (col === A[0] && row === A[1])) continue;
+      const c = GEO.center(col, row);
+      const sx = s0.viewW / 2 + (c.x - sc.x);
+      const sy = s0.height / 2 + (c.y - sc.y);
+      if (sx < 80 || sx > s0.viewW - 80 || sy < 80 || sy > s0.height - 80) continue;
+      cand.push({ cell: [col, row], d: cellDist(A, [col, row]) });
+    }
+  }
+  const inside = cand.filter((q) => q.d <= MERGE_RADIUS).sort((x, y) => y.d - x.d)[0];
+  const outside = cand.filter((q) => q.d > MERGE_RADIUS).sort((x, y) => x.d - y.d)[0];
+  if (!inside || !outside) throw new Error(`на экране нет свободных клеток по обе стороны радиуса слияния ${MERGE_RADIUS} от клетки ${A.join(';')}`);
+  check(`${p} радиус слияния в игре ${s0.mergeRadiusPx} px; для проверки взяты клетки: в радиусе ${inside.cell.join(';')} (${f1(inside.d)} px) и за радиусом ${outside.cell.join(';')} (${f1(outside.d)} px) от ${A.join(';')}`, s0.mergeRadiusPx === MERGE_RADIUS && inside.d <= MERGE_RADIUS && outside.d > MERGE_RADIUS, `radius ${s0.mergeRadiusPx}`);
+  await placeAt(game, 'pill', A);
+  await placeAt(game, 'pill', outside.cell);
+  let s = await selectPlaced(game, A);
+  const farOnlyA = s.ui.card.visible && !s.ui.card.merge.enabled;
+  s = await tapCard(game, 'merge');
+  const noMode = !s.mergeMode && s.merges === 0;
+  s = await selectPlaced(game, outside.cell);
+  check(`${p} две Таблетки уровня 1 дальше радиуса (${f1(outside.d)} > ${MERGE_RADIUS} px): «Слить» недоступна у обеих (у ${A.join(';')}: ${farOnlyA ? 'нет' : 'есть'}, у ${outside.cell.join(';')}: ${s.ui.card.merge.enabled ? 'есть' : 'нет'}), тап по ней режим слияния не включает`, farOnlyA && noMode && s.ui.card.visible && !s.ui.card.merge.enabled, `merge.enabled у второй ${s.ui.card.merge.enabled}, режим ${noMode ? 'выключен' : 'включён'}`);
+  await placeAt(game, 'pill', inside.cell);
+  s = await selectPlaced(game, A);
+  check(`${p} третья Таблетка в радиусе (${f1(inside.d)} ≤ ${MERGE_RADIUS} px): у ${A.join(';')} «Слить» доступна`, s.ui.card.visible && s.ui.card.merge.enabled, `merge.enabled ${s.ui.card.merge.enabled}`);
+  await sleep(200);
+  await shot(game.page, 'merge-00-radius');
+  s = await tapCard(game, 'merge');
+  const modeOn = s.mergeMode;
+  await game.input.tap(await game.cell(...outside.cell));
+  s = await settleAfter(game, s, 'тап по башне за радиусом в режиме слияния');
+  check(`${p} в режиме слияния тап по башне за радиусом пару не образует: режим выключен, слияний ${s.merges}, башен ${s.towers.length} (было включено: ${modeOn})`, modeOn && !s.mergeMode && s.merges === 0 && s.towers.length === 3, `режим ${s.mergeMode}, слияний ${s.merges}, башен ${s.towers.length}`);
+  s = await mergeInto(game, A, inside.cell);
+  const merged = towerIn(s, inside.cell);
+  check(`${p} башню в радиусе слить можно: результат уровня ${merged?.level} в клетке ${inside.cell.join(';')}, клетка ${A.join(';')} свободна, башня за радиусом осталась (башен ${s.towers.length})`, merged?.level === 2 && !towerIn(s, A) && towerIn(s, outside.cell)?.level === 1 && s.towers.length === 2 && s.merges === 1, `уровень ${merged?.level}, башен ${s.towers.length}`);
+  await game.page.close();
+}
+
+/** Слияние: выбор пары, режим и отмена, пара из разных видов не сливается, уровни не смешиваются, мутации обеих башен складываются, бесплатно; до высшего уровня и после него. */
 async function mergeFlow(browser, baseUrl) {
   const p = '[слияние]';
   const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
+  await safe(`${p} радиус`, () => mergeRadiusFlow(context, baseUrl));
   let game = await openGame(context, baseUrl, p, { query: ALL_TOWERS, speed: 1, cfg: s4Cfg() });
   const [A, B, C, D, E, F] = ['a', 'b', 'c', 'd', 'e', 'f'].map((k) => FREE[k]);
   if (!F) throw new Error('на карте не нашлось шести свободных клеток');
@@ -4302,18 +4482,29 @@ async function mergeFlow(browser, baseUrl) {
   s = await selectPlaced(game, A);
   check(`${p} Таблетка уровня 2 и Таблетка уровня 1 не пара: у обеих «Слить» недоступна`, lvl2NoPair && !s.ui.card.merge.enabled, `у ур.2 ${!lvl2NoPair}, у ур.1 ${s.ui.card.merge.enabled}`);
 
-  // ---- второй уровень на A (D → A), затем уровень 3: B → A; мутация не выбрана, pending остаётся
+  // ---- второй уровень на A (D → A); две башни уровня 2 сливаются, только когда мутация выбрана у обеих (с 8 октября 2026), мутации результата — обеих башен
   await placeAt(game, 'pill', D);
   s = await mergeInto(game, D, A);
   check(`${p} ещё одно слияние: уровень 2 в клетке ${A.join(';')}, клетка ${D.join(';')} свободна`, towerIn(s, A)?.level === 2 && !towerIn(s, D));
   s = await selectPlaced(game, B);
-  check(`${p} две Таблетки уровня 2: «Слить» доступна`, s.ui.card.merge.enabled);
+  const lockedB = !s.ui.card.merge.enabled;
+  const pendingB = towerIn(s, B)?.pending;
+  s = await selectPlaced(game, A);
+  check(`${p} две Таблетки уровня 2 с невыбранной мутацией (pending ${pendingB} и ${towerIn(s, A)?.pending}) не сливаются: «Слить» недоступна у обеих`, lockedB && !s.ui.card.merge.enabled && pendingB === 0 && towerIn(s, A)?.pending === 0, `у B ${!lockedB}, у A ${s.ui.card.merge.enabled}`);
+  const pickB3 = S4.mutations.pill[0][0].id;
+  const pickA3 = S4.mutations.pill[0][1].id;
+  await selectPlaced(game, B);
+  s = await tapCard(game, 'pick', 0);
+  s = await selectPlaced(game, A);
+  check(`${p} мутация выбрана только у одной из пары (у ${B.join(';')} «${pickB3}»): у второй («Слить» у ${A.join(';')}) кнопка всё ещё недоступна — ждёт выбора`, !s.ui.card.merge.enabled && towerIn(s, A)?.pending === 0, `merge.enabled ${s.ui.card.merge.enabled}, pending ${towerIn(s, A)?.pending}`);
+  s = await tapCard(game, 'pick', 1);
+  check(`${p} когда мутация выбрана у обеих башен уровня 2, «Слить» доступна`, s.ui.card.merge.enabled && towerIn(s, A)?.pending === null, `merge.enabled ${s.ui.card.merge.enabled}`);
   s = await mergeInto(game, B, A);
   const t3 = towerIn(s, A);
-  const d3 = statsDiff(t3.stats, expectedStats('pill', 3, []));
-  check(`${p} слияние двух уровней 2 даёт уровень ${t3?.level}; клетка ${B.join(';')} свободна; мутация первого порога не выбрана, поэтому pending по-прежнему ${t3?.pending}; числа совпадают с таблицей (${d3.join('; ') || 'ошибок нет'})`, t3?.level === 3 && !towerIn(s, B) && t3.pending === 0 && d3.length === 0, `уровень ${t3?.level}, pending ${t3?.pending}`);
+  const d3 = statsDiff(t3.stats, expectedStats('pill', 3, [pickA3, pickB3]));
+  check(`${p} слияние двух уровней 2 даёт уровень ${t3?.level}; клетка ${B.join(';')} свободна; у результата мутации обеих башен: свои «${pickA3}» и принесённые «${pickB3}» → [${t3?.picks.join(', ')}]; первый порог закрыт своим выбором, новый выбор не ждёт (pending ${t3?.pending}); числа с учётом обеих мутаций совпадают с таблицей (${d3.join('; ') || 'ошибок нет'})`, t3?.level === 3 && !towerIn(s, B) && JSON.stringify(t3.picks) === JSON.stringify([pickA3, pickB3]) && t3.pending === null && d3.length === 0, `уровень ${t3?.level}, picks ${t3?.picks}, pending ${t3?.pending}`);
 
-  // ---- мутации цели сохраняются, источника — пропадают
+  // ---- мутации складываются: у результата сначала мутации цели (по которой тапнули вторым), затем принесённые источником
   s = await game.state();
   await game.page.close();
   game = await openGame(context, baseUrl, p, { query: ALL_TOWERS, speed: 1, cfg: s4Cfg() });
@@ -4327,8 +4518,8 @@ async function mergeFlow(browser, baseUrl) {
   const sourcePicks = towerIn(s, B).picks.join();
   s = await mergeInto(game, B, D);
   const td = towerIn(s, D);
-  const dm = statsDiff(td.stats, expectedStats('pill', 3, [pickD]));
-  check(`${p} при слиянии двух Таблеток уровня 2 с разными мутациями (цель «${pickD}», источник «${sourcePicks}») у результата остаются мутации цели — той, по которой тапнули вторым: picks [${td.picks.join(', ')}], уровень ${td.level}, pending ${td.pending} (выбор третьего уровня не нужен); числа ${dm.join('; ') || 'совпадают с таблицей'}`, td.level === 3 && JSON.stringify(td.picks) === JSON.stringify([pickD]) && td.pending === null && dm.length === 0 && pickB !== pickD, `picks ${td.picks}, уровень ${td.level}`);
+  const dm = statsDiff(td.stats, expectedStats('pill', 3, [pickD, pickB]));
+  check(`${p} при слиянии двух Таблеток уровня 2 с разными мутациями (цель «${pickD}», источник «${sourcePicks}») у результата мутации обеих: сначала цели (по которой тапнули вторым), затем источника — picks [${td.picks.join(', ')}], уровень ${td.level}, pending ${td.pending} (выбор третьего уровня не нужен); числа ${dm.join('; ') || 'совпадают с таблицей'}`, td.level === 3 && JSON.stringify(td.picks) === JSON.stringify([pickD, pickB]) && td.pending === null && dm.length === 0 && pickB !== pickD, `picks ${td.picks}, уровень ${td.level}`);
   await game.page.close();
 
   // ---- до высшего уровня: две Таблетки четвёртого уровня, слияние между ними невозможно
@@ -4340,14 +4531,14 @@ async function mergeFlow(browser, baseUrl) {
   for (const main of [A, B]) {
     await growTo(game, 'pill', top, main, pool, async (level, st) => {
       const tw = towerIn(st, main);
-      const bad = statsDiff(tw.stats, expectedStats('pill', level, []));
+      const bad = statsDiff(tw.stats, expectedStats('pill', level, tw.picks)); // мутации башни: выбранные помощниками (growTo выбирает их сам) и принесённые слиянием — growTo сверяет их состав
       if (bad.length) diffs.push(`ур.${level}: ${bad.join(', ')}`);
     });
   }
   s = await game.state();
   const placed = 2 * 2 ** (top - 1);
   check(`${p} двумя башнями уровня ${top} (на каждую ушло ${2 ** (top - 1)} Таблеток и ${2 ** (top - 1) - 1} слияний; ${Math.round((Date.now() - started) / 1000)} с): башен ${s.towers.length}, слияний ${s.merges} (ждали ${2 * (2 ** (top - 1) - 1)}), монет ${s.coins} (ждали ${100000 - placed * price}: слияния бесплатны), maxTowerLevel ${s.maxTowerLevel}`, s.towers.length === 2 && s.towers.every((t) => t.level === top) && s.merges === 2 * (2 ** (top - 1) - 1) && s.coins === 100000 - placed * price && s.maxTowerLevel === top, `башен ${s.towers.length}, слияний ${s.merges}, монет ${s.coins}`);
-  check(`${p} на каждом уровне 1…${top} числа Таблетки совпали с таблицей towerLevels (урон, пауза, радиус)`, diffs.length === 0, diffs.slice(0, 4).join(' | '));
+  check(`${p} на каждом уровне 1…${top} числа Таблетки совпали с таблицей towerLevels и мутаций (урон, пауза, радиус)`, diffs.length === 0, diffs.slice(0, 4).join(' | '));
   s = await selectPlaced(game, A);
   const blockedA = !s.ui.card.merge.enabled;
   s = await tapCard(game, 'merge');
@@ -4363,8 +4554,10 @@ async function mergeFlow(browser, baseUrl) {
 // ---------------------------------------------------------------- мутации
 
 /**
- * Один проход по башне: вырастить её до высшего уровня (помощники — в клетки pool), на втором уровне выбрать вариант o0 первого порога, на четвёртом — o1 второго;
- * на каждом шаге сверить с таблицами config.ts, что ждёт выбора (pending), видны ли варианты и какие числа у башни (towers[].stats).
+ * Один проход по башне: вырастить её до высшего уровня (помощники — в клетки pool, их мутации выбирает growTo: первый вариант), на втором уровне выбрать вариант o0 первого порога,
+ * на четвёртом — o1 второго; на каждом шаге сверить с таблицами config.ts, что ждёт выбора (pending), видны ли варианты и какие числа у башни (towers[].stats).
+ * С 8 октября 2026 мутации складываются при слиянии: у башни в `picks` сначала её собственные выборы, затем принесённые помощниками (по порядку слияний), повторы допустимы
+ * и дают убывающую отдачу (copyShares); ожидаемые числа считаются по этому списку, а порог (pending) закрывают только собственные выборы башни (их число — `own`).
  */
 async function mutationPass(game, id, o0, o1, main, pool) {
   const issues = [];
@@ -4374,19 +4567,23 @@ async function mutationPass(game, id, o0, o1, main, pool) {
   const [t0, t1] = [S4.mutations[id][0][o0].id, S4.mutations[id][1][o1].id];
   const top = S4.levels.length;
   const [l0, l1] = S4.mutationLevels;
-  const picks = [];
-  await growTo(game, id, top, main, pool, async (level, st) => {
+  const picks = []; // все мутации башни по порядку (свои и принесённые)
+  let own = 0; // сколько порогов башня закрыла своим выбором
+  await growTo(game, id, top, main, pool, async (level, st, carried) => {
+    picks.push(...carried);
     let tw = towerIn(st, main);
     const tiers = S4.mutationLevels.filter((l) => level >= l).length;
-    const want = tiers > picks.length ? picks.length : null;
+    const want = tiers > own ? own : null;
     note1(`ур.${level}: что ждёт выбора`, tw.pending === want, `pending ${tw.pending}, ждали ${want}`);
     if (level > 1) note1(`ур.${level}: карточка`, st.ui.card.visible && selectedIs(st, main) && st.ui.card.picks.every((r) => r.visible === (want !== null)), `карточка ${st.ui.card.visible}, варианты ${st.ui.card.picks.map((r) => r.visible).join(',')}`);
+    note1(`ур.${level}: мутации`, JSON.stringify(tw.picks) === JSON.stringify(picks), `picks ${tw.picks}, ждали ${picks}`);
     let bad = statsDiff(tw.stats, expectedStats(id, level, picks));
     note1(`ур.${level} до выбора: числа`, bad.length === 0, bad.join(', '));
     if ((level === l0 || level === l1) && want !== null) {
       const index = want === 0 ? o0 : o1;
       const after = await tapCard(game, 'pick', index);
       picks.push(S4.mutations[id][want][index].id);
+      own++;
       tw = towerIn(after, main);
       note1(`ур.${level}: выбор «${picks.at(-1)}»`, JSON.stringify(tw.picks) === JSON.stringify(picks) && tw.pending === null && after.ui.card.picks.every((r) => !r.visible), `picks ${tw.picks}, pending ${tw.pending}`);
       bad = statsDiff(tw.stats, expectedStats(id, level, picks));
@@ -4396,8 +4593,8 @@ async function mutationPass(game, id, o0, o1, main, pool) {
     }
   });
   const end = towerIn(await game.state(), main);
-  note1('итог', JSON.stringify(end.picks) === JSON.stringify([t0, t1]) && end.level === top && end.pending === null, `picks ${end.picks}, уровень ${end.level}, pending ${end.pending}`);
-  return { issues, t0, t1 };
+  note1('итог', JSON.stringify(end.picks) === JSON.stringify(picks) && end.picks[0] === t0 && end.picks.at(-1) === t1 && end.level === top && end.pending === null, `picks ${end.picks} (ждали ${picks}; первая своя ${t0}, последняя своя ${t1}), уровень ${end.level}, pending ${end.pending}`);
+  return { issues, t0, t1, picks: end.picks };
 }
 
 async function mutationsFlow(browser, baseUrl) {
@@ -4414,7 +4611,10 @@ async function mutationsFlow(browser, baseUrl) {
       check(`${p} «${id}»: выбор «${r.t0}» на уровне ${S4.mutationLevels[0]} и «${r.t1}» на уровне ${S4.mutationLevels[1]}: pending, карточка, числа (урон, пауза, радиус, взрыв, лужа, замедление, удары) совпали с towerLevels и mutations на каждом уровне 1…${S4.levels.length}; выбор окончателен`, r.issues.length === 0, r.issues.slice(0, 4).join(' | '));
     }
     const s = await game.state();
-    check(`${p} «${id}»: башен ${s.towers.length} (две высшего уровня), выборов мутаций за партию ${s.mutationsPicked} (ждали 4)`, s.towers.length === 2 && s.mutationsPicked === 4, `башен ${s.towers.length}, выборов ${s.mutationsPicked}`);
+    // Выбирают и помощники (growTo выбирает им мутацию перед слиянием), а мутации каждой башни уходят в цель слияния: в итоговом списке главной башни ровно столько мутаций, сколько
+    // выборов сделано во всём её «дереве» слияний (свои и помощников) — по сумме двух главных башен и считаем выборы за партию.
+    const wantPicks = results.reduce((n, r) => n + r.picks.length, 0);
+    check(`${p} «${id}»: башен ${s.towers.length} (две высшего уровня), выборов мутаций за партию ${s.mutationsPicked} (ждали ${wantPicks}: по ${results.map((r) => r.picks.length).join(' и ')} у двух главных башен, с учётом выборов помощников, ≥ 4)`, s.towers.length === 2 && wantPicks >= 4 && s.mutationsPicked === wantPicks, `башен ${s.towers.length}, выборов ${s.mutationsPicked}`);
     if (id === 'syringe') await shot(game.page, 'mutations-01-syringe-max');
     await game.page.close();
     console.log(`⏱  ${p} ${id}: ${Math.round((Date.now() - started) / 1000)} с`);
@@ -4544,7 +4744,10 @@ async function specialTower(game, id, cell, helper, picks) {
 async function trunkGame(context, baseUrl, p, { id, picks, extra, speed }) {
   const game = await openGame(context, baseUrl, p, { query: ALL_TOWERS, speed, cfg: s4Cfg([...(picks.length > 1 ? [SPECIAL_SHORTCUT] : []), ...extra]) });
   await panTo(game, 'left');
-  const [cell, helper] = trunkCells(2);
+  // башня — в клетке, ближайшей к «стволу»; помощник для слияния — в ближайшей к ней свободной клетке (слияние идёт только в радиусе mergeRadiusPx)
+  const [cell] = trunkCells(1);
+  const [helper] = freeCellsNear(cell);
+  if (!helper) throw new Error(`рядом с клеткой ${cell.join(';')} нет свободной клетки в радиусе слияния`);
   const tw = await specialTower(game, id, cell, helper, picks);
   return { game, tw, cell };
 }
@@ -4581,8 +4784,9 @@ async function specialTwin(context, baseUrl) {
     await settle();
     const st0 = await game.state();
     const spot = beamSpot(st0, 'far');
-    const helper = farVisibleCell(st0);
-    const tw = await specialTower(game, 'syringe', [spot.col, spot.row], [helper.col, helper.row], [pickIndex('syringe', 0, 'armorPierce'), index]);
+    const [helper] = freeCellsNear([spot.col, spot.row]); // ближайшая свободная клетка в радиусе слияния (прежний помощник — «самая дальняя от дорожек» — теперь был бы вне радиуса)
+    if (!helper) throw new Error(`рядом с клеткой ${spot.col};${spot.row} нет свободной клетки в радиусе слияния`);
+    const tw = await specialTower(game, 'syringe', [spot.col, spot.row], helper, [pickIndex('syringe', 0, 'armorPierce'), index]);
     await startWave(game);
     const end = await pollUntil(game, (st) => st.state !== 'playing' || (st.shots >= 1 && st.projectiles === 0), 150000, 20);
     await game.page.close();
@@ -5829,15 +6033,9 @@ async function runSellGap(browser, baseUrl) {
     const p = `[зазор «Слить» и «Продать», ${device.label}, ${lang}]`;
     const context = await newDeviceContext(browser, device, lang);
     const game = await openGame(context, baseUrl, p, { speed: 1, isTouch: device.hasTouch, cfg: s4Cfg() });
-    // С круга «слияние по радиусу» пара должна стоять близко: вторая Таблетка — в свободной соседней клетке (не на дорожке и не закрытой), в пределах mergeRadiusPx от первой
-    const blocked = new Set(GRAPH.blockedCells.map(([c, r]) => `${c},${r}`));
-    const radius = (await game.state()).mergeRadiusPx ?? Infinity;
-    const dist = (a, b) => Math.hypot(GEO.center(...a).x - GEO.center(...b).x, GEO.center(...a).y - GEO.center(...b).y);
-    const near = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, -1], [1, -1], [-1, 1]]
-      .map(([dc, dr]) => [FREE.a[0] + dc, FREE.a[1] + dr])
-      .filter(([c, r]) => c >= 0 && r >= 0 && c < LEVEL.cols && r < LEVEL.rows && !GEO.isPathCell(c, r) && !blocked.has(`${c},${r}`) && dist(FREE.a, [c, r]) <= radius)
-      .sort((x, y) => dist(FREE.a, x) - dist(FREE.a, y))[0];
-    if (!near) throw new Error(`рядом с клеткой ${FREE.a.join(';')} не нашлось свободной клетки в радиусе слияния ${radius}`);
+    // С круга «слияние по радиусу» пара должна стоять близко: вторая Таблетка — в ближайшей свободной клетке (не дорожка и не закрытая) в радиусе слияния от первой
+    const near = freeCellsNear(FREE.a)[0];
+    if (!near) throw new Error(`рядом с клеткой ${FREE.a.join(';')} не нашлось свободной клетки в радиусе слияния ${MERGE_RADIUS}`);
     await placeAt(game, 'pill', FREE.a);
     await placeAt(game, 'pill', near);
     let s = await game.state();
@@ -5887,7 +6085,7 @@ try {
     watchConsole(page, '[сеть дорожек]');
     await page.goto(`${qaServer.url}?qa&cfg=waves.firstDelaySec:9999`, { waitUntil: 'load' });
     await waitFor(page, (x) => x.state === 'playing', 20000, 'запуск игры для чтения сети дорожек');
-    setupWorld(await page.evaluate(() => window.__pvb.getGraph()));
+    setupWorld(await page.evaluate(() => window.__pvb.getGraph()), await page.evaluate(() => window.__pvb.getState()));
     await ctx.close();
   }
   for (const [key, device, lang] of [['desktop-ru', 'desktop', 'ru'], ['phone-ru', 'phone', 'ru'], ['desktop-en', 'desktop', 'en'], ['phone-en', 'phone', 'en']]) {
