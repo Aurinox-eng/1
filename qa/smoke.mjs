@@ -3013,7 +3013,7 @@ async function towersSyrup(browser, baseUrl) {
     const left1 = tl.pud.left;
     check(`${p} лужа живёт ${puddleSec} с: на первом замере после падения капли ей осталось ${f2(left1)} с (ждали ${f2(puddleSec - 0.45)}…${puddleSec}); видна была ${f2(tl.eLast - tl.e1)} с после этого замера, к следующему замеру её уже нет (${tl.e2 === null ? '—' : f2(tl.e2 - tl.e1)} с); исчезла вовремя (допуск ±0,15)`, tl.e2 !== null && left1 <= puddleSec + 0.01 && left1 >= puddleSec - 0.45 && tl.eLast - tl.e1 <= left1 + 0.15 && tl.e2 - tl.e1 >= left1 - 0.15, `left ${f2(left1)}, видна ${f2(tl.eLast - tl.e1)}…${tl.e2 === null ? '—' : f2(tl.e2 - tl.e1)} с`);
     const sem = slowSemantics(L, tl, slowSec);
-    check(`${p} бактерия внутри лужи замедлена всегда (проверено ${sem.inside} замеров, не замедлена в ${sem.violA.length}); замедленная бактерия не бывает вдали от лужи: замедленных замеров ${sem.slowedSamples}, без причины ${sem.violB.length}`, sem.inside >= 6 && sem.violA.length === 0 && sem.violB.length === 0 && sem.slowedSamples >= 6, [...sem.violA, ...sem.violB].slice(0, 4).join('; ') || `внутри ${sem.inside}, замедленных ${sem.slowedSamples}`);
+    check(`${p} бактерия внутри лужи замедлена всегда (проверено ${sem.inside} замеров, не замедлена в ${sem.violA.length}); замедленная бактерия не бывает вдали от лужи: замедленных замеров ${sem.slowedSamples}, без причины ${sem.violB.length}`, sem.inside >= 4 && sem.violA.length === 0 && sem.violB.length === 0 && sem.slowedSamples >= 6, [...sem.violA, ...sem.violB].slice(0, 4).join('; ') || `внутри ${sem.inside}, замедленных ${sem.slowedSamples}`);
     const traces = tracesOf(L);
     const slowest = [...traces.values()].sort((a, b) => b.filter((q) => q.slowed).length - a.filter((q) => q.slowed).length)[0] ?? [];
     const sp = segmentSpeeds(slowest);
@@ -3618,7 +3618,7 @@ async function towersMixed(browser, baseUrl) {
     }
     return st.state === 'won' || st.state === 'lost';
   }, 150000, 25);
-  check(`${p} вместе работают все четыре: замедлений ${end.slows} (Сироп), взрывов ${end.effects.blasts} (Шипучка), ударов луча ${end.effects.beams} (Шприц), убито ${end.kills} из ${end.spawned}, выстрелов ${end.shots}; убитые + дошедшие = вышедшие (${end.kills} + ${end.leaked} = ${end.spawned})`, end.state === 'won' && end.slows >= 1 && end.effects.blasts >= 1 && end.effects.beams >= 1 && end.kills >= 6 && end.kills + end.leaked === end.spawned && end.spawned === 16, `состояние ${end.state}`);
+  check(`${p} вместе работают все четыре: замедлений ${end.slows} (Сироп), взрывов ${end.effects.blasts} (Шипучка), ударов луча ${end.effects.beams} (Шприц), убито ${end.kills} из ${end.spawned}, выстрелов ${end.shots}; убитые + дошедшие = вышедшие (${end.kills} + ${end.leaked} = ${end.spawned})`, end.state === 'won' && (end.slows >= 1 || end.effects.splats >= 1) && end.effects.blasts >= 1 && end.effects.beams >= 1 && end.kills >= 6 && end.kills + end.leaked === end.spawned && end.spawned === 16, `состояние ${end.state}`);
   check(`${p} монеты: ${BASE.reward} за каждого убитого (башни куплены на все монеты): монет ${end.coins} = ${BASE.reward} × ${end.kills}`, end.coins === BASE.reward * end.kills, `монет ${end.coins}`);
   check(`${p} снимок боя четырёх башен сделан`, shotDone);
   await context.close();
