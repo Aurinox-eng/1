@@ -46,7 +46,9 @@ export interface CardGeometry {
 }
 
 const BTN_H = 34;
-const PICK_H = 64;
+const PICK_H = 58;
+/** Зазор между кнопками «Слить» и «Продать», пикселей: чтобы на телефоне не нажать «Продать» вместо «Слить» (решение владельца 8 октября 2026: без подтверждений, зазор больше). */
+const SELL_GAP = 22;
 const PAD = 12;
 /** Сторона кнопок поворота луча (Шприц), пикселей: они стоят справа от первых двух строк чисел и не должны их закрывать. */
 const ROT = 36;
@@ -74,6 +76,7 @@ export class TowerCard {
   private readonly rects: Record<string, Rect> = {};
   private shown = false;
   private mergeEnabled = false;
+  private sellVisible = true;
   private pickVisible = [false, false];
   private rotVisible = false;
 
@@ -210,7 +213,9 @@ export class TowerCard {
 
     // Нижние кнопки: «Слить» и «Продать»
     const sellY = y + h - PAD - BTN_H;
-    const mergeY = sellY - 6 - BTN_H;
+    const mergeY = sellY - SELL_GAP - BTN_H;
+    // В режиме слияния «Продать» скрыта: выбор пары по карте не должен заканчиваться случайной продажей
+    this.sellVisible = m.merge !== 'active';
     this.mergeEnabled = m.merge === 'ready' || m.merge === 'active';
     const mergeColor = m.merge === 'active' ? 0x9a5a1c : this.mergeEnabled ? 0x2a8a4a : 0x2a3552;
     const mergeEdge = m.merge === 'active' ? 0xffb347 : this.mergeEnabled ? COLORS.merge : 0x4a5c82;
@@ -220,11 +225,17 @@ export class TowerCard {
     this.mergeText.setText(mergeLabel).setColor(this.mergeEnabled ? TEXT_COLORS.main : TEXT_COLORS.dim).setPosition(left + bw / 2, mergeY + BTN_H / 2);
     this.zones.merge.setPosition(left + bw / 2, mergeY + BTN_H / 2);
     this.rects.merge = { x: left + bw / 2, y: mergeY + BTN_H / 2, w: bw, h: BTN_H };
-    this.btns.fillStyle(0x7a2a3a, 1).fillRoundedRect(left, sellY, bw, BTN_H, 12);
-    this.btns.lineStyle(3, 0xff6b7a, 1).strokeRoundedRect(left, sellY, bw, BTN_H, 12);
-    this.sellText.setText(t('cardSell', { n: m.sell })).setPosition(left + bw / 2, sellY + BTN_H / 2);
-    this.zones.sell.setPosition(left + bw / 2, sellY + BTN_H / 2);
-    this.rects.sell = { x: left + bw / 2, y: sellY + BTN_H / 2, w: bw, h: BTN_H };
+    if (this.sellVisible) {
+      this.btns.fillStyle(0x7a2a3a, 1).fillRoundedRect(left, sellY, bw, BTN_H, 12);
+      this.btns.lineStyle(3, 0xff6b7a, 1).strokeRoundedRect(left, sellY, bw, BTN_H, 12);
+      this.sellText.setText(t('cardSell', { n: m.sell })).setPosition(left + bw / 2, sellY + BTN_H / 2);
+      this.zones.sell.setPosition(left + bw / 2, sellY + BTN_H / 2);
+      this.rects.sell = { x: left + bw / 2, y: sellY + BTN_H / 2, w: bw, h: BTN_H };
+    } else {
+      this.rects.sell = { x: 0, y: 0, w: 0, h: 0 };
+    }
+    this.sellText.setVisible(this.sellVisible);
+    this.applyEnabled();
   }
 
   /**
@@ -244,7 +255,7 @@ export class TowerCard {
     else if (this.rotVisible && hit('rotR')) this.callbacks.onRotate(1);
     else if (hit('merge')) {
       if (this.mergeEnabled) this.callbacks.onMerge();
-    } else if (hit('sell')) this.callbacks.onSell();
+    } else if (this.sellVisible && hit('sell')) this.callbacks.onSell();
     else return false;
     return true;
   }
@@ -278,7 +289,7 @@ export class TowerCard {
     const on = this.shown;
     this.setZone(this.zones.close, on);
     this.setZone(this.zones.merge, on);
-    this.setZone(this.zones.sell, on);
+    this.setZone(this.zones.sell, on && this.sellVisible);
     this.setZone(this.zones.pick0, on && this.pickVisible[0]);
     this.setZone(this.zones.pick1, on && this.pickVisible[1]);
     this.setZone(this.zones.rotL, on && this.rotVisible);
