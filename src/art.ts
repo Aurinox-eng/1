@@ -96,3 +96,121 @@ export function discImage(
   });
   return artImage(scene, key, box);
 }
+
+/**
+ * Простые фигуры для рисунков башен (запекаются один раз в текстуру). Цвет — число 0xRRGGBB, null — «не рисовать».
+ * Свечения (shadowBlur обычного canvas в Graphics недоступны) имитируются несколькими полупрозрачными слоями — glow*.
+ */
+export type Pt = readonly [number, number];
+type G = Phaser.GameObjects.Graphics;
+
+/** Скруглённый прямоугольник: заливка (с прозрачностью fa) и обводка толщины lw. */
+export function shRR(g: G, x: number, y: number, w: number, h: number, r: number, fill: number | null, stroke: number | null = null, lw = 2, fa = 1): void {
+  const rad = Math.max(0, Math.min(r, Math.abs(w) / 2, Math.abs(h) / 2));
+  if (fill !== null) {
+    g.fillStyle(fill, fa);
+    if (rad > 0) g.fillRoundedRect(x, y, w, h, rad);
+    else g.fillRect(x, y, w, h);
+  }
+  if (stroke !== null) {
+    g.lineStyle(lw, stroke, 1);
+    if (rad > 0) g.strokeRoundedRect(x, y, w, h, rad);
+    else g.strokeRect(x, y, w, h);
+  }
+}
+
+/** Круг: заливка и обводка. */
+export function shCirc(g: G, x: number, y: number, r: number, fill: number | null, stroke: number | null = null, lw = 2, fa = 1): void {
+  if (fill !== null) g.fillStyle(fill, fa).fillCircle(x, y, r);
+  if (stroke !== null) g.lineStyle(lw, stroke, 1).strokeCircle(x, y, r);
+}
+
+/** Эллипс с полуосями rx, ry. */
+export function shEll(g: G, x: number, y: number, rx: number, ry: number, fill: number | null, stroke: number | null = null, lw = 2, fa = 1): void {
+  if (fill !== null) g.fillStyle(fill, fa).fillEllipse(x, y, rx * 2, ry * 2);
+  if (stroke !== null) g.lineStyle(lw, stroke, 1).strokeEllipse(x, y, rx * 2, ry * 2);
+}
+
+/** Многоугольник по точкам. */
+export function shPoly(g: G, pts: readonly Pt[], fill: number | null, stroke: number | null = null, lw = 2, fa = 1): void {
+  const p = pts.map(([x, y]) => ({ x, y }));
+  if (fill !== null) g.fillStyle(fill, fa).fillPoints(p, true);
+  if (stroke !== null) g.lineStyle(lw, stroke, 1).strokePoints(p, true);
+}
+
+/** Отрезок. */
+export function shLine(g: G, x1: number, y1: number, x2: number, y2: number, color: number, lw: number, a = 1): void {
+  g.lineStyle(lw, color, a).lineBetween(x1, y1, x2, y2);
+}
+
+/** Дуга окружности (только обводка). */
+export function shArc(g: G, x: number, y: number, r: number, a0: number, a1: number, color: number, lw: number, a = 1): void {
+  g.lineStyle(lw, color, a).beginPath();
+  g.arc(x, y, r, a0, a1);
+  g.strokePath();
+}
+
+/** Ломаная линия по точкам (не замкнутая). */
+export function shPath(g: G, pts: readonly Pt[], color: number, lw: number, a = 1): void {
+  g.lineStyle(lw, color, a).strokePoints(
+    pts.map(([x, y]) => ({ x, y })),
+    false,
+  );
+}
+
+/** Четырёхконечная звезда. */
+export function shStar(g: G, x: number, y: number, r: number, color: number): void {
+  const pts: Pt[] = [];
+  for (let i = 0; i < 8; i++) {
+    const a = (i * Math.PI) / 4;
+    const rad = i % 2 ? r * 0.3 : r;
+    pts.push([x + Math.cos(a) * rad, y + Math.sin(a) * rad]);
+  }
+  shPoly(g, pts, color);
+}
+
+/** Точки квадратичной кривой Безье от p0 через c к p1 (без самой p0). */
+export function shQuad(p0: Pt, c: Pt, p1: Pt, n = 6): Pt[] {
+  const out: Pt[] = [];
+  for (let i = 1; i <= n; i++) {
+    const t = i / n;
+    const u = 1 - t;
+    out.push([u * u * p0[0] + 2 * u * t * c[0] + t * t * p1[0], u * u * p0[1] + 2 * u * t * c[1] + t * t * p1[1]]);
+  }
+  return out;
+}
+
+/** Повернуть точки на angle радиан вокруг (ox, oy) и сдвинуть так, что (0,0) фигуры окажется в (ox, oy). */
+export function shRot(pts: readonly Pt[], ox: number, oy: number, angle: number): Pt[] {
+  const c = Math.cos(angle);
+  const s = Math.sin(angle);
+  return pts.map(([x, y]) => [ox + x * c - y * s, oy + x * s + y * c] as Pt);
+}
+
+/** Прямоугольник как 4 точки (для поворота). */
+export function shBox(x: number, y: number, w: number, h: number): Pt[] {
+  return [[x, y], [x + w, y], [x + w, y + h], [x, y + h]];
+}
+
+const GLOW_LAYERS = 5;
+
+/** Свечение круга: слои круга всё большего радиуса с малой прозрачностью (рисовать ДО самой фигуры). */
+export function glowCircle(g: G, x: number, y: number, r: number, color: number, spread = 10, alpha = 0.5): void {
+  for (let i = GLOW_LAYERS; i >= 1; i--) g.fillStyle(color, alpha / GLOW_LAYERS).fillCircle(x, y, r + (spread * i) / GLOW_LAYERS);
+}
+
+/** Свечение скруглённого прямоугольника. */
+export function glowRR(g: G, x: number, y: number, w: number, h: number, r: number, color: number, spread = 10, alpha = 0.5): void {
+  for (let i = GLOW_LAYERS; i >= 1; i--) {
+    const e = (spread * i) / GLOW_LAYERS;
+    shRR(g, x - e, y - e, w + e * 2, h + e * 2, r + e, color, null, 0, alpha / GLOW_LAYERS);
+  }
+}
+
+/** Свечение кольца (обводки круга радиуса r и толщины lw): только наружу от кольца, чтобы не заливать рисунок под ним. */
+export function glowRing(g: G, x: number, y: number, r: number, lw: number, color: number, spread = 10, alpha = 0.5): void {
+  for (let i = GLOW_LAYERS; i >= 1; i--) {
+    const e = (spread * i) / GLOW_LAYERS;
+    g.lineStyle(e, color, alpha / GLOW_LAYERS).strokeCircle(x, y, r + lw / 2 + e / 2);
+  }
+}

@@ -47,12 +47,15 @@ jobs:
           - group: 'Башни (towers)'
             key: towers
             scenarios: 'towers'
-          - group: 'Карточка, слияние, мутации (card, merge, mutations, sell, special, strip)'
+          - group: 'Карточка, слияние, мутации (card, merge, mutations, sell, special, strip, sell-gap)'
             key: card
-            scenarios: 'card merge mutations sell special strip'
-          - group: 'Конец уровня, плашки, экономика, игровая сборка (lose, win, restart-button, deflation, camera-fit, colors, locked, plaques, production)'
+            scenarios: 'card merge mutations sell special strip sell-gap'
+          - group: 'Альманах и числа урона (almanac, almanac-pause, damage-numbers)'
+            key: almanac
+            scenarios: 'almanac almanac-pause damage-numbers'
+          - group: 'Конец уровня, экономика, игровая сборка (lose, win, restart-button, deflation, camera-fit, colors, locked, production)'
             key: end
-            scenarios: 'lose-ru lose-en win-ru win-en restart-button deflation camera-fit colors locked plaques production'
+            scenarios: 'lose-ru lose-en win-ru win-en restart-button deflation camera-fit colors locked production'
           - group: 'Очки ДНК, улучшения, уровни (meta-save, meta-dna, meta-shop, meta-effects, tree-effects, tree-shop, level-waves, progress-save, stars, menu-flow, levels-lock)'
             key: meta
             scenarios: 'meta-save meta-dna meta-shop meta-effects tree-effects tree-shop level-waves progress-save stars menu-flow levels-lock'

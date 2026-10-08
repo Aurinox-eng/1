@@ -9,7 +9,6 @@
  *   http://localhost:5173/?qa&cfg=bacteria.baseSpeed:60,towers.pill.cooldownMs:300,economy.startCoins:500
  *                                        — временно подменяет числа из config.ts (для подбора баланса)
  *   http://localhost:5173/?qa&canvas     — рисовать через canvas вместо WebGL (быстрее на слабой машине без видеокарты; для бота баланса)
- *   http://localhost:5173/?qa&noplaque   — не показывать плашки с описанием бактерий и башен (игра не встаёт на паузу сама; для проверок, которым плашки мешают)
  *   http://localhost:5173/?qa&menu       — открыть игру на главном меню (в режиме проверки без этого параметра игра открывается сразу на партии; в игровой сборке меню открывается, если в адресе нет ?level=N)
  *   http://localhost:5173/?qa&levelwaves — в режиме проверки волны и награды берутся из таблицы уровня (`levels.specs`); без параметра все уровни идут с волнами уровня 1 (так работают прежние проверки и бот)
  *   http://localhost:5173/?qa&stress&fps — стресс-сценарий для замера скорости (40 башен, ≈200 бактерий, ×3) со счётчиком кадров
@@ -28,7 +27,6 @@ const params = new URLSearchParams(window.location.search);
 export const QA_MODE: boolean = QA_ENABLED && params.has('qa');
 
 /** Не показывать плашки с описанием (только вместе с ?qa): нужно проверкам, которые проверяют не плашки, а бой и интерфейс. */
-export const NO_PLAQUES: boolean = QA_MODE && params.has('noplaque');
 
 /** Волны, рост прочности и награды берутся из таблицы уровней (`levels.specs`). В игровой сборке — всегда; в режиме проверки — только с `&levelwaves`: у проверок и бота волны уровня 1 на любом уровне. */
 export const LEVEL_WAVES: boolean = !QA_MODE || params.has('levelwaves');
@@ -40,8 +38,7 @@ export const STRESS: boolean = QA_MODE && params.has('stress');
 export const TIME_SCALE: number = QA_MODE ? Math.min(10, Math.max(0.1, Number(params.get('speed')) || 1)) : 1;
 
 export interface DebugSnapshot {
-  /** 'info' — на экране плашка с описанием новой бактерии или башни (игра на паузе до тапа). */
-  state: 'playing' | 'paused' | 'info' | 'won' | 'lost';
+  state: 'playing' | 'paused' | 'won' | 'lost';
   coins: number;
   lives: number;
   maxLives: number;
@@ -88,7 +85,6 @@ export interface DebugSnapshot {
   /** Номер текущего уровня (адрес `?level=N`, по умолчанию 1). */
   level: number;
   /** Плашка с описанием: видна ли, что на ней (bacterium/tower и тип) и сколько плашек ещё ждёт в очереди после текущей. */
-  info: { visible: boolean; kind: 'bacterium' | 'tower' | null; id: string | null; queue: number };
   /** Кнопка «Заново» на экране конца уровня (центр и размер на экране игры) или null, пока уровень идёт. */
   endButton: { x: number; y: number; w: number; h: number } | null;
   /** Кнопка «Улучшения» на экране конца уровня (или null) и сколько очков ДНК начислено за партию (0, пока партия идёт). */
@@ -97,6 +93,7 @@ export interface DebugSnapshot {
   nextButton: { x: number; y: number; w: number; h: number } | null;
   menuButton: { x: number; y: number; w: number; h: number } | null;
   pauseMenuButton: { x: number; y: number; w: number; h: number } | null;
+  pauseAlmanacButton: { x: number; y: number; w: number; h: number } | null;
   dnaGained: number;
   /** Звёзды, заработанные в этой партии (0 — партия не выиграна или ещё идёт), и очки ДНК за впервые полученные звёзды (в `dnaGained` не входят). */
   stars: number;
@@ -126,6 +123,8 @@ export interface DebugSnapshot {
   mergeMode: boolean;
   /** Самый высокий уровень башни. */
   maxTowerLevel: number;
+  /** Радиус слияния башен, пикселей между центрами (`mergeRadiusPx`). */
+  mergeRadiusPx: number;
   merges: number;
   sells: number;
   mutationsPicked: number;
@@ -176,7 +175,7 @@ export interface DebugSnapshot {
   /** Сколько обработчиков нажатия навешено на сцену (при перезапуске не должно расти — иначе утечка). */
   pointerListeners: number;
   /** Сколько раз сработали вспышка, частицы, «+монеты», кольцо постановки, красная вспышка потери жизни, кольцо глушения башни, взрыв шипучки, удар луча шприца и всплеск лужи. */
-  effects: { flashes: number; bursts: number; popups: number; placements: number; lifeLosses: number; zaps: number; blasts: number; beams: number; splats: number };
+  effects: { flashes: number; bursts: number; popups: number; damageNumbers: number; placements: number; lifeLosses: number; zaps: number; blasts: number; beams: number; splats: number };
   /** Звук: состояние аудио («running» — играет) и сколько звуков сыграно с загрузки страницы. */
   sound: { state: string; played: number };
 }
@@ -200,8 +199,6 @@ export interface DebugApi {
   gameToClient: (gx: number, gy: number) => { x: number; y: number };
   /** Центр клетки → координаты на странице. */
   cellToClient: (col: number, row: number) => { x: number; y: number };
-  /** Показать плашку с описанием бактерии (kind 'bacterium', id — тип) или башни (kind 'tower', id — башня) сейчас, в любой момент игры (для снимков и проверок вида). */
-  showPlaque: (kind: 'bacterium' | 'tower', id: string) => void;
   /** Замер скорости с последнего сброса (reset — начать заново) и сколько объектов сейчас рисуется. */
   getPerf: (reset?: boolean) => PerfReport & { objects: number; bacteria: number; towers: number; renderer: 'webgl' | 'canvas' };
 }

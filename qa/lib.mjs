@@ -142,7 +142,11 @@ export function readI18n(key) {
   return found;
 }
 
-/** Уровень из src/level.ts: размер карты в клетках и центр камеры при старте (сеть дорожек — из игры, через window.__pvb.getGraph()). */
+/**
+ * Уровень из src/level.ts: размер карты в клетках под башню (`map.tile`) и центр камеры при старте (сеть дорожек — из игры, через window.__pvb.getGraph()).
+ * ВНИМАНИЕ: `startCenter` записан в единицах `map.pathUnit` (103 px), как узлы сети, а не в клетках под башню (77,25 px): в пиксели его переводит
+ * `geo.unitCenter(u, v)`, а не `geo.center(col, row)`.
+ */
 export function readLevel() {
   const src = readSource('src/level.ts');
   return {
@@ -221,14 +225,18 @@ export function readTowerTable() {
 
 /**
  * Геометрия карты по сети дорожек, которую отдала игра (getGraph): рёбра-кривые, клетки дорожки (центр клетки ближе
- * pathWidth/2 + 0.45·tile к любой точке любого ребра), расстояние до ребра, вероятности ребер, покрытие башней.
- * Правила описаны в задании, код игры не используется.
+ * pathWidth/2 + 0.55·tile к любой точке любого ребра), расстояние до ребра, вероятности ребер, покрытие башней.
+ * Правила описаны в задании, код игры не используется. `map` — { orgW, tile, pathWidth, pathUnit }: orgW, tile (а также cols и rows) надо брать из состояния игры
+ * (`getState().map`), pathWidth и pathUnit — из config.ts (в состояние игры они не входят).
+ * Два перевода в пиксели: `center(col, row)` — центр КЛЕТКИ под башню (шаг `map.tile`), `unitCenter(u, v)` — точка сети дорожек (шаг `map.pathUnit`, так записаны узлы
+ * и старт камеры в src/level.ts).
  */
 export function makeGraphGeometry(graph, map, cols, rows) {
   const center = (col, row) => ({ x: map.orgW + map.tile * (col + 0.5), y: map.tile * (row + 0.5) });
+  const unitCenter = (u, v) => ({ x: map.orgW + (map.pathUnit ?? map.tile) * (u + 0.5), y: (map.pathUnit ?? map.tile) * (v + 0.5) });
   const edges = graph.edges;
   const byId = new Map(edges.map((e) => [e.id, e]));
-  const limit = map.pathWidth / 2 + 0.45 * map.tile; // 89,35 px при tile 103 (запас, чтобы основание башни не заходило на полосу дорожки)
+  const limit = map.pathWidth / 2 + (map.pathMarginTile ?? 0.55) * map.tile; // запас 0,55 клетки (≈ 42,5 px при tile 77,25), как PATH_TILES в src/level.ts: основание башни не заходит на полосу дорожки
   const distToSegment = (p, a, b) => {
     const dx = b[0] - a[0];
     const dy = b[1] - a[1];
@@ -275,9 +283,17 @@ export function makeGraphGeometry(graph, map, cols, rows) {
     for (const n of next) visit(n, p / next.length);
   };
   for (const id of graph.entrances) visit(id, 1 / graph.entrances.length);
+  // самый длинный отрезок между соседними точками рёбер: кривая между точками может пройти ближе к центру клетки, чем сами точки, не более чем на maxSeg² / (8·limit)
+  let maxSegmentPx = 0;
+  for (const e of edges) for (let i = 0; i < e.pts.length - 1; i++) maxSegmentPx = Math.max(maxSegmentPx, Math.hypot(e.pts[i + 1][0] - e.pts[i][0], e.pts[i + 1][1] - e.pts[i][1]));
   return {
     center,
+    unitCenter,
     limit,
+    maxSegmentPx,
+    /** Наибольшая разница расстояния «до точки ребра» и «до кривой» для центра, прошедшего правило по точкам (дискретизация кривой). */
+    sagPx: (maxSegmentPx * maxSegmentPx) / (8 * limit) + 0.05,
+    isBlocked: (col, row) => blockedCells.has(`${col},${row}`),
     edges,
     byId,
     outOf,

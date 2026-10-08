@@ -50,6 +50,15 @@ export function mutationOptions(id: TowerKey, tier: number): MutationSpec[] {
   return CONFIG.mutations[id]?.[tier] ?? [];
 }
 
+/** Мутация башни id по её номеру (порог не нужен: при слиянии у башни бывают мутации обоих порогов и повторы). */
+export function mutationById(id: TowerKey, pickId: string): MutationSpec | undefined {
+  for (const tier of CONFIG.mutations[id] ?? []) {
+    const found = tier.find((m) => m.id === pickId);
+    if (found) return found;
+  }
+  return undefined;
+}
+
 /** Сколько порогов мутаций башня этого уровня уже достигла. */
 export function unlockedTiers(level: number): number {
   return CONFIG.mutationLevels.filter((l) => level >= l).length;
@@ -83,28 +92,37 @@ export function computeStats(id: TowerKey, level: number, picks: readonly string
   s.puddleSec = base.puddleSec * lv.puddleSecMul;
   s.slowFactor = base.slowFactor < 1 ? Math.pow(base.slowFactor, lv.slowPower) : 1;
   s.beamPulses = base.beamPulses > 0 ? base.beamPulses + lv.pulsesAdd : 0;
-  picks.forEach((pickId, tier) => {
-    const spec = mutationOptions(id, tier).find((m) => m.id === pickId);
-    if (!spec) return;
-    if (spec.damageMul) s.damage *= spec.damageMul;
-    if (spec.cooldownMul) s.cooldownMs *= spec.cooldownMul;
-    if (spec.blastMul) s.blastRadius *= spec.blastMul;
-    if (spec.puddleRadiusMul) s.puddleRadius *= spec.puddleRadiusMul;
-    if (spec.slowFactor !== undefined) s.slowFactor = Math.min(s.slowFactor, spec.slowFactor);
-    if (spec.pulsesAdd && s.beamPulses > 0) s.beamPulses += spec.pulsesAdd;
+  // Мутации складываются при слиянии (решение владельца 8 октября 2026, docs/expert-plan.md, раздел 4): в списке `picks` бывают повторы;
+  // k-й экземпляр одной и той же мутации даёт долю `mutationStack.copyShares[k]` своего эффекта (100 % / 50 % / 25 %). Особые мутации (бронебойность, второй луч и т. п.) работают один раз.
+  const shares = CONFIG.mutationStack.copyShares;
+  const seen = new Map<string, number>();
+  for (const pickId of picks) {
+    const spec = mutationById(id, pickId);
+    if (!spec) continue;
+    const k = seen.get(pickId) ?? 0;
+    seen.set(pickId, k + 1);
+    const share = shares[Math.min(k, shares.length - 1)];
+    const scaled = (mul: number): number => 1 + (mul - 1) * share;
+    const whole = (n: number): number => (k === 0 ? n : Math.floor(n * share + 0.5));
+    if (spec.damageMul) s.damage *= scaled(spec.damageMul);
+    if (spec.cooldownMul) s.cooldownMs *= scaled(spec.cooldownMul);
+    if (spec.blastMul) s.blastRadius *= scaled(spec.blastMul);
+    if (spec.puddleRadiusMul) s.puddleRadius *= scaled(spec.puddleRadiusMul);
+    if (spec.slowFactor !== undefined) s.slowFactor = k === 0 ? Math.min(s.slowFactor, spec.slowFactor) : Math.max(0.1, s.slowFactor * (1 - (1 - spec.slowFactor) * share));
+    if (spec.pulsesAdd && s.beamPulses > 0) s.beamPulses += whole(spec.pulsesAdd);
     if (spec.armorPierce) s.armorPierce = true;
-    if (spec.extraTargets) s.extraTargets += spec.extraTargets;
+    if (spec.extraTargets) s.extraTargets += whole(spec.extraTargets);
     if (spec.toughest) s.toughest = true;
-    if (spec.poisonPerSec) s.poisonPerSec += spec.poisonPerSec;
-    if (spec.puddleCount) s.puddleCount = Math.max(s.puddleCount, spec.puddleCount);
+    if (spec.poisonPerSec) s.poisonPerSec += spec.poisonPerSec * share;
+    if (spec.puddleCount) s.puddleCount = k === 0 ? Math.max(s.puddleCount, spec.puddleCount) : s.puddleCount + (k === 1 ? 1 : 0);
     if (spec.chain) s.chain = true;
     if (spec.acidSec) {
       s.acidSec = Math.max(s.acidSec, spec.acidSec);
-      s.acidMul = Math.max(s.acidMul, spec.acidMul ?? 1);
+      s.acidMul = k === 0 ? Math.max(s.acidMul, spec.acidMul ?? 1) : s.acidMul + ((spec.acidMul ?? 1) - 1) * share;
     }
     if (spec.secondBeam) s.secondBeam = true;
-    if (spec.spiral) s.spiral += spec.spiral;
-  });
+    if (spec.spiral) s.spiral += spec.spiral * share;
+  }
   // Улучшения вне партии ветки этой башни (docs/upgrades.md, раздел 12): пауза, радиусы, лужа, замедление, луч
   const bonus = (effect: UpgradeEffect): number => upgradeBonus(effect, id as UpgradeBranch);
   s.cooldownMs *= 1 + bonus('cooldown');

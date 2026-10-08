@@ -81,6 +81,42 @@ export const COLORS = {
   ghostEdge: 0x9fd0ff,
 } as const;
 
+/** Дополнительные цвета рисунков башен уровней слияния 2–4 (оттенки и детали; основные цвета башен — в COLORS). */
+export const TOWER_ART = {
+  steel: 0x4a72b0,
+  steelDark: 0x3b5f98,
+  bracket: 0x3f65a3,
+  rivet: 0x6f8cc2,
+  plate: 0xeef3fb,
+  plateLight: 0xf4f7fc,
+  skyBlue: 0x4aa0ff,
+  pillSeam: 0x3b6aa6,
+  glowOrange: 0xffb04d,
+  syrupBrown: 0x7a3f08,
+  syrupLight: 0xffb866,
+  syrupSoft: 0xffc67d,
+  label: 0xfff3d6,
+  gaugeRed: 0xc0392b,
+  tankGold: 0xe28a2a,
+  fizzBrown: 0x7a1745,
+  fizzLight: 0xff8cc4,
+  fizzHole: 0x4a0a2a,
+  fizzBright: 0xff9ccb,
+  fizzShade: 0xd63b8a,
+  bolt: 0xcfd8ea,
+  boltEdge: 0x5a6f98,
+  clamp: 0x3f2a44,
+  fire: 0xe04a1a,
+  acidDark: 0x2a4a0a,
+  acidLight: 0xf0ffaa,
+  syringeMetal: 0x7a93bf,
+  scope: 0x3a5890,
+  syringeWhite: 0xf4f9ff,
+  liquidLight: 0xd8ffff,
+  liquidDark: 0x25b8e0,
+  crystalDark: 0x1fa8d0,
+} as const;
+
 /** Цвета карты в формате CSS (карта рисуется один раз в текстуры обычным canvas). */
 export const MAP_COLORS = {
   background: '#12203a',

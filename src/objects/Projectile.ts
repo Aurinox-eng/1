@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { artImage, bakeArt, squareBox } from '../art';
+import { CONFIG } from '../config';
 import { COLORS } from '../theme';
 import type { TowerStats } from '../towerStats';
 import type { Bacterium } from './Bacterium';
@@ -50,7 +51,10 @@ export class Projectile {
     this.lastX = target.x;
     this.lastY = target.y;
     const key = bakeArt(scene, `shot-${towerId === 'syrup' || towerId === 'fizz' ? towerId : 'pill'}`, SHOT_BOX, (g) => drawShot(g, towerId));
-    this.container = scene.add.container(x, y, [artImage(scene, key, SHOT_BOX)]);
+    // Снаряд сильной башни крупнее: до ×1,7 при уроне в 6 раз выше, чем у башни 1-го уровня (сила видна на глаз)
+    const ratio = stats.damage / CONFIG.towers[towerId].damage;
+    const size = ratio > 1 ? Math.min(1.7, 1 + 0.28 * Math.log2(ratio)) : 1;
+    this.container = scene.add.container(x, y, [artImage(scene, key, SHOT_BOX)]).setScale(size);
     layer.add(this.container);
   }
 

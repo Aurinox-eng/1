@@ -3,7 +3,7 @@ import { CONFIG } from '../config';
 import { EDGES_FROM } from '../level';
 import { pointAt, type Edge } from '../pathing';
 import { COLORS } from '../theme';
-import { artImage, bakeArt, discImage, ringImage, setArt, squareBox, type ArtBox } from '../art';
+import { artDensity, artImage, bakeArt, discImage, ringImage, setArt, squareBox, type ArtBox } from '../art';
 import { bodyHalfSize, crackCount, drawCracks, drawShape, hasRadialCracks, shellWidth, SPLITTER_LOBE_OFFSET } from './bacteriumArt';
 
 export type BacteriumKind = keyof typeof CONFIG.types;
@@ -13,6 +13,10 @@ function bodyBox(kind: BacteriumKind): ArtBox {
   const { hx, hy } = bodyHalfSize(kind);
   return { x: -hx, y: -hy, w: hx * 2, h: hy * 2 };
 }
+
+/** Полоска прочности: белая картинка 32×6, левый край в (0, 0); цвет задаётся оттенком, длина — масштабом. */
+const BAR_BOX: ArtBox = { x: 0, y: -3, w: 32, h: 6 };
+const BAR_KEY = (scene: Phaser.Scene): string => bakeArt(scene, 'hp-bar', BAR_BOX, (g) => g.fillStyle(0xffffff, 1).fillRect(0, -3, 32, 6));
 
 /** Толщина оболочки округляется до целого пикселя: столько разных картинок тела у типа (разница в долю пикселя не видна). */
 const SHELL_STEP_PX = 1;
@@ -68,6 +72,8 @@ export class Bacterium {
   readonly disabledTowers = new Set<unknown>();
   /** Радиус описанного круга, пикселей. */
   readonly radius: number;
+  /** Сколько HP снял последний удар (после брони и кислоты): по нему сцена показывает число урона. */
+  lastDealt = 0;
   /** Ускорение от командира рядом (1 — нет); сцена выставляет его каждый кадр. */
   haste = 1;
   /** Сколько секунд прошло с последнего рождения (у матки). */
@@ -89,6 +95,9 @@ export class Bacterium {
   /** Тело и трещины — готовые картинки (см. art.ts); показанные ключи, чтобы не менять картинку без нужды. */
   private readonly body: Phaser.GameObjects.Image;
   private readonly cracks: Phaser.GameObjects.Image;
+  /** Полоска прочности под телом: появляется, когда бактерию задели (две картинки: подложка и заливка). */
+  private barBack: Phaser.GameObjects.Image | null = null;
+  private barFill: Phaser.GameObjects.Image | null = null;
   private bodyKey = '';
   private cracksKey = '';
   private readonly seed = Math.random() * Math.PI * 2;
@@ -221,8 +230,10 @@ export class Bacterium {
     const { armor } = CONFIG.types[this.kind];
     const raw = damage * (this.acidLeft > 0 ? this.acidBy : 1);
     const dealt = armor > 0 && !pierce ? Math.max(raw * CONFIG.combat.armorMinShare, raw - armor) : raw;
+    this.lastDealt = Math.min(dealt, this.hp);
     this.hp = Math.max(0, this.hp - dealt);
     this.redraw();
+    this.updateBar();
     return this.hp <= 0;
   }
 
@@ -238,7 +249,10 @@ export class Bacterium {
   heal(amount: number): void {
     if (this.hp <= 0 || this.hp >= this.maxHp) return;
     this.hp = Math.min(this.maxHp, this.hp + amount);
-    if (Math.abs(this.hp - this.drawnHp) >= 0.5 || this.hp >= this.maxHp) this.redraw();
+    if (Math.abs(this.hp - this.drawnHp) >= 0.5 || this.hp >= this.maxHp) {
+      this.redraw();
+      this.updateBar();
+    }
   }
 
   /** Точка дорожки впереди на distance пикселей, но не дальше конца текущего ребра (развилку не пересекаем: дальше путь случаен). */
@@ -292,6 +306,30 @@ export class Bacterium {
     this.container.setPosition(p.x, p.y);
     // Палочка вытянута вдоль движения
     if (this.kind === 'rod' || this.kind === 'runner') this.container.setRotation(p.angle + Math.PI / 2);
+  }
+
+  /** Полоска прочности: видна, пока HP меньше полного; цвет от зелёного к красному, ширина — по размеру бактерии. */
+  private updateBar(): void {
+    if (this.hp >= this.maxHp || this.hp <= 0) {
+      this.barBack?.setVisible(false);
+      this.barFill?.setVisible(false);
+      return;
+    }
+    if (!this.barBack || !this.barFill) {
+      this.barBack = artImage(this.scene, BAR_KEY(this.scene), BAR_BOX).setTint(0x000000).setAlpha(0.6);
+      this.barFill = artImage(this.scene, BAR_KEY(this.scene), BAR_BOX);
+      this.container.add([this.barBack, this.barFill]);
+    }
+    const width = Math.max(30, this.radius * 1.6);
+    const share = this.hp / this.maxHp;
+    const density = artDensity(BAR_KEY(this.scene));
+    const y = this.radius + 9;
+    this.barBack.setVisible(true).setPosition(-width / 2 - 1, y).setScale(((width + 2) / BAR_BOX.w) / density, 1.5 / density);
+    this.barFill
+      .setVisible(true)
+      .setPosition(-width / 2, y)
+      .setScale((width * share) / BAR_BOX.w / density, 1 / density)
+      .setTint(share > 0.5 ? 0x7be07b : share > 0.25 ? 0xffd84d : 0xff5a4a);
   }
 
   private redraw(): void {
