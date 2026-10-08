@@ -11,7 +11,7 @@
  * Профили («игроки»; порядок покупок и выбор клеток — в makePlayer ниже):
  *   novice  («новичок»)  только Таблетки, клетки наугад (где хоть что-то видно с дорожки), не больше 6 башен, покупает, как только хватает.
  *   average («средний»)  по кругу [Таблетка, Таблетка, Сироп, Таблетка, Шипучка, Шприц], ждёт монет на очередную; клетка — наугад
- *                        из лучших 15 % по охвату дорожки (длина дорожки в радиусе башни).
+ *                        из лучших 15 % по охвату дорожки (длина дорожки в радиусе башни). Не сливает.
  *   (начало партии у expert и strong: пока башен с уроном меньше двух — только самая дешёвая башня с уроном (Таблетка); дальше по кругу, Шипучка первая; копят монеты на дорогую башню,
  *    только если жизни целы и на карте ≤ 8 бактерий — иначе берут первую доступную. Раньше они вторым покупали Сироп и 30 с копили на Шипучку — и проигрывали на 4–5-й волне.)
  *   expert  («особо сильный»)  по кругу [Таблетка, Сироп, Шипучка, Шприц, Таблетка, Шипучка, Сироп, Шприц]; клетка — лучшая именно для
@@ -21,10 +21,17 @@
  *                        решает каждые 2 с. ЭТО БЫВШИЙ «сильный» из кругов замеров 1–2 (до коммита с профилем expert): те же числа и поведение.
  *   strong  («сильный»)  тот же порядок и та же оценка клеток, но с человеческими несовершенствами: решает реже (раз в 3 с), копит на
  *                        дорогую башню только 8 с (потом берёт то, что по карману — больше дешёвых Таблеток), клетку берёт не самую лучшую,
- *                        а наугад из лучших 15 % клеток (≈ 19 из 123), оценка клеток «шумнее» (12 % вместо 3 %) и главное —
+ *                        а наугад из лучших 15 % клеток (≈ 30 из ≈ 200 свободных), оценка клеток «шумнее» (12 % вместо 3 %) и главное —
  *                        НЕ ЗНАЕТ приёмов: ставит Шипучку без упора на узлы слияния, а Шприц — без учёта, сколько бактерий идёт по каждой ветке,
  *                        и не поворачивает его (остаётся направление, которое игра выбирает при постановке сама). Это тот навык, что отличает
  *                        «особо сильного».
+ *
+ * СЛИЯНИЕ (правило игры с 8 октября 2026): две одинаковые башни (вид и уровень) сливаются, только если расстояние между их центрами
+ * не больше mergeRadiusPx (состояние игры, 235 px мира ≈ 3 новые клетки); башни, ждущие выбора мутации, не сливаются; у получившейся башни мутации обеих складываются.
+ * Поэтому профили, которые сливают (strong — только пары 1-го уровня, expert — всё; average и novice не сливают), покупая башню, ПРЕДПОЧИТАЮТ хорошую клетку
+ * в радиусе слияния от стоящей башни того же вида и уровня 1 (клетка не хуже MERGE_NEAR_SHARE от лучшей по оценке; Сироп и Шприц — строже, MERGE_NEAR_SHARE_PICKY),
+ * а слияние делают, только когда такая пара есть. Если пары нет — не сливают, а «слияния мимо» (mergeMisses: группа ≥ 2 одинаковых башен, но ни одной пары в радиусе;
+ * одна и та же группа считается один раз) показывают, хватает ли ботам пар.
  *
  * Все решения принимаются не чаще, чем раз в 2 секунды ИГРОВОГО времени (как человек). Состояние опрашивается каждые ~120 мс реального времени.
  * Генератор случайных чисел бота — с --seed (игра сама случайна: путь на развилках выбирается наугад, поэтому нужно ≥ 10 партий на профиль).
@@ -73,12 +80,16 @@ const EXPERT_ADJACENT_FACTOR = 1; // … и соседство с другой �
 const NOVICE_MAX_TOWERS = 6;
 const OPENING_DAMAGE_TOWERS = 2; // «сильный» и «особо сильный»: пока башен с уроном меньше стольких, покупают самую дешёвую башню с уроном (Таблетку), а не Сироп/дорогую по списку
 const CALM_MAX_BACTERIA = 8; // они копят монеты на дорогую башню только в спокойной обстановке: жизни целы и на карте не больше стольких бактерий; иначе берут первую доступную
-const AVERAGE_TOP_SHARE = 0.15; // «средний» выбирает наугад из лучших 15 % клеток по охвату
+const AVERAGE_TOP_SHARE = 0.15; // «средний» выбирает наугад из лучших 15 % клеток по охвату (клеток теперь ≈ 200, а не ≈ 115 — доля прежняя)
+const MERGE_NEAR_SHARE = 0.8; // слияние по радиусу: покупая башню, профиль выбирает среди клеток с оценкой не хуже этой доли от лучшей ту, что в радиусе слияния от башни того же вида и 1-го уровня
+const MERGE_NEAR_SHARE_PICKY = 0.9; // … для Сиропа и Шприца (луч) доля строже: качеством клетки жертвуют меньше
+const MERGE_NEAR_STRONG_SHARE = 0.3; // «сильный»: пул для такой клетки — лучшие 30 % клеток (а не 15 %), но не хуже MERGE_NEAR_SHARE от лучшей
+const MERGE_NEAR_MARGIN = 0.98; // клетка считается «в радиусе», если расстояние до центра башни ≤ mergeRadiusPx × это (запас от округлений)
 const AIM_STEPS = 8; // «Шприц»: сколько направлений луча (тап по башне — шаг 45°; как AIM_STEPS в src/level.ts; 0 — вправо, дальше по часовой стрелке)
 const BEAM_MARGIN_PX = 22; // «Шприц»: насколько дальше полуширины луча от линии выстрела может лежать середина дорожки, чтобы луч её задел (как в игре)
 const MERGE_ZONE_PX = 170; // «Шипучка»: участки дорожки ближе этого к узлу слияния считаются «кучей»
 const MERGE_FACTOR = 2; // … и ценятся вдвое
-const MERGE_UP_TO = { novice: -1, average: -1, strong: 1, expert: 99 }; // башни какого уровня и ниже профиль сливает (−1 — не сливает совсем): «сильный» — только пары первого уровня, «особо сильный» — всё
+const MERGE_UP_TO = { novice: -1, average: -1, strong: 1, expert: 99 }; // башни какого уровня и ниже профиль сливает (−1 — не сливает совсем): «сильный» — только пары первого уровня, «особо сильный» — всё; сливают только пары в радиусе mergeRadiusPx
 // Какую мутацию выбирает профиль (номер варианта 0/1 по порогам): «сильный» всегда первую; «особо сильный» — по таблице (Сироп — «Едкая» в конце, чтобы лужа ещё и убивала; Шприц — «Бронебойный», затем «Второй луч»)
 const MUTATION_PICKS = { strong: { default: [0, 0] }, expert: { pill: [0, 0], syrup: [0, 0], fizz: [0, 0], syringe: [1, 0] } };
 const STALL_SEC = 30; // игровое время не идёт столько реальных секунд подряд — партия зависла
@@ -473,6 +484,13 @@ function buildWorld(graph, map, cols, rows) {
 function makePlayer(profile, { world, rng, buttons }) {
   const available = (id) => TABLE[id] && buttons.includes(id) && !EXCLUDE.has(id);
   const pick = (list) => list[Math.floor(rng() * list.length)];
+  /** Проверка «клетка в радиусе слияния от стоящей башни этого вида 1-го уровня (мутация не ждёт)»; null — таких башен нет (тогда как раньше). */
+  const nearPartner = (view, type) => {
+    const radius = (view.s.mergeRadiusPx ?? 0) * MERGE_NEAR_MARGIN;
+    const partners = view.towers.filter((tw) => tw.id === type && tw.level === 1 && tw.pending === null && tw.level < view.s.maxTowerLevel);
+    if (!radius || !partners.length) return null;
+    return (cell) => partners.some((tw) => Math.hypot(tw.x - cell.x, tw.y - cell.y) <= radius);
+  };
 
   if (profile === 'novice') {
     return {
@@ -560,9 +578,19 @@ function makePlayer(profile, { world, rng, buttons }) {
       }
       candidates.sort((a, b) => b.v - a.v); // сортировка устойчивая: при равных оценках первой остаётся клетка с меньшим номером, как раньше
       let best = candidates[0] ?? null;
+      // Слияние по радиусу: если уже стоит башня того же вида уровня 1 (новая — тоже уровня 1), хорошая клетка в радиусе слияния от неё предпочтительнее
+      const near = MERGE_UP_TO[profile] >= 1 ? nearPartner(view, chosen.type) : null;
+      const share = TABLE[chosen.type].targeting === 'beam' || chosen.type === 'syrup' ? MERGE_NEAR_SHARE_PICKY : MERGE_NEAR_SHARE;
+      const nearPool = near && best ? candidates.filter((x) => x.v >= best.v * share && near(x.c)) : [];
       if (imperfect && best) {
-        const pool = candidates.slice(0, Math.max(STRONG_PICK_MIN, Math.ceil(candidates.length * STRONG_PICK_SHARE)));
-        best = pool[Math.floor(rng() * pool.length)];
+        const pool = nearPool.length
+          ? nearPool.filter((x) => candidates.indexOf(x) < Math.max(STRONG_PICK_MIN, Math.ceil(candidates.length * MERGE_NEAR_STRONG_SHARE)))
+          : [];
+        const usual = candidates.slice(0, Math.max(STRONG_PICK_MIN, Math.ceil(candidates.length * STRONG_PICK_SHARE)));
+        const from = pool.length ? pool : usual;
+        best = from[Math.floor(rng() * from.length)];
+      } else if (nearPool.length) {
+        best = nearPool[0]; // candidates уже по убыванию оценки: лучшая из клеток в радиусе слияния
       }
       if (!best) {
         if (needFirst) gaveUp.add(chosen.type);
@@ -657,7 +685,7 @@ async function playGame(browser, baseUrl, profile, run, metaLevels = null, salt 
 
     if (!WORLD) {
       const graph = await page.evaluate(() => window.__pvb.getGraph());
-      WORLD = buildWorld(graph, { orgW: s.map.orgW, tile: s.map.tile, pathWidth: MAP_PATH_WIDTH }, s.map.cols, s.map.rows);
+      WORLD = buildWorld(graph, { orgW: s.map.orgW, tile: s.map.tile, pathWidth: MAP_PATH_WIDTH, pathMarginTile: 0.5 }, s.map.cols, s.map.rows);
     }
     if (!WORLD.reported) {
       WORLD.reported = true;
@@ -676,7 +704,8 @@ async function playGame(browser, baseUrl, profile, run, metaLevels = null, salt 
     }
 
     // 2) поставить башню: кнопка на панели (если не выбрана), при необходимости сдвинуть карту, тап по клетке; проверка по состоянию
-    const record = { builds: [], failures: [], anomalies: [], spent: 0, merges: 0, picks: 0 };
+    const record = { builds: [], failures: [], anomalies: [], spent: 0, merges: 0, mergeMisses: 0, picks: 0 };
+    const missSeen = new Set(); // группы башен без пары в радиусе, уже посчитанные в mergeMisses
     const ensureVisible = async (col, row) => {
       for (let k = 0; k < 3; k++) {
         const g = c2g(await cellPos(col, row));
@@ -738,45 +767,74 @@ async function playGame(browser, baseUrl, profile, run, metaLevels = null, salt 
       record.anomalies.push(`мутация в ${tw.col},${tw.row}: кнопка варианта ${index} не сработала`);
       return false;
     };
-    /** Одно слияние: берёт пару одинаковых башен (вид и уровень не выше предела профиля), выбирает первую («Слить»), тапает по второй (у неё остаются мутации). Возвращает true, если слилось. */
+    /**
+     * Одно слияние (правило игры: пара одинаковых башен — вид и уровень — в радиусе mergeRadiusPx друг от друга, мутация у обеих выбрана).
+     * Башни группируются по виду и уровню (не выше предела профиля); в группе ищется пара в радиусе. Результат стоит в клетке второй башни (target),
+     * поэтому target — та, у которой охват дорожки больше (при равенстве — первая); source — другая: выбирается («Слить»), затем тап по target.
+     * Нет пары в радиусе — не сливает; группа ≥ 2 башен без пары считается в mergeMisses (один раз, пока состав группы не изменился).
+     * Возвращает true, если слилось.
+     */
     const mergeOnce = async (s0) => {
       const limit = MERGE_UP_TO[profile];
       if (limit < 1) return false;
+      const radius = s0.mergeRadiusPx;
       const groups = new Map();
       for (const tw of s0.towers) {
-        if (tw.level > limit || tw.level >= s0.maxTowerLevel) continue;
+        if (tw.level > limit || tw.level >= s0.maxTowerLevel || tw.pending !== null) continue;
         const key = `${tw.id}|${tw.level}`;
         if (!groups.has(key)) groups.set(key, []);
         groups.get(key).push(tw);
       }
+      let found = null;
       for (const list of groups.values()) {
         if (list.length < 2) continue;
-        list.sort((a, b) => b.picks.length - a.picks.length);
-        const [target, source] = [list[0], list[1]];
-        let st = await selectTower(source);
-        if (!st || !st.ui.card.merge.enabled) return false;
-        await clickCard(st.ui.card.merge);
-        st = await pollUntil(page, (x) => x.mergeMode || x.state !== 'playing', 800);
-        if (!st.mergeMode) {
-          record.anomalies.push(`слияние не включилось (${source.id} ${source.col},${source.row})`);
-          return false;
+        let pair = null;
+        for (let i = 0; i < list.length && !pair; i++) {
+          for (let j = i + 1; j < list.length; j++) {
+            if (Math.hypot(list[i].x - list[j].x, list[i].y - list[j].y) <= radius) {
+              pair = [list[i], list[j]];
+              break;
+            }
+          }
         }
-        const before = st.merges;
-        if (!(await ensureVisible(target.col, target.row))) {
-          await clickCard(st.ui.card.merge); // отмена: вторая башня не видна на экране
-          return false;
+        if (pair) {
+          found ??= pair;
+        } else {
+          const sig = list.map((tw) => `${tw.id}${tw.level}@${tw.col},${tw.row}`).sort().join(' ');
+          if (!missSeen.has(sig)) {
+            missSeen.add(sig);
+            record.mergeMisses++;
+          }
         }
-        await input.tap(await cellPos(target.col, target.row));
-        st = await pollUntil(page, (x) => x.merges > before || x.state !== 'playing', 1200);
-        if (st.merges > before) {
-          record.merges++;
-          const tw = st.towers.find((x) => x.col === target.col && x.row === target.row);
-          if (tw && tw.pending !== null) await pickMutation(tw);
-          return true;
-        }
-        record.anomalies.push(`слияние не удалось: ${source.id} ${source.col},${source.row} → ${target.col},${target.row}`);
+      }
+      if (!found) return false;
+      const coverOf = (tw) => {
+        const cell = WORLD.byKey.get(`${tw.col},${tw.row}`);
+        return cell ? WORLD.cover(tw.id, cell) : 0;
+      };
+      const [target, source] = coverOf(found[1]) > coverOf(found[0]) ? [found[1], found[0]] : [found[0], found[1]];
+      let st = await selectTower(source);
+      if (!st || !st.ui.card.merge.enabled) return false;
+      await clickCard(st.ui.card.merge);
+      st = await pollUntil(page, (x) => x.mergeMode || x.state !== 'playing', 800);
+      if (!st.mergeMode) {
+        record.anomalies.push(`слияние не включилось (${source.id} ${source.col},${source.row})`);
         return false;
       }
+      const before = st.merges;
+      if (!(await ensureVisible(target.col, target.row))) {
+        await clickCard(st.ui.card.merge); // отмена: вторая башня не видна на экране
+        return false;
+      }
+      await input.tap(await cellPos(target.col, target.row));
+      st = await pollUntil(page, (x) => x.merges > before || x.state !== 'playing', 1200);
+      if (st.merges > before) {
+        record.merges++;
+        const tw = st.towers.find((x) => x.col === target.col && x.row === target.row);
+        if (tw && tw.pending !== null) await pickMutation(tw);
+        return true;
+      }
+      record.anomalies.push(`слияние не удалось: ${source.id} ${source.col},${source.row} → ${target.col},${target.row}`);
       return false;
     };
     const buy = async (choice) => {
@@ -956,6 +1014,7 @@ async function playGame(browser, baseUrl, profile, run, metaLevels = null, salt 
       realSec: Math.round((Date.now() - realStart) / 100) / 10,
       timeline,
       merges: record.merges,
+      mergeMisses: record.mergeMisses,
       picks: record.picks,
       levels: last.towers.reduce((acc, tw) => ((acc[tw.level] = (acc[tw.level] ?? 0) + 1), acc), {}),
       builds: record.builds,
@@ -979,7 +1038,7 @@ function gameLine(g, runs) {
   const head = `[${PROFILE_TITLES[g.profile]} ${g.run}/${runs}]`;
   if (g.result === 'error') return `${head} ОШИБКА: ${g.error}`;
   const towers = KNOWN_TOWERS.map((id) => `${SHORT[id] ?? id} ${g.towers[id]}`).join(' ');
-  const merged = g.merges ? ` · слияний ${g.merges}, мутаций ${g.picks}` : '';
+  const merged = g.merges || g.mergeMisses || g.picks ? ` · слияний ${g.merges} (мимо ${g.mergeMisses ?? 0}), мутаций ${g.picks}` : '';
   return `${head} ${RESULT_RU[g.result]} · волна ${g.wave}/${g.waveTotal} · жизни ${g.lives}/${g.maxLives} · убито ${g.kills}, дошло ${g.leaked} · монеты ${g.coins} · башни ${towers}${merged} · игра ${f1(g.gameSec)} с · реал. ${f1(g.realSec)} с`;
 }
 
@@ -1005,13 +1064,15 @@ function summarize(games) {
       avgGameSec: mean(own.map((g) => g.gameSec)),
       avgKills: mean(own.map((g) => g.kills)),
       avgLeaked: mean(own.map((g) => g.leaked)),
+      avgMerges: mean(own.map((g) => g.merges ?? 0)),
+      avgMergeMisses: mean(own.map((g) => g.mergeMisses ?? 0)),
     };
   }
   return out;
 }
 
 function printSummary(summary) {
-  const cols = ['Профиль', 'Партий', 'Побед', 'Потеряно жизней', 'Волна гибели', `Башни (${KNOWN_TOWERS.map((id) => SHORT[id] ?? id).join('/')})`, 'Монеты в конце', 'Реал. время партии'];
+  const cols = ['Профиль', 'Партий', 'Побед', 'Потеряно жизней', 'Волна гибели', `Башни (${KNOWN_TOWERS.map((id) => SHORT[id] ?? id).join('/')})`, 'Монеты в конце', 'Слияний (мимо)', 'Реал. время партии'];
   const rows = Object.entries(summary).map(([profile, x]) => [
     PROFILE_TITLES[profile],
     `${x.games}${x.timeout ? ` (timeout ${x.timeout})` : ''}`,
@@ -1020,6 +1081,7 @@ function printSummary(summary) {
     x.lost ? f1(x.avgLossWave) : '—',
     KNOWN_TOWERS.map((id) => f1(x.avgTowers[id])).join(' / '),
     f1(x.avgCoinsEnd),
+    `${f1(x.avgMerges)} (${f1(x.avgMergeMisses)})`,
     `${f1(x.avgRealSec)} с (игра ${f1(x.avgGameSec)} с)`,
   ]);
   const widths = cols.map((c, i) => Math.max(c.length, ...rows.map((r) => r[i].length)));
@@ -1138,7 +1200,7 @@ async function ladderLane(profile, run) {
       rec.results.push(game.result);
       rec.bought.push(buy.bought);
       rec.dnaGained.push(gained);
-      console.log(`[${tag}, уровень ${level}, партия ${n}] ${RESULT_RU[game.result]} · волна ${game.wave}/${game.waveTotal} · жизни ${game.lives}/${game.maxLives}${stars ? ` · звёзд ${stars}` : ''} · очков ДНК +${gained} (остаток ${lane.dna}) · куплено ${buy.bought.length ? buy.bought.join(', ') : '—'} · игра ${game.gameSec} с, реал. ${game.realSec} с`);
+      console.log(`[${tag}, уровень ${level}, партия ${n}] ${RESULT_RU[game.result]} · волна ${game.wave}/${game.waveTotal} · жизни ${game.lives}/${game.maxLives}${stars ? ` · звёзд ${stars}` : ''} · очков ДНК +${gained} (остаток ${lane.dna}) · куплено ${buy.bought.length ? buy.bought.join(', ') : '—'} · слияний ${game.merges} (мимо ${game.mergeMisses}) · игра ${game.gameSec} с, реал. ${game.realSec} с`);
       for (const a of game.anomalies ?? []) console.log(`      ⚠ ${a}`);
       saveResults();
       if (game.result === 'won') {
@@ -1208,7 +1270,7 @@ try {
           levels = buy.levels;
           dna = buy.dna;
           entry.bought.push(buy.bought);
-          console.log(`[${PROFILE_TITLES[profile]} серия ${run}, партия ${n}] ${RESULT_RU[game.result]} · волна ${game.wave}/${game.waveTotal} · очков ДНК +${gained} (остаток ${dna}) · куплено ${buy.bought.length ? buy.bought.join(', ') : '—'} · уровни ${Object.entries(levels).map(([id, v]) => `${id} ${v}`).join(', ')} · игра ${game.gameSec} с, реал. ${game.realSec} с`);
+          console.log(`[${PROFILE_TITLES[profile]} серия ${run}, партия ${n}] ${RESULT_RU[game.result]} · волна ${game.wave}/${game.waveTotal} · очков ДНК +${gained} (остаток ${dna}) · куплено ${buy.bought.length ? buy.bought.join(', ') : '—'} · уровни ${Object.entries(levels).map(([id, v]) => `${id} ${v}`).join(', ')} · слияний ${game.merges} (мимо ${game.mergeMisses}) · игра ${game.gameSec} с, реал. ${game.realSec} с`);
           for (const a of game.anomalies ?? []) console.log(`      ⚠ ${a}`);
           if (game.result === 'won') {
             entry.firstWin = n;

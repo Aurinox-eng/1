@@ -228,7 +228,7 @@ export function makeGraphGeometry(graph, map, cols, rows) {
   const center = (col, row) => ({ x: map.orgW + map.tile * (col + 0.5), y: map.tile * (row + 0.5) });
   const edges = graph.edges;
   const byId = new Map(edges.map((e) => [e.id, e]));
-  const limit = map.pathWidth / 2 + 0.45 * map.tile; // 89,35 px при tile 103 (запас, чтобы основание башни не заходило на полосу дорожки)
+  const limit = map.pathWidth / 2 + (map.pathMarginTile ?? 0.45) * map.tile; // запас в долях клетки (по умолчанию 0,45: 89,35 px при tile 103), чтобы основание башни не заходило на полосу дорожки; бот передаёт 0,5 — как PATH_TILES в src/level.ts
   const distToSegment = (p, a, b) => {
     const dx = b[0] - a[0];
     const dy = b[1] - a[1];
