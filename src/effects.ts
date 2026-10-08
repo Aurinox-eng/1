@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import { ART_DENSITY, bakeArt, ringImage, squareBox } from './art';
 import { CONFIG } from './config';
 import type { BacteriumKind } from './objects/Bacterium';
+import { num } from './i18n';
 import { COLORS, FONT, TEXT_COLORS } from './theme';
 
 /**
@@ -54,6 +55,19 @@ interface PopupAnim {
   busy: boolean;
 }
 
+/** Число урона над бактерией: чья, сколько набрано, доля прочности, цвет, когда начато (мс с последнего удара) и на какой высоте стартует. */
+interface DamageAnim {
+  label: Phaser.GameObjects.Text;
+  key: string;
+  target: number;
+  value: number;
+  share: number;
+  fromY: number;
+  ms: number;
+  scale: number;
+  busy: boolean;
+}
+
 interface FlashAnim {
   disc: Phaser.GameObjects.Image;
   scale: number;
@@ -72,12 +86,14 @@ export class Effects {
   blasts = 0;
   beams = 0;
   splats = 0;
+  damageNumbers = 0;
 
   /** Один эмиттер на все разлёты частиц. */
   private readonly emitter: Phaser.GameObjects.Particles.ParticleEmitter;
   /** Запас надписей «+монеты» и вспышек (создаются по мере надобности, не больше предела) — и какие из них сейчас на экране. */
   private readonly popupPool: PopupAnim[] = [];
   private readonly flashPool: FlashAnim[] = [];
+  private readonly damagePool: DamageAnim[] = [];
   /** Когда были последние уничтожения (реальные часы, мс): по ним считается, сколько частиц давать на каждое. */
   private readonly killTimes: number[] = [];
 
@@ -103,6 +119,18 @@ export class Effects {
       const p = Math.min(1, a.ms / popupMs);
       const e = cubicOut(p);
       a.label.setY(a.fromY + (a.toY - a.fromY) * e).setAlpha(1 - e);
+      if (p >= 1) {
+        a.busy = false;
+        a.label.setVisible(false);
+      }
+    }
+    const damageMs = CONFIG.feedback.damageNumMs;
+    for (const a of this.damagePool) {
+      if (!a.busy) continue;
+      a.ms += deltaMs;
+      const p = Math.min(1, a.ms / damageMs);
+      const pop = 1 + 0.45 * Math.max(0, 1 - a.ms / 130);
+      a.label.setY(a.fromY - 46 * cubicOut(p)).setScale(a.scale * pop).setAlpha(p < 0.55 ? 1 : 1 - (p - 0.55) / 0.45);
       if (p >= 1) {
         a.busy = false;
         a.label.setVisible(false);
@@ -195,6 +223,60 @@ export class Effects {
     a.fromY = y - 20 - Math.random() * 26;
     a.toY = y - 90 - Math.random() * 14;
     a.label.setPosition(x + (Math.random() - 0.5) * 56, a.fromY).setAlpha(1).setVisible(true);
+    this.layer.bringToTop(a.label);
+  }
+
+  /**
+   * Число урона над бактерией `target` (номер бактерии): value — сколько HP снял удар, share — доля её полной прочности, color — цвет башни.
+   * Удары по той же бактерии в пределах `damageNumMergeMs` складываются в одно число (очередь Шприца, взрыв и снаряд подряд). Числа берутся из запаса;
+   * если все заняты, вытесняется самое мелкое (по доле прочности), если новое крупнее, иначе новое не показывается.
+   */
+  damageNumber(target: number, x: number, y: number, value: number, share: number, color: number): void {
+    if (value <= 0) return;
+    this.damageNumbers++;
+    const { damageNumMergeMs, damageNumMax, damageNumSteps, damageNumSizes } = CONFIG.feedback;
+    let a = this.damagePool.find((p) => p.busy && p.target === target && p.ms < damageNumMergeMs);
+    if (a) {
+      a.value += value;
+      a.share += share;
+      a.fromY = a.label.y;
+    } else {
+      a = this.damagePool.find((p) => !p.busy);
+      if (!a) {
+        if (this.damagePool.length < damageNumMax) {
+          const label = this.scene.add
+            .text(0, 0, '', { fontFamily: FONT, fontSize: '30px', fontStyle: 'bold', color: '#ffffff', stroke: TEXT_COLORS.stroke, strokeThickness: 5, resolution: 2 })
+            .setOrigin(0.5);
+          this.layer.add(label);
+          a = { label, key: '', target, value: 0, share: 0, fromY: y, ms: 0, scale: 1, busy: false };
+          this.damagePool.push(a);
+        } else {
+          let weakest: DamageAnim | null = null;
+          for (const p of this.damagePool) if (!weakest || p.share < weakest.share) weakest = p;
+          if (!weakest || weakest.share >= share) return;
+          a = weakest;
+        }
+      }
+      a.target = target;
+      a.value = value;
+      a.share = share;
+      a.fromY = y + (Math.random() - 0.5) * 10;
+      a.label.setX(x + (Math.random() - 0.5) * 30);
+    }
+    a.ms = 0;
+    a.busy = true;
+    const big = a.share >= damageNumSteps[damageNumSteps.length - 1] * 1.6;
+    const shown = a.value < 10 ? num(Math.round(a.value * 10) / 10) : String(Math.round(a.value));
+    const hex = big ? '#ffd84d' : '#' + color.toString(16).padStart(6, '0');
+    const key = `${shown}|${hex}`;
+    if (key !== a.key) {
+      a.key = key;
+      a.label.setText(shown).setColor(hex);
+    }
+    let level = 0;
+    while (level < damageNumSteps.length && a.share >= damageNumSteps[level]) level++;
+    a.scale = damageNumSizes[Math.min(level, damageNumSizes.length - 1)];
+    a.label.setPosition(a.label.x, a.fromY).setScale(a.scale).setAlpha(1).setVisible(true);
     this.layer.bringToTop(a.label);
   }
 

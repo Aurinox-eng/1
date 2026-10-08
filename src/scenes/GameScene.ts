@@ -26,6 +26,8 @@ import { Panel, VIEW_W } from '../ui/Panel';
 const { width: W, height: H } = CONFIG.screen;
 /** Самое сильное отдаление камеры: карта помещается целиком и по ширине, и по высоте (≈ 0,499). */
 const ZOOM_MIN = Math.min(VIEW_W / WORLD.w, H / WORLD.h);
+/** Цвет числа урона по способу стрельбы башни: Таблетка — белый, Шипучка — розовый, Шприц — бирюзовый, лужа (ядовитая мутация Сиропа) — оранжевый. */
+const DAMAGE_COLORS: Record<TowerStats['targeting'], number> = { radius: 0xffffff, area: COLORS.fizz, beam: COLORS.needle, puddle: COLORS.puddle };
 /** Сколько миллисекунд висит строка «Новая бактерия: …» / «Открыта башня: …» (игра при этом идёт). */
 const NEWS_MS = 4200;
 /** О чём игрок уже узнал из строк-уведомлений («b:тип» — бактерия, «t:башня» — башня): повторные партии подряд их не повторяют. */
@@ -706,12 +708,16 @@ export class GameScene extends Phaser.Scene {
   /** Попадание: урон (у бронированных броня вычитается, если мутация не «бронебойная»); «кислота» делает следующие удары сильнее. Если бактерия погибла — монеты, частицы, распад делящейся. */
   private damageBacterium(bacterium: Bacterium, st: TowerStats, quiet = false, damage: number = st.damage): void {
     if (bacterium.hp <= 0) return;
-    if (bacterium.hit(damage, st.armorPierce)) {
+    const killed = bacterium.hit(damage, st.armorPierce);
+    this.effects.damageNumber(bacterium.id, bacterium.x, bacterium.y - bacterium.radius * 0.7, bacterium.lastDealt, bacterium.lastDealt / bacterium.maxHp, DAMAGE_COLORS[st.targeting]);
+    if (killed) {
       this.killBacterium(bacterium);
       return;
     }
     if (st.acidSec > 0) bacterium.expose(st.acidMul, st.acidSec);
-    this.effects.flash(bacterium.x, bacterium.y, bacterium.radius * 0.6, st.targeting === 'beam' ? COLORS.needle : COLORS.hit);
+    // Чем сильнее удар относительно прочности бактерии, тем крупнее вспышка: до вдвое больше обычной
+    const strength = Math.min(1, (bacterium.lastDealt / bacterium.maxHp) * 2);
+    this.effects.flash(bacterium.x, bacterium.y, bacterium.radius * 0.6 * (1 + strength), st.targeting === 'beam' ? COLORS.needle : COLORS.hit);
     if (!quiet) sfx.hit(bacterium.kind);
   }
 
@@ -1033,15 +1039,21 @@ export class GameScene extends Phaser.Scene {
     this.refreshCard();
   }
 
+  /** Урон в секунду одной цели: удар (у луча — очередь ударов, у «Двойного выстрела» — все цели) делится на паузу между выстрелами. */
+  private dps(st: TowerStats): number {
+    const hits = st.targeting === 'beam' ? Math.max(1, st.beamPulses) * (st.secondBeam ? 2 : 1) : 1 + st.extraTargets;
+    return (st.damage * hits) / (st.cooldownMs / 1000);
+  }
+
   /** Числа для карточки: у каждой башни свои три строки. */
   private cardStats(tower: Tower): string[] {
     const st = tower.stats;
     const n = (x: number): string => num(Math.round(x * 10) / 10);
     const pause = t('statCooldown', { n: n(st.cooldownMs / 1000) });
     if (st.targeting === 'puddle') return [t('statPuddle', { r: Math.round(st.puddleRadius), s: n(st.puddleSec) }), t('statSlow', { n: n(st.slowFactor) }), pause];
-    if (st.targeting === 'beam') return [t('statDamage', { n: n(st.damage) }), t(st.secondBeam ? 'statBeams' : 'statBeam', { n: st.secondBeam ? 2 : st.beamPulses }), pause];
-    if (st.targeting === 'area') return [t('statDamage', { n: n(st.damage) }), t('statBlast', { r: Math.round(st.blastRadius) }), pause];
-    return [t('statDamage', { n: n(st.damage) }), pause, t('statRange', { n: Math.round(st.range) })];
+    if (st.targeting === 'beam') return [t('statDps', { n: n(this.dps(st)) }), t(st.secondBeam ? 'statBeams' : 'statBeam', { n: st.secondBeam ? 2 : st.beamPulses }), pause];
+    if (st.targeting === 'area') return [t('statDps', { n: n(this.dps(st)) }), t('statBlast', { r: Math.round(st.blastRadius) }), pause];
+    return [t('statDps', { n: n(this.dps(st)) }), pause, t('statRange', { n: Math.round(st.range) })];
   }
 
   /** Перерисовать карточку выбранной башни (или скрыть, если башня не выбрана). */
@@ -1540,6 +1552,7 @@ export class GameScene extends Phaser.Scene {
         flashes: this.effects.flashes,
         bursts: this.effects.bursts,
         popups: this.effects.popups,
+        damageNumbers: this.effects.damageNumbers,
         placements: this.effects.placements,
         lifeLosses: this.effects.lifeLosses,
         zaps: this.effects.zaps,
