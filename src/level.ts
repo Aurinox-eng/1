@@ -88,10 +88,10 @@ export function remainingNear(x: number, y: number): number {
 
 
 /** Клетки, задетые дорожкой (центр клетки ближе к дорожке, чем полширины дорожки + 0,45 клетки): башни там ставить нельзя.
- *  Запас 0,5 клетки = полкаймы дорожки + радиус основания башни + зазор, поэтому башня не заходит на полосу. */
+ *  Запас 0,55 клетки (≈ 42 px при клетке 77,25) = полкаймы дорожки + радиус основания башни + зазор, поэтому башня не заходит на полосу. */
 export const PATH_TILES: ReadonlySet<string> = (() => {
   const { pathWidth, tile } = CONFIG.map;
-  const limit = pathWidth / 2 + 0.5 * tile;
+  const limit = pathWidth / 2 + 0.55 * tile;
   const tiles = new Set<string>();
   for (let col = 0; col < LEVEL.cols; col++) {
     for (let row = 0; row < LEVEL.rows; row++) {

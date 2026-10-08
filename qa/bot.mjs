@@ -685,7 +685,7 @@ async function playGame(browser, baseUrl, profile, run, metaLevels = null, salt 
 
     if (!WORLD) {
       const graph = await page.evaluate(() => window.__pvb.getGraph());
-      WORLD = buildWorld(graph, { orgW: s.map.orgW, tile: s.map.tile, pathWidth: MAP_PATH_WIDTH, pathMarginTile: 0.5 }, s.map.cols, s.map.rows);
+      WORLD = buildWorld(graph, { orgW: s.map.orgW, tile: s.map.tile, pathWidth: MAP_PATH_WIDTH, pathMarginTile: 0.55 }, s.map.cols, s.map.rows);
     }
     if (!WORLD.reported) {
       WORLD.reported = true;
