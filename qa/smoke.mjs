@@ -139,7 +139,7 @@ if (['stage-1', 'stage-1b', 'stage-1b-qa', 'td-1-mockup', 'tmp'].includes(tag)) 
   process.exit(2);
 }
 
-const SCENARIOS = ['desktop-ru', 'phone-ru', 'desktop-en', 'phone-en', 'rules', 'graph', 'combat', 'dash', 'split', 'spore', 'armored', 'intro', 'lose-ru', 'lose-en', 'win-ru', 'win-en', 'towers', 'card', 'merge', 'mutations', 'sell', 'special', 'danger', 'rotate', 'production', 'fullgame', 'locked', 'strip', 'restart-button', 'deflation', 'camera-fit', 'colors', 'meta-save', 'meta-dna', 'meta-shop', 'meta-effects', 'tree-effects', 'tree-shop', 'level-waves', 'progress-save', 'stars', 'menu-flow', 'levels-lock']
+const SCENARIOS = ['desktop-ru', 'phone-ru', 'desktop-en', 'phone-en', 'rules', 'graph', 'combat', 'dash', 'split', 'spore', 'armored', 'intro', 'lose-ru', 'lose-en', 'win-ru', 'win-en', 'towers', 'card', 'merge', 'mutations', 'sell', 'special', 'danger', 'rotate', 'production', 'fullgame', 'locked', 'strip', 'almanac', 'almanac-pause', 'damage-numbers', 'sell-gap', 'restart-button', 'deflation', 'camera-fit', 'colors', 'meta-save', 'meta-dna', 'meta-shop', 'meta-effects', 'tree-effects', 'tree-shop', 'level-waves', 'progress-save', 'stars', 'menu-flow', 'levels-lock']
 const only = args.only === undefined ? null : String(args.only);
 if (only !== null && !SCENARIOS.includes(only)) {
   console.error(`Неизвестный сценарий --only=${only}. Есть: ${SCENARIOS.join(', ')}`);
@@ -5675,6 +5675,189 @@ async function runColors(browser, baseUrl) {
   }
 }
 
+// ================================================================== «Альманах», числа урона, зазор между «Слить» и «Продать» (8 октября 2026)
+
+const capId = (id) => id.charAt(0).toUpperCase() + id.slice(1);
+/** Описание экрана вне партии (window.__pvbUi.get()) или null. Работает и когда партия приостановлена под альманахом. */
+const uiOf = (page) => page.evaluate(() => window.__pvbUi?.get() ?? null);
+/** Ждёт, пока описание экрана подойдёт под условие; бросает ошибку по таймауту. */
+async function waitUiWhere(page, predicate, timeoutMs, label) {
+  const started = Date.now();
+  while (Date.now() - started < timeoutMs) {
+    const u = await uiOf(page);
+    if (predicate(u)) return u;
+    await sleep(60);
+  }
+  throw new Error(`Не дождались: ${label}`);
+}
+
+/** Строки альманаха, которые должна показать игра: «Название: короткое описание» по таблице башен или типов (тексты из i18n.ts). */
+function almanacRows(tab, li) {
+  const ids = tab === 'towers' ? TOWER_ORDER : KINDS;
+  return ids.map((id) => ({ name: readI18n(tab === 'towers' ? `tower${capId(id)}` : `bacName${capId(id)}`)[li], line: readI18n(tab === 'towers' ? `almTower${capId(id)}` : `almBac${capId(id)}`)[li] }));
+}
+const rowsMatch = (texts, rows) => texts.length === rows.length && rows.every((r, i) => texts[i].startsWith(`${r.name}: `) && texts[i].length > r.name.length + 2);
+
+/** Экран «Альманах» из главного меню: вкладки «Башни» (4 строки) и «Бактерии» (13 строк), «Назад» → меню. Компьютер ru, телефон ru; en — один раз на компьютере. */
+async function runAlmanac(browser, baseUrl) {
+  for (const [deviceKey, lang] of [['desktop', 'ru'], ['phone', 'ru'], ['desktop', 'en']]) {
+    const device = VIEWPORTS[deviceKey];
+    const p = `[альманах, ${device.label}, ${lang}]`;
+    const li = lang === 'ru' ? 0 : 1;
+    const context = await newDeviceContext(browser, device, lang);
+    const app = await openMenu(context, baseUrl, p, { isTouch: device.hasTouch });
+    let u = await app.ui();
+    check(`${p} в главном меню есть кнопка «Альманах» (внутри экрана, не налезает на «Играть» и «Улучшения»)`, Boolean(u.buttons.almanac) && insideScreen(u.buttons.almanac) && !overlaps(u.buttons.almanac, u.buttons.play) && !overlaps(u.buttons.almanac, u.buttons.upgrades), JSON.stringify(u.buttons));
+    await app.tapRect(u.buttons.almanac);
+    u = await app.waitUi('almanac', 'экран «Альманах»');
+    // Первая вкладка — «Башни»: по строке на башню
+    const towerRows = almanacRows('towers', li);
+    check(`${p} вкладка «Башни»: ${TOWER_ORDER.length} строк (${TOWER_ORDER.join(', ')}), каждая «Название: описание» из i18n.ts`, rowsMatch(u.texts, towerRows), JSON.stringify(u.texts));
+    check(`${p} кнопки «Назад», «Башни» и «Бактерии» внутри экрана и не налезают друг на друга`, [u.buttons.back, u.buttons.towers, u.buttons.bacteria].every(insideScreen) && !overlaps(u.buttons.back, u.buttons.towers) && !overlaps(u.buttons.towers, u.buttons.bacteria) && !overlaps(u.buttons.back, u.buttons.bacteria), JSON.stringify(u.buttons));
+    await frames(app.page, 3);
+    await shot(app.page, `almanac-towers-${deviceKey}-${lang}`);
+    await app.tapRect(u.buttons.bacteria);
+    u = await waitUiWhere(app.page, (x) => x && x.scene === 'almanac' && x.texts.length === KINDS.length, 5000, 'вкладка «Бактерии» (строки сменились)').catch(async () => (await app.ui()) ?? { scene: 'нет экрана', texts: [] });
+    check(`${p} вкладка «Бактерии»: ${KINDS.length} строк, каждая «Название: описание» из i18n.ts`, u.scene === 'almanac' && rowsMatch(u.texts, almanacRows('bacteria', li)), `экран ${u.scene}, строк ${u.texts.length}: ${JSON.stringify(u.texts).slice(0, 300)}`);
+    await frames(app.page, 3);
+    await shot(app.page, `almanac-bacteria-${deviceKey}-${lang}`);
+    // Обратно на «Башни», затем «Назад» в меню
+    await app.tapRect(u.buttons.towers);
+    u = await waitUiWhere(app.page, (x) => x && x.scene === 'almanac' && x.texts.length === TOWER_ORDER.length, 5000, 'вкладка «Башни» снова').catch(async () => (await app.ui()) ?? { scene: 'нет экрана', texts: [] });
+    check(`${p} тап по вкладке «Башни» возвращает ${TOWER_ORDER.length} строк башен`, u.scene === 'almanac' && rowsMatch(u.texts, towerRows), `экран ${u.scene}, строк ${u.texts.length}`);
+    await app.tapRect(u.buttons.back);
+    u = await app.waitUi('menu', 'меню после «Назад» из альманаха');
+    check(`${p} «Назад» с альманаха ведёт в главное меню`, u.scene === 'menu', '');
+    await context.close();
+  }
+}
+
+/** «Альманах» с паузы партии: кнопки на паузе, альманах поверх приостановленной партии, «Назад» возвращает на паузу, тап по экрану продолжает игру. */
+async function runAlmanacPause(browser, baseUrl) {
+  for (const [deviceKey, lang] of [['desktop', 'ru'], ['phone', 'en']]) {
+    const device = VIEWPORTS[deviceKey];
+    const p = `[альманах с паузы, ${device.label}, ${lang}]`;
+    const li = lang === 'ru' ? 0 : 1;
+    const context = await newDeviceContext(browser, device, lang);
+    const game = await openGame(context, baseUrl, p, { cfg: 'waves.firstDelaySec:9999', isTouch: device.hasTouch });
+    const { page } = game;
+    let s = await game.state();
+    await game.input.tap(game.g(s.ui.pauseButton.x, s.ui.pauseButton.y));
+    s = await waitFor(page, (x) => x.state === 'paused', 10000, 'пауза');
+    await sleep(500); // тап по кнопкам паузы принимается через 0,25 с после её начала
+    s = await game.state();
+    check(`${p} на паузе две кнопки: «Альманах» слева и «В меню» справа, обе внутри экрана и не налезают друг на друга`, s.pauseAlmanacButton !== null && s.pauseMenuButton !== null && insideScreen(s.pauseAlmanacButton) && insideScreen(s.pauseMenuButton) && !overlaps(s.pauseAlmanacButton, s.pauseMenuButton) && s.pauseAlmanacButton.x < s.pauseMenuButton.x, `альманах ${JSON.stringify(s.pauseAlmanacButton)}, в меню ${JSON.stringify(s.pauseMenuButton)}`);
+    await frames(page, 3);
+    await shot(page, `almanac-pause-overlay-${deviceKey}-${lang}`);
+    const elapsed0 = s.elapsed;
+    // Тап по кнопке «Альманах». На медленном сервере тап изредка не доходит с первого раза (как у «В меню» на паузе): до трёх тапов с паузой в 3 с
+    let u = null;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      await game.input.tap(game.g(s.pauseAlmanacButton.x, s.pauseAlmanacButton.y));
+      try {
+        u = await waitUiWhere(page, (x) => x && x.scene === 'almanac', 3000, 'альманах с паузы');
+        if (attempt > 1) console.log(`⚠ ${p} тап по «Альманах» на паузе дошёл только с попытки ${attempt}`);
+        break;
+      } catch (error) {
+        if (attempt === 3) throw error;
+        s = await game.state();
+        if (s.state !== 'paused') throw new Error(`после тапа по «Альманах» игра не на паузе: ${s.state}`);
+      }
+    }
+    check(`${p} тап по «Альманах» на паузе открывает экран альманаха: вкладка «Башни», ${TOWER_ORDER.length} строк`, u.scene === 'almanac' && rowsMatch(u.texts, almanacRows('towers', li)), JSON.stringify(u.texts));
+    await frames(page, 3);
+    await shot(page, `almanac-pause-open-${deviceKey}-${lang}`);
+    // Вкладка «Бактерии» работает и поверх партии
+    await game.input.tap(game.g(u.buttons.bacteria.x, u.buttons.bacteria.y));
+    u = await waitUiWhere(page, (x) => x && x.scene === 'almanac' && x.texts.length === KINDS.length, 5000, 'вкладка «Бактерии» поверх партии').catch(async () => (await uiOf(page)) ?? { scene: 'нет экрана', texts: [] });
+    check(`${p} поверх партии вкладка «Бактерии» показывает ${KINDS.length} строк`, u.scene === 'almanac' && u.texts.length === KINDS.length, `экран ${u.scene}, строк ${u.texts.length}`);
+    // «Назад»: вернулась пауза партии, getState снова отвечает
+    await game.input.tap(game.g(u.buttons.back.x, u.buttons.back.y));
+    await waitUiWhere(page, (x) => x === null || x.scene !== 'almanac', 5000, 'альманах закрылся');
+    s = await waitFor(page, (x) => x.state === 'paused', 10000, 'пауза после «Назад» из альманаха');
+    await sleep(600);
+    const later = await game.state();
+    check(`${p} «Назад» возвращает на паузу партии: state 'paused', время стоит (${f2(elapsed0)} → ${f2(later.elapsed)}), кнопки паузы на месте`, later.state === 'paused' && later.elapsed === elapsed0 && later.pauseAlmanacButton !== null && later.pauseMenuButton !== null, `state ${later.state}, время ${f2(later.elapsed)}, кнопки ${JSON.stringify([later.pauseAlmanacButton, later.pauseMenuButton])}`);
+    await frames(page, 3);
+    await shot(page, `almanac-pause-back-${deviceKey}-${lang}`);
+    // Тап по экрану (мимо кнопок) возобновляет игру
+    await game.input.tap(game.g(500, 300));
+    s = await waitFor(page, (x) => x.state === 'playing', 5000, 'игра продолжилась тапом по экрану');
+    await sleep(400);
+    const run = await game.state();
+    check(`${p} тап по экрану после альманаха возобновляет игру: state 'playing', время идёт (${f2(elapsed0)} → ${f2(run.elapsed)})`, run.state === 'playing' && run.elapsed > elapsed0, `state ${run.state}, время ${f2(run.elapsed)}`);
+    await context.close();
+  }
+}
+
+/** Числа урона над бактериями: после попаданий башни счётчик effects.damageNumbers растёт. */
+async function runDamageNumbers(browser, baseUrl) {
+  const p = '[числа урона]';
+  const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
+  const COUNT = 8;
+  const cfg = `${wavesOnlyCfg({ coccus: COUNT })},waves.firstDelaySec:1,waves.intervalStartSec:1.5,waves.intervalEndSec:1.5,${FIXED_BALANCE.join(',')},types.coccus.lifeDamage:0,types.coccus.hp:3,economy.startCoins:${BASE.price * 2 + 20}`;
+  const game = await openGame(context, baseUrl, p, { speed: 4, cfg });
+  let s = await game.placeTowers([FREE.a, FREE.b]);
+  check(`${p} две Таблетки поставлены`, s.towers.length === 2 && s.effects.damageNumbers === 0, `башен ${s.towers.length}, чисел урона ${s.effects.damageNumbers}`);
+  let seenShot = false;
+  let maxNumbers = 0;
+  let decreased = false;
+  const started = Date.now();
+  while (Date.now() - started < WAIT_MS) {
+    s = await game.state();
+    if (s.effects.damageNumbers < maxNumbers) decreased = true;
+    maxNumbers = Math.max(maxNumbers, s.effects.damageNumbers);
+    if (!seenShot && s.effects.damageNumbers > 0) {
+      await frames(game.page, 2);
+      await shot(game.page, 'damage-numbers');
+      seenShot = true;
+    }
+    if (s.state !== 'playing' || (s.spawned >= COUNT && s.bacteria.length === 0)) break;
+    await sleep(40);
+  }
+  s = await game.state();
+  check(`${p} после попаданий счётчик показанных чисел урона растёт: ${s.effects.damageNumbers} (выстрелов ${s.shots}, убито ${s.kills}, дошло ${s.leaked})`, s.effects.damageNumbers > 0 && s.shots > 0, `чисел ${s.effects.damageNumbers}, выстрелов ${s.shots}`);
+  check(`${p} счётчик не убывает, и чисел не больше, чем выстрелов Таблеток (одно число на попадание: ${s.effects.damageNumbers} ≤ ${s.shots})`, !decreased && s.effects.damageNumbers <= s.shots, `убывал ${decreased}, чисел ${s.effects.damageNumbers}, выстрелов ${s.shots}`);
+  await context.close();
+}
+
+/** Карточка башни: зазор между «Слить» и «Продать» ≥ 20 px; в режиме слияния «Продать» скрыта (sell.w = 0), отмена слияния её возвращает. Компьютер ru, телефон en. */
+async function runSellGap(browser, baseUrl) {
+  const MIN_GAP = 20;
+  for (const [deviceKey, lang] of [['desktop', 'ru'], ['phone', 'en']]) {
+    const device = VIEWPORTS[deviceKey];
+    const p = `[зазор «Слить» и «Продать», ${device.label}, ${lang}]`;
+    const context = await newDeviceContext(browser, device, lang);
+    const game = await openGame(context, baseUrl, p, { speed: 1, isTouch: device.hasTouch, cfg: s4Cfg() });
+    // С круга «слияние по радиусу» пара должна стоять близко: вторая Таблетка — в свободной соседней клетке (не на дорожке и не закрытой), в пределах mergeRadiusPx от первой
+    const blocked = new Set(GRAPH.blockedCells.map(([c, r]) => `${c},${r}`));
+    const radius = (await game.state()).mergeRadiusPx ?? Infinity;
+    const dist = (a, b) => Math.hypot(GEO.center(...a).x - GEO.center(...b).x, GEO.center(...a).y - GEO.center(...b).y);
+    const near = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, -1], [1, -1], [-1, 1]]
+      .map(([dc, dr]) => [FREE.a[0] + dc, FREE.a[1] + dr])
+      .filter(([c, r]) => c >= 0 && r >= 0 && c < LEVEL.cols && r < LEVEL.rows && !GEO.isPathCell(c, r) && !blocked.has(`${c},${r}`) && dist(FREE.a, [c, r]) <= radius)
+      .sort((x, y) => dist(FREE.a, x) - dist(FREE.a, y))[0];
+    if (!near) throw new Error(`рядом с клеткой ${FREE.a.join(';')} не нашлось свободной клетки в радиусе слияния ${radius}`);
+    await placeAt(game, 'pill', FREE.a);
+    await placeAt(game, 'pill', near);
+    let s = await game.state();
+    if (s.selected) await game.selectTower(s.selected);
+    s = await selectPlaced(game, FREE.a);
+    const gapOf = (c) => c.sell.y - c.merge.y - (c.merge.h + c.sell.h) / 2;
+    check(`${p} карточка открыта, обе кнопки на месте: «Слить» доступна (пара есть), «Продать» видна`, s.ui.card.visible && s.ui.card.merge.enabled && s.ui.card.sell.w > 0, JSON.stringify([s.ui.card.merge, s.ui.card.sell]));
+    check(`${p} между «Слить» и «Продать» зазор по вертикали ${f1(gapOf(s.ui.card))} px (нужно ≥ ${MIN_GAP})`, s.ui.card.sell.w > 0 && gapOf(s.ui.card) >= MIN_GAP, JSON.stringify([s.ui.card.merge, s.ui.card.sell]));
+    await frames(game.page, 3);
+    await shot(game.page, `sell-gap-card-${deviceKey}-${lang}`);
+    s = await tapCard(game, 'merge');
+    check(`${p} в режиме слияния (кнопка «Отмена») «Продать» скрыта: sell.w = ${s.ui.card.sell.w}`, s.mergeMode && s.ui.card.merge.enabled && s.ui.card.sell.w === 0, `режим ${s.mergeMode}, sell ${JSON.stringify(s.ui.card.sell)}`);
+    await frames(game.page, 3);
+    await shot(game.page, `sell-gap-merge-mode-${deviceKey}-${lang}`);
+    s = await tapCard(game, 'merge');
+    check(`${p} отмена слияния возвращает «Продать» (sell.w = ${s.ui.card.sell.w}) с тем же зазором ${f1(gapOf(s.ui.card))} px`, !s.mergeMode && s.ui.card.sell.w > 0 && gapOf(s.ui.card) >= MIN_GAP, `режим ${s.mergeMode}, sell ${JSON.stringify(s.ui.card.sell)}`);
+    await context.close();
+  }
+}
+
 async function safe(label, fn) {
   const started = Date.now();
   try {
@@ -5748,6 +5931,10 @@ try {
   if (wants('progress-save')) await safe('[прогресс: сохранение]', () => runProgressSave(browser, qaServer.url));
   if (wants('stars')) await safe('[звёзды]', () => runStars(browser, qaServer.url));
   if (wants('menu-flow')) await safe('[меню и выбор уровня]', () => runMenuFlow(browser, qaServer.url));
+  if (wants('almanac')) await safe('[альманах]', () => runAlmanac(browser, qaServer.url));
+  if (wants('almanac-pause')) await safe('[альманах с паузы]', () => runAlmanacPause(browser, qaServer.url));
+  if (wants('damage-numbers')) await safe('[числа урона]', () => runDamageNumbers(browser, qaServer.url));
+  if (wants('sell-gap')) await safe('[зазор Слить и Продать]', () => runSellGap(browser, qaServer.url));
   if (wants('levels-lock')) await safe('[открытие уровней и конец уровня]', () => runLevelsLock(browser, qaServer.url));
 } catch (error) {
   crashed = error;

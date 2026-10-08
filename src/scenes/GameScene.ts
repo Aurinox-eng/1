@@ -997,12 +997,13 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  /** Слияние: `target` становится уровнем выше (его направление луча и мутации остаются), `source` исчезает, клетка освобождается. Бесплатно. */
+  /** Слияние: `target` становится уровнем выше (его направление луча остаётся, мутации обеих башен складываются), `source` исчезает, клетка освобождается. Бесплатно. */
   private doMerge(source: Tower, target: Tower): void {
     this.merges++;
     this.cancelMerge(false);
+    const carried = [...source.picks];
     this.removeTower(source);
-    target.upgrade();
+    target.upgrade(carried);
     this.effects.merged(target.x, target.y);
     sfx.merge();
     this.selectedTower = null;

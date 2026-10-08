@@ -13,6 +13,8 @@ export type TowerId = TowerKey;
 
 /** Как далеко от центра башни вылетает снаряд (длина ствола), пикселей. */
 const MUZZLE: Record<TowerId, number> = { pill: 40, syrup: 36, fizz: 34, syringe: 56 };
+/** На сколько пикселей дальше дуло с каждым следующим уровнем (стволы 2–4 уровней длиннее: снаряд вылетает из конца ствола). */
+const MUZZLE_PER_LEVEL: Record<TowerId, number> = { pill: 7, syrup: 8, fizz: 6, syringe: 9 };
 
 /** Рамка рисунка ствола (ствол смотрит вправо; центр башни — 0,0): вмещает самые длинные и широкие стволы уровней 2–4 со свечением. */
 const BARREL_BOX: ArtBox = { x: -50, y: -50, w: 148, h: 100 };
@@ -221,7 +223,7 @@ function drawFizz(g: Gfx, lv: number): void {
   if (lv === 3) {
     // две таблетки, болты, горящий раструб, запал
     shPath(g, [[-14, -14], ...shQuad([-14, -14], [-18, -28], [-26, -24], 5), ...shQuad([-26, -24], [-30, -22], [-26, -30], 5)], 0xe8f1ff, 2.5);
-    glowCircle(g, -26, -31, 7, COLORS.hit, 10, 0.5);
+    glowCircle(g, -26, -31, 7, A.glowOrange, 6, 0.35);
     shStar(g, -26, -31, 7, COLORS.hit);
     shCirc(g, -8, 0, 17, pink, dk, 3);
     shRR(g, 4, -24, 7, 48, 3, A.bolt, A.rivet, 1.5);
@@ -339,7 +341,7 @@ function drawSyringe(g: Gfx, lv: number): void {
   shRR(g, -3, 2, 44, 5, 2.5, A.liquidDark, null, 0, 0.55);
   // катушки
   for (const x of [4, 16, 28]) {
-    glowRR(g, x, -19, 6, 38, 3, N, 9, 0.4);
+    glowRR(g, x, -19, 6, 38, 3, N, 8, 0.3);
     shRR(g, x, -19, 6, 38, 3, A.syringeWhite, N, 2);
     shRR(g, x + 1.5, -15, 3, 30, 1, COLORS.gold);
   }
@@ -362,7 +364,7 @@ function drawBase(g: Gfx, id: TowerId, lv: number): void {
     // лужи-«капли» по краю
     for (let i = 0; i < 10; i++) {
       const a = (i / 10) * Math.PI * 2 + 0.2;
-      glowCircle(g, Math.cos(a) * 34, Math.sin(a) * 34, 6.5, A.glowOrange, 9, 0.4);
+      glowCircle(g, Math.cos(a) * 34, Math.sin(a) * 34, 6.5, A.glowOrange, 8, 0.3);
     }
     for (let i = 0; i < 10; i++) {
       const a = (i / 10) * Math.PI * 2 + 0.2;
@@ -537,7 +539,7 @@ function topTexture(scene: Phaser.Scene, id: TowerId, level: number): string {
     }
     if (lv <= 1) return;
     const color = LEVEL_COLORS[lv - 1];
-    if (lv === 4) glowRing(g, 0, 0, 40, 4, color, 12, 0.5);
+    if (lv === 4) glowRing(g, 0, 0, 40, 4, color, 8, 0.5);
     g.lineStyle(4, color, 0.95).strokeCircle(0, 0, 40);
     for (let i = 0; i < lv; i++) {
       const dx = (i - (lv - 1) / 2) * 13;
@@ -597,9 +599,11 @@ export class Tower {
   readonly cfg: (typeof CONFIG.towers)[TowerId];
   /** Итоговые числа башни с учётом уровня и мутаций. */
   stats: TowerStats;
-  /** Уровень башни (1…MAX_TOWER_LEVEL) и выбранные мутации по порядку порогов. */
+  /** Уровень башни (1…MAX_TOWER_LEVEL) и все её мутации: свои и принесённые слиянием (одна и та же может повторяться — см. `mutationStack`). */
   level = 1;
   picks: string[] = [];
+  /** Сколько порогов мутаций эта башня уже прошла выбором (свой выбор на уровнях 2 и 4; мутации, пришедшие со слиянием, порогов не закрывают). */
+  private tiersDone = 0;
   /** Расстояние от башни до организма по дорожкам (по ближайшей к ней точке сети), пикселей: по нему считается «вперёд/назад». */
   readonly remaining: number;
   /** Пауза до следующего выстрела, секунды игрового времени. */
@@ -686,12 +690,13 @@ export class Tower {
 
   /** Какой порог мутации ждёт выбора (0 — первый, 1 — второй) или null, если выбирать нечего. */
   get pendingTier(): number | null {
-    return this.picks.length < unlockedTiers(this.level) ? this.picks.length : null;
+    return this.tiersDone < unlockedTiers(this.level) ? this.tiersDone : null;
   }
 
-  /** Слияние: башня становится уровнем выше (мутации остаются), пауза до выстрела не сбрасывается. */
-  upgrade(): void {
+  /** Слияние: башня становится уровнем выше и получает мутации сливаемой башни `extraPicks` (свои остаются; решение владельца 8 октября 2026), пауза до выстрела не сбрасывается. */
+  upgrade(extraPicks: readonly string[] = []): void {
     this.level++;
+    this.picks.push(...extraPicks);
     this.recompute();
     this.scene.tweens.add({ targets: this.container, scale: { from: 1.35, to: 1 }, duration: 260, ease: 'Back.easeOut' });
   }
@@ -703,6 +708,7 @@ export class Tower {
     const spec = mutationOptions(this.id, tier)[index];
     if (!spec) return false;
     this.picks.push(spec.id);
+    this.tiersDone++;
     this.recompute();
     this.scene.tweens.add({ targets: this.container, scale: { from: 1.2, to: 1 }, duration: 220, ease: 'Quad.easeOut' });
     return true;
@@ -829,7 +835,7 @@ export class Tower {
       }
       return;
     }
-    const muzzle = MUZZLE[this.id];
+    const muzzle = MUZZLE[this.id] + (this.level - 1) * MUZZLE_PER_LEVEL[this.id];
     if (this.isBeam) {
       // Луч: цель — любой на линии; башня смотрит туда, куда повернул игрок
       if (this.cooldown > 0) return;

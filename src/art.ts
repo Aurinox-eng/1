@@ -207,7 +207,10 @@ export function glowRR(g: G, x: number, y: number, w: number, h: number, r: numb
   }
 }
 
-/** Свечение кольца (обводки круга радиуса r и толщины lw). */
+/** Свечение кольца (обводки круга радиуса r и толщины lw): только наружу от кольца, чтобы не заливать рисунок под ним. */
 export function glowRing(g: G, x: number, y: number, r: number, lw: number, color: number, spread = 10, alpha = 0.5): void {
-  for (let i = GLOW_LAYERS; i >= 1; i--) g.lineStyle(lw + (spread * 2 * i) / GLOW_LAYERS, color, alpha / GLOW_LAYERS).strokeCircle(x, y, r);
+  for (let i = GLOW_LAYERS; i >= 1; i--) {
+    const e = (spread * i) / GLOW_LAYERS;
+    g.lineStyle(e, color, alpha / GLOW_LAYERS).strokeCircle(x, y, r + lw / 2 + e / 2);
+  }
 }
