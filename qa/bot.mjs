@@ -5,7 +5,7 @@
  * машиночитаемый итог — qa/bot-results/<tag>.json (дописывается после каждой партии; в git не коммитить).
  *
  * Запуск (сначала `npm run build:qa`; если src новее dist-qa, скрипт остановится сам):
- *   node qa/bot.mjs [--profile=novice|average|strong|expert|all] [--runs=N] [--speed=2] [--exclude=syrup,fizz,syringe,pill,ampule,antibiotic,lamp,vitamin]
+ *   node qa/bot.mjs [--profile=novice|average|strong|expert|all] [--runs=N] [--speed=2] [--exclude=syrup,fizz,syringe,pill,ampule,antibiotic,lamp,vitamin,frost,patch]
  *                   [--cfg=путь:число,...] [--tag=имя] [--seed=N] [--max-game-sec=2400] [--verbose] [--shots] [--help]
  *
  * Профили («игроки»; порядок покупок и выбор клеток — в makePlayer ниже):
@@ -44,6 +44,14 @@
  * Витамин не покупается, пока башни не соберутся в группу. В бюджете Витамин учитывается как любая башня (цена в `spent`). Витамин и Лампа сливаются и берут мутации по общим правилам; мутации — «Узкий пучок» → «Раскал»
  * у Лампы и «Усиление» → «Сильное усиление» у Витамина (выбираются по названиям из config.ts, а не по номерам — перестановка строк не подменит выбор). От бактерий пачки 2 (Скрытная, Токсин) бот особой
  * стратегии не имеет: Скрытную башни видят только в 60 % радиуса, облако Токсина глушит башни — это замер и должен показать.
+ *
+ * НОВЫЕ БАШНИ (этап 7, пачка 3; Холод открыт с 8-го уровня, Пластырь с 9-го): докупаются НАД кругом после Витамина (novice — только Таблетки). Это башни управления: damage у обеих 0
+ * (Холод — заморозка `freeze`, Пластырь — ловушка `trap`), в «стреляющие» они не считаются, а формулы бота на damage и cooldownMs для них не делят.
+ * Холод (радиус 170 px, `freeze`) — не раньше, чем стоят ≥ 3 стреляющие башни, дальше по одному на каждые 3 стреляющие; клетка — с наибольшим охватом дорожки в радиусе (длина × доля бактерий на ветке,
+ * участки у узлов слияния вдвое ценнее: толпа): это клетка у поворота или у слияния веток. Пластырь (радиус 200 px, `trap`) — не раньше, чем стоят ≥ 5 стреляющих башен, дальше по одному на каждые 5;
+ * клетка — с большим охватом дорожки, но ближе к организму (оценка охвата умножается на 1 − 0,5·(расстояние до организма / наибольшее): ловушка держит первую, самую опасную бактерию).
+ * Мутации — по названиям из config.ts: Холод «Глубокая заморозка» → «Долгий мороз», Пластырь «Скорый» → «Едкий». От бактерий пачки 3 (Мутант запоминает вид башни и принимает половину урона от повторных
+ * ударов того же вида; Паразит присасывается к башне и замедляет её) бот особой стратегии не имеет — замер и должен показать, мешают ли они.
  *
  * СЛИЯНИЕ (правило игры с 8 октября 2026): две одинаковые башни (вид и уровень) сливаются, только если расстояние между их центрами
  * не больше mergeRadiusPx (состояние игры, 235 px мира ≈ 3 новые клетки); башни, ждущие выбора мутации, не сливаются; у получившейся башни мутации обеих складываются.
@@ -114,7 +122,8 @@ const MERGE_UP_TO = { novice: -1, average: -1, strong: 1, expert: 99 }; // ба�
 const MUTATION_PICKS = { strong: { default: [0, 0] }, expert: { pill: [0, 0], syrup: [0, 0], fizz: [0, 0], syringe: [1, 0], ampule: [0, 0], antibiotic: [0, 0] } };
 // Мутации башен пачки 2 выбираются по названиям (id из config.ts), а не по номерам: порядок строк в config.ts бот сверяет с таблицей и при расхождении останавливает замер.
 // Лампа: «Узкий пучок» (угол 30°, урон ×1,5) на 2-м уровне, «Раскал» (урон ×1,6) на 4-м; Витамин: «Усиление» и «Сильное усиление» (прибавка к скорости ×1,5 каждая).
-const MUTATION_PICKS_BY_ID = { lamp: ['lampNarrow', 'lampBlaze'], vitamin: ['vitaminBoost', 'vitaminStrong'] };
+// Пачка 3: Холод — «Глубокая заморозка» (время ×1,5) и «Долгий мороз» (время ×1,5); Пластырь — «Скорый» (пауза ×0,65) и «Едкий» (урон ловушки ×2).
+const MUTATION_PICKS_BY_ID = { lamp: ['lampNarrow', 'lampBlaze'], vitamin: ['vitaminBoost', 'vitaminStrong'], frost: ['frostDeep', 'frostLong'], patch: ['patchQuick', 'patchCaustic'] };
 // Новые башни (этап 7): сколько «обычных» Таблеток приходится на одну Ампулу (3–4: первая при 3 Таблетках, дальше при 7, 10, 14…), на один Антибиотик, и что нужно Антибиотику до первой покупки
 const AMPULE_PILLS_PER = 3.5;
 const ANTIBIOTIC_PILLS_PER = 2;
@@ -128,11 +137,19 @@ const VITAMIN_FIGHTING_PER = 4;
 const VITAMIN_MIN_GROUP = 2;
 const VITAMIN_SYRUP_WEIGHT = 0.5; // Сироп в группе Витамина считается за полбашни (ускорение лужи полезно, но урона у Сиропа нет)
 const VITAMIN_COVERED_WEIGHT = 0.25; // башня, которую уже усиливает другой Витамин, считается за четверть (второй Витамин её не ускорит: эффекты не складываются)
+// Башни пачки 3 (этап 7; управление, урона нет): Холод — не раньше FROST_MIN_FIGHTING стреляющих башен, дальше по одному на каждые FROST_FIGHTING_PER; Пластырь — то же с PATCH_MIN_FIGHTING и PATCH_FIGHTING_PER.
+// «Стреляющих» считается штуками (как у Витамина), Холод и Пластырь, Сироп и Витамин в счёт не идут.
+const FROST_MIN_FIGHTING = 3;
+const FROST_FIGHTING_PER = 3;
+const PATCH_MIN_FIGHTING = 5;
+const PATCH_FIGHTING_PER = 5;
+const PATCH_NEAR_ORGANISM = 0.5; // Пластырь: оценка клетки × (1 − это × расстояние до организма / наибольшее) — клетки ближе к организму ценятся до 2 раз выше
+const CONTROL_TOWERS = ['frost', 'patch']; // башни управления: клетку выбирает controlSpot, а не охват «по умолчанию»
 const CONE_MARGIN_DEG = 6; // Лампа: запас к половине угла конуса при подсчёте охвата (бактерия шире своей середины; конус поворачивается на цель)
 const STALL_SEC = 30; // игровое время не идёт столько реальных секунд подряд — партия зависла
 
-const NAMES = { pill: 'Таблетка', syrup: 'Сироп', fizz: 'Шипучка', syringe: 'Шприц', ampule: 'Ампула', antibiotic: 'Антибиотик', lamp: 'Лампа', vitamin: 'Витамин' };
-const SHORT = { pill: 'Таб', syrup: 'Сир', fizz: 'Шип', syringe: 'Шпр', ampule: 'Амп', antibiotic: 'Ант', lamp: 'Лмп', vitamin: 'Вит' };
+const NAMES = { pill: 'Таблетка', syrup: 'Сироп', fizz: 'Шипучка', syringe: 'Шприц', ampule: 'Ампула', antibiotic: 'Антибиотик', lamp: 'Лампа', vitamin: 'Витамин', frost: 'Холод', patch: 'Пластырь' };
+const SHORT = { pill: 'Таб', syrup: 'Сир', fizz: 'Шип', syringe: 'Шпр', ampule: 'Амп', antibiotic: 'Ант', lamp: 'Лмп', vitamin: 'Вит', frost: 'Хол', patch: 'Пла' };
 const PROFILE_TITLES = { novice: 'новичок', average: 'средний', strong: 'сильный', expert: 'особо сильный' };
 const PROFILE_IDS = Object.keys(PROFILE_TITLES);
 const AVERAGE_CYCLE = ['pill', 'pill', 'syrup', 'pill', 'fizz', 'syringe'];
@@ -150,7 +167,7 @@ const HELP = `Бот-замерщик баланса: играет целые п
   --profile=novice|average|strong|expert|all   кто играет (по умолчанию all); expert — «особо сильный» (бывший «сильный» кругов 1–2)
   --runs=N                              партий на профиль (по умолчанию 10; для замера нужно не меньше 10)
   --speed=2                             ускорение игрового времени, 0.1…4 (по умолчанию 2). ВЫШЕ 2 ЗАМЕРЫ ГРУБЕЕ: годится для проб, не для итоговых чисел
-  --exclude=syrup,fizz,syringe,pill,ampule,antibiotic,lamp,vitamin   каких башен профили не строят (проверка «нужна ли башня»)
+  --exclude=syrup,fizz,syringe,pill,ampule,antibiotic,lamp,vitamin,frost,patch   каких башен профили не строят (проверка «нужна ли башня»)
   --cfg=путь:число,...                  подмена чисел игры без правки config.ts, например towers.pill.price:40,economy.startCoins:5000
                                         (бот сам учтёт подмену цен и радиусов; непонятная запись останавливает замер)
   --tag=имя                             имя файла результата qa/bot-results/<имя>.json (по умолчанию latest)
@@ -166,6 +183,8 @@ const HELP = `Бот-замерщик баланса: играет целые п
                                         (клетка как у Таблетки); novice строит только Таблетки. Слияние и мутации — по общим правилам. Новые бактерии (Прыгун, Фагоцит) бот особо не обрабатывает.
                                         Лампа (с 5-го уровня): одна на каждые 4 Таблетки, клетка — где конус накрывает больше всего дорожки (у поворота); Витамин (с 7-го): не раньше чем стоят ≥ 3 стреляющие башни,
                                         по одному на каждые 4, клетка — в центре группы (≥ 2 стреляющих башен в радиусе ауры). Скрытную и Токсин бот особо не обрабатывает.
+                                        Холод (с 8-го уровня): не раньше чем стоят ≥ 3 стреляющие башни, по одному на каждые 3, клетка — с наибольшим охватом дорожки (радиус 170 px, толпа у слияний ценнее);
+                                        Пластырь (с 9-го): не раньше ≥ 5 стреляющих, по одному на каждые 5, клетка — с охватом дорожки в радиусе 200 px, ближе к организму. Мутанта и Паразита бот особо не обрабатывает.
   --meta=lives:2,coins:5,damage:5,reward:5,shield:1,pillRate:3   фиксированные улучшения вне партии (id и уровни по таблице meta.upgrades из config.ts, в том числе ветки башен; не больше наибольшего уровня; без параметра — 0). Не сочетается с --campaign
   --campaign=N                          режим «серия партий» (этап 6а): каждая из --runs серий — до N партий подряд одним профилем; после каждой партии бот начисляет очки ДНК
                                         (по формуле config.ts, раздел meta) и покупает улучшения по порядку damage, coins, lives, reward, затем остальные по таблице (ветка башни — если башня открыта на уровне партии); серия кончается первой победой.
@@ -439,6 +458,7 @@ function buildWorld(graph, map, cols, rows) {
     return rangeCache.get(range);
   };
   const byKey = new Map(cells.map((c) => [c.key, c]));
+  const maxRem = Math.max(0, ...cells.map((c) => c.rem));
   const dirs = Array.from({ length: AIM_STEPS }, (_, i) => [Math.cos((i * 2 * Math.PI) / AIM_STEPS), Math.sin((i * 2 * Math.PI) / AIM_STEPS)]);
   /** Отрезки дорожки под лучом «Шприца» из клетки в направлении dir (номер 0…7): середина отрезка в полосе длины beamLengthPx (кэш). */
   const rayCache = new Map();
@@ -536,6 +556,22 @@ function buildWorld(graph, map, cols, rows) {
       return sum;
     },
     /**
+     * Охват клетки башней управления (Холод, Пластырь): сумма длин отрезков дорожки в радиусе башни × доля бактерий на ветке; у Холода участки у узлов слияния (толпа) вдвое ценнее; у Пластыря оценка
+     * ещё умножается на 1 − PATCH_NEAR_ORGANISM × (rem клетки / наибольший rem): клетки ближе к организму лучше. Урона у этих башен нет — на damage и cooldownMs здесь не делим.
+     */
+    controlScore(type, cell) {
+      const T = TABLE[type];
+      let sum = 0;
+      for (const si of inRange(T.range)[cell.idx]) {
+        const sg = segs[si];
+        let v = sg.len * sg.w;
+        if (type === 'frost' && sg.merge) v *= MERGE_FACTOR;
+        sum += v;
+      }
+      if (type === 'patch') sum *= 1 - PATCH_NEAR_ORGANISM * (maxRem > 0 ? cell.rem / maxRem : 0);
+      return sum;
+    },
+    /**
      * Оценка клетки для «сильного»: охват с весом «сколько бактерий здесь ходит» и скидкой за уже накрытое другими башнями (covCount);
      * Шипучка — вдвое ценнее участки у узлов слияния; Шприц — ценность лучшего направления луча (длина дорожки под лучом: у «умного» с весом
      * веток и скидкой за уже накрытое, у остальных — просто длина).
@@ -571,7 +607,7 @@ function buildWorld(graph, map, cols, rows) {
       for (const tw of towers) {
         const cell = byKey.get(`${tw.col},${tw.row}`);
         const T = TABLE[tw.id];
-        if (!cell || !T || T.targeting === 'snipe' || T.targeting === 'aura') continue; // Ампула накрывает полкарты: в «накрытое другими башнями» её не записываем, иначе клетки остальных башен обесценятся; Витамин дорожку не накрывает
+        if (!cell || !T || T.targeting === 'snipe' || T.targeting === 'aura' || T.targeting === 'freeze' || T.targeting === 'trap') continue; // Ампула накрывает полкарты: в «накрытое другими башнями» её не записываем, иначе клетки остальных башен обесценятся; Витамин, Холод и Пластырь урона не наносят и дорожку не «накрывают»
         const list = T.targeting === 'beam' ? rayOf(tw.id, cell, tw.aim ?? 0) : inRange(T.range)[cell.idx];
         for (const si of list) counts[si]++;
       }
@@ -631,7 +667,21 @@ function makePlayer(profile, { world, rng, buttons }) {
     }
     return best;
   };
-  /** Какую новую башню (Ампула, Антибиотик, Лампа, Витамин) пора докупить поверх круга: null — никакую (башня закрыта на уровне, исключена или ещё рано). */
+  /**
+   * Клетка для башни управления (Холод, Пластырь): лучшая по `world.controlScore` среди свободных; «средний» берёт случайную из верхней доли списка, «сильный» — из верхних STRONG_PICK_SHARE (не меньше STRONG_PICK_MIN),
+   * «особо сильный» — лучшую. Возвращает клетку или null (охвата нет нигде).
+   */
+  const controlSpot = (view, type) => {
+    const scored = view.free
+      .map((c) => ({ c, v: world.controlScore(type, c) }))
+      .filter((x) => x.v > 0)
+      .sort((a, b) => b.v - a.v || a.c.idx - b.c.idx);
+    if (!scored.length) return null;
+    if (profile === 'average') return pick(scored.slice(0, Math.max(3, Math.ceil(scored.length * AVERAGE_TOP_SHARE)))).c;
+    if (profile === 'strong') return pick(scored.slice(0, Math.max(STRONG_PICK_MIN, Math.ceil(scored.length * STRONG_PICK_SHARE)))).c;
+    return scored[0].c;
+  };
+  /** Какую новую башню (Ампула, Антибиотик, Лампа, Витамин, Холод, Пластырь) пора докупить поверх круга: null — никакую (башня закрыта на уровне, исключена или ещё рано). */
   const wantedExtra = (view) => {
     const pills = unitsOf(view, 'pill');
     if (pills < 3) return null;
@@ -644,6 +694,11 @@ function makePlayer(profile, { world, rng, buttons }) {
       const allowed = fighting >= VITAMIN_MIN_FIGHTING ? 1 + Math.floor((fighting - VITAMIN_MIN_FIGHTING) / VITAMIN_FIGHTING_PER) : 0;
       if (view.towers.filter((tw) => tw.id === 'vitamin').length < allowed && vitaminSpot(view)) return 'vitamin';
     }
+    // Холод и Пластырь: урона нет, считаем по стреляющим башням (штуками); клетка есть почти всегда (охват дорожки > 0), иначе башня уходит в extraGaveUp при попытке покупки
+    const fightingCount = view.towers.filter(isFighting).length;
+    const controlAllowed = (min, per) => (fightingCount >= min ? 1 + Math.floor((fightingCount - min) / per) : 0);
+    if (available('frost') && !extraGaveUp.has('frost') && view.towers.filter((tw) => tw.id === 'frost').length < controlAllowed(FROST_MIN_FIGHTING, FROST_FIGHTING_PER)) return 'frost';
+    if (available('patch') && !extraGaveUp.has('patch') && view.towers.filter((tw) => tw.id === 'patch').length < controlAllowed(PATCH_MIN_FIGHTING, PATCH_FIGHTING_PER)) return 'patch';
     return null;
   };
 
@@ -672,6 +727,11 @@ function makePlayer(profile, { world, rng, buttons }) {
         if (type === 'vitamin') {
           const spot = vitaminSpot(view); // Витамин — в центре группы башен, а не по охвату дорожки
           return spot ? { type, cell: spot.cell, extra: true } : null;
+        }
+        if (CONTROL_TOWERS.includes(type)) {
+          const cell = controlSpot(view, type); // Холод и Пластырь — по охвату дорожки (Пластырь — ближе к организму)
+          if (!cell) extraGaveUp.add(type);
+          return cell ? { type, cell, extra: true } : null;
         }
         const scored = view.free
           .map((c) => ({ c, v: world.cover(type, c) }))
@@ -736,6 +796,14 @@ function makePlayer(profile, { world, rng, buttons }) {
       if (chosen.type === 'vitamin') {
         const spot = vitaminSpot(view); // Витамин — в центре группы башен: охвата дорожки у него нет, оценка клеток и слияние по радиусу не нужны
         return spot ? { type: 'vitamin', cell: spot.cell, cycleIdx: chosen.idx } : null;
+      }
+      if (CONTROL_TOWERS.includes(chosen.type)) {
+        const cell = controlSpot(view, chosen.type); // Холод и Пластырь — по охвату дорожки; слияние по радиусу не ищем (башен мало)
+        if (!cell) {
+          if (chosen.idx === -2) extraGaveUp.add(chosen.type);
+          return null;
+        }
+        return { type: chosen.type, cell, cycleIdx: chosen.idx };
       }
       const candidates = [];
       for (const c of view.free) {

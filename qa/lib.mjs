@@ -179,7 +179,7 @@ export function readWaveList() {
   });
 }
 
-/** С какого уровня открыта каждая башня: `levels.towerUnlock` из src/config.ts, например { pill: 1, syrup: 1, fizz: 5, syringe: 10, ampule: 3, antibiotic: 6, lamp: 5, vitamin: 7 }. */
+/** С какого уровня открыта каждая башня: `levels.towerUnlock` из src/config.ts, например { pill: 1, syrup: 1, fizz: 5, syringe: 10, ampule: 3, antibiotic: 6, lamp: 5, vitamin: 7, frost: 8, patch: 9 }. */
 export function readTowerUnlock() {
   const src = readSource('src/config.ts');
   const found = /towerUnlock:\s*\{([^}]*)\}/.exec(src);
@@ -191,8 +191,8 @@ export function readTowerUnlock() {
 
 /**
  * Таблица башен из src/config.ts (раздел `towers`): { id: { price, range, damage, cooldownMs, projectileSpeed, blastRadius,
- * slowFactor, slowSec, targeting, side, dotPerSec, dotSec, coneDeg, auraMul, auraStep, … } } в порядке строк (с 9 октября 2026 восемь башен: pill, syrup, fizz, syringe, ampule, antibiotic, lamp, vitamin;
- * у Витамина `damage` и `cooldownMs` равны 0 — он сам не стреляет: на них нельзя делить). Читает числа и строки в одинарных кавычках из каждой строки таблицы
+ * slowFactor, slowSec, targeting, side, dotPerSec, dotSec, coneDeg, auraMul, auraStep, … } } в порядке строк (с 9 октября 2026 десять башен: pill, syrup, fizz, syringe, ampule, antibiotic, lamp, vitamin, frost, patch;
+ * у Витамина, Холода и Пластыря `damage` равен 0 (у Витамина и `cooldownMs` 0): они сами не наносят урон — на них нельзя делить; поля freezeSec, trapSec, trapDps — у остальных 0). Читает числа и строки в одинарных кавычках из каждой строки таблицы
  * (комментарии пропускает). Бот баланса берёт отсюда цены и радиусы (подмену `?cfg=towers.<id>.<ключ>:<число>` он накладывает сам).
  */
 export function readTowerTable() {

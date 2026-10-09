@@ -26,8 +26,8 @@ if (!dir || !fs.existsSync(dir)) {
   process.exit(2);
 }
 
-const NAMES = { pill: 'Таблетка', syrup: 'Сироп', fizz: 'Шипучка', syringe: 'Шприц', ampule: 'Ампула', antibiotic: 'Антибиотик', lamp: 'Лампа', vitamin: 'Витамин' };
-const SHORT = { pill: 'Таб', syrup: 'Сир', fizz: 'Шип', syringe: 'Шпр', ampule: 'Амп', antibiotic: 'Ант', lamp: 'Лмп', vitamin: 'Вит' };
+const NAMES = { pill: 'Таблетка', syrup: 'Сироп', fizz: 'Шипучка', syringe: 'Шприц', ampule: 'Ампула', antibiotic: 'Антибиотик', lamp: 'Лампа', vitamin: 'Витамин', frost: 'Холод', patch: 'Пластырь' };
+const SHORT = { pill: 'Таб', syrup: 'Сир', fizz: 'Шип', syringe: 'Шпр', ampule: 'Амп', antibiotic: 'Ант', lamp: 'Лмп', vitamin: 'Вит', frost: 'Хол', patch: 'Пла' };
 const PROFILE_TITLES = { novice: 'новичок', average: 'средний', strong: 'сильный', expert: 'особо сильный' };
 const PROFILE_ORDER = Object.keys(PROFILE_TITLES);
 const RESULT_RU = { won: 'победа', lost: 'проигрыш', timeout: 'timeout', error: 'ОШИБКА' };
