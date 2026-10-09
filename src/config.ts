@@ -635,7 +635,7 @@ export const CONFIG = {
     damageNumMergeMs: 260,
     damageNumMax: 90,
     damageNumSteps: [0.06, 0.15, 0.3] as number[],
-    damageNumSizes: [0.62, 0.85, 1.15, 1.5] as number[],
+    damageNumSizes: [0.5, 0.7, 0.95, 1.25] as number[],
 
     /** Тряска экрана при потере жизни: сколько миллисекунд и насколько сильно
      *  (0.006 — лёгкая, 0.02 — сильная). 0 — без тряски. */

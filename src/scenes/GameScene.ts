@@ -761,9 +761,9 @@ export class GameScene extends Phaser.Scene {
       return;
     }
     if (st.acidSec > 0) bacterium.expose(st.acidMul, st.acidSec);
-    // Чем сильнее удар относительно прочности бактерии, тем крупнее вспышка: до вдвое больше обычной
+    // Чем сильнее удар относительно прочности бактерии, тем крупнее вспышка: до полуторных размеров обычной
     const strength = Math.min(1, (bacterium.lastDealt / bacterium.maxHp) * 2);
-    this.effects.flash(bacterium.x, bacterium.y, bacterium.radius * 0.6 * (1 + strength), st.targeting === 'beam' ? COLORS.needle : COLORS.hit);
+    this.effects.flash(bacterium.x, bacterium.y, bacterium.radius * 0.6 * (1 + 0.5 * strength), st.targeting === 'beam' ? COLORS.needle : COLORS.hit);
     if (!quiet) sfx.hit(bacterium.kind);
   }
 
