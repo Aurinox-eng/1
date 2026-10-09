@@ -483,8 +483,8 @@ export function readMetaTable() {
   const upStart = body.indexOf('upgrades:');
   if (upStart < 0) throw new Error('В разделе «meta» config.ts нет «upgrades»');
   const upgrades = {};
-  for (const m of body.slice(upStart).matchAll(/(\w+):\s*\{\s*branch:\s*'(\w+)',\s*effect:\s*'(\w+)',\s*perLevel:\s*(-?[\d.]+),\s*prices:\s*\[([^\]]*)\]\s*\}/g)) {
-    upgrades[m[1]] = { branch: m[2], effect: m[3], perLevel: Number(m[4]), prices: m[5].split(',').map((x) => Number(x.trim())).filter((x) => Number.isFinite(x)) };
+  for (const m of body.slice(upStart).matchAll(/(\w+):\s*\{\s*branch:\s*'(\w+)',\s*effect:\s*'(\w+)',\s*perLevel:\s*(-?[\d.]+),\s*prices:\s*\[([^\]]*)\](?:,\s*requires:\s*\['(\w+)',\s*(\d+)\])?\s*\}/g)) {
+    upgrades[m[1]] = { branch: m[2], effect: m[3], perLevel: Number(m[4]), prices: m[5].split(',').map((x) => Number(x.trim())).filter((x) => Number.isFinite(x)), requires: m[6] ? { id: m[6], level: Number(m[7]) } : null };
   }
   if (!Object.keys(upgrades).length) throw new Error('В разделе «meta» config.ts не нашлось улучшений');
   return { dna: { perWave: num('perWave'), winBonus: num('winBonus') }, upgrades };
@@ -501,7 +501,7 @@ export function buyGreedy({ upgrades, order, unlock, level, levels, dna }) {
   const bought = [];
   let left = dna;
   for (;;) {
-    const id = order.find((x) => upgrades[x] && (unlock[upgrades[x].branch] ?? 1) <= level && upgrades[x].prices[next[x] ?? 0] !== undefined && upgrades[x].prices[next[x] ?? 0] <= left);
+    const id = order.find((x) => upgrades[x] && (unlock[upgrades[x].branch] ?? 1) <= level && upgrades[x].prices[next[x] ?? 0] !== undefined && upgrades[x].prices[next[x] ?? 0] <= left && (!upgrades[x].requires || (next[upgrades[x].requires.id] ?? 0) >= upgrades[x].requires.level));
     if (!id) break;
     left -= upgrades[id].prices[next[id] ?? 0];
     next[id] = (next[id] ?? 0) + 1;

@@ -62,15 +62,32 @@ export function nextPrice(id: UpgradeId): number | null {
   return CONFIG.meta.upgrades[id].prices[state.levels[id]] ?? null;
 }
 
+/** Условие открытия узла дерева: родитель и нужный уровень (null — узел открыт с начала). */
+export function requirementOf(id: UpgradeId): { id: UpgradeId; level: number } | null {
+  const req = CONFIG.meta.upgrades[id].requires;
+  return req ? { id: req[0], level: req[1] } : null;
+}
+
+/** Выполнено ли условие дерева: родитель куплен до нужного уровня. */
+export function requirementMet(id: UpgradeId): boolean {
+  const req = requirementOf(id);
+  return !req || (state.levels[req.id] ?? 0) >= req.level;
+}
+
+/** Узел доступен для покупки по структуре дерева и по картам уровней (ветка башни открыта, родитель куплен); очки не учитываются. */
+export function isNodeOpen(id: UpgradeId): boolean {
+  return isBranchOpen(CONFIG.meta.upgrades[id].branch) && requirementMet(id);
+}
+
 export function canBuy(id: UpgradeId): boolean {
   const price = nextPrice(id);
-  return price !== null && state.dna >= price && isBranchOpen(CONFIG.meta.upgrades[id].branch);
+  return price !== null && state.dna >= price && isNodeOpen(id);
 }
 
 /** Покупает следующий уровень улучшения; false, если куплен наибольший уровень или не хватает очков. */
 export function buyUpgrade(id: UpgradeId): boolean {
   const price = nextPrice(id);
-  if (price === null || state.dna < price || !isBranchOpen(CONFIG.meta.upgrades[id].branch)) return false;
+  if (price === null || state.dna < price || !isNodeOpen(id)) return false;
   state = { ...state, dna: state.dna - price, levels: { ...state.levels, [id]: state.levels[id] + 1 } };
   persist();
   return true;
@@ -194,15 +211,18 @@ export const waveCoinsBonus = (): number => Math.floor(upgradeBonus('waveCoins')
 
 type Rect = { x: number; y: number; w: number; h: number };
 
-/** Что видно на экране «Улучшения» (для проверок): вкладки веток, карточки выбранной вкладки с кнопками покупки и кнопка «Играть» — центры и размеры на экране игры. */
+/** Что видно на экране «Улучшения» (дерево; для проверок): все узлы с центрами и размерами на экране игры (с учётом прокрутки), выбранный узел и его карточка, кнопка «Играть». */
 export interface MetaScreenInfo {
   visible: boolean;
-  /** Выбранная вкладка (ветка) и все вкладки: ветка, закрыта ли, с какого уровня открывается, подпись, прямоугольник. */
-  activeTab: string;
-  tabs: { branch: string; locked: boolean; unlockLevel: number; label: string; rect: Rect }[];
-  cards: { id: UpgradeId; level: number; max: number; price: number | null; canBuy: boolean; locked: boolean; fits: boolean; rect: Rect; buy: Rect; texts: string[] }[];
-  play: Rect | null;
   balance: string;
+  /** Выбранный узел (id), прокрутка дерева и окно дерева. */
+  selected: string;
+  scroll: number;
+  view: Rect;
+  nodes: { id: UpgradeId; level: number; max: number; price: number | null; canBuy: boolean; open: boolean; onScreen: boolean; rect: Rect }[];
+  /** Карточка выбранного узла: тексты (название, уровень, что даст дальше, условие, кнопка), кнопка покупки, помещаются ли тексты. */
+  detail: { texts: string[]; buy: Rect; fits: boolean } | null;
+  play: Rect | null;
 }
 
 export interface MetaDebugSnapshot {
@@ -224,4 +244,4 @@ export function exposeMetaDebug(screen: () => MetaScreenInfo): void {
   if (QA_MODE) window.__pvbMeta = { getMeta: () => ({ dna: state.dna, levels: metaLevels(), progress: { stars: [...state.progress.stars], best: [...state.progress.best] }, seen: [...state.seen], screen: screen() }) };
 }
 
-export const HIDDEN_SCREEN: MetaScreenInfo = { visible: false, activeTab: '', tabs: [], cards: [], play: null, balance: '' };
+export const HIDDEN_SCREEN: MetaScreenInfo = { visible: false, balance: '', selected: '', scroll: 0, view: { x: 0, y: 0, w: 0, h: 0 }, nodes: [], detail: null, play: null };

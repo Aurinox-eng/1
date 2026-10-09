@@ -80,7 +80,7 @@ export interface MutationSpec {
 export type UpgradeEffect =
   | 'lives' | 'coins' | 'damage' | 'reward'
   | 'shield' | 'sellRefund' | 'waveCoins'
-  | 'price' | 'cooldown' | 'range' | 'blast' | 'puddleSec' | 'puddleRadius' | 'slowFactor' | 'beamWidth' | 'pulses';
+  | 'towerDamage' | 'price' | 'cooldown' | 'range' | 'blast' | 'puddleSec' | 'puddleRadius' | 'slowFactor' | 'beamWidth' | 'pulses';
 /** Ветка улучшений: «body» (Организм, этап 6а), «defense» (Защита) или id башни (`pill`, `syrup`, `fizz`, `syringe`). Ветка башни открыта, когда открыт уровень, на котором башня становится доступной. */
 export type UpgradeBranch = 'body' | 'defense' | 'pill' | 'syrup' | 'fizz' | 'syringe';
 /** Строка таблицы улучшений вне партии: ветка, действие, эффект одного уровня и цены уровней. */
@@ -89,6 +89,8 @@ export interface UpgradeSpec {
   effect: UpgradeEffect;
   perLevel: number;
   prices: number[];
+  /** Условие открытия узла дерева: [id другого узла, нужный уровень]; нет — узел открыт с начала (корень). */
+  requires?: [string, number];
 }
 /** Куда смотрит башня: любых в радиусе, только «вперёд» (ещё не дошли до башни) или только «назад» (уже прошли). */
 export type TowerSide = 'both' | 'forward' | 'back';
@@ -584,26 +586,60 @@ export const CONFIG = {
      *  (число цен = наибольший уровень). Строки этапа 6а (`body`) подобраны замером серий партий (docs/balance-history.md, «Этап 6а»): проектные 1 очко за волну и
      *  +10 % урона за уровень давали слишком слабый рост. Строки остальных веток — проект этапа 6б (docs/upgrades.md, раздел 12), первое приближение. */
     upgrades: {
-      lives: { branch: 'body', effect: 'lives', perLevel: 1, prices: [12, 30] },
-      coins: { branch: 'body', effect: 'coins', perLevel: 150, prices: [8, 14, 20, 28, 36] },
-      damage: { branch: 'body', effect: 'damage', perLevel: 0.5, prices: [15, 25, 40, 60, 90] },
-      reward: { branch: 'body', effect: 'reward', perLevel: 0.2, prices: [10, 18, 28, 42, 60] },
-      shield: { branch: 'defense', effect: 'shield', perLevel: 1, prices: [30, 60, 100] },
-      recycle: { branch: 'defense', effect: 'sellRefund', perLevel: 0.05, prices: [20, 35, 55] },
-      reinforce: { branch: 'defense', effect: 'waveCoins', perLevel: 4, prices: [25, 45, 75] },
-      pillRate: { branch: 'pill', effect: 'cooldown', perLevel: -0.06, prices: [20, 35, 55] },
-      pillRange: { branch: 'pill', effect: 'range', perLevel: 0.05, prices: [20, 35, 55] },
-      pillCheap: { branch: 'pill', effect: 'price', perLevel: -0.05, prices: [25, 45, 70] },
-      syrupTime: { branch: 'syrup', effect: 'puddleSec', perLevel: 0.1, prices: [20, 35, 55] },
-      syrupSlow: { branch: 'syrup', effect: 'slowFactor', perLevel: -0.03, prices: [25, 45, 70] },
-      syrupWide: { branch: 'syrup', effect: 'puddleRadius', perLevel: 0.06, prices: [20, 35, 55] },
-      fizzBlast: { branch: 'fizz', effect: 'blast', perLevel: 0.06, prices: [30, 50, 80] },
-      fizzRate: { branch: 'fizz', effect: 'cooldown', perLevel: -0.06, prices: [30, 50, 80] },
-      fizzRange: { branch: 'fizz', effect: 'range', perLevel: 0.05, prices: [25, 45, 70] },
-      syringeRate: { branch: 'syringe', effect: 'cooldown', perLevel: -0.06, prices: [35, 60, 95] },
-      syringeWidth: { branch: 'syringe', effect: 'beamWidth', perLevel: 3, prices: [30, 50, 80] },
-      syringePulse: { branch: 'syringe', effect: 'pulses', perLevel: 1, prices: [120] },
+      damage: { branch: 'body', effect: 'damage', perLevel: 0.1, prices: [15, 20, 25, 35, 45, 55, 70, 95, 120, 160] },
+      coins: { branch: 'body', effect: 'coins', perLevel: 50, prices: [10, 10, 15, 20, 25, 30, 40, 50, 65, 85], requires: ['damage', 2] },
+      reward: { branch: 'body', effect: 'reward', perLevel: 0.05, prices: [10, 15, 15, 20, 30, 35, 50, 65, 80, 105], requires: ['damage', 2] },
+      lives: { branch: 'defense', effect: 'lives', perLevel: 1, prices: [40, 50, 70], requires: ['coins', 3] },
+      shield: { branch: 'defense', effect: 'shield', perLevel: 1, prices: [35, 45, 60, 75, 100], requires: ['lives', 1] },
+      recycle: { branch: 'defense', effect: 'sellRefund', perLevel: 0.03, prices: [25, 30, 40, 55, 70], requires: ['coins', 5] },
+      reinforce: { branch: 'defense', effect: 'waveCoins', perLevel: 3, prices: [25, 30, 40, 55, 70, 95, 120, 155], requires: ['reward', 3] },
+      pillPower: { branch: 'pill', effect: 'towerDamage', perLevel: 0.08, prices: [20, 25, 35, 45, 55, 75], requires: ['damage', 3] },
+      pillRate: { branch: 'pill', effect: 'cooldown', perLevel: -0.04, prices: [20, 25, 35, 45, 55, 75, 95, 125], requires: ['pillPower', 2] },
+      pillRange: { branch: 'pill', effect: 'range', perLevel: 0.03, prices: [20, 25, 35, 45, 55, 75], requires: ['pillPower', 2] },
+      pillCheap: { branch: 'pill', effect: 'price', perLevel: -0.03, prices: [25, 30, 40, 55, 70, 95], requires: ['pillRate', 2] },
+      syrupTime: { branch: 'syrup', effect: 'puddleSec', perLevel: 0.06, prices: [20, 25, 35, 45, 55, 75, 95, 125], requires: ['damage', 3] },
+      syrupSlow: { branch: 'syrup', effect: 'slowFactor', perLevel: -0.02, prices: [25, 30, 40, 55, 70, 95, 120, 155], requires: ['syrupTime', 2] },
+      syrupWide: { branch: 'syrup', effect: 'puddleRadius', perLevel: 0.04, prices: [20, 25, 35, 45, 55, 75, 95, 125], requires: ['syrupTime', 2] },
+      syrupCheap: { branch: 'syrup', effect: 'price', perLevel: -0.03, prices: [25, 30, 40, 55, 70, 95], requires: ['syrupSlow', 2] },
+      fizzPower: { branch: 'fizz', effect: 'towerDamage', perLevel: 0.08, prices: [30, 40, 50, 65, 85, 110], requires: ['damage', 3] },
+      fizzBlast: { branch: 'fizz', effect: 'blast', perLevel: 0.04, prices: [30, 40, 50, 65, 85, 110, 145, 190], requires: ['fizzPower', 2] },
+      fizzRate: { branch: 'fizz', effect: 'cooldown', perLevel: -0.04, prices: [30, 40, 50, 65, 85, 110, 145, 190], requires: ['fizzPower', 2] },
+      fizzRange: { branch: 'fizz', effect: 'range', perLevel: 0.03, prices: [25, 30, 40, 55, 70, 95], requires: ['fizzPower', 2] },
+      fizzCheap: { branch: 'fizz', effect: 'price', perLevel: -0.03, prices: [30, 40, 50, 65, 85, 110], requires: ['fizzRate', 2] },
+      syringePower: { branch: 'syringe', effect: 'towerDamage', perLevel: 0.08, prices: [35, 45, 60, 75, 100, 130], requires: ['damage', 3] },
+      syringeRate: { branch: 'syringe', effect: 'cooldown', perLevel: -0.04, prices: [35, 45, 60, 75, 100, 130, 170, 220], requires: ['syringePower', 2] },
+      syringeWidth: { branch: 'syringe', effect: 'beamWidth', perLevel: 2, prices: [30, 40, 50, 65, 85, 110, 145, 190], requires: ['syringePower', 2] },
+      syringePulse: { branch: 'syringe', effect: 'pulses', perLevel: 1, prices: [120, 155, 205], requires: ['syringePower', 2] },
+      syringeCheap: { branch: 'syringe', effect: 'price', perLevel: -0.03, prices: [35, 45, 60, 75, 100, 130], requires: ['syringeRate', 2] },
     } as Record<string, UpgradeSpec>,
+    /** Положение узлов на экране «Улучшения» (дерево): [колонка, ряд] в клетках дерева; линия идёт от узла к тому, что указан в `requires`. Только вид, на баланс не влияет. */
+    treePos: {
+      damage: [0, 3.5],
+      coins: [1, 0.5],
+      reward: [1, 2.0],
+      lives: [2, 0.0],
+      shield: [3, 0.0],
+      recycle: [2, 1.0],
+      reinforce: [2, 2.0],
+      pillPower: [1, 4.0],
+      pillRate: [2, 3.5],
+      pillRange: [2, 4.5],
+      pillCheap: [3, 3.5],
+      syrupTime: [1, 6.0],
+      syrupSlow: [2, 5.7],
+      syrupWide: [2, 6.7],
+      syrupCheap: [3, 5.7],
+      fizzPower: [1, 8.4],
+      fizzBlast: [2, 7.8],
+      fizzRate: [2, 8.8],
+      fizzRange: [2, 9.8],
+      fizzCheap: [3, 8.8],
+      syringePower: [1, 12.0],
+      syringeRate: [2, 11.0],
+      syringeWidth: [2, 12.0],
+      syringePulse: [2, 13.0],
+      syringeCheap: [3, 11.0],
+    } as Record<string, [number, number]>,
     /** Нижняя граница множителя скорости бактерии в луже Сиропа после всех улучшений и мутаций (меньше — бактерия почти стоит). */
     minSlowFactor: 0.1,
   },

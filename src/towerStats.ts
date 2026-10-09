@@ -125,6 +125,7 @@ export function computeStats(id: TowerKey, level: number, picks: readonly string
   }
   // Улучшения вне партии ветки этой башни (docs/upgrades.md, раздел 12): пауза, радиусы, лужа, замедление, луч
   const bonus = (effect: UpgradeEffect): number => upgradeBonus(effect, id as UpgradeBranch);
+  s.damage *= 1 + bonus('towerDamage');
   s.cooldownMs *= 1 + bonus('cooldown');
   s.range *= 1 + bonus('range');
   s.blastRadius *= 1 + bonus('blast');
