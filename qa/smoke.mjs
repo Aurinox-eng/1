@@ -2926,6 +2926,7 @@ async function syrupPlay(context, baseUrl, p, { cfg = [], count = 2, interval, w
   }
   const placed = await game.placeTowersOf('syrup', [[cell.col, cell.row]]);
   const log = [];
+  let shotDone = false;
   const end = await pollUntil(game, async (st) => {
     log.push(st);
     if (shotName && !shotDone && st.puddles.length > 0) {
