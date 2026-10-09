@@ -5708,7 +5708,11 @@ async function cardBasics(browser, baseUrl, deviceKey) {
   await shot(game.page, `card-01-pill-${deviceKey}`);
 
   // ---- карточка закрывает кнопки башен: тап в то место, где была кнопка «Таблетка», ничего не выбирает
-  const pb = btns[0];
+  // над карточкой стоит полоса компактных кнопок (она лежит на месте первых кнопок башен); берём кнопку башни ниже полосы и вне кнопок карточки
+  const stripBottom = Math.max(...(s.ui.towerStrip?.buttons ?? []).map((r) => r.y + r.h / 2), 0);
+  const cardRects = [s.ui.card.merge, s.ui.card.sell, s.ui.card.close, ...s.ui.card.picks].filter((r) => r && (r.visible ?? true));
+  const hitsCard = (b) => cardRects.some((r) => Math.abs(b.x - r.x) <= r.w / 2 + 4 && Math.abs(b.y - r.y) <= r.h / 2 + 4);
+  const pb = btns.find((b) => b.y - b.h / 2 > stripBottom + 2 && !hitsCard(b)) ?? btns[btns.length - 1];
   await game.input.tap(game.g(pb.x, pb.y));
   await settle();
   s = await game.state();

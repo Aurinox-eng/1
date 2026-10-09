@@ -44,9 +44,14 @@ jobs:
           - group: 'Бактерии и бой (combat, dash, split, spore, armored, intro, danger, rotate)'
             key: bacteria
             scenarios: 'combat dash split spore armored intro danger rotate'
-          - group: 'Башни (towers)'
-            key: towers
+          - group: 'Башни: панель, цены, Сироп, Шипучка, Шприц, Таблетка, Ампула, Антибиотик (towers, часть 1)'
+            key: towers-a
             scenarios: 'towers'
+            towers_only: 'texts,panel,controls,prices,syrup,fizz,syringe,pill,ampule,antibiotic'
+          - group: 'Башни и бактерии: Лампа, Витамин, все вместе, виды бактерий, Холод, Пластырь (towers, часть 2)'
+            key: towers-b
+            scenarios: 'towers'
+            towers_only: 'lamp,vitamin,mixed,swarm,runner,healer,regen,commander,brood,giant,leaper,phago,stealth,toxin,frost,patch,mutant,parasite'
           - group: 'Карточка, слияние, мутации (card, merge, mutations, sell, special, strip, sell-gap)'
             key: card
             scenarios: 'card merge mutations sell special strip sell-gap'
@@ -85,6 +90,7 @@ jobs:
         env:
           SCENARIOS: ${{ matrix.scenarios }}
           KEY: ${{ matrix.key }}
+          QA_TOWERS_ONLY: ${{ matrix.towers_only }}
         run: |
           failed=0
           {
