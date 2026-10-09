@@ -66,11 +66,11 @@
  *                          вариант выше «Слить», кнопки не налезают друг на друга, на полосу и «Начать волну» и не выходят за панель (компьютер ru, телефон en)
  *   meta-save              очки ДНК: сохранение в браузере (чтение, повреждённая запись, чужие значения, недоступное хранилище)
  *   meta-dna               очки ДНК: начисление за проигрыш и победу, один раз за партию, накопление, запись в хранилище
- *   meta-shop              экран «Улучшения» (компьютер ru, телефон en): переход с экрана конца уровня, покупка, нехватка очков, наибольший уровень, «Играть», тексты
- *   meta-effects           улучшения в партии: жизни, стартовые монеты, урон башен, награда за бактерий
-
- *   tree-shop              экран «Улучшения» с вкладками веток (этап 6б): вкладки, замки закрытых веток, покупка, тексты ru/en
- *   tree-effects           улучшения древа (этап 6б): числа башен по веткам, цена, продажа, щит у линии и звёзды, подкрепление
+ *   meta-shop              экран «Улучшения» — дерево (компьютер ru, телефон en): переход с экрана конца уровня, тап по узлу выбирает его, покупка кнопкой карточки по ценам таблицы, нехватка очков, «Максимум», «Играть», тексты
+ *   meta-effects           улучшения в партии: жизни, стартовые монеты, урон башен, награда за бактерий, «towerDamage» ветки башни (Сила таблетки)
+ *   tree-shop              дерево улучшений (8 октября 2026; компьютер ru, телефон en): узлы как в таблице, узел закрыт, пока родитель не куплен до нужного уровня (покупка закрытого не проходит), условие в карточке,
+ *                          ветки Шипучки и Шприца закрыты на карте уровней, прокрутка колесом и пальцем, выбор тапом, покупка, «Максимум», тексты помещаются в карточку (все узлы, ru и en)
+ *   tree-effects           улучшения древа (этап 6б): числа башен по веткам (в том числе «towerDamage»), цена, продажа, щит у линии и звёзды, подкрепление
  *   level-waves            уровни (этап 5, шаг 1): с `&levelwaves` на уровне 1 состав волн из таблицы `waves.list`, на уровнях 2–10 — от генератора (30 волн, суммарная прочность бактерий больше, чем на уровне 1, и не меньше, чем на предыдущем уровне);
  *                          без `&levelwaves` на любом уровне волны уровня 1 (так идут остальные проверки и бот)
  *   progress-save          сохранение версии 2 (этап 5, шаг 2): прогресс по уровням (звёзды, лучшая волна) и показанные уведомления — чтение, версия 1 без прогресса, чужие и испорченные значения, показанные уведомления остаются записанными после обновления страницы (&persistseen)
@@ -5116,9 +5116,117 @@ async function runRestartButton(browser, baseUrl) {
 const metaOf = (page) => page.evaluate(() => window.__pvbMeta?.getMeta());
 const META_LOSE_CFG = 'lives.start:1,waves.firstDelaySec:1,bacteria.baseSpeed:250';
 
+// ---------------------------------------------------------------- экран «Улучшения» — дерево (8 октября 2026): помощники для проверок
+// Описание экрана — `window.__pvbMeta.getMeta().screen`: узлы (центр и размер на экране игры с учётом прокрутки, onScreen, open, canBuy), окно дерева `view` (левый верхний угол и размер),
+// карточка выбранного узла `detail` (texts: название, «Уровень n из max», «Дальше: …» или итог, условие открытия, подпись кнопки; buy — центр кнопки покупки; fits). Тап по узлу его выбирает,
+// покупка — тап по кнопке карточки. Дерево двигается колесом мыши и перетаскиванием. `app` — всё, у чего есть `page`, `input` и `g(x, y)` (результат openGame или openMenu).
+
+/** Название улучшения на языке (li: 0 — русский, 1 — английский): ключ `upg` + id с заглавной буквы. */
+const upgName = (id, li) => readI18n(`upg${id[0].toUpperCase()}${id.slice(1)}`)[li];
+/** Строка из i18n.ts с подставленными значениями {name}, {n}… */
+const i18nText = (key, li, values = {}) => Object.entries(values).reduce((s, [k, v]) => s.split(`{${k}}`).join(String(v)), readI18n(key)[li]);
+/** Узел дерева в описании экрана. */
+const nodeOf = (m, id) => m.screen.nodes.find((n) => n.id === id);
+/** Условия дерева, которые надо выполнить до улучшения `id`: { id родителя: нужный уровень } вверх по цепочке `requires` (для адреса &meta=…, где условия дерева не проверяются). */
+function prereqLevels(UP, id) {
+  const out = {};
+  for (let r = UP[id].requires; r; r = UP[r.id].requires) out[r.id] = Math.max(out[r.id] ?? 0, r.level);
+  return out;
+}
+const metaQuery = (levels) => Object.entries(levels).map(([k, v]) => `${k}:${v}`).join(',');
+const sumOf = (list) => list.reduce((a, b) => a + b, 0);
+
+/** Ждёт, пока описание экрана «Улучшения» не удовлетворит условию; по истечении времени возвращает последнее прочитанное (проверка покраснеет сама, исключения нет). */
+async function waitMeta(page, predicate, timeoutMs = 3000) {
+  const started = Date.now();
+  let m = await metaOf(page);
+  while (!(m && predicate(m)) && Date.now() - started < timeoutMs) {
+    await sleep(60);
+    m = await metaOf(page);
+  }
+  return m;
+}
+
+/** Сдвигает дерево на dy пикселей экрана игры (dy > 0 — содержимое едет вверх, прокрутка растёт): колесом мыши на компьютере, пальцем на телефоне. */
+async function scrollTree(app, m, dy) {
+  const v = m.screen.view;
+  const cx = v.x + v.w / 2;
+  const cy = v.y + v.h / 2;
+  if (!app.input.isTouch) await app.input.wheel(app.g(cx, cy), dy);
+  else await app.input.drag(app.g(cx, cy + dy / 2), app.g(cx, cy - dy / 2), { steps: 6, stepMs: 20 });
+}
+
+/** Прокручивает дерево, пока узел не окажется целиком в окне (onScreen); возвращает свежее описание. Если прокрутка упёрлась в край — останавливается. */
+async function scrollToNode(app, id) {
+  let m = await metaOf(app.page);
+  for (let i = 0; i < 14; i++) {
+    const n = nodeOf(m, id);
+    if (!n || n.onScreen) return m;
+    const before = m.screen.scroll;
+    await scrollTree(app, m, n.rect.y < m.screen.view.y + m.screen.view.h / 2 ? -300 : 300);
+    m = await waitMeta(app.page, (mm) => mm.screen.scroll !== before, 1500);
+    if (m.screen.scroll === before) break;
+  }
+  return m;
+}
+
+/** Выбирает узел тапом по его кругу (при необходимости прокрутив дерево); до трёх попыток (на медленном сервере первый тап изредка не доходит). Покупки при этом нет. */
+async function selectNode(app, id) {
+  let m = await scrollToNode(app, id);
+  for (let attempt = 1; attempt <= 3 && m.screen.selected !== id; attempt++) {
+    const n = nodeOf(m, id);
+    if (!n || !n.onScreen) break;
+    await app.input.tap(app.g(n.rect.x, n.rect.y));
+    m = await waitMeta(app.page, (mm) => mm.screen.selected === id, 1500);
+  }
+  return m;
+}
+
+/** Выбирает узел и тапает по кнопке покупки в его карточке. Возвращает { before, after } — описание до и после. expectBuy: false — покупки быть не должно (ждём 0,4 с и не повторяем тап). */
+async function buyNode(app, id, { expectBuy = true } = {}) {
+  const before = await selectNode(app, id);
+  let after = before;
+  for (let attempt = 1; attempt <= (expectBuy ? 3 : 1) && after.screen.detail; attempt++) {
+    const b = after.screen.detail.buy;
+    await app.input.tap(app.g(b.x, b.y));
+    after = await waitMeta(app.page, (mm) => mm.levels[id] !== before.levels[id], expectBuy ? 1500 : 400);
+    if (after.levels[id] !== before.levels[id]) break;
+  }
+  return { before, after };
+}
+
+/** Покупает узел, пока его уровень не станет `level` (узел должен быть открыт). Возвращает последнее описание. */
+async function raiseNode(app, id, level) {
+  let m = await metaOf(app.page);
+  while (m.levels[id] < level) {
+    const r = await buyNode(app, id);
+    if (r.after.levels[id] === m.levels[id]) return r.after;
+    m = r.after;
+  }
+  return m;
+}
+
+/**
+ * Какие узлы должны быть открыты (правила src/meta.ts): ветка башни открыта, когда на карте уровней открыт уровень, с которого башня доступна (`levels.towerUnlock`; «Организм» и «Защита» — всегда),
+ * и родитель куплен до нужного уровня. `levels` — уровни улучшений в игре, `stars` — звёзды уровней 1, 2, 3… (уровень открыт, когда предыдущий пройден).
+ */
+function expectedOpen(UP, levels, stars) {
+  const unlock = readTowerUnlock();
+  const levelOpen = (n) => n <= 1 || (stars[n - 2] ?? 0) >= 1;
+  const branchOpen = (b) => b === 'body' || b === 'defense' || levelOpen(unlock[b] ?? 1);
+  return Object.fromEntries(Object.keys(UP).map((id) => [id, branchOpen(UP[id].branch) && (!UP[id].requires || (levels[UP[id].requires.id] ?? 0) >= UP[id].requires.level)]));
+}
+/** Узлы, у которых открытость на экране не совпала с правилами (пустой список — всё сошлось). */
+function openMismatch(UP, m) {
+  const want = expectedOpen(UP, m.levels, m.progress.stars);
+  return m.screen.nodes.filter((n) => n.open !== want[n.id]).map((n) => `${n.id}: на экране ${n.open}, по правилам ${want[n.id]}`);
+}
+
 /** Сохранение: чтение, повреждённые и чужие значения, недоступное хранилище. */
 async function runMetaSave(browser, baseUrl) {
   const p = '[очки ДНК: сохранение]';
+  const UP = readMetaTable().upgrades;
+  const maxOf = (id) => UP[id].prices.length;
   const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
   const game = await openGame(context, baseUrl, p, { speed: 1, cfg: 'waves.firstDelaySec:60' });
   const { page } = game;
@@ -5135,11 +5243,11 @@ async function runMetaSave(browser, baseUrl) {
   m = await reloadWith('это не JSON {');
   check(`${p} повреждённая запись: игра запускается с нулевым прогрессом`, m.dna === 0 && Object.values(m.levels).every((v) => v === 0), JSON.stringify(m));
   m = await reloadWith(JSON.stringify({ v: 1, dna: -5, levels: { lives: 99, coins: 'много', damage: 2.7, reward: -1 } }));
-  check(`${p} чужие значения исправляются: очки −5 → 0, уровень 99 → наибольший 2, «много» → 0, 2,7 → 2, −1 → 0`, m.dna === 0 && m.levels.lives === 2 && m.levels.coins === 0 && m.levels.damage === 2 && m.levels.reward === 0, JSON.stringify(m));
+  check(`${p} чужие значения исправляются: очки −5 → 0, уровень 99 → наибольший ${maxOf('lives')}, «много» → 0, 2,7 → 2, −1 → 0`, m.dna === 0 && m.levels.lives === maxOf('lives') && m.levels.coins === 0 && m.levels.damage === 2 && m.levels.reward === 0, JSON.stringify(m));
   // ---- версия 3 (этап 6б): улучшения всех веток по id таблицы; неизвестные id отбрасываются, значения выше максимума и отрицательные исправляются
-  m = await reloadWith(JSON.stringify({ v: 3, dna: 12, levels: { lives: 1, shield: 2, recycle: 3, pillRate: 3, syrupSlow: 'много', fizzBlast: -2, syringePulse: 5, nope: 4 } }));
-  check(`${p} версия 3: уровни новых улучшений читаются (щит 2, утилизация 3, быстрый приём 3), 5 → наибольший 1, −2 и «много» → 0, неизвестный id отброшен`, m.dna === 12 && m.levels.lives === 1 && m.levels.shield === 2 && m.levels.recycle === 3 && m.levels.pillRate === 3 && m.levels.syringePulse === 1 && m.levels.fizzBlast === 0 && m.levels.syrupSlow === 0 && !('nope' in m.levels), JSON.stringify(m.levels));
-  check(`${p} в состоянии есть все 19 улучшений дерева (по строкам таблицы), включая ветки башен`, Object.keys(m.levels).length >= 19 && ['shield', 'pillCheap', 'syrupTime', 'fizzRange', 'syringeWidth'].every((id) => id in m.levels), Object.keys(m.levels).join());
+  m = await reloadWith(JSON.stringify({ v: 3, dna: 12, levels: { lives: 1, shield: 2, recycle: 3, pillRate: 3, syrupSlow: 'много', fizzBlast: -2, syringePulse: 99, nope: 4 } }));
+  check(`${p} версия 3: уровни новых улучшений читаются (щит 2, утилизация 3, быстрый приём 3), 99 → наибольший ${maxOf('syringePulse')}, −2 и «много» → 0, неизвестный id отброшен`, m.dna === 12 && m.levels.lives === 1 && m.levels.shield === 2 && m.levels.recycle === 3 && m.levels.pillRate === 3 && m.levels.syringePulse === maxOf('syringePulse') && m.levels.fizzBlast === 0 && m.levels.syrupSlow === 0 && !('nope' in m.levels), JSON.stringify(m.levels));
+  check(`${p} в состоянии есть все ${Object.keys(UP).length} улучшений дерева (по строкам таблицы), включая ветки башен и «towerDamage» (Сила таблетки)`, Object.keys(UP).every((id) => id in m.levels) && Object.keys(m.levels).length === Object.keys(UP).length, Object.keys(m.levels).join());
   await context.close();
 
   // хранилище недоступно: обращение к localStorage бросает ошибку
@@ -5475,190 +5583,357 @@ async function runMetaDna(browser, baseUrl) {
   await context.close();
 }
 
-/** Экран «Улучшения»: переход с экрана конца уровня, покупка, нехватка очков, наибольший уровень, «Играть», тексты ru и en. */
+/** Экран «Улучшения» (дерево): переход с экрана конца уровня, выбор узла тапом, покупка кнопкой карточки по ценам таблицы, нехватка очков, «Максимум», «Играть», тексты ru и en. */
 async function runMetaShop(browser, baseUrl) {
+  const UP = readMetaTable().upgrades;
+  const ids = Object.keys(UP);
   for (const [deviceKey, lang] of [['desktop', 'ru'], ['phone', 'en']]) {
     const device = VIEWPORTS[deviceKey];
+    const li = lang === 'ru' ? 0 : 1;
     const p = `[улучшения, ${device.label}, ${lang}]`;
     const context = await newDeviceContext(browser, device, lang);
-    const prices = 'meta.upgrades.coins.perLevel:60,meta.upgrades.lives.prices.0:10,meta.upgrades.lives.prices.1:25,meta.upgrades.coins.prices.0:20,meta.upgrades.damage.prices.0:1000,meta.upgrades.reward.prices.0:30';
-    const game = await openGame(context, baseUrl, p, { speed: 4, cfg: `${META_LOSE_CFG},${prices}`, isTouch: device.hasTouch, query: '&meta=dna:60' });
+    // «lives» открывается, когда куплены его родители (по таблице: coins до уровня 3, а он — damage до уровня 2). Эти уровни задаёт адрес (&meta=…, условия дерева при этом не проверяются),
+    // покупаются уже сам «lives» и следующий уровень «coins». Цена первого уровня «reward» поднята до 99999: очков на него не хватит.
+    const pre = prereqLevels(UP, 'lives');
+    const coinsNow = pre.coins ?? 0;
+    const livesMax = UP.lives.prices.length;
+    const dnaStart = sumOf(UP.lives.prices) + (UP.coins.prices[coinsNow] ?? 0) + 100;
+    const game = await openGame(context, baseUrl, p, { speed: 4, cfg: `${META_LOSE_CFG},meta.upgrades.reward.prices.0:99999`, isTouch: device.hasTouch, query: `&meta=dna:${dnaStart},${metaQuery(pre)}` });
     let s = await waitFor(game.page, (x) => x.state === 'lost', WAIT_MS, 'проигрыш');
     check(`${p} на экране конца уровня есть кнопка «Улучшения» рядом с «Заново», не перекрывая её`, s.upgradesButton !== null && s.endButton !== null && s.upgradesButton.x - s.upgradesButton.w / 2 > s.endButton.x + s.endButton.w / 2, JSON.stringify([s.endButton, s.upgradesButton]));
     await sleep(CFG.restartLockMs + 250);
     await shot(game.page, `meta-end-${deviceKey}-${lang}`);
     await game.input.tap(game.g(s.upgradesButton.x, s.upgradesButton.y));
-    let m;
-    const t0 = Date.now();
-    do {
-      m = await metaOf(game.page);
-      if (m.screen.visible) break;
-      await sleep(100);
-    } while (Date.now() - t0 < 5000);
-    check(`${p} тап по «Улучшения» открывает экран: четыре карточки (lives, coins, damage, reward), кнопка «Играть»`, m.screen.visible && m.screen.cards.map((c) => c.id).join() === 'lives,coins,damage,reward' && m.screen.play !== null, JSON.stringify(m.screen.cards.map((c) => c.id)));
+    let m = await waitMeta(game.page, (x) => x.screen.visible, 5000);
+    check(`${p} тап по «Улучшения» открывает экран-дерево: ${ids.length} узлов как в таблице, окно дерева, карточка выбранного узла, кнопка «Играть»`, m.screen.visible && m.screen.nodes.map((n) => n.id).join() === ids.join() && m.screen.view.w > 0 && m.screen.detail !== null && m.screen.play !== null, JSON.stringify(m.screen.nodes.map((n) => n.id)));
     const dna0 = m.dna;
-    check(`${p} на счёте не меньше 60 очков (подмена &meta=dna:60), на экране надпись с числом ${dna0}`, dna0 >= 60 && m.screen.balance.includes(String(dna0)), m.screen.balance);
+    check(`${p} на счёте не меньше ${dnaStart} очков (подмена &meta=dna:${dnaStart}), на экране надпись с числом ${dna0}`, dna0 >= dnaStart && m.screen.balance.includes(String(dna0)), m.screen.balance);
     await shot(game.page, `meta-shop-${deviceKey}-${lang}`);
-    const card = (mm, id) => mm.screen.cards.find((c) => c.id === id);
-    const buy = async (id) => {
-      const b = card(await metaOf(game.page), id).buy;
-      await game.input.tap(game.g(b.x, b.y));
-      await sleep(250);
-      return metaOf(game.page);
-    };
-    m = await buy('lives');
-    check(`${p} покупка «lives» уровня 1 за 10: уровень 1, очков ${dna0 - 10}`, card(m, 'lives').level === 1 && m.dna === dna0 - 10 && m.levels.lives === 1, `уровень ${card(m, 'lives').level}, очков ${m.dna}`);
-    check(`${p} кнопка «lives» показывает цену следующего уровня 25`, card(m, 'lives').price === 25 && card(m, 'lives').texts[3].includes('25'), card(m, 'lives').texts.join(' | '));
-    m = await buy('lives');
-    check(`${p} покупка «lives» уровня 2 за 25: уровень 2 (наибольший), очков ${dna0 - 35}; кнопка «Максимум»`, card(m, 'lives').level === 2 && m.dna === dna0 - 35 && card(m, 'lives').price === null && !card(m, 'lives').canBuy, `уровень ${card(m, 'lives').level}, очков ${m.dna}, цена ${card(m, 'lives').price}`);
-    m = await buy('lives');
-    check(`${p} на наибольшем уровне повторная покупка ничего не делает (очков ${dna0 - 35}, уровень 2)`, m.dna === dna0 - 35 && card(m, 'lives').level === 2, `очков ${m.dna}`);
-    m = await buy('damage');
-    check(`${p} не хватает очков (цена 1000): покупки нет, очки и уровень прежние`, m.dna === dna0 - 35 && card(m, 'damage').level === 0 && !card(m, 'damage').canBuy, `очков ${m.dna}, уровень ${card(m, 'damage').level}`);
-    m = await buy('coins');
-    check(`${p} покупка «coins» за 20: очков ${dna0 - 55}, уровень 1`, m.dna === dna0 - 55 && card(m, 'coins').level === 1, `очков ${m.dna}`);
-    const texts = m.screen.cards.flatMap((c) => c.texts);
-    check(`${p} тексты на ${lang === 'ru' ? 'русском' : 'английском'}: нет сырых ключей и «undefined», у каждой карточки название, уровень, описание и кнопка`, texts.every((x) => x && !/undefined|upg[A-Z]|\{/.test(x)) && (lang === 'ru' ? /[А-Яа-я]/.test(texts.join('')) : !/[А-Яа-я]/.test(texts.join(''))), texts.join(' | '));
+    const seen = [];
+
+    // ---- тап по узлу выбирает его и ничего не покупает
+    m = await selectNode(game, 'lives');
+    seen.push(...m.screen.detail.texts);
+    const buyLabel1 = i18nText('upgBuy', li, { n: UP.lives.prices[0] });
+    check(`${p} тап по узлу «lives» выбирает его, не покупая: название «${upgName('lives', li)}», «${i18nText('upgLevel', li, { n: 0, max: livesMax })}», кнопка «${buyLabel1}»; очки ${dna0}, уровень 0`, m.screen.selected === 'lives' && m.screen.detail.texts[0] === upgName('lives', li) && m.screen.detail.texts[1] === i18nText('upgLevel', li, { n: 0, max: livesMax }) && m.screen.detail.texts[4] === buyLabel1 && m.dna === dna0 && m.levels.lives === 0, JSON.stringify(m.screen.detail.texts));
+    check(`${p} узел «lives» открыт (родители куплены по адресу): условия в карточке нет, купить можно`, nodeOf(m, 'lives').open && nodeOf(m, 'lives').canBuy && m.screen.detail.texts[3] === '', JSON.stringify([nodeOf(m, 'lives'), m.screen.detail.texts[3]]));
+
+    // ---- покупка кнопкой карточки: каждый уровень «lives» за цену из таблицы
+    let spent = 0;
+    let okBuys = true;
+    const log = [];
+    let r = null;
+    for (let k = 1; k <= livesMax; k++) {
+      r = await buyNode(game, 'lives');
+      spent += UP.lives.prices[k - 1];
+      const good = r.after.levels.lives === k && r.after.dna === dna0 - spent && nodeOf(r.after, 'lives').level === k;
+      if (!good) okBuys = false;
+      log.push(`${k}: цена ${UP.lives.prices[k - 1]}, очки ${r.after.dna}, уровень ${r.after.levels.lives}`);
+      if (k === 1 && livesMax > 1) {
+        check(`${p} после уровня 1 «lives» карточка показывает цену следующего уровня ${UP.lives.prices[1]}`, nodeOf(r.after, 'lives').price === UP.lives.prices[1] && r.after.screen.detail.texts[4] === i18nText('upgBuy', li, { n: UP.lives.prices[1] }), JSON.stringify(r.after.screen.detail.texts));
+      }
+    }
+    seen.push(...r.after.screen.detail.texts);
+    check(`${p} покупка «lives» по уровням 1…${livesMax} за цены таблицы (${UP.lives.prices.join(', ')}): уровень растёт, очков ${dna0} → ${dna0 - spent}`, okBuys && r.after.dna === dna0 - spent, log.join('; '));
+    check(`${p} на наибольшем уровне ${livesMax}: подпись кнопки «${i18nText('upgMax', li)}», цены нет, купить нельзя`, r.after.screen.detail.texts[4] === i18nText('upgMax', li) && nodeOf(r.after, 'lives').price === null && !nodeOf(r.after, 'lives').canBuy, JSON.stringify([r.after.screen.detail.texts, nodeOf(r.after, 'lives')]));
+    r = await buyNode(game, 'lives', { expectBuy: false });
+    check(`${p} на наибольшем уровне повторный тап по кнопке ничего не делает (очки ${dna0 - spent}, уровень ${livesMax})`, r.after.dna === dna0 - spent && r.after.levels.lives === livesMax, `очки ${r.after.dna}, уровень ${r.after.levels.lives}`);
+
+    // ---- не хватает очков
+    r = await buyNode(game, 'reward', { expectBuy: false });
+    seen.push(...r.after.screen.detail.texts);
+    check(`${p} не хватает очков («reward» стоит 99999): узел открыт, но покупки нет, очки ${dna0 - spent} и уровень 0 прежние`, nodeOf(r.after, 'reward').open && !nodeOf(r.after, 'reward').canBuy && r.after.dna === dna0 - spent && r.after.levels.reward === 0 && r.after.screen.detail.texts[4].includes('99999'), `очки ${r.after.dna}, уровень ${r.after.levels.reward}, ${r.after.screen.detail.texts[4]}`);
+
+    // ---- ещё один узел: следующий уровень «coins»
+    const coinsPrice = UP.coins.prices[coinsNow];
+    r = await buyNode(game, 'coins');
+    seen.push(...r.after.screen.detail.texts);
+    check(`${p} покупка «coins» уровня ${coinsNow + 1} за ${coinsPrice}: очков ${dna0 - spent - coinsPrice}, уровень ${coinsNow + 1}`, r.after.dna === dna0 - spent - coinsPrice && r.after.levels.coins === coinsNow + 1, `очки ${r.after.dna}, уровень ${r.after.levels.coins}`);
+    check(`${p} тексты на ${lang === 'ru' ? 'русском' : 'английском'}: нет сырых ключей и «undefined»; карточки помещаются`, seen.every((x) => typeof x === 'string' && !/undefined|upg[A-Z]|\{/.test(x)) && (lang === 'ru' ? /[А-Яа-я]/.test(seen.join('')) : !/[А-Яа-я]/.test(seen.join(''))) && r.after.screen.detail.fits, seen.join(' | '));
     await shot(game.page, `meta-shop-bought-${deviceKey}-${lang}`);
-    await game.input.tap(game.g(m.screen.play.x, m.screen.play.y));
+
+    // ---- «Играть»: новая партия с купленным
+    const wantLives = 1 + UP.lives.perLevel * livesMax;
+    const wantCoins = CFG.startCoins + UP.coins.perLevel * (coinsNow + 1);
+    await game.input.tap(game.g(r.after.screen.play.x, r.after.screen.play.y));
     s = await waitFor(game.page, (x) => x.state === 'playing' && x.wave === 0, 5000, 'новая партия после «Играть»');
-    // в подмене META_LOSE_CFG жизней в начале 1: с купленным уровнем 2 «lives» должно быть 1 + 2
-    check(`${p} «Играть» запускает новую партию: жизней 1 + 2 = 3 (куплен уровень 2 «lives»), монет на 60 больше стартовых (уровень 1 «coins» = +60)`, s.maxLives === 3 && s.lives === 3 && s.coins === CFG.startCoins + 60, `жизни ${s.lives}/${s.maxLives}, монеты ${s.coins}`);
-    check(`${p} сердец на панели 3`, s.ui.lives === 3, `жизней на панели ${s.ui.lives}`);
+    // в подмене META_LOSE_CFG жизней в начале 1: к ним прибавляются жизни «lives»
+    check(`${p} «Играть» запускает новую партию: жизней 1 + ${UP.lives.perLevel} × ${livesMax} = ${wantLives}, монет на ${UP.coins.perLevel * (coinsNow + 1)} больше стартовых (уровень ${coinsNow + 1} «coins»): ${wantCoins}`, s.maxLives === wantLives && s.lives === wantLives && s.coins === wantCoins, `жизни ${s.lives}/${s.maxLives}, монеты ${s.coins}`);
+    check(`${p} сердец на панели ${wantLives}`, s.ui.lives === wantLives, `жизней на панели ${s.ui.lives}`);
     await context.close();
   }
 }
 
-/** Действие улучшений в партии: жизни, стартовые монеты, урон башен, награда за бактерий. */
+/** Действие улучшений в партии: жизни, стартовые монеты, урон башен, награда за бактерий, «towerDamage» ветки башни. Уровни задаёт адрес (&meta=…), эффект одного уровня берётся из таблицы `meta.upgrades`. */
 async function runMetaEffects(browser, baseUrl) {
   const p = '[улучшения в партии]';
+  const UP = readMetaTable().upgrades;
   const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
-  // эффекты одного уровня заданы явно: проверка не зависит от подобранных в config.ts чисел
-  const base = `${wavesOnlyCfg({ coccus: 1 })},waves.firstDelaySec:1,${FIXED_BALANCE.join(',')},towers.pill.range:900,towers.pill.damage:10,economy.startCoins:500,lives.start:3,meta.upgrades.coins.perLevel:60,meta.upgrades.damage.perLevel:0.1,meta.upgrades.reward.perLevel:0.08`;
+  const base = `${wavesOnlyCfg({ coccus: 1 })},waves.firstDelaySec:1,${FIXED_BALANCE.join(',')},towers.pill.range:900,towers.pill.damage:10,economy.startCoins:500,lives.start:3`;
+  const rewardLv = UP.reward.prices.length;
   const plain = await openGame(context, baseUrl, p, { speed: 4, cfg: base, query: '&meta=dna:0' });
   await placeSure(plain, 'pill', FREE.a);
   const s0 = await plain.state();
   const dmg0 = s0.towers[0].stats.damage;
   await plain.page.close();
 
-  const game = await openGame(context, baseUrl, p, { speed: 4, cfg: base, query: '&meta=lives:2,coins:3,damage:2,reward:5' });
+  const game = await openGame(context, baseUrl, p, { speed: 4, cfg: base, query: `&meta=lives:2,coins:3,damage:2,reward:${rewardLv}` });
   let s = await game.state();
-  check(`${p} жизни: 3 + 2 = 5 (maxLives ${s.maxLives}, lives ${s.lives}, сердец ${s.ui.lives})`, s.maxLives === 5 && s.lives === 5 && s.ui.lives === 5, `${s.lives}/${s.maxLives}`);
-  check(`${p} стартовые монеты: 500 + 3 × 60 = 680 (сейчас ${s.coins})`, s.coins === 680, `монет ${s.coins}`);
+  const wantLives = 3 + UP.lives.perLevel * 2;
+  check(`${p} жизни: 3 + ${UP.lives.perLevel} × 2 = ${wantLives} (maxLives ${s.maxLives}, lives ${s.lives}, сердец ${s.ui.lives})`, s.maxLives === wantLives && s.lives === wantLives && s.ui.lives === wantLives, `${s.lives}/${s.maxLives}`);
+  const wantCoins = 500 + UP.coins.perLevel * 3;
+  check(`${p} стартовые монеты: 500 + 3 × ${UP.coins.perLevel} = ${wantCoins} (сейчас ${s.coins})`, s.coins === wantCoins, `монет ${s.coins}`);
   await shot(game.page, 'meta-effects-hearts');
   await placeSure(game, 'pill', FREE.a);
   s = await game.state();
-  check(`${p} урон башен: ×(1 + 0,1 × 2) = ×1,2 (без улучшений ${f2(dmg0)}, с улучшением ${f2(s.towers[0].stats.damage)})`, Math.abs(s.towers[0].stats.damage - dmg0 * 1.2) < 1e-6, `${s.towers[0].stats.damage} против ${dmg0}`);
+  const dmgMul = 1 + UP.damage.perLevel * 2;
+  check(`${p} урон башен: ×(1 + ${UP.damage.perLevel} × 2) = ×${f2(dmgMul)} (без улучшений ${f2(dmg0)}, с улучшением ${f2(s.towers[0].stats.damage)})`, Math.abs(s.towers[0].stats.damage - dmg0 * dmgMul) < 1e-6, `${s.towers[0].stats.damage} против ${dmg0}`);
   const before = s.coins;
   s = await waitFor(game.page, (x) => x.kills >= 1 || x.state === 'won', WAIT_MS, 'первое убийство');
   const gain = s.coins - before;
-  check(`${p} награда за бактерию: номинал ${BASE.reward} × (1 + 0,08 × 5) = ${BASE.reward * 1.4} (получено ${gain})`, gain === BASE.reward * 1.4, `получено ${gain}`);
+  const wantGain = BASE.reward * (1 + UP.reward.perLevel * rewardLv);
+  // дробная часть награды копится до целой монеты, поэтому получено целое не больше расчётного и больше него минус одна монета
+  check(`${p} награда за бактерию: номинал ${BASE.reward} × (1 + ${UP.reward.perLevel} × ${rewardLv}) = ${f2(wantGain)} (получено ${gain})`, gain <= wantGain + 1e-9 && gain >= wantGain - 1, `получено ${gain}`);
+  await game.page.close();
+
+  // ---- «towerDamage» ветки башни (Сила таблетки): урон Таблетки больше на perLevel × уровень; улучшения других веток (Шипучка, Шприц) Таблетку не меняют
+  const lvPower = 3;
+  const power = await openGame(context, baseUrl, p, { speed: 4, cfg: base, query: `&meta=pillPower:${lvPower},fizzPower:${lvPower},syringePower:${lvPower}` });
+  await placeSure(power, 'pill', FREE.a);
+  s = await power.state();
+  const dmgP = s.towers[0].stats.damage;
+  const wantP = dmg0 * (1 + UP.pillPower.perLevel * lvPower);
+  check(`${p} «towerDamage»: при &meta=pillPower:${lvPower} урон Таблетки больше на ${f2(UP.pillPower.perLevel * lvPower * 100)} % (×${f2(1 + UP.pillPower.perLevel * lvPower)}): ${f2(dmg0)} → ${f2(dmgP)} (силы Шипучки и Шприца Таблетку не меняют)`, Math.abs(dmgP - wantP) < 1e-6, `${dmgP} против ожидаемых ${wantP}`);
   await context.close();
 }
 
-/** Экран «Улучшения» с вкладками (этап 6б, docs/upgrades.md, раздел 14): вкладки, замки закрытых веток, покупка на разных вкладках, тексты ru/en. */
+/**
+ * Дерево улучшений (8 октября 2026, docs/upgrades.md, часть 3): узлы как в таблице; узел закрыт, пока родитель не куплен до нужного уровня (покупка закрытого не проходит, условие читается в карточке);
+ * ветки Шипучки и Шприца закрыты на карте уровней; прокрутка колесом и пальцем; тап по узлу выбирает его; покупка кнопкой карточки; «Максимум»; тексты помещаются в карточку у всех узлов (компьютер ru, телефон en).
+ */
 async function runTreeShop(browser, baseUrl) {
   const UP = readMetaTable().upgrades;
-  const branches = [...new Set(Object.values(UP).map((u) => u.branch))];
+  const ids = Object.keys(UP);
   const towerUnlock = readTowerUnlock();
+  const branches = [...new Set(ids.map((id) => UP[id].branch))];
+  const rootId = ids.find((id) => !UP[id].requires);
+  const childId = ids.find((id) => UP[id].requires?.id === rootId && UP[id].branch === UP[rootId].branch);
+  /** Первый узел ветки: тот, чей родитель лежит в другой ветке (или нет родителя). */
+  const branchRoot = (branch) => ids.find((id) => UP[id].branch === branch && UP[UP[id].requires?.id]?.branch !== branch);
+  /** Ветки башен, закрытые на уровне 1 (Шипучка — с уровня 5, Шприц — с уровня 10), по порядку открытия, и первая открытая сразу ветка башни (Таблетка). */
+  const lockedBranches = branches.filter((b) => (towerUnlock[b] ?? 1) > 1).sort((a, b) => towerUnlock[a] - towerUnlock[b]);
+  const openTowerBranch = branches.find((b) => b !== 'body' && b !== 'defense' && (towerUnlock[b] ?? 1) <= 1);
+  const grandchildOf = (id) => ids.find((x) => UP[x].requires?.id === id && UP[x].branch === UP[id].branch);
+
   for (const [deviceKey, lang] of [['desktop', 'ru'], ['phone', 'en']]) {
     const device = VIEWPORTS[deviceKey];
-    const p = `[вкладки улучшений, ${device.label}, ${lang}]`;
+    const li = lang === 'ru' ? 0 : 1;
+    const p = `[дерево улучшений, ${device.label}, ${lang}]`;
     const context = await newDeviceContext(browser, device, lang);
-    // звёзды уровней 1–3: открыт уровень 4; ветки Таблетки и Сиропа открыты, Шипучки (уровень 5) и Шприца (уровень 10) закрыты
-    const app = await openMenu(context, baseUrl, p, { isTouch: device.hasTouch, query: '&meta=dna:300&stars=1,1,1' });
-    let u = await app.ui();
-    await app.tapRect(u.buttons.upgrades);
-    await app.waitUi('upgrades', 'экран «Улучшения»');
-    const meta = () => metaOf(app.page);
-    let m = await meta();
-    const tab = (mm, branch) => mm.screen.tabs.find((x) => x.branch === branch);
-    const tapTab = async (branch) => {
-      await app.tapRect(tab(await meta(), branch).rect);
-      await sleep(250);
-      return meta();
+    const openScreen = async (query) => {
+      const app = await openMenu(context, baseUrl, p, { isTouch: device.hasTouch, query });
+      const u = await app.ui();
+      await app.tapRect(u.buttons.upgrades);
+      await app.waitUi('upgrades', 'экран «Улучшения»');
+      return app;
     };
-    const wantTabs = branches.join();
-    check(`${p} вкладки по таблице: ${wantTabs}; открыта первая («Организм»), на ней карточки ${branchIdsOf(UP, branches[0]).join(', ')}`, m.screen.tabs.map((x) => x.branch).join() === wantTabs && m.screen.activeTab === branches[0] && m.screen.cards.map((c) => c.id).join() === branchIdsOf(UP, branches[0]).join(), JSON.stringify(m.screen.tabs.map((x) => x.branch)) + ' ' + m.screen.activeTab);
-    const lockedWant = branches.filter((b) => (towerUnlock[b] ?? 1) > 4).join();
-    check(`${p} закрыты ветки башен, которые открываются после уровня 4: ${lockedWant}; остальные открыты`, m.screen.tabs.filter((x) => x.locked).map((x) => x.branch).join() === lockedWant, JSON.stringify(m.screen.tabs.map((x) => [x.branch, x.locked])));
-    const rects = m.screen.tabs.map((x) => x.rect);
-    let clash = '';
-    rects.forEach((r, i) => {
-      if (!insideScreen(r)) clash += ` вне экрана ${i};`;
-      for (let j = i + 1; j < rects.length; j++) if (overlaps(r, rects[j])) clash += ` ${i}×${j};`;
-    });
-    check(`${p} шесть вкладок внутри экрана и не налезают друг на друга; подписи не пустые`, clash === '' && m.screen.tabs.every((x) => x.label && !/undefined|upg|tower/.test(x.label)), clash || m.screen.tabs.map((x) => x.label).join(' | '));
-    await shot(app.page, `tree-shop-body-${deviceKey}-${lang}`);
-
-    // ---- каждая вкладка: карточки по таблице, тексты помещаются, нет сырых ключей
-    const problems = [];
-    for (const branch of branches) {
-      m = await tapTab(branch);
-      const want = branchIdsOf(UP, branch);
-      if (m.screen.activeTab !== branch || m.screen.cards.map((c) => c.id).join() !== want.join()) problems.push(`${branch}: карточки ${m.screen.cards.map((c) => c.id).join()}`);
-      for (const c of m.screen.cards) {
-        if (!c.fits) problems.push(`${c.id}: текст не помещается (${c.texts.join(' | ')})`);
-        if (c.texts.some((x) => !x || /undefined|upg[A-Z]|\{/.test(x))) problems.push(`${c.id}: сырой ключ (${c.texts.join(' | ')})`);
-        if (!insideScreen(c.rect) || !insideScreen(c.buy)) problems.push(`${c.id}: вне экрана`);
+    const textsOk = (texts) =>
+      texts.length === 5 &&
+      texts.every((x) => typeof x === 'string' && !/undefined|upg[A-Z]|\{/.test(x)) &&
+      [0, 1, 2, 4].every((i) => texts[i]) &&
+      (lang === 'ru' ? /[А-Яа-я]/.test(texts.join('')) : !/[А-Яа-я]/.test(texts.join('')));
+    /** Выбирает каждый узел по очереди: карточка выбранного узла, тексты помещаются, название и условие на месте. Возвращает список замечаний. */
+    const checkAllNodes = async (app) => {
+      const problems = [];
+      for (const id of ids) {
+        const m = await selectNode(app, id);
+        const d = m.screen.detail;
+        const n = nodeOf(m, id);
+        if (m.screen.selected !== id || !d || !n) {
+          problems.push(`${id}: не выбран (выбран «${m.screen.selected}»)`);
+          continue;
+        }
+        if (!d.fits) problems.push(`${id}: тексты не помещаются (${d.texts.join(' | ')})`);
+        if (d.texts[0] !== upgName(id, li)) problems.push(`${id}: название «${d.texts[0]}», ждали «${upgName(id, li)}»`);
+        if (!textsOk(d.texts)) problems.push(`${id}: сырой ключ, пустой текст или не тот язык (${d.texts.join(' | ')})`);
+        if (!n.open && d.texts[3] === '') problems.push(`${id}: закрыт, а условия в карточке нет`);
+        if (n.open && d.texts[3] !== '') problems.push(`${id}: открыт, а условие написано («${d.texts[3]}»)`);
+        if (!insideScreen(d.buy)) problems.push(`${id}: кнопка покупки вне экрана`);
       }
-      const xs = m.screen.cards.map((c) => c.rect);
-      xs.forEach((r, i) => xs.slice(i + 1).forEach((q, j) => { if (overlaps(r, q)) problems.push(`${branch}: карточки ${i}×${i + j + 1} налезают`); }));
-      await shot(app.page, `tree-shop-${branch}-${deviceKey}-${lang}`);
+      return problems;
+    };
+    /** Родитель → потомок: потомок закрыт и купить его нельзя, пока родитель не куплен до нужного уровня; на нужном уровне открывается. Покупает родителя до нужного уровня. */
+    const parentChild = async (app, parentId, kidId) => {
+      const req = UP[kidId].requires;
+      const reqLine = i18nText('upgRequires', li, { name: upgName(req.id, li), n: req.level });
+      let m = await selectNode(app, kidId);
+      const dnaBefore = m.dna;
+      const closed = !nodeOf(m, kidId).open && !nodeOf(m, kidId).canBuy && m.screen.detail.texts[3] === reqLine && m.screen.detail.texts[3].includes(upgName(req.id, li)) && m.screen.detail.texts[4] === i18nText('upgClosed', li);
+      check(`${p} узел «${kidId}» закрыт, пока «${req.id}» не куплен до уровня ${req.level}: в карточке «${reqLine}» (название родителя читается), подпись кнопки «${i18nText('upgClosed', li)}»`, closed, JSON.stringify([nodeOf(m, kidId), m.screen.detail.texts]));
+      let r = await buyNode(app, kidId, { expectBuy: false });
+      check(`${p} покупка закрытого «${kidId}» не проходит, хотя очков хватает (цена ${UP[kidId].prices[0]}): очки ${dnaBefore} и уровень 0 прежние`, r.after.dna === dnaBefore && r.after.levels[kidId] === 0, `очки ${r.after.dna}, уровень ${r.after.levels[kidId]}`);
+      let ok = true;
+      const log = [];
+      for (let k = r.after.levels[parentId] + 1; k <= req.level; k++) {
+        r = await buyNode(app, parentId);
+        const price = UP[parentId].prices[k - 1];
+        const kidOpen = nodeOf(r.after, kidId).open;
+        if (r.after.levels[parentId] !== k || r.after.dna !== r.before.dna - price || kidOpen !== (k >= req.level)) ok = false;
+        log.push(`уровень ${k}: цена ${price}, очки ${r.before.dna} → ${r.after.dna}, «${kidId}» ${kidOpen ? 'открыт' : 'закрыт'}`);
+      }
+      check(`${p} покупка «${parentId}» до уровня ${req.level} списывает цены таблицы, «${kidId}» открывается ровно на уровне ${req.level}`, ok && r.after.levels[parentId] === req.level, log.join('; '));
+      m = await selectNode(app, kidId);
+      check(`${p} после этого «${kidId}» открыт: условия в карточке нет, кнопка «${i18nText('upgBuy', li, { n: UP[kidId].prices[0] })}», купить можно`, nodeOf(m, kidId).open && nodeOf(m, kidId).canBuy && m.screen.detail.texts[3] === '' && m.screen.detail.texts[4] === i18nText('upgBuy', li, { n: UP[kidId].prices[0] }), JSON.stringify(m.screen.detail.texts));
+      r = await buyNode(app, kidId);
+      check(`${p} покупка «${kidId}» уровня 1 за ${UP[kidId].prices[0]}: уровень 1, очки ${r.before.dna} → ${r.before.dna - UP[kidId].prices[0]}`, r.after.levels[kidId] === 1 && r.after.dna === r.before.dna - UP[kidId].prices[0], `уровень ${r.after.levels[kidId]}, очки ${r.after.dna}`);
+      return r.after;
+    };
+
+    // ================= часть А: новая игра, очков много (3000), звёзд нет
+    let app = await openScreen('&meta=dna:3000');
+    let m = await waitMeta(app.page, (x) => x.screen.visible, 5000);
+    const dnaA = m.dna;
+    check(`${p} на экране ${ids.length} узлов в порядке таблицы; у каждого уровень 0, наибольший уровень и цена первого уровня как в таблице`, m.screen.visible && m.screen.nodes.map((n) => n.id).join() === ids.join() && m.screen.nodes.every((n) => n.level === 0 && n.max === UP[n.id].prices.length && n.price === UP[n.id].prices[0]), JSON.stringify(m.screen.nodes.map((n) => [n.id, n.level, n.max, n.price])));
+    const mismatch0 = openMismatch(UP, m);
+    check(`${p} в новой игре открытость каждого узла совпадает с правилами (родитель куплен до нужного уровня, ветка башни открыта на карте уровней): открыт корень «${rootId}», закрыт «${childId}»`, mismatch0.length === 0 && nodeOf(m, rootId).open && !nodeOf(m, childId).open, mismatch0.join('; '));
+    const v = m.screen.view;
+    const detail = m.screen.detail;
+    const rects = m.screen.nodes.map((n) => n.rect);
+    let clash = '';
+    rects.forEach((a, i) => rects.slice(i + 1).forEach((b, j) => { if (overlaps(a, b)) clash += ` ${ids[i]}×${ids[i + 1 + j]};`; }));
+    const inView = m.screen.nodes.filter((n) => n.onScreen).every((n) => n.rect.x - n.rect.w / 2 >= v.x && n.rect.x + n.rect.w / 2 <= v.x + v.w && n.rect.y - n.rect.h / 2 >= v.y && n.rect.y + n.rect.h / 2 <= v.y + v.h);
+    check(`${p} окно дерева, кнопка покупки в карточке и «Играть» внутри экрана и не налезают друг на друга, узлы между собой не налезают; в начале выбран корень «${rootId}»`, v.x >= 0 && v.y >= 0 && v.x + v.w <= W && v.y + v.h <= H && detail && insideScreen(detail.buy) && insideScreen(m.screen.play) && !overlaps(detail.buy, m.screen.play) && detail.buy.x - detail.buy.w / 2 >= v.x + v.w && clash === '' && inView && m.screen.selected === rootId, `${JSON.stringify(v)} ${JSON.stringify(detail && detail.buy)} ${clash}`);
+    await shot(app.page, `tree-shop-top-${deviceKey}-${lang}`);
+    if (UP[rootId].effect === 'damage') {
+      const next = i18nText('upgNext', li, { text: i18nText('upgDamageDesc', li, { n: Math.round(UP[rootId].perLevel * 100) }) });
+      check(`${p} карточка корня «${rootId}»: «${i18nText('upgLevel', li, { n: 0, max: UP[rootId].prices.length })}», «${next}»`, detail.texts[1] === i18nText('upgLevel', li, { n: 0, max: UP[rootId].prices.length }) && detail.texts[2] === next, JSON.stringify(detail.texts));
     }
-    check(`${p} все ${branches.length} вкладок: карточки как в таблице, тексты помещаются в карточку и над кнопкой, сырых ключей нет, карточки не налезают друг на друга`, problems.length === 0, problems.slice(0, 4).join(' || '));
 
-    // ---- покупка на вкладках «Защита» и «Таблетка»
-    const firstDefense = branchIdsOf(UP, 'defense')[0];
-    const firstPill = branchIdsOf(UP, 'pill')[0];
-    m = await tapTab('defense');
-    const dna0 = m.dna;
-    const price1 = UP[firstDefense].prices[0];
-    let b = m.screen.cards.find((c) => c.id === firstDefense).buy;
-    await app.input.tap(app.g(b.x, b.y));
-    await sleep(250);
-    m = await meta();
-    check(`${p} покупка на вкладке «Защита»: «${firstDefense}» уровень 1 за ${price1}; очков ${dna0} → ${m.dna}`, m.levels[firstDefense] === 1 && m.dna === dna0 - price1, `уровень ${m.levels[firstDefense]}, очков ${m.dna}`);
-    m = await tapTab('pill');
-    const dna1 = m.dna;
-    const price2 = UP[firstPill].prices[0];
-    b = m.screen.cards.find((c) => c.id === firstPill).buy;
-    await app.input.tap(app.g(b.x, b.y));
-    await sleep(250);
-    m = await meta();
-    check(`${p} покупка на вкладке «Таблетка»: «${firstPill}» уровень 1 за ${price2}; очков ${dna1} → ${m.dna}`, m.levels[firstPill] === 1 && m.dna === dna1 - price2, `уровень ${m.levels[firstPill]}, очков ${m.dna}`);
+    // ---- прокрутка: колесо мыши (компьютер) или палец (телефон), перетаскивание; узлы сдвигаются на столько же, выбор и очки не меняются
+    const far = m.screen.nodes.find((n) => !n.onScreen);
+    check(`${p} дерево длиннее окна: есть узел вне окна («${far?.id}»), прокрутка в начале 0`, Boolean(far) && m.screen.scroll === 0, `прокрутка ${m.screen.scroll}`);
+    if (far) {
+      const rootY0 = nodeOf(m, rootId).rect.y;
+      let ms = await scrollToNode(app, far.id);
+      const shifted = rootY0 - nodeOf(ms, rootId).rect.y;
+      check(`${p} прокрутка (${app.input.isTouch ? 'палец' : 'колесо мыши'}) доводит узел «${far.id}» до окна: прокрутка 0 → ${f2(ms.screen.scroll)}, корень сдвинулся на ${f2(shifted)}; выбор («${ms.screen.selected}») и очки (${ms.dna}) прежние`, ms.screen.scroll > 0 && nodeOf(ms, far.id).onScreen && Math.abs(shifted - ms.screen.scroll) < 0.6 && ms.screen.selected === rootId && ms.dna === dnaA, `прокрутка ${ms.screen.scroll}, сдвиг ${shifted}`);
+      await shot(app.page, `tree-shop-scrolled-${deviceKey}-${lang}`);
+      for (let i = 0; i < 10 && ms.screen.scroll > 0; i++) {
+        const prev = ms.screen.scroll;
+        await scrollTree(app, ms, -300);
+        ms = await waitMeta(app.page, (mm) => mm.screen.scroll < prev, 1500);
+      }
+      check(`${p} прокрутка обратно в начало: прокрутка 0, корень на прежнем месте (${f2(rootY0)})`, ms.screen.scroll === 0 && Math.abs(nodeOf(ms, rootId).rect.y - rootY0) < 0.6, `прокрутка ${ms.screen.scroll}, корень ${nodeOf(ms, rootId).rect.y}`);
+      // перетаскивание вверх на 200 px: на обоих устройствах это прокрутка, а не тап (сдвиг больше порога)
+      const cx = v.x + v.w / 2;
+      const y0 = v.y + v.h * 0.8;
+      await app.input.drag(app.g(cx, y0), app.g(cx, y0 - 200), { steps: 8, stepMs: 20 });
+      let md = await waitMeta(app.page, (mm) => mm.screen.scroll > 100, 2000);
+      check(`${p} перетаскивание вверх на 200 px сдвигает дерево на ${f2(md.screen.scroll)} (от 150 до 250); узел под пальцем не выбран («${md.screen.selected}»), ничего не куплено`, md.screen.scroll >= 150 && md.screen.scroll <= 250 && md.screen.selected === rootId && md.dna === dnaA, `прокрутка ${md.screen.scroll}, выбран ${md.screen.selected}, очки ${md.dna}`);
+      await app.input.drag(app.g(cx, y0 - 200), app.g(cx, y0), { steps: 8, stepMs: 20 });
+      md = await waitMeta(app.page, (mm) => mm.screen.scroll < 10, 2000);
+      if (!app.input.isTouch) {
+        await app.input.wheel(app.g(cx, v.y + v.h / 2), 200);
+        const mw = await waitMeta(app.page, (mm) => mm.screen.scroll > 0, 2000);
+        await app.input.wheel(app.g(cx, v.y + v.h / 2), -2000);
+        const mb = await waitMeta(app.page, (mm) => mm.screen.scroll === 0, 2000);
+        check(`${p} колесо мыши над окном дерева: вниз — прокрутка ${f2(mw.screen.scroll)} (больше 0), вверх — снова 0 (${f2(mb.screen.scroll)})`, mw.screen.scroll > 0 && mb.screen.scroll === 0, `${mw.screen.scroll} → ${mb.screen.scroll}`);
+      }
+    }
 
-    // ---- закрытая ветка: вкладка серая, кнопки не работают, написано, с какого уровня открывается
-    const lockedBranch = branches.find((x) => (towerUnlock[x] ?? 1) > 4);
-    m = await tapTab(lockedBranch);
-    const lockText = readI18n('upgLocked')[lang === 'ru' ? 0 : 1].replace('{n}', String(towerUnlock[lockedBranch]));
-    check(`${p} вкладка закрытой ветки «${lockedBranch}»: у всех карточек надпись «${lockText}», купить нельзя`, m.screen.cards.length > 0 && m.screen.cards.every((c) => c.locked && !c.canBuy && c.texts[3] === lockText), JSON.stringify(m.screen.cards.map((c) => [c.id, c.locked, c.canBuy, c.texts[3]])));
-    const firstLocked = m.screen.cards[0];
-    const dna2 = m.dna;
-    await app.input.tap(app.g(firstLocked.buy.x, firstLocked.buy.y));
-    await sleep(250);
-    m = await meta();
-    check(`${p} тап по кнопке закрытой ветки ничего не покупает: очки ${dna2} → ${m.dna}, уровень «${firstLocked.id}» ${m.levels[firstLocked.id]}`, m.dna === dna2 && m.levels[firstLocked.id] === 0, `очков ${m.dna}`);
+    // ---- карточка каждого узла в новой игре: тексты помещаются (закрытые узлы ветки башни — две строки условия), название и условие на месте
+    const problemsA = await checkAllNodes(app);
+    check(`${p} все ${ids.length} узлов, по очереди: тап выбирает узел, тексты помещаются в карточку и над кнопкой, название как в i18n, у закрытых есть условие, сырых ключей нет`, problemsA.length === 0, problemsA.slice(0, 4).join(' || '));
+
+    // ---- выбор тапом, потом покупка: родитель → потомок
+    m = await selectNode(app, rootId);
+    let m2 = await selectNode(app, childId);
+    check(`${p} тап по узлу только выбирает: выбор «${rootId}» → «${childId}», очки не менялись (${m.dna} → ${m2.dna}), уровни нули`, m.screen.selected === rootId && m2.screen.selected === childId && m2.dna === m.dna && Object.values(m2.levels).every((x) => x === 0), `выбран ${m2.screen.selected}`);
+    m = await parentChild(app, rootId, childId);
+    await shot(app.page, `tree-shop-bought-${deviceKey}-${lang}`);
+
+    // ---- ветки башен, закрытые на карте уровней: открыты родителем, но закрыты веткой
+    for (const [i, b] of lockedBranches.slice(0, 2).entries()) {
+      const rid = branchRoot(b);
+      const lockLine = i18nText('upgLocked', li, { n: towerUnlock[b] });
+      const pre = Object.entries(prereqLevels(UP, rid)).reverse(); // сначала самый дальний родитель
+      if (i === 0) {
+        const req = UP[rid].requires;
+        const reqLine = i18nText('upgRequires', li, { name: upgName(req.id, li), n: req.level });
+        m = await selectNode(app, rid);
+        const t3 = m.screen.detail.texts[3];
+        check(`${p} ветка «${b}» закрыта на уровне 1: у «${rid}» написано «${lockLine}»${m.levels[req.id] < req.level ? ` и «${reqLine}»` : ''}`, !nodeOf(m, rid).open && t3.includes(lockLine) && (m.levels[req.id] >= req.level || t3.includes(reqLine)), t3);
+      }
+      for (const [pid, lv] of pre) m = await raiseNode(app, pid, lv);
+      m = await selectNode(app, rid);
+      const dnaB = m.dna;
+      check(`${p} родитель «${UP[rid].requires?.id}» куплен до нужного уровня, но ветка «${b}» всё ещё закрыта: «${rid}» закрыт, в карточке ровно «${lockLine}», подпись «${i18nText('upgClosed', li)}», купить нельзя`, !nodeOf(m, rid).open && !nodeOf(m, rid).canBuy && m.screen.detail.texts[3] === lockLine && m.screen.detail.texts[4] === i18nText('upgClosed', li), JSON.stringify(m.screen.detail.texts));
+      const r = await buyNode(app, rid, { expectBuy: false });
+      check(`${p} покупка в закрытой ветке «${b}» не проходит: очки ${dnaB} и уровень 0 прежние`, r.after.dna === dnaB && r.after.levels[rid] === 0, `очки ${r.after.dna}, уровень ${r.after.levels[rid]}`);
+      if (i === 0) await shot(app.page, `tree-shop-locked-${deviceKey}-${lang}`);
+    }
+
+    // ---- открытая ветка башни (Таблетка): корень открыт, когда куплен родитель; дальше та же цепочка родитель → потомок
+    if (openTowerBranch) {
+      const rid = branchRoot(openTowerBranch);
+      const kid = grandchildOf(rid);
+      m = await selectNode(app, rid);
+      check(`${p} ветка «${openTowerBranch}» открыта на карте, родитель «${UP[rid].requires?.id}» куплен: «${rid}» открыт, условия нет, купить можно`, nodeOf(m, rid).open && nodeOf(m, rid).canBuy && m.screen.detail.texts[3] === '', JSON.stringify(m.screen.detail.texts));
+      if (kid) await parentChild(app, rid, kid);
+    }
+    m = await metaOf(app.page);
+    const mismatchA = openMismatch(UP, m);
+    check(`${p} после покупок открытость узлов по-прежнему совпадает с правилами`, mismatchA.length === 0, mismatchA.join('; '));
+    await app.page.close();
+
+    // ================= часть Б: «Максимум». Корень на предпоследнем уровне, звёзды девяти уровней (все ветки башен открыты), очков много
+    const maxLv = UP[rootId].prices.length;
+    app = await openScreen(`&meta=dna:5000,${rootId}:${maxLv - 1}&stars=1,1,1,1,1,1,1,1,1`);
+    m = await waitMeta(app.page, (x) => x.screen.visible, 5000);
+    const mismatchB = openMismatch(UP, m);
+    check(`${p} при звёздах девяти уровней и «${rootId}» ${maxLv - 1}: все ветки башен открыты на карте, открытость узлов совпадает с правилами`, mismatchB.length === 0 && lockedBranches.every((b) => nodeOf(m, branchRoot(b)).open === ((m.levels[UP[branchRoot(b)].requires?.id] ?? 0) >= (UP[branchRoot(b)].requires?.level ?? 0))), mismatchB.join('; '));
+    const dnaMax0 = m.dna;
+    const r = await buyNode(app, rootId);
+    const texts = r.after.screen.detail.texts;
+    const maxLine = i18nText('upgMax', li);
+    check(`${p} последний уровень «${rootId}» (${maxLv}) куплен за ${UP[rootId].prices[maxLv - 1]}: подпись кнопки «${maxLine}», цены нет, купить нельзя; «${i18nText('upgLevel', li, { n: maxLv, max: maxLv })}»`, r.after.levels[rootId] === maxLv && r.after.dna === dnaMax0 - UP[rootId].prices[maxLv - 1] && texts[4] === maxLine && texts[1] === i18nText('upgLevel', li, { n: maxLv, max: maxLv }) && nodeOf(r.after, rootId).price === null && !nodeOf(r.after, rootId).canBuy, JSON.stringify([texts, nodeOf(r.after, rootId)]));
+    if (UP[rootId].effect === 'damage') {
+      const total = i18nText('upgDamageDesc', li, { n: Math.round(UP[rootId].perLevel * maxLv * 100) });
+      check(`${p} на наибольшем уровне вместо «Дальше» стоит итог: «${total}»`, texts[2] === total, texts[2]);
+    }
+    const again = await buyNode(app, rootId, { expectBuy: false });
+    check(`${p} на наибольшем уровне повторная покупка ничего не делает: очки ${r.after.dna}, уровень ${maxLv}`, again.after.dna === r.after.dna && again.after.levels[rootId] === maxLv, `очки ${again.after.dna}, уровень ${again.after.levels[rootId]}`);
+    await shot(app.page, `tree-shop-max-${deviceKey}-${lang}`);
+    const problemsB = await checkAllNodes(app);
+    check(`${p} все ${ids.length} узлов, ветки башен открыты: тексты помещаются в карточку, у открытых узлов условия нет, у закрытых есть, сырых ключей нет`, problemsB.length === 0, problemsB.slice(0, 4).join(' || '));
     await context.close();
   }
 
-  // ---- ветка открывается, когда пройден предыдущий уровень: при звёздах уровней 1–4 открыта ветка Шипучки, при звёздах 1–9 — Шприца
+  // ================= часть В: ветки башен открываются по карте уровней (компьютер, ru): при звёздах уровней 1…N−1 открыта ветка, которая начинается с уровня N, и закрыты те, что позже
   const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
-  const p = '[вкладки улучшений: открытие веток]';
-  for (const [stars, openBranch, closedBranch] of [['1,1,1,1', 'fizz', 'syringe'], ['1,1,1,1,1,1,1,1,1', 'syringe', null]]) {
-    const app = await openMenu(context, baseUrl, p, { query: `&meta=dna:0&stars=${stars}` });
+  const p = '[дерево улучшений: открытие веток]';
+  const allPre = {};
+  for (const b of lockedBranches) for (const [pid, lv] of Object.entries(prereqLevels(UP, branchRoot(b)))) allPre[pid] = Math.max(allPre[pid] ?? 0, lv);
+  for (const b of lockedBranches) {
+    const unlock = towerUnlock[b];
+    const later = lockedBranches.filter((x) => towerUnlock[x] > unlock);
+    const app = await openMenu(context, baseUrl, p, { query: `&meta=dna:0,${metaQuery(allPre)}&stars=${Array(unlock - 1).fill(1).join()}` });
     const u = await app.ui();
     await app.tapRect(u.buttons.upgrades);
     await app.waitUi('upgrades', 'экран «Улучшения»');
-    const m = await metaOf(app.page);
-    const tb = (x) => m.screen.tabs.find((y) => y.branch === x);
-    check(`${p} при звёздах уровней ${stars}: ветка «${openBranch}» открыта${closedBranch ? `, «${closedBranch}» закрыта` : ''}`, tb(openBranch) && !tb(openBranch).locked && (!closedBranch || tb(closedBranch).locked), JSON.stringify(m.screen.tabs.map((x) => [x.branch, x.locked])));
+    let m = await waitMeta(app.page, (x) => x.screen.visible, 5000);
+    const mism = openMismatch(UP, m);
+    check(`${p} при звёздах уровней 1…${unlock - 1}: ветка «${b}» открыта (узел «${branchRoot(b)}» открыт)${later.length ? `, позже открывающиеся ${later.map((x) => `«${x}»`).join(', ')} закрыты` : ''}`, nodeOf(m, branchRoot(b)).open && later.every((x) => !nodeOf(m, branchRoot(x)).open) && mism.length === 0, `${JSON.stringify(m.screen.nodes.filter((n) => lockedBranches.map(branchRoot).includes(n.id)).map((n) => [n.id, n.open]))} ${mism.join('; ')}`);
+    if (later.length) {
+      const rid = branchRoot(later[0]);
+      m = await selectNode(app, rid);
+      const line = i18nText('upgLocked', 0, { n: towerUnlock[later[0]] });
+      check(`${p} в закрытой ветке «${later[0]}» в карточке «${line}»`, m.screen.detail.texts[3] === line, m.screen.detail.texts[3]);
+    }
     await app.page.close();
   }
   await context.close();
 }
-
-const branchIdsOf = (up, branch) => Object.keys(up).filter((id) => up[id].branch === branch);
 
 /** Улучшения древа защиты (этап 6б, docs/upgrades.md, разделы 12 и 15): числа башен по веткам, цена и продажа, щит у линии и звёзды, подкрепление. Все ожидаемые числа — из таблицы `meta.upgrades` в config.ts. */
 async function runTreeEffects(browser, baseUrl) {
@@ -5695,6 +5970,7 @@ async function runTreeEffects(browser, baseUrl) {
       const want = 1 + effectOf(tower, effect);
       if (!near(y / x, want)) issues.push(`${name}: ${x} → ${y}, ждали ×${want}`);
     };
+    if (Object.values(UP).some((u) => u.branch === tower && u.effect === 'towerDamage')) ratio('урон башни (towerDamage)', a.damage, b.damage, 'towerDamage');
     if (Object.values(UP).some((u) => u.branch === tower && u.effect === 'cooldown')) ratio('пауза', a.cooldownMs, b.cooldownMs, 'cooldown');
     if (Object.values(UP).some((u) => u.branch === tower && u.effect === 'range')) ratio('радиус стрельбы', a.range, b.range, 'range');
     if (Object.values(UP).some((u) => u.branch === tower && u.effect === 'blast')) ratio('радиус взрыва', a.blastRadius, b.blastRadius, 'blast');
@@ -5720,7 +5996,7 @@ async function runTreeEffects(browser, baseUrl) {
     const game = await openGame(context, baseUrl, p, { speed: 1, cfg, query: `${ALL_TOWERS}&meta=${meta}` });
     let s = await placeSure(game, 'pill', FREE.a);
     const paid = Math.ceil(100 * (1 + UP.pillCheap.perLevel * UP.pillCheap.prices.length) - 1e-9);
-    const share = 0.7 + UP.recycle.perLevel * UP.recycle.prices.length;
+    const share = readConfigNumber('economy', 'sellRefund') + UP.recycle.perLevel * UP.recycle.prices.length;
     check(`${p} цена Таблетки со скидкой: 100 → ${paid}; в снимке доля возврата ${f2(share)}`, s.towerPrices.pill === paid && near(s.sellRefundShare, share), `цена ${s.towerPrices.pill}, доля ${s.sellRefundShare}`);
     const before = s.coins;
     await selectPlaced(game, FREE.a);
