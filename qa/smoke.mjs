@@ -2926,7 +2926,6 @@ async function syrupPlay(context, baseUrl, p, { cfg = [], count = 2, interval, w
   }
   const placed = await game.placeTowersOf('syrup', [[cell.col, cell.row]]);
   const log = [];
-  let shotDone = false;
   const end = await pollUntil(game, async (st) => {
     log.push(st);
     if (shotName && !shotDone && st.puddles.length > 0) {
@@ -3631,14 +3630,24 @@ async function towersMixed(browser, baseUrl) {
   const game = await openGame(context, baseUrl, p, { query: ALL_TOWERS, speed: 4, cfg });
   await panTo(game, 'left');
   const cells = trunkCells(TOWER_IDS.length);
-  // ближайшие к входу клетки — Шипучке и Сиропу (они бьют по площади и лужей и должны успеть сработать до того, как Лампа и Шприц убьют всех)
-  const order = ['fizz', 'syrup', ...TOWER_IDS.filter((id) => id !== 'fizz' && id !== 'syrup')];
-  for (let i = 0; i < order.length; i++) await game.placeTowersOf(order[i], [cells[i]]);
+  // Сначала только Шипучка и Сироп у самого входа: пока рядом нет Лампы, Шприца и остальных, они успевают сработать (иначе всех убивают раньше взрыва и лужи).
+  // Когда оба сработали, ставятся остальные шесть: дальше все восемь башен бьют вместе до конца волны.
+  const early = ['fizz', 'syrup'];
+  const late = TOWER_IDS.filter((id) => !early.includes(id));
+  for (let i = 0; i < early.length; i++) await game.placeTowersOf(early[i], [cells[i]]);
+  let shotDone = false;
+  await pollUntil(game, async (st) => {
+    // снимок для владельца: бой в разгаре (несколько бактерий, снаряды в воздухе, уже было замедление или взрыв)
+    if (!shotDone && (st.effects.blasts >= 1 || st.slows >= 1) && st.bacteria.length >= 3 && st.projectiles >= 1) {
+      await shot(game.page, 'towers-09-four-battle');
+      shotDone = true;
+    }
+    return st.state !== 'playing' || (st.effects.blasts >= 1 && (st.slows >= 1 || st.effects.splats >= 1));
+  }, 90000, 25);
+  for (let i = 0; i < late.length; i++) await game.placeTowersOf(late[i], [cells[early.length + i]]);
   let s = await game.state();
   check(`${p} ${TOWER_IDS.length} башен разных видов стоят рядом с дорожкой (${s.towers.map((t) => t.id).join(', ')}), монет 0`, [...s.towers.map((t) => t.id)].sort().join() === [...TOWER_IDS].sort().join() && s.coins === 0, `монет ${s.coins}`);
-  let shotDone = false;
   const end = await pollUntil(game, async (st) => {
-    // снимок для владельца: бой в разгаре (несколько бактерий, снаряды в воздухе, уже было замедление или взрыв); условие без жёсткого совпадения всех эффектов в одном кадре
     if (!shotDone && (st.effects.blasts >= 1 || st.slows >= 1) && st.bacteria.length >= 3 && st.projectiles >= 1) {
       await shot(game.page, 'towers-09-four-battle');
       shotDone = true;
