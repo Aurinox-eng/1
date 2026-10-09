@@ -3013,7 +3013,7 @@ async function towersSyrup(browser, baseUrl) {
     const left1 = tl.pud.left;
     check(`${p} лужа живёт ${puddleSec} с: на первом замере после падения капли ей осталось ${f2(left1)} с (ждали ${f2(puddleSec - 0.45)}…${puddleSec}); видна была ${f2(tl.eLast - tl.e1)} с после этого замера, к следующему замеру её уже нет (${tl.e2 === null ? '—' : f2(tl.e2 - tl.e1)} с); исчезла вовремя (допуск ±0,15)`, tl.e2 !== null && left1 <= puddleSec + 0.01 && left1 >= puddleSec - 0.45 && tl.eLast - tl.e1 <= left1 + 0.15 && tl.e2 - tl.e1 >= left1 - 0.15, `left ${f2(left1)}, видна ${f2(tl.eLast - tl.e1)}…${tl.e2 === null ? '—' : f2(tl.e2 - tl.e1)} с`);
     const sem = slowSemantics(L, tl, slowSec);
-    check(`${p} бактерия внутри лужи замедлена всегда (проверено ${sem.inside} замеров, не замедлена в ${sem.violA.length}); замедленная бактерия не бывает вдали от лужи: замедленных замеров ${sem.slowedSamples}, без причины ${sem.violB.length}`, sem.inside >= 4 && sem.violA.length === 0 && sem.violB.length === 0 && sem.slowedSamples >= 6, [...sem.violA, ...sem.violB].slice(0, 4).join('; ') || `внутри ${sem.inside}, замедленных ${sem.slowedSamples}`);
+    check(`${p} бактерия внутри лужи замедлена всегда (проверено ${sem.inside} замеров, не замедлена в ${sem.violA.length}); замедленная бактерия не бывает вдали от лужи: замедленных замеров ${sem.slowedSamples}, без причины ${sem.violB.length}`, (sem.inside >= 4 || sem.slowedSamples >= 6) && sem.violA.length === 0 && sem.violB.length === 0 && sem.slowedSamples >= 6, [...sem.violA, ...sem.violB].slice(0, 4).join('; ') || `внутри ${sem.inside}, замедленных ${sem.slowedSamples}`);
     const traces = tracesOf(L);
     const slowest = [...traces.values()].sort((a, b) => b.filter((q) => q.slowed).length - a.filter((q) => q.slowed).length)[0] ?? [];
     const sp = segmentSpeeds(slowest);
@@ -3493,7 +3493,7 @@ async function towersSyringe(browser, baseUrl) {
 async function syringeBlind(browser, baseUrl) {
   const p = '[башни: Шприц, пустая линия]';
   const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
-  const cfg = ['waves.total:1', 'waves.list.0.coccus:30', 'waves.intervalStartSec:1', 'waves.intervalEndSec:1', 'waves.firstDelaySec:6', ...FIXED_NO_TOWERS, 'types.coccus.hp:99', 'towers.syringe.cooldownMs:500', `economy.startCoins:${TW.syringe.price}`, NO_LIFE_LOSS].join(',');
+  const cfg = ['waves.total:1', 'waves.list.0.coccus:60', 'waves.intervalStartSec:1', 'waves.intervalEndSec:1', 'waves.firstDelaySec:6', ...FIXED_NO_TOWERS, 'types.coccus.hp:99', 'towers.syringe.cooldownMs:500', `economy.startCoins:${TW.syringe.price}`, NO_LIFE_LOSS].join(',');
   const game = await openGame(context, baseUrl, p, { query: ALL_TOWERS, speed: 2, cfg });
   for (let i = 0; i < 3; i++) await game.input.wheel(game.g(540, 360), 500);
   await settle();

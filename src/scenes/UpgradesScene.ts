@@ -140,8 +140,6 @@ export class UpgradesScene extends Phaser.Scene {
     this.addBottomButton(MENU, t('toMenu'), 0x2a3550, 0x4a5c82, () => this.scene.start('Menu'));
     this.drawEdges();
     this.refresh();
-    // Дерево открывается так, чтобы корень был посередине окна
-    this.setScroll(nodeCenter(UPGRADE_IDS[0]).y - VIEW.h / 2);
 
     exposeMetaDebug(() => this.describe());
     setScreenInfo(() => (this.scene.isActive() ? { scene: 'upgrades', buttons: { play: PLAY, menu: MENU }, texts: [this.balance.text] } : null));
