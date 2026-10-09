@@ -32,6 +32,9 @@ export const COLORS = {
     /** Прыгун — лимонно-жёлтый; фагоцит — светло-розовый с тёмным ртом. */
     leaper: { body: 0xf2e04a, shell: 0x9a8a10, crack: 0x5a4c06 },
     phago: { body: 0xffc4d6, shell: 0xc0507a, crack: 0x6a2040 },
+    /** Скрытная — тёмно-серая (рисуется полупрозрачной) с бледным ободком; токсин — болотно-зелёный с жёлтыми пузырями. */
+    stealth: { body: 0x4a525c, shell: 0xc4d0dc, crack: 0x1c2026 },
+    toxin: { body: 0x7a9a2a, shell: 0x3e5a14, crack: 0x1f2e08 },
   } satisfies Record<Kind, { body: number; shell: number; crack: number }>,
   /** Крест лекаря, аура лекаря, лужа сиропа и луч шприца. */
   cross: 0xe0457a,
@@ -87,6 +90,18 @@ export const COLORS = {
   ampuleEdge: 0x2a78b8,
   antibiotic: 0x3fbf6a,
   antibioticEdge: 0x1d7a3e,
+  /** Лампа (тёплый жёлтый свет конуса) и витамин (оранжевая таблетка-усилитель). */
+  lamp: 0xffe27a,
+  lampEdge: 0xa8780c,
+  lampLight: 0xfff3a0,
+  vitamin: 0xff9f43,
+  vitaminEdge: 0xb85a10,
+  /** Облако токсина: заливка, обводка и пузыри. */
+  cloud: 0x9bbd2a,
+  cloudEdge: 0xd2e257,
+  cloudBubble: 0xf2e04a,
+  /** Бледный ободок и светлая точка скрытной бактерии. */
+  stealthRim: 0xdde6ee,
   /** «Призрак» башни и её радиус при выборе клетки. */
   ghost: 0x74b8ff,
   ghostEdge: 0x9fd0ff,
@@ -133,6 +148,12 @@ export const TOWER_ART = {
   capsuleLight: 0x8df0a8,
   capsuleDark: 0x1d7a3e,
   capsuleBubble: 0xc8ffd8,
+  lampBody: 0x56637a,
+  lampBodyDark: 0x2e3648,
+  lampGlow: 0xffd84d,
+  vitaminLight: 0xffd29a,
+  vitaminGreen: 0x7be07b,
+  vitaminDark: 0xd06a14,
 } as const;
 
 /** Цвета карты в формате CSS (карта рисуется один раз в текстуры обычным canvas). */

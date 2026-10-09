@@ -151,6 +151,8 @@ export class AlmanacScene extends Phaser.Scene {
 
   /** Подпись и ряд значков справа в строке; значки создаются без позиции и расставляются здесь. */
   private addMarks(x: number, cy: number, label: string, icons: Phaser.GameObjects.Container[], color: number): void {
+    // Пустой список (у Витамина) — без подписи
+    if (icons.length === 0) return;
     const text = this.add.text(x, cy, label, { ...textStyle(18, '#' + color.toString(16).padStart(6, '0'), false) }).setOrigin(0, 0.5);
     this.list.add(text);
     let ix = x + text.width + 14 + MARK / 2;

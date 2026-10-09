@@ -14,6 +14,8 @@ function bodyBox(kind: BacteriumKind): ArtBox {
   return { x: -hx, y: -hy, w: hx * 2, h: hy * 2 };
 }
 
+/** Прозрачность тела скрытной бактерии (вид, не баланс). */
+const STEALTH_ALPHA = 0.62;
 /** Сколько секунд видна вспышка «поглощено» у фагоцита. */
 const ABSORB_SEC = 0.3;
 
@@ -90,6 +92,9 @@ export class Bacterium {
   justAbsorbed = false;
   /** Прыгун: сколько прыжков сделано. */
   leaps = 0;
+  /** Конус Лампы: накопленный, ещё не показанный урон и когда (игровое время) показывалось число в прошлый раз. */
+  numAcc = 0;
+  numAt = -1;
 
   private readonly baseSpeed: number;
   /** Замедление от «Сиропа»: сколько секунд ещё действует и во сколько раз медленнее идёт (1 — не замедлена). */
@@ -162,6 +167,11 @@ export class Bacterium {
     if (cfg.hasteRadius > 0) {
       const aura = discImage(scene, cfg.hasteRadius, COLORS.haste, 0.06, COLORS.haste, 3, 0.42);
       this.container.addAt(aura, 0);
+    }
+    // Скрытная: тело полупрозрачное
+    if (cfg.stealth > 0) {
+      this.body.setAlpha(STEALTH_ALPHA);
+      this.cracks.setAlpha(STEALTH_ALPHA);
     }
     layer.add(this.container);
     this.drawnHp = this.hp;
@@ -354,6 +364,11 @@ export class Bacterium {
   pointAhead(distance: number): { x: number; y: number } {
     const p = pointAt(this.edge, Math.min(this.edge.length, this.s + Math.max(0, distance)));
     return { x: p.x, y: p.y };
+  }
+
+  /** Скрытность: доля радиуса башни, на которой её видят (0 — не скрытная). */
+  get stealth(): number {
+    return CONFIG.types[this.kind].stealth;
   }
 
   get lifeDamage(): number {

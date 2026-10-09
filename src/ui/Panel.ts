@@ -26,6 +26,8 @@ const TOWER_TEXT: Record<TowerId, { name: TextKey; tag: TextKey }> = {
   syringe: { name: 'towerSyringe', tag: 'tagSyringe' },
   ampule: { name: 'towerAmpule', tag: 'tagAmpule' },
   antibiotic: { name: 'towerAntibiotic', tag: 'tagAntibiotic' },
+  lamp: { name: 'towerLamp', tag: 'tagLamp' },
+  vitamin: { name: 'towerVitamin', tag: 'tagVitamin' },
 };
 
 // Раскладка панели сверху вниз, пикселей экрана игры
@@ -33,8 +35,9 @@ const CARD_X = PX + 12;
 const CARD_W = PANEL_W - 24;
 const WAVE_CARD = { y: 10, h: 78 };
 const RES_CARD = { y: 96, h: 84 };
-/** Кнопки башен: шесть штук должны уместиться между карточкой монет (до y = 180) и кнопкой «Начать волну» (с y = 614): 6 × 64 + 5 × 4 = 404 px (при четырёх башнях было 96 + 8). */
-const SLOT = { x: PX + 12, y0: 190, w: PANEL_W - 24, h: 64, gap: 4 };
+/** Кнопки башен: восемь штук должны уместиться между карточкой монет (до y = 180) и кнопкой «Начать волну» (с y = 614): 8 × 48 + 7 × 3 = 405 px (при шести башнях было 6 × 64 + 5 × 4 = 404,
+ *  при четырёх — 96 + 8). Общая высота почти не менялась, поэтому карточка выбранной башни (ей нужны те же ≈ 370 px) осталась прежней. В кнопке две строки: название, а ниже цена и подпись. */
+const SLOT = { x: PX + 12, y0: 190, w: PANEL_W - 24, h: 48, gap: 3 };
 const WAVE_BTN = { y: 614, w: PANEL_W - 24, h: 38 };
 const CTRL = { y: 686, r: 22, dx: 38 };
 /** Полоса компактных кнопок башен над карточкой (видна, только пока открыта карточка): высота и промежуток до карточки, пикселей. */
@@ -140,25 +143,28 @@ export class Panel {
       };
       this.slotOff.set(id, scene.add.image(CX, cy, slotTexture(scene, false, r.w, r.h)).setDepth(D.item));
       this.slotOn.set(id, scene.add.image(CX, cy, slotTexture(scene, true, r.w, r.h)).setDepth(D.item).setVisible(false));
-      track(scene.add.circle(r.x + 31, cy, 25, 0x0e1b38, 1).setStrokeStyle(2, 0x3a5f9c, 1).setDepth(D.item + 1));
-      const icon = track(scene.add.container(r.x + 31, cy).setDepth(D.item + 1).setScale(0.5));
+      track(scene.add.circle(r.x + 27, cy, 21, 0x0e1b38, 1).setStrokeStyle(2, 0x3a5f9c, 1).setDepth(D.item + 1));
+      const icon = track(scene.add.container(r.x + 27, cy).setDepth(D.item + 1).setScale(0.42));
       createTowerArt(scene, icon, id);
-      const nameText = track(this.text(r.x + 62, r.y + 15, t(TOWER_TEXT[id].name), 19, TEXT_COLORS.main, 0, 0.5));
+      const nameText = track(this.text(r.x + 56, r.y + 14, t(TOWER_TEXT[id].name), 18, TEXT_COLORS.main, 0, 0.5));
       // Длинное название («Антибиотик») не должно выходить за край кнопки: сжимаем до ширины, что осталась справа от значка
-      if (nameText.width > r.w - 68) nameText.setScale((r.w - 68) / nameText.width);
-      track(this.text(r.x + 62, r.y + 33, t(TOWER_TEXT[id].tag), 15, TEXT_COLORS.soft, 0, 0.5).setFontStyle('normal'));
+      if (nameText.width > r.w - 62) nameText.setScale((r.w - 62) / nameText.width);
       if (open) {
-        track(this.coin(r.x + 71, r.y + 51, 8));
-        const price = track(this.text(r.x + 85, r.y + 51, String(towerPrice(id)), 22, TEXT_COLORS.accent, 0, 0.5));
+        // Вторая строка: монета и цена слева, подпись способа стрельбы — справа (сжимается, если не помещается)
+        track(this.coin(r.x + 63, r.y + 34, 7));
+        const price = track(this.text(r.x + 75, r.y + 34, String(towerPrice(id)), 20, TEXT_COLORS.accent, 0, 0.5));
         this.priceTexts.set(id, price);
+        const tag = track(this.text(r.x + r.w - 8, r.y + 34, t(TOWER_TEXT[id].tag), 14, TEXT_COLORS.soft, 1, 0.5).setFontStyle('normal'));
+        const room = r.w - 8 - 114;
+        if (tag.width > room) tag.setScale(room / tag.width);
       } else {
         // Серая «шторка» поверх кнопки, замок справа и надпись вместо цены
         const veil = scene.add.graphics().setDepth(D.item + 2);
         veil.fillStyle(0x070d1c, 0.68).fillRoundedRect(r.x, r.y, r.w, r.h, 16);
         track(veil);
         // Замок — поверх значка башни (не закрывает название), надпись «Уровень N» — на месте цены
-        track(this.lockIcon(r.x + 31, cy - 4));
-        track(this.text(r.x + 62, r.y + 51, t('lockedLevel', { n: unlockLevel(id) }), 15, TEXT_COLORS.soft, 0, 0.5).setDepth(D.item + 3));
+        track(this.lockIcon(r.x + 27, cy - 4));
+        track(this.text(r.x + 56, r.y + 34, t('lockedLevel', { n: unlockLevel(id) }), 15, TEXT_COLORS.soft, 0, 0.5).setDepth(D.item + 3));
       }
       scene.add
         .zone(r.x + r.w / 2, cy, r.w, r.h)
@@ -440,8 +446,8 @@ export class Panel {
     const ids = TOWER_IDS.filter((id) => isTowerOpen(id));
     if (ids.length === 0) return;
     const n = ids.length;
-    // Открытых башен до шести: промежуток и надписи сжимаются, чтобы все кнопки помещались в ряд
-    const gap = n > 4 ? 3 : STRIP.gap;
+    // Открытых башен до восьми: промежуток и надписи сжимаются, чтобы все кнопки помещались в ряд
+    const gap = n > 6 ? 2 : n > 4 ? 3 : STRIP.gap;
     const w = (SLOT.w - gap * (n - 1)) / n;
     ids.forEach((id, i) => {
       const x = SLOT.x + i * (w + gap);
@@ -452,7 +458,7 @@ export class Panel {
       plate.lineStyle(2, 0x3a5f9c, 1).strokeRoundedRect(x, y, w, STRIP.h, 12);
       const icon = this.scene.add.container(cx, y + 15).setDepth(D.item + 9).setScale(Math.min(0.3, w / 88));
       createTowerArt(this.scene, icon, id);
-      const price = this.text(cx, y + STRIP.h - 9, String(towerPrice(id)), w < 34 ? 11 : 14, TEXT_COLORS.accent).setDepth(D.item + 9);
+      const price = this.text(cx, y + STRIP.h - 9, String(towerPrice(id)), w < 22 ? 10 : w < 34 ? 11 : 14, TEXT_COLORS.accent).setDepth(D.item + 9);
       const zone = this.scene.add
         .zone(cx, y + STRIP.h / 2, w, STRIP.h)
         .setDepth(D.item + 10)

@@ -7,7 +7,7 @@ type Kind = keyof typeof CONFIG.types;
 /** Какую долю радиуса (у палочки — половины ширины) занимает оболочка при полном HP (у кокка и споры оболочка тонкая и не меняется).
  *  Доля меньше половины, поэтому тело внутри не исчезает при любом числе HP в config.ts (раньше толщина росла на фиксированное число
  *  пикселей за каждое HP, и у бронированной с 14 HP радиус тела выходил отрицательным — режим canvas на этом падал). */
-const SHELL_MAX_SHARE: Record<Kind, number> = { coccus: 0, rod: 0.45, splitter: 0.4, armored: 0.45, spore: 0, swarm: 0, runner: 0.4, healer: 0.3, slick: 0.25, regen: 0.3, commander: 0.3, brood: 0.3, giant: 0.4, leaper: 0.3, phago: 0.35 };
+const SHELL_MAX_SHARE: Record<Kind, number> = { coccus: 0, rod: 0.45, splitter: 0.4, armored: 0.45, spore: 0, swarm: 0, runner: 0.4, healer: 0.3, slick: 0.25, regen: 0.3, commander: 0.3, brood: 0.3, giant: 0.4, leaper: 0.3, phago: 0.35, stealth: 0.2, toxin: 0.3 };
 const SHELL_BASE = 4;
 /** Расстояние от центра делящейся до центра каждой доли, в радиусах доли (чем больше, тем глубже перетяжка). */
 export const SPLITTER_LOBE_OFFSET = 0.95;
@@ -178,6 +178,29 @@ export function drawShape(g: Phaser.GameObjects.Graphics, kind: Kind, sw: number
       g.fillCircle(vx * r, vy * r, vr * r);
       g.lineStyle(2, col.shell, 0.8);
       g.strokeCircle(vx * r, vy * r, vr * r);
+    }
+  }
+  if (kind === 'stealth') {
+    // Скрытная: бледный пунктирный круг внутри тёмного тела и два холодных «глаза» (само тело на экране полупрозрачное)
+    g.lineStyle(Math.max(2, r * 0.07), COLORS.stealthRim, 0.7);
+    for (let i = 0; i < 10; i++) {
+      const a = (i / 10) * Math.PI * 2;
+      g.beginPath();
+      g.arc(0, 0, r * 0.62, a, a + 0.38);
+      g.strokePath();
+    }
+    g.fillStyle(COLORS.stealthRim, 0.9);
+    for (const dx of [-0.24, 0.24]) g.fillEllipse(dx * r, -0.06 * r, r * 0.16, r * 0.3);
+  }
+  if (kind === 'toxin') {
+    // Токсин: жёлтые пузыри разного размера по болотному телу
+    for (const [bx, by, br] of [[-0.35, -0.2, 0.22], [0.28, -0.32, 0.16], [0.32, 0.18, 0.24], [-0.2, 0.34, 0.14], [0.02, 0.0, 0.1]] as const) {
+      g.fillStyle(COLORS.cloudBubble, 0.92);
+      g.fillCircle(bx * r, by * r, br * r);
+      g.lineStyle(2, col.shell, 0.9);
+      g.strokeCircle(bx * r, by * r, br * r);
+      g.fillStyle(0xffffff, 0.6);
+      g.fillCircle((bx - br * 0.3) * r, (by - br * 0.3) * r, br * r * 0.28);
     }
   }
   if (kind === 'regen') {

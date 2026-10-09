@@ -274,6 +274,11 @@ dist/, dist-qa/            результаты сборки (в git нет)
 - **Прыгун** (`types.leaper`: поля `leapEverySec`, `leapPx`): прыжок — вызов `advance(leapPx)` в `Bacterium.update` (через концы рёбер и развилки), сжатие и рывок картинки. **Фагоцит** (`types.phago`: поле `absorbEvery`): счётчик `hits` в `Bacterium.hit`, каждый третий удар не снимает HP (`justAbsorbed`, `lastDealt = 0`), светло-розовое кольцо на теле; яд счётчик не трогает.
 - **Состояние для проверок** (`DebugSnapshot`): `poisons`, `absorbs`, `leaps` (счётчики за партию); у бактерии — `poisonLeft`, `hits`, `absorbed`, `leaps`; у башни в `stats` — `dotPerSec`, `dotSec`. Новые типы волны на уровне 1 включаются как остальные: `?qa&cfg=waves.list.N.leaper:3`.
 
+## Этап 7, пачка 2: Лампа, Витамин, Скрытная, Токсин (план — `docs/stage-7-plan.md`, раздел 6)
+- **`cone`** (Лампа): `Tower.updateCone` каждые `cooldownMs` (÷ множитель ауры) отдаёт сцене «тики» (`coneTicks`); `GameScene.fire` на каждый тик бьёт всех из `Tower.coneHits` (расстояние ≤ длины, угол ≤ полуугла плюс поправка на размер бактерии), броня вычитается из каждого тика. Конус — картинка `cone-<длина>-<угол>` в контейнере ствола. **`aura`** (Витамин): сам не стреляет; `GameScene.applyAuras` каждый кадр кладёт в `Tower.auraMul` наименьший множитель среди работающих Витаминов в радиусе, `Tower.update` тратит паузу в `1 / auraMul` раз быстрее; множитель считает `towerStats.ts` (уровень, мутации `auraBonusMul`, улучшения `auraBoost`).
+- **Скрытность** (`types.stealth`, `Bacterium.stealth`): `Tower.pickTargets` берёт скрытную, только если расстояние ≤ `range × stealth + радиус`; для `cone` правило не действует, луч Шприца цели не выбирает вовсе. **Облако** (`types.cloudRadius`, `cloudSec`; `src/objects/Cloud.ts`): `GameScene.leaveCloud` в `killBacterium`; `updateClouds` каждый кадр выставляет `Tower.setSuppressed` (башня в облаке не стреляет, Витамин не усиливает — `isWorking`).
+- **Состояние для проверок:** `clouds`, `cloudsMade`; у башни `suppressed`, `auraMul`, в `stats` — `coneDeg`, `auraMul`.
+
 ## Особенности рабочей среды (для агента)
 - Облачный контейнер ≈ 4 ядра, программный WebGL (~14 fps). Он может перезапуститься и убить фоновые задачи; долгие замеры лучше
   запускать так, чтобы потерю не жалко.

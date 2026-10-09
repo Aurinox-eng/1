@@ -71,6 +71,8 @@ export interface DebugSnapshot {
   poisons: number;
   absorbs: number;
   leaps: number;
+  /** Сколько облаков оставили токсины за партию. */
+  cloudsMade: number;
   /** Сколько выстрелов сделано башнями. */
   shots: number;
   /** Скорость игры, выбранная игроком кнопкой (1, 2, 3). */
@@ -120,7 +122,10 @@ export interface DebugSnapshot {
     level: number;
     picks: string[];
     pending: number | null;
-    stats: { damage: number; cooldownMs: number; range: number; beamPulses: number; blastRadius: number; puddleRadius: number; puddleSec: number; slowFactor: number; beamHalfWidthPx: number; dotPerSec: number; dotSec: number };
+    /** Стоит ли башня в облаке токсина (не стреляет) и множитель паузы от ауры Витамина рядом (1 — нет). */
+    suppressed: boolean;
+    auraMul: number;
+    stats: { damage: number; cooldownMs: number; range: number; beamPulses: number; blastRadius: number; puddleRadius: number; puddleSec: number; slowFactor: number; beamHalfWidthPx: number; dotPerSec: number; dotSec: number; coneDeg: number; auraMul: number };
   }[];
   /** Выбранная на карте башня (клетка), идёт ли режим выбора пары для слияния, сколько слияний, продаж и выборов мутаций было за партию. */
   selectedTower: { col: number; row: number } | null;
@@ -134,6 +139,8 @@ export interface DebugSnapshot {
   mutationsPicked: number;
   /** Лужи сиропа на дорожках: центр, радиус и сколько секунд ещё живёт. */
   puddles: { x: number; y: number; r: number; left: number }[];
+  /** Облака токсина: центр, радиус и сколько секунд ещё живут. */
+  clouds: { x: number; y: number; r: number; left: number }[];
   /** Накопленный, но ещё не списанный урон по жизням от «дробных» бактерий (рой: 0,25 за штуку); при 1 списывается целая жизнь. */
   lifePool: number;
   /** Бактерии: центр в пикселях мира, радиус, номер ребра дорожки и пройденный по нему путь, идёт ли рывок, замедлена ли («Сироп»),

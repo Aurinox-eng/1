@@ -12,9 +12,9 @@ import type { Bacterium } from './Bacterium';
 export type TowerId = TowerKey;
 
 /** Как далеко от центра башни вылетает снаряд (длина ствола), пикселей. */
-const MUZZLE: Record<TowerId, number> = { pill: 40, syrup: 36, fizz: 34, syringe: 56, ampule: 54, antibiotic: 44 };
+const MUZZLE: Record<TowerId, number> = { pill: 40, syrup: 36, fizz: 34, syringe: 56, ampule: 54, antibiotic: 44, lamp: 40, vitamin: 0 };
 /** На сколько пикселей дальше дуло с каждым следующим уровнем (стволы 2–4 уровней длиннее: снаряд вылетает из конца ствола). */
-const MUZZLE_PER_LEVEL: Record<TowerId, number> = { pill: 7, syrup: 8, fizz: 6, syringe: 9, ampule: 8, antibiotic: 6 };
+const MUZZLE_PER_LEVEL: Record<TowerId, number> = { pill: 7, syrup: 8, fizz: 6, syringe: 9, ampule: 8, antibiotic: 6, lamp: 6, vitamin: 0 };
 
 /** Рамка рисунка ствола (ствол смотрит вправо; центр башни — 0,0): вмещает самые длинные и широкие стволы уровней 2–4 со свечением. */
 const BARREL_BOX: ArtBox = { x: -50, y: -50, w: 148, h: 100 };
@@ -51,6 +51,8 @@ function drawBarrel(g: Phaser.GameObjects.Graphics, id: TowerId, lv: number): vo
   else if (id === 'fizz') drawFizz(g, lv);
   else if (id === 'ampule') drawAmpule(g, lv);
   else if (id === 'antibiotic') drawAntibiotic(g, lv);
+  else if (id === 'lamp') drawLamp(g, lv);
+  else if (id === 'vitamin') drawVitamin(g, lv);
   else drawSyringe(g, lv);
 }
 
@@ -482,6 +484,124 @@ function drawAntibiotic(g: Gfx, lv: number): void {
   for (const [x, y, r] of [[-14, 24, 4], [6, 30, 3], [40, -30, 3.4], [26, 29, 2.4], [52, 24, 3]]) shCirc(g, x, y, r, A.capsuleBubble, COLORS.antibiotic, 1.2, 0.9);
 }
 
+/** Лампа: отражатель-«рупор», расширяющийся вперёд, с линзой и светящейся лампочкой; уровни добавляют рёбра, боковые лампы и золото. Смотрит вправо, поворачивается на цель. */
+function drawLamp(g: Gfx, lv: number): void {
+  const Y = COLORS.lamp;
+  const YE = COLORS.lampEdge;
+  const YL = COLORS.lampLight;
+  const B = A.lampBody;
+  const BD = A.lampBodyDark;
+  // отражатель: x0 — задняя кромка, x1 — передняя, h0/h1 — полувысота сзади/спереди, oy — сдвиг по вертикали
+  const reflector = (x0: number, x1: number, h0: number, h1: number, oy: number, fill: number, edge: number): void =>
+    shPoly(g, [[x0, oy - h0], [x1, oy - h1], [x1, oy + h1], [x0, oy + h0]], fill, edge, 2);
+  const lens = (x: number, oy: number, ry: number, glow: number): void => {
+    glowCircle(g, x, oy, ry * 0.9, A.lampGlow, 10, glow);
+    shEll(g, x, oy, 4, ry, YL, YE, 2);
+  };
+  if (lv <= 1) {
+    // Лампа: стальной рупор с линзой и лампочкой, сзади колпачок
+    shRR(g, -16, -7, 11, 14, 3, BD, A.rivet, 1.5);
+    reflector(-6, 28, 9, 18, 0, B, BD);
+    shCirc(g, 14, 0, 6, Y, YE, 1.5);
+    lens(28, 0, 18, 0.35);
+    return;
+  }
+  if (lv === 2) {
+    // шире, рёбра жёсткости, скоба сзади, ручка
+    shRR(g, -24, -14, 12, 28, 5, A.bracket, COLORS.towerEdge, 2);
+    shRR(g, -14, -5, 8, 10, 2, BD, A.rivet, 1.5);
+    reflector(-8, 36, 11, 22, 0, B, BD);
+    for (const x of [4, 16, 28]) shLine(g, x, -11 - (x + 8) * 0.25, x, 11 + (x + 8) * 0.25, A.rivet, 2.2);
+    shCirc(g, 16, 0, 7, Y, YE, 1.5);
+    lens(36, 0, 22, 0.4);
+    return;
+  }
+  if (lv === 3) {
+    // три лампы: большая посередине и две малые по бокам; охлаждающие рёбра сзади
+    for (const x of [-30, -24, -18]) shRR(g, x, -17, 4, 34, 2, A.steel, A.rivet, 1.2);
+    shRR(g, -14, -20, 10, 40, 4, A.bracket, COLORS.towerEdge, 2);
+    for (const s of [-1, 1]) {
+      reflector(-4, 26, 6, 12, s * 28, B, BD);
+      shCirc(g, 12, s * 28, 4, Y, YE, 1.2);
+      lens(26, s * 28, 12, 0.3);
+      shLine(g, -4, s * 22, -4, s * 14, A.rivet, 2.5);
+    }
+    reflector(-8, 40, 12, 24, 0, B, BD);
+    for (const x of [6, 20]) shLine(g, x, -12 - (x + 8) * 0.25, x, 12 + (x + 8) * 0.25, A.rivet, 2.2);
+    shCirc(g, 18, 0, 8, Y, YE, 1.5);
+    lens(40, 0, 24, 0.45);
+    return;
+  }
+  // уровень 4: золочёный прожектор — лучи света впереди, светящаяся линза и звезда
+  for (const s of [-1, 1]) {
+    reflector(-4, 28, 6, 13, s * 30, A.steelDark, COLORS.gold);
+    lens(28, s * 30, 13, 0.4);
+  }
+  for (const x of [-30, -24, -18]) shRR(g, x, -19, 4, 38, 2, A.steelDark, COLORS.gold, 1.2);
+  shRR(g, -14, -22, 10, 44, 4, A.steelDark, COLORS.gold, 2);
+  glowRR(g, -8, -18, 50, 36, 10, A.lampGlow, 14, 0.35);
+  reflector(-8, 42, 13, 26, 0, COLORS.gold, COLORS.goldEdge);
+  for (const x of [6, 20, 32]) shRR(g, x - 1.5, -14 - (x + 8) * 0.25, 3, 28 + (x + 8) * 0.5, 1, A.steelDark, COLORS.goldEdge, 1);
+  shCirc(g, 20, 0, 9, YL, COLORS.goldEdge, 1.5);
+  glowCircle(g, 20, 0, 9, A.lampGlow, 10, 0.6);
+  lens(42, 0, 26, 0.6);
+  // лучи света веером перед линзой
+  shPoly(g, [[46, 0], [96, -30], [96, 30]], Y, null, 0, 0.1);
+  shPoly(g, [[46, 0], [92, -18], [92, 18]], Y, null, 0, 0.14);
+  shPoly(g, [[46, 0], [86, -8], [86, 8]], YL, null, 0, 0.2);
+  shCirc(g, 50, 0, 9, YL, null, 0, 0.35);
+  shStar(g, 48, 0, 12, 0xffffff);
+}
+
+/** Одна витаминная таблетка (круглая, оранжевая): блик и белый крест; arm — длина луча креста. */
+function vitaminTablet(g: Gfx, cx: number, cy: number, r: number, edge: number = COLORS.vitaminEdge): void {
+  shCirc(g, cx, cy, r, COLORS.vitamin, edge, 2.5);
+  shCirc(g, cx, cy, r * 0.62, A.vitaminLight, null, 0, 0.5);
+  // крест с длинными лучами: центр закрыт втулкой башни, поэтому лучи должны выходить за неё
+  const arm = r * 0.84;
+  shRR(g, cx - arm * 0.17, cy - arm, arm * 0.34, arm * 2, 2, 0xffffff);
+  shRR(g, cx - arm, cy - arm * 0.17, arm * 2, arm * 0.34, 2, 0xffffff);
+  shCirc(g, cx - r * 0.4, cy - r * 0.46, r * 0.16, 0xffffff, null, 0, 0.7);
+}
+
+/** Витамин: оранжевая таблетка с крестом (усилитель — симметричный значок, не поворачивается); уровни добавляют листики, скрещённые капсулы, золото и искры. */
+function drawVitamin(g: Gfx, lv: number): void {
+  const capsule = (angle: number, fill: number, edge: number): void =>
+    shPoly(g, shRot([[-31, -4], [-25, -10], [25, -10], [31, -4], [31, 4], [25, 10], [-25, 10], [-31, 4]], 0, 0, angle), fill, edge, 2);
+  if (lv <= 1) {
+    vitaminTablet(g, 0, 0, 21);
+    return;
+  }
+  if (lv === 2) {
+    // четыре зелёных листика по сторонам
+    for (let i = 0; i < 4; i++) {
+      const a = (i * Math.PI) / 2 + Math.PI / 4;
+      shPoly(g, shRot([[24, 0], [33, -6], [42, 0], [33, 6]], 0, 0, a), A.vitaminGreen, A.capsuleDark, 1.5);
+    }
+    vitaminTablet(g, 0, 0, 22);
+    return;
+  }
+  if (lv === 3) {
+    // две скрещённые капсулы под таблеткой и пузырьки
+    capsule(Math.PI / 4, COLORS.vitamin, COLORS.vitaminEdge);
+    capsule(-Math.PI / 4, A.vitaminLight, COLORS.vitaminEdge);
+    for (const [x, y, r] of [[-34, 0, 4], [34, 0, 4], [0, -36, 3.4], [0, 36, 3.4]]) shCirc(g, x, y, r, A.vitaminGreen, A.capsuleDark, 1.2);
+    vitaminTablet(g, 0, 0, 20);
+    return;
+  }
+  // уровень 4: золотые капсулы, светящееся кольцо и восемь искр
+  glowRing(g, 0, 0, 30, 3, A.lampGlow, 12, 0.5);
+  capsule(Math.PI / 4, COLORS.gold, COLORS.goldEdge);
+  capsule(-Math.PI / 4, A.vitaminLight, COLORS.goldEdge);
+  shCirc(g, 0, 0, 30, null, COLORS.gold, 2.5);
+  for (let i = 0; i < 8; i++) {
+    const a = (i * Math.PI) / 4;
+    shStar(g, Math.cos(a) * 40, Math.sin(a) * 40, i % 2 === 0 ? 7 : 5, 0xffffff);
+  }
+  glowCircle(g, 0, 0, 22, COLORS.vitamin, 12, 0.5);
+  vitaminTablet(g, 0, 0, 22, COLORS.goldEdge);
+}
+
 /** Основание башни (неподвижное, не вращается): диск, у уровней 2–4 — свои пояса, болты, шкалы; у 4-го — шипы и лужи по краю. */
 function drawBase(g: Gfx, id: TowerId, lv: number): void {
   if (id === 'syrup' && lv === 4) {
@@ -587,6 +707,25 @@ function drawBase(g: Gfx, id: TowerId, lv: number): void {
         shRR(g, x - 5, y - 1.5, 10, 3, 1, 0xffffff);
       }
     }
+  } else if (id === 'lamp' || id === 'vitamin') {
+    // лампа и витамин: кольцо цвета башни; выше — точки, на 4-м — светящееся кольцо и золотые точки
+    const main = id === 'lamp' ? COLORS.lamp : COLORS.vitamin;
+    const dark = id === 'lamp' ? COLORS.lampEdge : COLORS.vitaminEdge;
+    if (lv >= 2) shCirc(g, 0, 0, 29, null, lv >= 4 ? COLORS.gold : dark, 3);
+    if (lv === 3) {
+      for (let i = 0; i < 6; i++) {
+        const [x, y] = at(i, 6, 0.35, 29);
+        shCirc(g, x, y, 3, main, dark, 1.2);
+      }
+    }
+    if (lv === 4) {
+      glowRing(g, 0, 0, 23, 3, main, 10, 0.5);
+      shCirc(g, 0, 0, 23, null, main, 3);
+      for (let i = 0; i < 8; i++) {
+        const [x, y] = at(i, 8, 0, 29);
+        shCirc(g, x, y, 2.4, COLORS.gold, COLORS.goldEdge, 1);
+      }
+    }
   } else {
     // шприц: шкала по кругу
     if (lv >= 2) {
@@ -686,7 +825,7 @@ function topTexture(scene: Phaser.Scene, id: TowerId, level: number): string {
   return bakeArt(scene, `tower-top-${id}-${lv}`, TOP_BOX, (g) => {
     shCirc(g, 0, 0, 9, COLORS.background, COLORS.towerEdge, 2);
     if (lv === 4) {
-      const core = { pill: COLORS.gold, syrup: COLORS.gold, fizz: COLORS.acid, syringe: COLORS.needle, ampule: A.ampuleLiquid, antibiotic: COLORS.antibiotic }[id];
+      const core = { pill: COLORS.gold, syrup: COLORS.gold, fizz: COLORS.acid, syringe: COLORS.needle, ampule: A.ampuleLiquid, antibiotic: COLORS.antibiotic, lamp: COLORS.lamp, vitamin: COLORS.vitamin }[id];
       if (id === 'pill') {
         // золотая корона вокруг втулки
         for (let i = 0; i < 8; i++) shPoly(g, shRot([[9, -4], [20, 0], [9, 4]], 0, 0, (i * Math.PI) / 4), COLORS.gold, COLORS.goldEdge, 1.2);
@@ -743,6 +882,35 @@ export function createTowerArt(scene: Phaser.Scene, parent: Phaser.GameObjects.C
   return buildTowerArt(scene, parent, id, level).barrel;
 }
 
+/** Конус света Лампы: готовая картинка (одна на длину и угол); вершина — в центре башни, смотрит вправо. */
+function coneArt(scene: Phaser.Scene, range: number, deg: number): { key: string; box: ArtBox } {
+  const len = Math.max(10, Math.round(range));
+  const d = Math.max(4, Math.round(deg));
+  const half = (d * Math.PI) / 360;
+  const ymax = Math.ceil(len * Math.sin(Math.min(half, Math.PI / 2))) + 3;
+  const box: ArtBox = { x: -3, y: -ymax, w: len + 6, h: ymax * 2 };
+  const key = bakeArt(scene, `cone-${len}-${d}`, box, (g) => {
+    // слои света: ближе к лампе ярче (вложенные сектора)
+    for (const [share, alpha] of [[1, 0.12], [0.78, 0.1], [0.56, 0.1], [0.34, 0.1]] as const) {
+      const pts: { x: number; y: number }[] = [{ x: 0, y: 0 }];
+      for (let i = 0; i <= 14; i++) {
+        const a = -half + (2 * half * i) / 14;
+        pts.push({ x: Math.cos(a) * len * share, y: Math.sin(a) * len * share });
+      }
+      g.fillStyle(COLORS.lampLight, alpha).fillPoints(pts, true);
+    }
+    g.lineStyle(2, COLORS.lampLight, 0.5);
+    for (const s of [-1, 1]) g.lineBetween(0, 0, Math.cos(half) * len, s * Math.sin(half) * len);
+    g.lineStyle(2.5, COLORS.lampLight, 0.3).beginPath();
+    g.arc(0, 0, len, -half, half);
+    g.strokePath();
+  });
+  return { key, box };
+}
+
+/** Сколько тиков конуса башня делает за один кадр, самое большее (защита от лавины при очень длинном кадре). */
+const MAX_CONE_TICKS = 8;
+
 /**
  * Башня: стоит в клетке и сама стреляет. Способ стрельбы задан в таблице `towers` (config.ts): `targeting` — как бьёт
  * (по радиусу, по площади, лужей на дорожку, лучом), `side` — куда смотрит (любых в радиусе, только «вперёд» или только «назад»).
@@ -771,6 +939,18 @@ export class Tower {
   private disabledFor = 0;
   /** Куда смотрит луч: номер направления 0…AIM_STEPS-1 (только у башен с лучом). */
   aim = 0;
+  /** Множитель паузы от ауры Витамина рядом (1 — нет; меньше — быстрее): сцена выставляет его каждый кадр. */
+  auraMul = 1;
+  /** Куда смотрит башня на цель, радианы (по нему считается попадание в конус Лампы). */
+  lookAngle = 0;
+  /** Сколько тиков конуса надо применить за этот кадр (читает сцена, когда башня «выстрелила») и только что ли включился конус (сцена играет звук). */
+  coneTicks = 0;
+  coneFresh = false;
+  /** Башня в облаке токсина: не стреляет (сцена выставляет каждый кадр). */
+  private suppressed = false;
+  private coneClock = 0;
+  private coneOn = false;
+  private cone: Phaser.GameObjects.Image | null = null;
   private readonly ring: Phaser.GameObjects.Image;
   private readonly barrel: Phaser.GameObjects.Container;
   private readonly container: Phaser.GameObjects.Container;
@@ -810,6 +990,12 @@ export class Tower {
     const art = buildTowerArt(scene, this.container, id);
     this.barrel = art.barrel;
     this.art = art;
+    if (this.isCone) {
+      // Конус света лежит в контейнере ствола (поворачивается вместе с ним) под рисунком лампы; виден, только пока есть цель
+      const { key, box } = coneArt(scene, this.stats.range, this.stats.coneDeg);
+      this.cone = artImage(scene, key, box).setVisible(false);
+      this.barrel.addAt(this.cone, 0);
+    }
     // Красное кольцо — башня заглушена
     this.ring = ringImage(scene, 0, 0, 44, 5, COLORS.loseLine).setVisible(false);
     this.container.add(this.ring);
@@ -840,6 +1026,16 @@ export class Tower {
   /** Бьёт ли башня лучом (тогда её направление задаёт игрок). */
   get isBeam(): boolean {
     return this.cfg.targeting === 'beam';
+  }
+
+  /** Бьёт ли башня конусом света (Лампа). */
+  get isCone(): boolean {
+    return this.cfg.targeting === 'cone';
+  }
+
+  /** Усиливает ли башня соседей аурой (Витамин): сама не стреляет. */
+  get isAura(): boolean {
+    return this.cfg.targeting === 'aura';
   }
 
   /** Угол луча, радианы. */
@@ -876,6 +1072,10 @@ export class Tower {
   private recompute(): void {
     this.stats = computeStats(this.id, this.level, this.picks);
     this.refreshVisuals();
+    if (this.cone) {
+      const { key, box } = coneArt(this.scene, this.stats.range, this.stats.coneDeg);
+      setArt(this.cone, key, box);
+    }
     if (this.isBeam) this.applyAim();
   }
 
@@ -974,8 +1174,57 @@ export class Tower {
   /** Заглушить башню на seconds секунд (если уже заглушена дольше — не сокращаем). */
   disable(seconds: number): void {
     this.disabledFor = Math.max(this.disabledFor, seconds);
-    this.container.setAlpha(0.4);
+    this.applyAlpha();
     this.ring.setVisible(true);
+  }
+
+  /** Башня в облаке токсина (или вышла из него): стрелять нельзя; на картинке бледнеет. */
+  setSuppressed(on: boolean): void {
+    if (this.suppressed === on) return;
+    this.suppressed = on;
+    this.applyAlpha();
+  }
+
+  get isSuppressed(): boolean {
+    return this.suppressed;
+  }
+
+  /** Работает ли башня: не заглушена спорой и не в облаке (Витамин в таком состоянии не усиливает). */
+  get isWorking(): boolean {
+    return this.disabledFor <= 0 && !this.suppressed;
+  }
+
+  /** Прозрачность картинки башни: заглушена спорой — сильнее, в облаке — слабее. */
+  private applyAlpha(): void {
+    this.container.setAlpha(this.disabledFor > 0 ? 0.4 : this.suppressed ? 0.6 : 1);
+  }
+
+  private setConeOn(on: boolean): void {
+    if (this.coneOn === on) return;
+    this.coneOn = on;
+    this.cone?.setVisible(on);
+    if (on) this.coneFresh = true;
+  }
+
+  /** Кого сейчас задевает конус: бактерии не дальше длины конуса (плюс радиус бактерии) и в пределах угла (с поправкой на размер бактерии). */
+  coneHits(bacteria: readonly Bacterium[]): Bacterium[] {
+    const { range, coneDeg } = this.stats;
+    const half = (coneDeg * Math.PI) / 360;
+    const hits: Bacterium[] = [];
+    for (const b of bacteria) {
+      if (b.hp <= 0) continue;
+      const dx = b.x - this.x;
+      const dy = b.y - this.y;
+      const dist = Math.hypot(dx, dy);
+      if (dist > range + b.radius * 0.5) continue;
+      if (dist > b.radius * 0.7) {
+        let diff = Math.atan2(dy, dx) - this.lookAngle;
+        diff = Math.abs(Math.atan2(Math.sin(diff), Math.cos(diff)));
+        if (diff > half + Math.asin(Math.min(1, (b.radius * 0.7) / dist))) continue;
+      }
+      hits.push(b);
+    }
+    return hits;
   }
 
   /**
@@ -984,17 +1233,30 @@ export class Tower {
    * С мутацией «Двойной выстрел» башня бьёт ещё `extraTargets` целей за тот же выстрел.
    */
   update(dt: number, bacteria: readonly Bacterium[], fire: (target: Bacterium, muzzleX: number, muzzleY: number) => boolean): void {
-    this.cooldown = Math.max(0, this.cooldown - dt);
+    // Аура Витамина рядом: пауза короче в auraMul раз (время идёт быстрее)
+    this.cooldown = Math.max(0, this.cooldown - dt / this.auraMul);
     if (this.disabledFor > 0) {
       this.disabledFor -= dt;
+      this.setConeOn(false);
       if (this.disabledFor <= 0) {
         this.disabledFor = 0;
-        this.container.setAlpha(1);
+        this.applyAlpha();
         this.ring.setVisible(false);
       }
       return;
     }
+    // В облаке токсина башня не стреляет (Витамин не усиливает, Лампа гасит конус)
+    if (this.suppressed) {
+      this.setConeOn(false);
+      this.coneClock = 0;
+      return;
+    }
+    if (this.isAura) return;
     const muzzle = MUZZLE[this.id] + (this.level - 1) * MUZZLE_PER_LEVEL[this.id];
+    if (this.isCone) {
+      this.updateCone(dt, bacteria, fire, muzzle);
+      return;
+    }
     if (this.isBeam) {
       // Луч: цель — любой на линии; башня смотрит туда, куда повернул игрок
       if (this.cooldown > 0) return;
@@ -1007,6 +1269,7 @@ export class Tower {
     const targets = this.pickTargets(bacteria);
     if (targets.length === 0) return;
     const angle = Math.atan2(targets[0].y - this.y, targets[0].x - this.x);
+    this.lookAngle = angle;
     this.barrel.setRotation(angle);
     if (this.cooldown > 0) return;
     const shoot = (target: Bacterium): boolean => {
@@ -1018,13 +1281,35 @@ export class Tower {
     for (let i = 1; i < targets.length; i++) shoot(targets[i]);
   }
 
+  /** Лампа: смотрит на ближайшую к организму бактерию в радиусе, включает конус и по таймеру отдаёт сцене тики (каждый тик — урон всем в конусе). */
+  private updateCone(dt: number, bacteria: readonly Bacterium[], fire: (target: Bacterium, muzzleX: number, muzzleY: number) => boolean, muzzle: number): void {
+    const target = this.pickTargets(bacteria)[0];
+    if (!target) {
+      this.setConeOn(false);
+      this.coneClock = 0;
+      return;
+    }
+    this.lookAngle = Math.atan2(target.y - this.y, target.x - this.x);
+    this.barrel.setRotation(this.lookAngle);
+    this.setConeOn(true);
+    const period = Math.max(0.02, this.stats.cooldownMs / 1000);
+    this.coneClock += dt / this.auraMul;
+    const ticks = Math.min(MAX_CONE_TICKS, Math.floor(this.coneClock / period));
+    if (ticks <= 0) return;
+    this.coneClock = Math.min(this.coneClock - ticks * period, period);
+    this.coneTicks = ticks;
+    fire(target, this.x + Math.cos(this.lookAngle) * muzzle, this.y + Math.sin(this.lookAngle) * muzzle);
+  }
+
   /** Бактерии, до которых можно достать (центр не дальше радиуса стрельбы плюс радиус самой бактерии, нужная сторона от башни), по приоритету; не больше 1 + extraTargets. */
   private pickTargets(bacteria: readonly Bacterium[]): Bacterium[] {
     const { range, side, toughest, extraTargets, targeting } = this.stats;
     const found: Bacterium[] = [];
     for (const b of bacteria) {
       if (b.hp <= 0) continue;
-      if (Math.hypot(b.x - this.x, b.y - this.y) > range + b.radius) continue;
+      // Скрытную башня видит только на доле радиуса (b.stealth); конус Лампы видит полностью
+      const reach = b.stealth > 0 && targeting !== 'cone' ? range * b.stealth : range;
+      if (Math.hypot(b.x - this.x, b.y - this.y) > reach + b.radius) continue;
       if (side === 'forward' && !(b.remaining > this.remaining)) continue;
       if (side === 'back' && !(b.remaining < this.remaining)) continue;
       found.push(b);

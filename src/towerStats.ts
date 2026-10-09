@@ -24,6 +24,10 @@ export interface TowerRow {
   /** Яд ('poison'): HP в секунду и сколько секунд идёт (у остальных башен 0). */
   dotPerSec: number;
   dotSec: number;
+  /** Конус ('cone'): угол в градусах (у остальных 0). Аура ('aura'): множитель паузы башен в радиусе на уровне 1 и убыль с уровнем (у остальных 1 и 0). */
+  coneDeg: number;
+  auraMul: number;
+  auraStep: number;
 }
 
 /** Итоговые числа башни: строка таблицы с учётом уровня и выбранных мутаций + свойства мутаций. */
@@ -44,6 +48,9 @@ export interface TowerStats extends TowerRow {
 export function towerPrice(id: TowerKey): number {
   return Math.max(1, Math.ceil(CONFIG.towers[id].price * (1 + upgradeBonus('price', id as UpgradeBranch)) - 1e-9));
 }
+
+/** Самый широкий конус Лампы после мутаций, градусов (правило отрисовки и попадания, не число баланса). */
+const MAX_CONE_DEG = 120;
 
 /** Самый высокий уровень башни. */
 export const MAX_TOWER_LEVEL = CONFIG.towerLevels.length;
@@ -74,6 +81,7 @@ export function unlockedTiers(level: number): number {
 export function computeStats(id: TowerKey, level: number, picks: readonly string[]): TowerStats {
   const base: TowerRow = CONFIG.towers[id];
   const lv = CONFIG.towerLevels[Math.min(Math.max(1, level), MAX_TOWER_LEVEL) - 1];
+  let auraBonus = 1;
   const s: TowerStats = {
     ...base,
     armorPierce: false,
@@ -128,6 +136,9 @@ export function computeStats(id: TowerKey, level: number, picks: readonly string
     if (spec.spiral) s.spiral += spec.spiral * share;
     if (spec.dotSecMul) s.dotSec *= scaled(spec.dotSecMul);
     if (spec.dotDpsMul) s.dotPerSec *= scaled(spec.dotDpsMul);
+    if (spec.coneMul) s.coneDeg = Math.min(MAX_CONE_DEG, s.coneDeg * scaled(spec.coneMul));
+    if (spec.rangeMul) s.range *= scaled(spec.rangeMul);
+    if (spec.auraBonusMul) auraBonus *= scaled(spec.auraBonusMul);
   }
   // Улучшения вне партии ветки этой башни (docs/upgrades.md, раздел 12): пауза, радиусы, лужа, замедление, луч
   const bonus = (effect: UpgradeEffect): number => upgradeBonus(effect, id as UpgradeBranch);
@@ -141,6 +152,11 @@ export function computeStats(id: TowerKey, level: number, picks: readonly string
   if (s.beamPulses > 0) {
     s.beamPulses += Math.floor(bonus('pulses'));
     s.beamHalfWidthPx += bonus('beamWidth');
+  }
+  // Аура Витамина: множитель паузы уровня (1-й уровень — auraMul, дальше на auraStep меньше) и улучшения ветки; прибавку (1 − множитель) усиливают мутации
+  if (base.auraMul < 1) {
+    const raw = base.auraMul - base.auraStep * (Math.min(Math.max(1, level), MAX_TOWER_LEVEL) - 1) + bonus('auraBoost');
+    s.auraMul = Math.min(1, Math.max(CONFIG.meta.minAuraMul, 1 - (1 - raw) * auraBonus));
   }
   // Улучшение вне партии «Сильное вещество»: урон всех башен (docs/upgrades.md)
   s.damage *= damageMul();
