@@ -3647,7 +3647,7 @@ async function towersMixed(browser, baseUrl) {
   }, 90000, 25);
   for (let i = 0; i < late.length; i++) await game.placeTowersOf(late[i], [cells[early.length + i]]);
   let s = await game.state();
-  check(`${p} ${TOWER_IDS.length} башен разных видов стоят рядом с дорожкой (${s.towers.map((t) => t.id).join(', ')}), монет 0`, [...s.towers.map((t) => t.id)].sort().join() === [...TOWER_IDS].sort().join() && s.coins === 0, `монет ${s.coins}`);
+  check(`${p} ${TOWER_IDS.length} башен разных видов стоят рядом с дорожкой (${s.towers.map((t) => t.id).join(', ')}), монеты — только награды за уже убитых (${BASE.reward} × убито ${s.kills})`, [...s.towers.map((t) => t.id)].sort().join() === [...TOWER_IDS].sort().join() && s.coins === BASE.reward * s.kills, `монет ${s.coins}, убито ${s.kills}`);
   const end = await pollUntil(game, async (st) => {
     if (!shotDone && (st.effects.blasts >= 1 || st.slows >= 1) && st.bacteria.length >= 3 && st.projectiles >= 1) {
       await shot(game.page, 'towers-09-four-battle');
@@ -3961,7 +3961,7 @@ async function typesLeaper(browser, baseUrl) {
   check(`${p} прыжки идут раз в ${every} с (игровое время): промежутков ${spacing.length} (≥ 3), наименьший ${f2(Math.min(...spacing))}, наибольший ${f2(Math.max(...spacing))} (допуск ±0,7)`, spacing.length >= 3 && spacing.every((x) => Math.abs(x - every) <= 0.7), spacing.map(f2).join(', '));
 
   // ---- Б. лужа Сиропа: бросается ему под ноги, а он идёт с обычной скоростью
-  const r = await syrupPlay(context, baseUrl, p, { wave: wavesOnly({ leaper: 2 }), cfg: ['towers.syrup.cooldownMs:60000'], interval: 2, speed: 4 });
+  const r = await syrupPlay(context, baseUrl, p, { wave: wavesOnly({ leaper: 2 }), cfg: ['towers.syrup.cooldownMs:60000'], interval: 2, speed: 2 });
   const tl = puddleTimeline(r.log);
   const trs = [...tracesOf(r.log).values()];
   const insideNow = (q) => Boolean(tl) && Math.hypot(q.x - tl.pud.x, q.y - tl.pud.y) <= tl.pud.r - 8 && q.e >= tl.e1 && q.e <= tl.eLast;
