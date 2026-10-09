@@ -12,9 +12,9 @@ import type { Bacterium } from './Bacterium';
 export type TowerId = TowerKey;
 
 /** Как далеко от центра башни вылетает снаряд (длина ствола), пикселей. */
-const MUZZLE: Record<TowerId, number> = { pill: 40, syrup: 36, fizz: 34, syringe: 56, ampule: 54, antibiotic: 44, lamp: 40, vitamin: 0 };
+const MUZZLE: Record<TowerId, number> = { pill: 40, syrup: 36, fizz: 34, syringe: 56, ampule: 54, antibiotic: 44, lamp: 40, vitamin: 0, frost: 0, patch: 0 };
 /** На сколько пикселей дальше дуло с каждым следующим уровнем (стволы 2–4 уровней длиннее: снаряд вылетает из конца ствола). */
-const MUZZLE_PER_LEVEL: Record<TowerId, number> = { pill: 7, syrup: 8, fizz: 6, syringe: 9, ampule: 8, antibiotic: 6, lamp: 6, vitamin: 0 };
+const MUZZLE_PER_LEVEL: Record<TowerId, number> = { pill: 7, syrup: 8, fizz: 6, syringe: 9, ampule: 8, antibiotic: 6, lamp: 6, vitamin: 0, frost: 0, patch: 0 };
 
 /** Рамка рисунка ствола (ствол смотрит вправо; центр башни — 0,0): вмещает самые длинные и широкие стволы уровней 2–4 со свечением. */
 const BARREL_BOX: ArtBox = { x: -50, y: -50, w: 148, h: 100 };
@@ -53,6 +53,8 @@ function drawBarrel(g: Phaser.GameObjects.Graphics, id: TowerId, lv: number): vo
   else if (id === 'antibiotic') drawAntibiotic(g, lv);
   else if (id === 'lamp') drawLamp(g, lv);
   else if (id === 'vitamin') drawVitamin(g, lv);
+  else if (id === 'frost') drawFrost(g, lv);
+  else if (id === 'patch') drawPatch(g, lv);
   else drawSyringe(g, lv);
 }
 
@@ -602,6 +604,142 @@ function drawVitamin(g: Gfx, lv: number): void {
   vitaminTablet(g, 0, 0, 22, COLORS.goldEdge);
 }
 
+/** Снежинка: три диаметра длиной 2R под углами 0°, 60°, 120° (от rot) с боковыми «ёлочками»; edge — тёмная обводка под линиями (null — без неё). */
+function snowflake(g: Gfx, R: number, lw: number, color: number, edge: number | null, rot = 0): void {
+  const draw = (width: number, c: number): void => {
+    for (let k = 0; k < 6; k++) {
+      const a = rot + (k * Math.PI) / 3;
+      const ux = Math.cos(a);
+      const uy = Math.sin(a);
+      shLine(g, 0, 0, ux * R, uy * R, c, width);
+      for (const side of [-1, 1]) {
+        const b = a + side * 0.85;
+        shLine(g, ux * R * 0.62, uy * R * 0.62, ux * R * 0.62 + Math.cos(b) * R * 0.3, uy * R * 0.62 + Math.sin(b) * R * 0.3, c, width * 0.8);
+      }
+    }
+  };
+  if (edge !== null) draw(lw + 2.5, edge);
+  draw(lw, color);
+}
+
+/** Правильный шестиугольник радиуса r (вершина смотрит вправо), повёрнутый на rot. */
+function hexagon(r: number, rot = 0): Pt[] {
+  return Array.from({ length: 6 }, (_, i) => [Math.cos(rot + (i * Math.PI) / 3) * r, Math.sin(rot + (i * Math.PI) / 3) * r] as Pt);
+}
+
+/** Холод: ледяной кристалл-снежинка (симметричный, на цель поворачивается без вреда); уровни добавляют осколки льда, вторую снежинку, золото и искры. */
+function drawFrost(g: Gfx, lv: number): void {
+  const F = COLORS.frost;
+  const FE = COLORS.frostEdge;
+  const FL = COLORS.frostLight;
+  const shards = (inner: number, outer: number, wid: number, fill: number, edge: number, rot = Math.PI / 6): void => {
+    for (let i = 0; i < 6; i++) {
+      const a = rot + (i * Math.PI) / 3;
+      shPoly(g, shRot([[inner, -wid], [outer, 0], [inner, wid]], 0, 0, a), fill, edge, 1.5);
+    }
+  };
+  if (lv <= 1) {
+    // Холод: голубой шестигранный кристалл со снежинкой
+    glowCircle(g, 0, 0, 16, F, 8, 0.35);
+    shPoly(g, hexagon(17), F, FE, 2.5);
+    snowflake(g, 24, 3, FL, FE);
+    shCirc(g, 0, 0, 5.5, 0xffffff, FE, 1.5);
+    return;
+  }
+  if (lv === 2) {
+    // шесть осколков льда вокруг и большая снежинка
+    shards(22, 38, 6, A.frostShard, FE);
+    shPoly(g, hexagon(19), F, FE, 2.5);
+    snowflake(g, 28, 3.2, FL, FE);
+    shCirc(g, 0, 0, 6, 0xffffff, FE, 1.5);
+    for (let i = 0; i < 6; i++) shCirc(g, Math.cos(i * Math.PI / 3) * 30, Math.sin(i * Math.PI / 3) * 30, 2.4, 0xffffff);
+    return;
+  }
+  if (lv === 3) {
+    // две снежинки (одна повёрнута), длинные осколки, снежинки-точки
+    glowCircle(g, 0, 0, 24, F, 10, 0.3);
+    shards(24, 46, 7, A.frostShard, FE);
+    shards(22, 34, 5, F, FE, 0);
+    shPoly(g, hexagon(21), F, A.frostDeep, 2.5);
+    snowflake(g, 34, 3.4, FL, FE);
+    snowflake(g, 22, 2.6, 0xffffff, null, Math.PI / 6);
+    shCirc(g, 0, 0, 7, 0xffffff, FE, 2);
+    for (let i = 0; i < 6; i++) shCirc(g, Math.cos(i * Math.PI / 3 + 0.5) * 42, Math.sin(i * Math.PI / 3 + 0.5) * 42, 2.6, 0xffffff, FE, 1);
+    return;
+  }
+  // уровень 4: золочёный ледяной цветок — светящееся кольцо, золотые и ледяные шипы, большая снежинка, искры
+  glowRing(g, 0, 0, 36, 3, F, 14, 0.55);
+  shards(26, 56, 7.5, A.frostShard, COLORS.gold);
+  shards(24, 44, 6, COLORS.gold, COLORS.goldEdge, 0);
+  glowCircle(g, 0, 0, 24, F, 12, 0.4);
+  shPoly(g, hexagon(23), A.frostMid, COLORS.gold, 3);
+  shPoly(g, hexagon(15, Math.PI / 6), F, null, 0, 0.6);
+  snowflake(g, 40, 3.6, 0xffffff, A.frostDeep);
+  snowflake(g, 24, 2.6, FL, A.frostDeep, Math.PI / 6);
+  glowCircle(g, 0, 0, 7, 0xffffff, 6, 0.5);
+  shCirc(g, 0, 0, 8, 0xffffff, COLORS.gold, 2);
+  for (let i = 0; i < 6; i++) shStar(g, Math.cos(i * Math.PI / 3 + Math.PI / 6) * 52, Math.sin(i * Math.PI / 3 + Math.PI / 6) * 52, i % 2 === 0 ? 7 : 5, 0xffffff);
+}
+
+/** Полоса пластыря длиной len и толщиной th, повёрнутая на angle вокруг (cx, cy): телесная липучка с дырочками. */
+function plasterStrip(g: Gfx, cx: number, cy: number, len: number, th: number, angle: number, fill: number = COLORS.patch, edge: number = COLORS.patchEdge): void {
+  shPoly(g, shRot(shBox(-len / 2, -th / 2, len, th), cx, cy, angle), fill, edge, 2);
+  for (const sx of [-1, 1]) {
+    for (const dy of [-0.26, 0.26]) {
+      const [[x, y]] = shRot([[sx * len * 0.37, dy * th]], cx, cy, angle);
+      shCirc(g, x, y, Math.max(1.4, th * 0.07), A.patchHole);
+    }
+  }
+}
+
+/** Марлевая прокладка (светлый квадрат) с красным крестиком, повёрнутая на angle вокруг (cx, cy). */
+function gauzePad(g: Gfx, cx: number, cy: number, size: number, angle: number, edge: number = COLORS.patchEdge, cross: number = A.patchRed): void {
+  shPoly(g, shRot(shBox(-size / 2, -size / 2, size, size), cx, cy, angle), COLORS.patchPad, edge, 1.8);
+  for (const [dx, dy] of [[1, 0], [0, 1]]) {
+    const [[x0, y0], [x1, y1]] = shRot([[-dx * size * 0.24, -dy * size * 0.24], [dx * size * 0.24, dy * size * 0.24]], cx, cy, angle);
+    shLine(g, x0, y0, x1, y1, cross, Math.max(2, size * 0.1));
+  }
+}
+
+/** Пластырь: телесная липучка с марлевой прокладкой; уровни добавляют вторую и третью полосы, рулон бинта, золото и красное свечение. Смотрит на цель, как остальные. */
+function drawPatch(g: Gfx, lv: number): void {
+  const E = COLORS.patchEdge;
+  if (lv <= 1) {
+    // Пластырь: одна полоса и прокладка
+    plasterStrip(g, 14, 0, 60, 26, 0);
+    gauzePad(g, 14, 0, 20, 0);
+    return;
+  }
+  if (lv === 2) {
+    // две полосы крест-накрест
+    plasterStrip(g, 14, 0, 62, 24, -0.42);
+    plasterStrip(g, 14, 0, 62, 24, 0.42);
+    gauzePad(g, 14, 0, 22, 0);
+    return;
+  }
+  if (lv === 3) {
+    // три полосы веером и рулон бинта сзади
+    shCirc(g, -26, 0, 15, COLORS.patchPad, E, 2.5);
+    shCirc(g, -26, 0, 9, null, E, 1.6);
+    shCirc(g, -26, 0, 4, E);
+    plasterStrip(g, 20, 0, 66, 22, -0.62);
+    plasterStrip(g, 20, 0, 66, 22, 0.62);
+    plasterStrip(g, 20, 0, 70, 24, 0);
+    gauzePad(g, 20, 0, 24, 0);
+    return;
+  }
+  // уровень 4: золочёные полосы, золотой рулон, светящаяся красная метка и искры
+  glowCircle(g, 18, 0, 34, A.patchRed, 14, 0.25);
+  shCirc(g, -28, 0, 17, COLORS.gold, COLORS.goldEdge, 2.5);
+  shCirc(g, -28, 0, 11, COLORS.patchPad, COLORS.goldEdge, 1.8);
+  shCirc(g, -28, 0, 5, COLORS.goldEdge);
+  for (const ang of [-0.78, 0.78, -0.3, 0.3]) plasterStrip(g, 22, 0, 74, 22, ang, A.patchStrip, COLORS.goldEdge);
+  plasterStrip(g, 22, 0, 80, 26, 0, COLORS.patch, COLORS.gold);
+  gauzePad(g, 22, 0, 28, 0, COLORS.gold);
+  glowCircle(g, 22, 0, 8, A.patchRed, 8, 0.45);
+  for (const [x, y, r] of [[58, -22, 7], [60, 20, 5], [-4, -32, 5]]) shStar(g, x, y, r, 0xffffff);
+}
+
 /** Основание башни (неподвижное, не вращается): диск, у уровней 2–4 — свои пояса, болты, шкалы; у 4-го — шипы и лужи по краю. */
 function drawBase(g: Gfx, id: TowerId, lv: number): void {
   if (id === 'syrup' && lv === 4) {
@@ -707,10 +845,10 @@ function drawBase(g: Gfx, id: TowerId, lv: number): void {
         shRR(g, x - 5, y - 1.5, 10, 3, 1, 0xffffff);
       }
     }
-  } else if (id === 'lamp' || id === 'vitamin') {
-    // лампа и витамин: кольцо цвета башни; выше — точки, на 4-м — светящееся кольцо и золотые точки
-    const main = id === 'lamp' ? COLORS.lamp : COLORS.vitamin;
-    const dark = id === 'lamp' ? COLORS.lampEdge : COLORS.vitaminEdge;
+  } else if (id === 'lamp' || id === 'vitamin' || id === 'frost' || id === 'patch') {
+    // лампа, витамин, холод и пластырь: кольцо цвета башни; выше — точки, на 4-м — светящееся кольцо и золотые точки
+    const main = { lamp: COLORS.lamp, vitamin: COLORS.vitamin, frost: COLORS.frost, patch: COLORS.patch }[id];
+    const dark = { lamp: COLORS.lampEdge, vitamin: COLORS.vitaminEdge, frost: COLORS.frostEdge, patch: COLORS.patchEdge }[id];
     if (lv >= 2) shCirc(g, 0, 0, 29, null, lv >= 4 ? COLORS.gold : dark, 3);
     if (lv === 3) {
       for (let i = 0; i < 6; i++) {
@@ -825,7 +963,7 @@ function topTexture(scene: Phaser.Scene, id: TowerId, level: number): string {
   return bakeArt(scene, `tower-top-${id}-${lv}`, TOP_BOX, (g) => {
     shCirc(g, 0, 0, 9, COLORS.background, COLORS.towerEdge, 2);
     if (lv === 4) {
-      const core = { pill: COLORS.gold, syrup: COLORS.gold, fizz: COLORS.acid, syringe: COLORS.needle, ampule: A.ampuleLiquid, antibiotic: COLORS.antibiotic, lamp: COLORS.lamp, vitamin: COLORS.vitamin }[id];
+      const core = { pill: COLORS.gold, syrup: COLORS.gold, fizz: COLORS.acid, syringe: COLORS.needle, ampule: A.ampuleLiquid, antibiotic: COLORS.antibiotic, lamp: COLORS.lamp, vitamin: COLORS.vitamin, frost: COLORS.frost, patch: COLORS.patch }[id];
       if (id === 'pill') {
         // золотая корона вокруг втулки
         for (let i = 0; i < 8; i++) shPoly(g, shRot([[9, -4], [20, 0], [9, 4]], 0, 0, (i * Math.PI) / 4), COLORS.gold, COLORS.goldEdge, 1.2);
@@ -941,6 +1079,8 @@ export class Tower {
   aim = 0;
   /** Множитель паузы от ауры Витамина рядом (1 — нет; меньше — быстрее): сцена выставляет его каждый кадр. */
   auraMul = 1;
+  /** Множитель паузы от паразита, присосавшегося к башне (1 — нет; 1,5 — пауза в полтора раза длиннее): сцена выставляет его каждый кадр. */
+  latchMul = 1;
   /** Куда смотрит башня на цель, радианы (по нему считается попадание в конус Лампы). */
   lookAngle = 0;
   /** Сколько тиков конуса надо применить за этот кадр (читает сцена, когда башня «выстрелила») и только что ли включился конус (сцена играет звук). */
@@ -1233,8 +1373,8 @@ export class Tower {
    * С мутацией «Двойной выстрел» башня бьёт ещё `extraTargets` целей за тот же выстрел.
    */
   update(dt: number, bacteria: readonly Bacterium[], fire: (target: Bacterium, muzzleX: number, muzzleY: number) => boolean): void {
-    // Аура Витамина рядом: пауза короче в auraMul раз (время идёт быстрее)
-    this.cooldown = Math.max(0, this.cooldown - dt / this.auraMul);
+    // Аура Витамина рядом: пауза короче в auraMul раз (время идёт быстрее); присосавшийся паразит: длиннее в latchMul раз
+    this.cooldown = Math.max(0, this.cooldown - dt / (this.auraMul * this.latchMul));
     if (this.disabledFor > 0) {
       this.disabledFor -= dt;
       this.setConeOn(false);
@@ -1293,7 +1433,7 @@ export class Tower {
     this.barrel.setRotation(this.lookAngle);
     this.setConeOn(true);
     const period = Math.max(0.02, this.stats.cooldownMs / 1000);
-    this.coneClock += dt / this.auraMul;
+    this.coneClock += dt / (this.auraMul * this.latchMul);
     const ticks = Math.min(MAX_CONE_TICKS, Math.floor(this.coneClock / period));
     if (ticks <= 0) return;
     this.coneClock = Math.min(this.coneClock - ticks * period, period);
@@ -1301,9 +1441,10 @@ export class Tower {
     fire(target, this.x + Math.cos(this.lookAngle) * muzzle, this.y + Math.sin(this.lookAngle) * muzzle);
   }
 
-  /** Бактерии, до которых можно достать (центр не дальше радиуса стрельбы плюс радиус самой бактерии, нужная сторона от башни), по приоритету; не больше 1 + extraTargets. */
-  private pickTargets(bacteria: readonly Bacterium[]): Bacterium[] {
-    const { range, side, toughest, extraTargets, targeting } = this.stats;
+  /** Бактерии в радиусе башни (центр не дальше радиуса стрельбы плюс радиус самой бактерии, нужная сторона от башни; скрытную башня видит только на доле радиуса), по приоритету.
+   *  `affectable` — только те, на кого выстрел подействует (Холод не берёт замёрзших и тех, кто не замерзает; Пластырь — приклеенных и тех, кто не липнет). */
+  private candidates(bacteria: readonly Bacterium[], affectable: boolean): Bacterium[] {
+    const { range, side, toughest, targeting } = this.stats;
     const found: Bacterium[] = [];
     for (const b of bacteria) {
       if (b.hp <= 0) continue;
@@ -1312,12 +1453,30 @@ export class Tower {
       if (Math.hypot(b.x - this.x, b.y - this.y) > reach + b.radius) continue;
       if (side === 'forward' && !(b.remaining > this.remaining)) continue;
       if (side === 'back' && !(b.remaining < this.remaining)) continue;
+      if (affectable && !this.canAffect(b)) continue;
       found.push(b);
     }
     // ближайшая к организму первой; «Охотник» — сначала самая прочная (по полному HP); «снайпер» (Ампула) — самая прочная по текущему HP
     if (targeting === 'snipe') found.sort((a, b) => b.hp - a.hp || a.remaining - b.remaining);
     else found.sort((a, b) => (toughest ? b.maxHp - a.maxHp || a.remaining - b.remaining : a.remaining - b.remaining));
-    return found.slice(0, 1 + extraTargets);
+    return found;
+  }
+
+  /** Подействует ли выстрел на бактерию: Холод — если она может замёрзнуть и ещё не заморожена; Пластырь — если может прилипнуть и ещё не приклеена; остальные башни бьют всех. */
+  private canAffect(b: Bacterium): boolean {
+    if (this.cfg.targeting === 'freeze') return !b.frozen && CONFIG.types[b.kind].freezeImmune === 0;
+    if (this.cfg.targeting === 'trap') return !b.trapped && CONFIG.types[b.kind].trapImmune === 0;
+    return true;
+  }
+
+  /** Бактерии, до которых можно достать, по приоритету; не больше 1 + extraTargets. */
+  private pickTargets(bacteria: readonly Bacterium[]): Bacterium[] {
+    return this.candidates(bacteria, true).slice(0, 1 + this.stats.extraTargets);
+  }
+
+  /** Все бактерии в радиусе башни (для заморозки Холода: замерзают все, а не одна цель). */
+  inRange(bacteria: readonly Bacterium[]): Bacterium[] {
+    return this.candidates(bacteria, false);
   }
 
   destroy(): void {

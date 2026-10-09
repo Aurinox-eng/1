@@ -28,10 +28,16 @@ export interface TowerRow {
   coneDeg: number;
   auraMul: number;
   auraStep: number;
+  /** Заморозка ('freeze'): секунд; ловушка ('trap'): секунд приклеивания и HP в секунду (у остальных башен 0). */
+  freezeSec: number;
+  trapSec: number;
+  trapDps: number;
 }
 
 /** Итоговые числа башни: строка таблицы с учётом уровня и выбранных мутаций + свойства мутаций. */
 export interface TowerStats extends TowerRow {
+  /** Какой башни числа (по нему бактерия-мутант узнаёт вид башни, ударившей последней). */
+  towerId: TowerKey;
   armorPierce: boolean;
   extraTargets: number;
   toughest: boolean;
@@ -84,6 +90,7 @@ export function computeStats(id: TowerKey, level: number, picks: readonly string
   let auraBonus = 1;
   const s: TowerStats = {
     ...base,
+    towerId: id,
     armorPierce: false,
     extraTargets: 0,
     toughest: false,
@@ -97,6 +104,8 @@ export function computeStats(id: TowerKey, level: number, picks: readonly string
   };
   s.damage = base.damage * lv.damageMul;
   s.dotPerSec = base.dotPerSec * lv.damageMul;
+  s.trapDps = base.trapDps * lv.damageMul;
+  s.freezeSec = base.freezeSec * Math.pow(lv.damageMul, CONFIG.freezeLevelPower);
   s.cooldownMs = base.cooldownMs * lv.cooldownMul;
   s.range = base.range * lv.reachMul;
   s.blastRadius = base.blastRadius * lv.reachMul;
@@ -139,6 +148,9 @@ export function computeStats(id: TowerKey, level: number, picks: readonly string
     if (spec.coneMul) s.coneDeg = Math.min(MAX_CONE_DEG, s.coneDeg * scaled(spec.coneMul));
     if (spec.rangeMul) s.range *= scaled(spec.rangeMul);
     if (spec.auraBonusMul) auraBonus *= scaled(spec.auraBonusMul);
+    if (spec.freezeMul) s.freezeSec *= scaled(spec.freezeMul);
+    if (spec.trapSecMul) s.trapSec *= scaled(spec.trapSecMul);
+    if (spec.trapDpsMul) s.trapDps *= scaled(spec.trapDpsMul);
   }
   // Улучшения вне партии ветки этой башни (docs/upgrades.md, раздел 12): пауза, радиусы, лужа, замедление, луч
   const bonus = (effect: UpgradeEffect): number => upgradeBonus(effect, id as UpgradeBranch);
@@ -161,5 +173,7 @@ export function computeStats(id: TowerKey, level: number, picks: readonly string
   // Улучшение вне партии «Сильное вещество»: урон всех башен (docs/upgrades.md)
   s.damage *= damageMul();
   s.dotPerSec *= (1 + bonus('towerDamage')) * damageMul();
+  s.trapDps *= (1 + bonus('towerDamage')) * damageMul();
+  s.freezeSec *= 1 + bonus('freezeTime');
   return s;
 }

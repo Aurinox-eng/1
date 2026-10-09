@@ -47,6 +47,9 @@ export interface CardGeometry {
 
 const BTN_H = 34;
 const PICK_H = 58;
+/** Тесная раскладка (когда над карточкой стоит полоса кнопок башен в две строки — при 9–10 открытых башнях — и карточка ниже этого числа пикселей): строки чисел чаще, кнопки мутаций ниже. */
+const DENSE_BELOW = 364;
+const DENSE = { statStep: 16, pickH: 54, pickGap: 3, headerStep: 18 };
 /** Зазор между кнопками «Слить» и «Продать», пикселей: чтобы на телефоне не нажать «Продать» вместо «Слить» (решение владельца 8 октября 2026: без подтверждений, зазор больше). */
 const SELL_GAP = 22;
 const PAD = 12;
@@ -160,9 +163,13 @@ export class TowerCard {
     this.levelText.setText(t('cardLevel', { n: m.level, max: m.maxLevel })).setPosition(left, cy);
     cy += 24;
     this.statTexts.forEach((text, i) => {
-      text.setVisible(i < m.stats.length).setText(m.stats[i] ?? '').setPosition(left, cy + i * 18);
+      text.setVisible(i < m.stats.length).setText(m.stats[i] ?? '');
     });
-    cy += 3 * 18 + 6;
+    const dense = h < DENSE_BELOW;
+    const statStep = dense ? DENSE.statStep : 18;
+    const pickH = dense ? DENSE.pickH : PICK_H;
+    this.statTexts.forEach((text, i) => text.setPosition(left, cy + i * statStep));
+    cy += 3 * statStep + (dense ? 4 : 6);
 
     const bw = w - 2 * PAD;
     // Поворот луча (Шприц): две кнопки справа от строк чисел
@@ -192,21 +199,21 @@ export class TowerCard {
     }
     if (m.pending) {
       this.headerText.setVisible(true).setText(t('cardPick')).setPosition(left, cy);
-      cy += 20;
+      cy += dense ? DENSE.headerStep : 20;
       m.pending.slice(0, 2).forEach((opt, i) => {
-        const by = cy + i * (PICK_H + 4);
-        this.btns.fillStyle(0x2a4d8e, 1).fillRoundedRect(left, by, bw, PICK_H, 12);
-        this.btns.lineStyle(3, COLORS.gold, 1).strokeRoundedRect(left, by, bw, PICK_H, 12);
-        this.pickNames[i].setVisible(true).setText(opt.name).setPosition(left + 8, by + 8);
-        this.pickDescs[i].setVisible(true).setText(opt.desc).setPosition(left + 8, by + 32);
+        const by = cy + i * (pickH + (dense ? DENSE.pickGap : 4));
+        this.btns.fillStyle(0x2a4d8e, 1).fillRoundedRect(left, by, bw, pickH, 12);
+        this.btns.lineStyle(3, COLORS.gold, 1).strokeRoundedRect(left, by, bw, pickH, 12);
+        this.pickNames[i].setVisible(true).setText(opt.name).setPosition(left + 8, by + (dense ? 6 : 8));
+        this.pickDescs[i].setVisible(true).setText(opt.desc).setPosition(left + 8, by + (dense ? 29 : 32));
         const zone = i === 0 ? this.zones.pick0 : this.zones.pick1;
-        zone.setPosition(left + bw / 2, by + PICK_H / 2);
+        zone.setPosition(left + bw / 2, by + pickH / 2);
         this.pickVisible[i] = true;
-        this.rects[`pick${i}`] = { x: left + bw / 2, y: by + PICK_H / 2, w: bw, h: PICK_H };
+        this.rects[`pick${i}`] = { x: left + bw / 2, y: by + pickH / 2, w: bw, h: pickH };
       });
     } else if (m.picked.length > 0) {
       this.headerText.setVisible(true).setText(t('cardMutations')).setPosition(left, cy);
-      cy += 20;
+      cy += dense ? DENSE.headerStep : 20;
       this.listText.setVisible(true).setText(m.picked.map((p) => `• ${p.name} — ${p.desc}`).join('\n')).setPosition(left, cy);
     }
     this.applyEnabled();

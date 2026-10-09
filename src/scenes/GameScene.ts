@@ -15,6 +15,7 @@ import { Bacterium, type BacteriumKind } from '../objects/Bacterium';
 import { GroundShot } from '../objects/GroundShot';
 import { Projectile } from '../objects/Projectile';
 import { Cloud } from '../objects/Cloud';
+import { Trap } from '../objects/Trap';
 import { Puddle } from '../objects/Puddle';
 import { beamReach, createTowerArt, defaultAim, drawAimLine, Tower, type TowerId } from '../objects/Tower';
 import { ringImage } from '../art';
@@ -29,8 +30,10 @@ const { width: W, height: H } = CONFIG.screen;
 /** Самое сильное отдаление камеры: карта помещается целиком и по ширине, и по высоте (≈ 0,499). */
 const ZOOM_MIN = Math.min(VIEW_W / WORLD.w, H / WORLD.h);
 /** Цвет числа урона по способу стрельбы башни: Таблетка — белый, Шипучка — розовый, Шприц — бирюзовый, лужа (ядовитая мутация Сиропа) — оранжевый, Ампула — светло-голубой;
- *  яд Антибиотика чисел не показывает (цвет нужен для полноты таблицы); Лампа — жёлтый, Витамин не бьёт (цвет для полноты). */
-const DAMAGE_COLORS: Record<TowerStats['targeting'], number> = { radius: 0xffffff, area: COLORS.fizz, beam: COLORS.needle, puddle: COLORS.puddle, snipe: 0x9fe4ff, poison: COLORS.poison, cone: COLORS.lamp, aura: 0xffffff };
+ *  яд Антибиотика чисел не показывает (цвет нужен для полноты таблицы); Лампа — жёлтый, Витамин не бьёт (цвет для полноты); Холод и Пластырь прямым ударом не бьют (цвета для полноты). */
+const DAMAGE_COLORS: Record<TowerStats['targeting'], number> = { radius: 0xffffff, area: COLORS.fizz, beam: COLORS.needle, puddle: COLORS.puddle, snipe: 0x9fe4ff, poison: COLORS.poison, cone: COLORS.lamp, aura: 0xffffff, freeze: COLORS.frost, trap: COLORS.patch };
+/** Цвет числа урона, когда удар ослаблен памятью мутанта (башня того же вида, что и прошлая). */
+const RESIST_COLOR = 0x9aa6bd;
 /** Сколько миллисекунд висит строка «Новая бактерия: …» / «Открыта башня: …» (игра при этом идёт). */
 const NEWS_MS = 4200;
 /** О чём игрок уже узнал из строк-уведомлений («b:тип» — бактерия, «t:башня» — башня): повторные партии подряд их не повторяют. */
@@ -64,6 +67,8 @@ const NEW_TYPE_TEXT: Partial<Record<BacteriumKind, TextKey>> = {
   phago: 'newTypePhago',
   stealth: 'newTypeStealth',
   toxin: 'newTypeToxin',
+  mutant: 'newTypeMutant',
+  parasite: 'newTypeParasite',
 };
 /** Сколько миллисекунд держится сообщение о новом типе. */
 const NEW_TYPE_TOAST_MS = 4200;
@@ -130,6 +135,10 @@ export class GameScene extends Phaser.Scene {
   private leaps = 0;
   /** Сколько облаков оставили токсины за партию. */
   private cloudsMade = 0;
+  /** Сколько раз Холод замораживал, сколько ловушек положил Пластырь и сколько раз паразит присосался к башне (за партию). */
+  private freezes = 0;
+  private trapsMade = 0;
+  private latches = 0;
   private spawned = 0;
   /** Накопленный урон по жизням от «дробных» бактерий (рой): целые жизни списываются, остаток ждёт следующих. */
   private lifePool = 0;
@@ -149,6 +158,11 @@ export class GameScene extends Phaser.Scene {
   private puddles: Puddle[] = [];
   /** Облака токсина на поле. */
   private clouds: Cloud[] = [];
+  /** Ловушки Пластыря на дорожках и нити паразитов к башням (одна картинка-линия на всех). */
+  private traps: Trap[] = [];
+  private threads!: Phaser.GameObjects.Graphics;
+  /** Какой множитель паузы от паразита показан в карточке выбранной башни (если изменился — карточка перерисовывается). */
+  private cardLatch = 1;
   private bursts: BeamBurst[] = [];
   private chains: ChainBlast[] = [];
   /** Занятые клетки (ключ «колонка,ряд»). */
@@ -254,6 +268,10 @@ export class GameScene extends Phaser.Scene {
     this.absorbs = 0;
     this.leaps = 0;
     this.cloudsMade = 0;
+    this.freezes = 0;
+    this.trapsMade = 0;
+    this.latches = 0;
+    this.cardLatch = 1;
     this.spawned = 0;
     this.lifePool = 0;
     this.shieldLeft = shieldCharges();
@@ -276,6 +294,7 @@ export class GameScene extends Phaser.Scene {
     this.groundShots = [];
     this.puddles = [];
     this.clouds = [];
+    this.traps = [];
     this.bursts = [];
     this.chains = [];
     this.occupied = new Set();
@@ -328,6 +347,8 @@ export class GameScene extends Phaser.Scene {
     const start = unitCenter(LEVEL.startCenter[0], LEVEL.startCenter[1]);
     this.rig.set(CONFIG.camera.zoomStart, start.x, start.y);
 
+    this.threads = this.add.graphics();
+    this.projectileLayer.add(this.threads);
     this.effects = new Effects(this, this.fxLayer);
     this.buildGhost();
     this.mergeRing = ringImage(this, 0, 0, CONFIG.mergeRadiusPx, 5, COLORS.merge, 0.45).setVisible(false);
@@ -423,9 +444,11 @@ export class GameScene extends Phaser.Scene {
       if (bacterium.leaps !== leaps) this.leaps++;
     }
     this.applyPoison(dt);
+    this.applyTraps(dt);
     this.updateBrood(dt);
     this.applySpores();
     this.updateClouds(dt);
+    this.updateParasites();
     this.applyAuras();
     for (const tower of this.towers) tower.update(dt, this.bacteria, (target, x, y) => this.fire(tower, target, x, y));
     this.updateProjectiles(dt);
@@ -601,7 +624,21 @@ export class GameScene extends Phaser.Scene {
       for (let i = 0; i < ticks; i++) for (const bacterium of hits) this.damageBacterium(bacterium, st, true, st.damage, true);
       return true;
     }
-    if (st.targeting === 'puddle') {
+    if (st.targeting === 'freeze') {
+      // Холод: замерзают все бактерии в радиусе, кроме тех, кто не замерзает
+      const frozen = tower.inRange(this.bacteria).filter((b) => !b.frozen && CONFIG.types[b.kind].freezeImmune === 0);
+      if (frozen.length === 0) return false;
+      for (const bacterium of frozen) bacterium.freeze(st.freezeSec);
+      this.freezes++;
+      this.effects.frost(tower.x, tower.y, st.range);
+    } else if (st.targeting === 'trap') {
+      // Пластырь: ловушка на дорожке под этой бактерией (первой из подходящих; с мутацией «Две ловушки» — и под следующей)
+      if (target.trapped || CONFIG.types[target.kind].trapImmune > 0) return false;
+      target.trap(st.trapSec, st.trapDps);
+      this.traps.push(new Trap(this, this.puddleLayer, target.x, target.y, pointAt(target.edge, target.s).angle, target));
+      this.trapsMade++;
+      this.effects.flash(target.x, target.y, target.radius * 0.8, COLORS.patch);
+    } else if (st.targeting === 'puddle') {
       const puddle = { radius: st.puddleRadius, seconds: st.puddleSec, slowFactor: st.slowFactor, slowSec: st.slowSec, poison: st.poisonPerSec };
       let launched = 0;
       for (let k = 0; k < st.puddleCount; k++) {
@@ -700,10 +737,70 @@ export class GameScene extends Phaser.Scene {
       let mul = 1;
       for (const vitamin of vitamins) {
         if (vitamin === tower) continue;
-        if (Math.hypot(vitamin.x - tower.x, vitamin.y - tower.y) <= vitamin.stats.range) mul = Math.min(mul, vitamin.stats.auraMul);
+        // Присосавшийся к Витамину паразит ослабляет его прибавку в latchMul раз (пауза соседей ближе к 1)
+        const aura = vitamin.latchMul > 1 ? 1 - (1 - vitamin.stats.auraMul) / vitamin.latchMul : vitamin.stats.auraMul;
+        if (Math.hypot(vitamin.x - tower.x, vitamin.y - tower.y) <= vitamin.stats.range) mul = Math.min(mul, aura);
       }
       tower.auraMul = mul;
     }
+  }
+
+  /** Паразиты: подойдя ближе latchRadius к башне, паразит присасывается к ближайшей и держится, пока жив и не дошёл до организма (исчезнувшую башню меняет на другую); пауза присосанной башни ×latchMul
+   *  (несколько паразитов на одной башне не складываются — берётся наибольший множитель). Множитель выставляется заново каждый кадр; нить паразит — башня рисуется здесь же. */
+  private updateParasites(): void {
+    for (const tower of this.towers) tower.latchMul = 1;
+    const g = this.threads;
+    g.clear();
+    for (const b of this.bacteria) {
+      const { latchRadius, latchMul } = CONFIG.types[b.kind];
+      if (latchRadius <= 0 || b.hp <= 0) continue;
+      if (b.latchedTo && !this.towers.includes(b.latchedTo)) b.latchedTo = null;
+      if (!b.latchedTo) {
+        let bestDist = latchRadius;
+        for (const tower of this.towers) {
+          const d = Math.hypot(tower.x - b.x, tower.y - b.y);
+          if (d <= bestDist) {
+            bestDist = d;
+            b.latchedTo = tower;
+          }
+        }
+        if (b.latchedTo) this.latches++;
+      }
+      const host = b.latchedTo;
+      if (!host) continue;
+      host.latchMul = Math.max(host.latchMul, latchMul);
+      // Нить: слегка провисающая линия от бактерии к башне, на башне — присоска
+      const dx = host.x - b.x;
+      const dy = host.y - b.y;
+      const len = Math.max(1, Math.hypot(dx, dy));
+      const sag = Math.min(36, len * 0.12);
+      g.lineStyle(3.5, COLORS.thread, 0.9);
+      g.beginPath();
+      g.moveTo(b.x, b.y);
+      for (let i = 1; i <= 10; i++) {
+        const u = i / 10;
+        g.lineTo(b.x + dx * u - (dy / len) * sag * Math.sin(Math.PI * u), b.y + dy * u + (dx / len) * sag * Math.sin(Math.PI * u));
+      }
+      g.strokePath();
+      g.fillStyle(COLORS.thread, 1).fillCircle(host.x, host.y, 7);
+    }
+    // Карточка выбранной башни показывает паузу с множителем паразита: перерисовать, когда он изменился
+    if (this.selectedTower && this.selectedTower.latchMul !== this.cardLatch) this.refreshCard();
+  }
+
+  /** Ловушки Пластыря: приклеенные бактерии теряют HP (погибшая в ловушке — обычное убийство); пластырь без бактерии (погибла или время вышло) убирается. */
+  private applyTraps(dt: number): void {
+    if (this.traps.length === 0) return;
+    let died: Bacterium[] | null = null;
+    for (const bacterium of this.bacteria) {
+      if (bacterium.trapLeft > 0 && bacterium.tickTrap(dt)) (died ??= []).push(bacterium);
+    }
+    if (died) for (const bacterium of died) this.killBacterium(bacterium);
+    this.traps = this.traps.filter((trap) => {
+      if (trap.update()) return true;
+      trap.destroy();
+      return false;
+    });
   }
 
   /** Яд Антибиотика: снаряд ничего не ломает, а накладывает яд (сила и время — из чисел башни на момент выстрела). */
@@ -754,7 +851,7 @@ export class GameScene extends Phaser.Scene {
   private updateBrood(dt: number): void {
     for (const mother of [...this.bacteria]) {
       const { brewEverySec, brewCount } = CONFIG.types[mother.kind];
-      if (brewEverySec <= 0 || mother.hp <= 0) continue;
+      if (brewEverySec <= 0 || mother.hp <= 0 || mother.held) continue;
       mother.brewClock += dt;
       if (mother.brewClock < brewEverySec) continue;
       mother.brewClock -= brewEverySec;
@@ -798,7 +895,13 @@ export class GameScene extends Phaser.Scene {
   /** Попадание: урон (у бронированных броня вычитается, если мутация не «бронебойная»); «кислота» делает следующие удары сильнее. Если бактерия погибла — монеты, частицы, распад делящейся. */
   private damageBacterium(bacterium: Bacterium, st: TowerStats, quiet = false, damage: number = st.damage, light = false): void {
     if (bacterium.hp <= 0) return;
+    // Мутант помнит вид башни, ударившей последней: удар башни того же вида слабее; удар другого вида штрафа не получает и запоминается
+    const memoryMul = CONFIG.types[bacterium.kind].memoryMul;
+    const resisted = memoryMul > 0 && bacterium.memory === st.towerId;
+    if (resisted) damage *= memoryMul;
+    const color = resisted ? RESIST_COLOR : DAMAGE_COLORS[st.targeting];
     const killed = bacterium.hit(damage, st.armorPierce);
+    if (memoryMul > 0 && !killed && !bacterium.justAbsorbed) bacterium.remember(st.towerId);
     if (bacterium.justAbsorbed) {
       // Фагоцит поглотил удар: урона нет (вспышку «поглощено» рисует сама бактерия), числа не показываем
       this.absorbs++;
@@ -809,14 +912,14 @@ export class GameScene extends Phaser.Scene {
       // Тик конуса Лампы: вспышки нет; число урона раз в LIGHT_NUMBER_SEC, с накопленным уроном
       bacterium.numAcc += bacterium.lastDealt;
       if (this.elapsed - bacterium.numAt >= LIGHT_NUMBER_SEC) {
-        this.effects.damageNumber(bacterium.id, bacterium.x, bacterium.y - bacterium.radius * 0.7, bacterium.numAcc, bacterium.numAcc / bacterium.maxHp, DAMAGE_COLORS[st.targeting]);
+        this.effects.damageNumber(bacterium.id, bacterium.x, bacterium.y - bacterium.radius * 0.7, bacterium.numAcc, bacterium.numAcc / bacterium.maxHp, color);
         bacterium.numAcc = 0;
         bacterium.numAt = this.elapsed;
       }
       if (killed) this.killBacterium(bacterium);
       return;
     }
-    this.effects.damageNumber(bacterium.id, bacterium.x, bacterium.y - bacterium.radius * 0.7, bacterium.lastDealt, bacterium.lastDealt / bacterium.maxHp, DAMAGE_COLORS[st.targeting]);
+    this.effects.damageNumber(bacterium.id, bacterium.x, bacterium.y - bacterium.radius * 0.7, bacterium.lastDealt, bacterium.lastDealt / bacterium.maxHp, color);
     if (killed) {
       this.killBacterium(bacterium);
       return;
@@ -995,6 +1098,8 @@ export class GameScene extends Phaser.Scene {
     if (id === 'antibiotic') return t('infoAntibiotic');
     if (id === 'lamp') return t('infoLamp');
     if (id === 'vitamin') return t('infoVitamin');
+    if (id === 'frost') return t('infoFrost', { n: num(Math.round(cfg.freezeSec * 10) / 10) });
+    if (id === 'patch') return t('infoPatch', { n: num(Math.round(cfg.trapSec * 10) / 10) });
     return null;
   }
 
@@ -1186,12 +1291,18 @@ export class GameScene extends Phaser.Scene {
   private cardStats(tower: Tower): string[] {
     const st = tower.stats;
     const n = (x: number): string => num(Math.round(x * 10) / 10);
-    const pause = t('statCooldown', { n: n(st.cooldownMs / 1000) });
+    // Присосавшийся паразит удлиняет паузу: показываем уже удлинённую и пометку
+    const pause = tower.latchMul > 1 ? t('statCooldownLatched', { n: n((st.cooldownMs / 1000) * tower.latchMul), m: num(tower.latchMul) }) : t('statCooldown', { n: n(st.cooldownMs / 1000) });
     if (st.targeting === 'puddle') return [t('statPuddle', { r: Math.round(st.puddleRadius), s: n(st.puddleSec) }), t('statSlow', { n: n(st.slowFactor) }), pause];
     if (st.targeting === 'beam') return [t('statDps', { n: n(this.dps(st)) }), t(st.secondBeam ? 'statBeams' : 'statBeam', { n: st.secondBeam ? 2 : st.beamPulses }), pause];
     if (st.targeting === 'area') return [t('statDps', { n: n(this.dps(st)) }), t('statBlast', { r: Math.round(st.blastRadius) }), pause];
     if (st.targeting === 'cone') return [t('statDps', { n: n(this.dps(st)) }), t('statCone', { a: Math.round(st.coneDeg), r: Math.round(st.range) }), pause];
-    if (st.targeting === 'aura') return [t('statAura', { n: num(Math.round(st.auraMul * 100) / 100) }), t('statRange', { n: Math.round(st.range) })];
+    if (st.targeting === 'aura') {
+      const aura = tower.latchMul > 1 ? 1 - (1 - st.auraMul) / tower.latchMul : st.auraMul;
+      return [t(tower.latchMul > 1 ? 'statAuraLatched' : 'statAura', { n: num(Math.round(aura * 100) / 100) }), t('statRange', { n: Math.round(st.range) })];
+    }
+    if (st.targeting === 'freeze') return [t('statFreeze', { n: n(st.freezeSec) }), pause, t('statRange', { n: Math.round(st.range) })];
+    if (st.targeting === 'trap') return [t('statTrap', { s: n(st.trapSec), n: n(st.trapDps) }), pause, t('statRange', { n: Math.round(st.range) })];
     if (st.targeting === 'poison') return [t('statPoison', { n: n(st.dotPerSec), s: n(st.dotSec) }), pause, t('statRange', { n: Math.round(st.range) })];
     return [t('statDps', { n: n(this.dps(st)) }), pause, t('statRange', { n: Math.round(st.range) })];
   }
@@ -1208,6 +1319,7 @@ export class GameScene extends Phaser.Scene {
       const key = id.charAt(0).toUpperCase() + id.slice(1);
       return { name: t(`mut${key}` as TextKey), desc: t(`mutd${key}` as TextKey) };
     };
+    this.cardLatch = tower.latchMul;
     const tier = tower.pendingTier;
     const merge = tower.level >= MAX_TOWER_LEVEL ? 'max' : this.mergeMode ? 'active' : this.mergeCandidates(tower).length > 0 ? 'ready' : 'none';
     this.panel.showCard({
@@ -1619,6 +1731,9 @@ export class GameScene extends Phaser.Scene {
       absorbs: this.absorbs,
       leaps: this.leaps,
       cloudsMade: this.cloudsMade,
+      freezes: this.freezes,
+      trapsMade: this.trapsMade,
+      latches: this.latches,
       shots: this.shots,
       speed: this.userSpeed,
       elapsed: this.elapsed,
@@ -1661,6 +1776,7 @@ export class GameScene extends Phaser.Scene {
         pending: tw.pendingTier,
         suppressed: tw.isSuppressed,
         auraMul: tw.auraMul,
+        latchMul: tw.latchMul,
         stats: {
           damage: tw.stats.damage,
           cooldownMs: tw.stats.cooldownMs,
@@ -1675,6 +1791,9 @@ export class GameScene extends Phaser.Scene {
           dotSec: tw.stats.dotSec,
           coneDeg: tw.stats.coneDeg,
           auraMul: tw.stats.auraMul,
+          freezeSec: tw.stats.freezeSec,
+          trapSec: tw.stats.trapSec,
+          trapDps: tw.stats.trapDps,
         },
       })),
       selectedTower: this.selectedTower ? { col: this.selectedTower.col, row: this.selectedTower.row } : null,
@@ -1686,6 +1805,7 @@ export class GameScene extends Phaser.Scene {
       mutationsPicked: this.mutationsPicked,
       puddles: this.puddles.map((p) => ({ x: p.x, y: p.y, r: p.radius, left: p.left })),
       clouds: this.clouds.map((c) => ({ x: c.x, y: c.y, r: c.radius, left: c.left })),
+      traps: this.traps.map((tr) => ({ x: tr.target.x, y: tr.target.y, left: tr.target.trapLeft })),
       lifePool: this.lifePool,
       bacteria: this.bacteria.map((b) => ({
         id: b.id,
@@ -1704,6 +1824,10 @@ export class GameScene extends Phaser.Scene {
         hits: b.hits,
         absorbed: b.absorbed,
         leaps: b.leaps,
+        freezeLeft: b.frozenFor,
+        trapLeft: b.trapLeft,
+        memory: b.memory,
+        latchedTo: b.latchedTo ? { col: b.latchedTo.col, row: b.latchedTo.row } : null,
       })),
       projectiles: this.projectiles.length + this.groundShots.length + this.bursts.length,
       ui: this.panel.geometry(),
@@ -1719,6 +1843,7 @@ export class GameScene extends Phaser.Scene {
         blasts: this.effects.blasts,
         beams: this.effects.beams,
         splats: this.effects.splats,
+        frosts: this.effects.frosts,
       },
       sound: { state: sfx.state, played: sfx.played },
     };

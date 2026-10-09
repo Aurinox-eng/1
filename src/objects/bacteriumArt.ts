@@ -7,7 +7,7 @@ type Kind = keyof typeof CONFIG.types;
 /** Какую долю радиуса (у палочки — половины ширины) занимает оболочка при полном HP (у кокка и споры оболочка тонкая и не меняется).
  *  Доля меньше половины, поэтому тело внутри не исчезает при любом числе HP в config.ts (раньше толщина росла на фиксированное число
  *  пикселей за каждое HP, и у бронированной с 14 HP радиус тела выходил отрицательным — режим canvas на этом падал). */
-const SHELL_MAX_SHARE: Record<Kind, number> = { coccus: 0, rod: 0.45, splitter: 0.4, armored: 0.45, spore: 0, swarm: 0, runner: 0.4, healer: 0.3, slick: 0.25, regen: 0.3, commander: 0.3, brood: 0.3, giant: 0.4, leaper: 0.3, phago: 0.35, stealth: 0.2, toxin: 0.3 };
+const SHELL_MAX_SHARE: Record<Kind, number> = { coccus: 0, rod: 0.45, splitter: 0.4, armored: 0.45, spore: 0, swarm: 0, runner: 0.4, healer: 0.3, slick: 0.25, regen: 0.3, commander: 0.3, brood: 0.3, giant: 0.4, leaper: 0.3, phago: 0.35, stealth: 0.2, toxin: 0.3, mutant: 0.3, parasite: 0.3 };
 const SHELL_BASE = 4;
 /** Расстояние от центра делящейся до центра каждой доли, в радиусах доли (чем больше, тем глубже перетяжка). */
 export const SPLITTER_LOBE_OFFSET = 0.95;
@@ -65,6 +65,7 @@ export function bodyHalfSize(kind: Kind): { hx: number; hy: number } {
   if (kind === 'giant') return { hx: r * 1.28 + pad, hy: r * 1.28 + pad };
   if (kind === 'leaper') return { hx: r + pad, hy: r * 1.35 + pad };
   if (kind === 'slick') return { hx: r + pad, hy: r * 1.52 + pad };
+  if (kind === 'parasite') return { hx: r * 1.1 + pad, hy: r * 1.55 + pad };
   return { hx: r + pad, hy: r + pad };
 }
 
@@ -150,11 +151,64 @@ export function drawShape(g: Phaser.GameObjects.Graphics, kind: Kind, sw: number
     g.lineStyle(Math.max(3, r * 0.14), col.shell, 1);
     for (let i = 0; i < 3; i++) g.strokeEllipse(0, r * (0.92 + i * 0.14), r * (0.95 - i * 0.2), r * 0.2);
   }
+  if (kind === 'parasite') {
+    // Паразит: щупальце с присоской свисает вниз (под телом) — изогнутая линия и диск на конце
+    const pts: [number, number][] = [];
+    for (let i = 0; i <= 10; i++) {
+      const u = i / 10;
+      pts.push([r * 0.25 + Math.sin(u * Math.PI * 1.6) * r * 0.32, r * 0.55 + u * r * 0.85]);
+    }
+    g.lineStyle(Math.max(4, r * 0.22), col.shell, 1);
+    g.beginPath();
+    g.moveTo(pts[0][0], pts[0][1]);
+    for (const [px, py] of pts.slice(1)) g.lineTo(px, py);
+    g.strokePath();
+    const [tx, ty] = pts[pts.length - 1];
+    g.fillStyle(col.shell, 1);
+    g.fillCircle(tx, ty, r * 0.3);
+    g.fillStyle(0xd9b98a, 1);
+    g.fillCircle(tx, ty, r * 0.19);
+    g.fillStyle(col.crack, 1);
+    g.fillCircle(tx, ty, r * 0.08);
+  }
   g.fillStyle(col.shell, 1);
   g.fillCircle(0, 0, r);
   g.fillStyle(col.body, 1);
   g.fillCircle(0, 0, Math.max(1, r - sw));
   shine(g, -r * 0.35, -r * 0.38, r * (kind === 'slick' ? 0.24 : 0.16));
+  if (kind === 'mutant') {
+    // Мутант: радужные пятна (бирюзовое, розовое, лаймовое) и белая «спираль»-переливание
+    for (const [bx, by, br, color] of [
+      [-0.32, -0.12, 0.3, COLORS.mutantA],
+      [0.3, -0.3, 0.24, COLORS.mutantB],
+      [0.28, 0.28, 0.3, COLORS.mutantC],
+      [-0.25, 0.38, 0.2, COLORS.mutantB],
+    ] as const) {
+      g.fillStyle(color, 0.6);
+      g.fillCircle(bx * r, by * r, br * r);
+    }
+    g.lineStyle(Math.max(2, r * 0.07), 0xffffff, 0.7);
+    g.beginPath();
+    g.arc(0, 0, r * 0.52, 0.4, 2.6);
+    g.strokePath();
+    g.beginPath();
+    g.arc(0, 0, r * 0.26, 3.4, 5.6);
+    g.strokePath();
+  }
+  if (kind === 'parasite') {
+    // Присоска на теле: светлое кольцо с тёмным центром и короткими лучами
+    g.fillStyle(0xd9b98a, 0.95);
+    g.fillCircle(-r * 0.05, -r * 0.05, r * 0.42);
+    g.lineStyle(2, col.shell, 0.9);
+    g.strokeCircle(-r * 0.05, -r * 0.05, r * 0.42);
+    g.fillStyle(col.crack, 1);
+    g.fillCircle(-r * 0.05, -r * 0.05, r * 0.17);
+    g.lineStyle(2, col.shell, 0.8);
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2;
+      g.lineBetween(-r * 0.05 + Math.cos(a) * r * 0.22, -r * 0.05 + Math.sin(a) * r * 0.22, -r * 0.05 + Math.cos(a) * r * 0.38, -r * 0.05 + Math.sin(a) * r * 0.38);
+    }
+  }
   if (kind === 'leaper') {
     // «Галочка» вверх — знак прыжка
     g.lineStyle(Math.max(3, r * 0.14), col.shell, 0.95);

@@ -70,12 +70,14 @@ class Sfx {
   }
 
   /** Выстрел башни: короткий тихий «пуф» (выстрелов много, поэтому тише остальных звуков). У каждой башни свой тон. */
-  shoot(tower: 'pill' | 'syrup' | 'fizz' | 'syringe' | 'ampule' | 'antibiotic' | 'lamp' | 'vitamin' = 'pill'): void {
+  shoot(tower: 'pill' | 'syrup' | 'fizz' | 'syringe' | 'ampule' | 'antibiotic' | 'lamp' | 'vitamin' | 'frost' | 'patch' = 'pill'): void {
     if (tower === 'syrup') this.tone({ from: 220, to: 330, ms: 90, type: 'sine', gain: 0.45 });
     else if (tower === 'fizz') this.tone({ from: 160, to: 90, ms: 110, type: 'triangle', gain: 0.5 });
     else if (tower === 'ampule') this.tone({ from: 2200, to: 500, ms: 160, type: 'sine', gain: 0.4 });
     else if (tower === 'antibiotic') this.tone({ from: 420, to: 640, ms: 80, type: 'sine', gain: 0.4 });
     else if (tower === 'lamp') this.tone({ from: 520, to: 780, ms: 140, type: 'sine', gain: 0.3 });
+    else if (tower === 'frost') this.tone({ from: 1800, to: 1100, ms: 240, type: 'sine', gain: 0.35 });
+    else if (tower === 'patch') this.tone({ from: 240, to: 150, ms: 120, type: 'triangle', gain: 0.45 });
     else if (tower === 'syringe') this.tone({ from: 1500, to: 900, ms: 70, type: 'sawtooth', gain: 0.18 });
     else this.tone({ from: 300, to: 180, ms: 60, type: 'triangle', gain: 0.35 });
   }
@@ -132,7 +134,7 @@ class Sfx {
       this.tone({ from: 260, to: 170, ms: 90, type: 'square', gain: 0.5 });
       return;
     }
-    const pitch = ({ coccus: 520, rod: 430, splitter: 480, spore: 720, swarm: 880, runner: 640, healer: 360, slick: 400, regen: 340, commander: 560, brood: 300, leaper: 760, phago: 330, stealth: 400, toxin: 280 } as Record<string, number>)[kind] ?? 500;
+    const pitch = ({ coccus: 520, rod: 430, splitter: 480, spore: 720, swarm: 880, runner: 640, healer: 360, slick: 400, regen: 340, commander: 560, brood: 300, leaper: 760, phago: 330, stealth: 400, toxin: 280, mutant: 450, parasite: 620 } as Record<string, number>)[kind] ?? 500;
     this.tone({ from: pitch, to: pitch * 0.6, ms: 70, type: 'triangle', gain: 0.8 });
   }
 

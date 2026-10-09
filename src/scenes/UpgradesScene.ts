@@ -41,7 +41,7 @@ function effectText(id: UpgradeId, level: number): string {
     case 'slowFactor':
       value = Math.round(Math.max(CONFIG.meta.minSlowFactor, CONFIG.towers.syrup.slowFactor + total) * 100) / 100;
       break;
-    case 'damage': case 'towerDamage': case 'reward': case 'price': case 'cooldown': case 'range': case 'blast': case 'puddleSec': case 'puddleRadius': case 'auraBoost':
+    case 'damage': case 'towerDamage': case 'reward': case 'price': case 'cooldown': case 'range': case 'blast': case 'puddleSec': case 'puddleRadius': case 'auraBoost': case 'freezeTime':
       value = Math.round(Math.abs(total) * 100);
       break;
     default:

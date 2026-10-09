@@ -73,6 +73,10 @@ export interface DebugSnapshot {
   leaps: number;
   /** Сколько облаков оставили токсины за партию. */
   cloudsMade: number;
+  /** Сколько раз Холод замораживал, сколько ловушек положил Пластырь и сколько раз паразит присосался к башне (за партию). */
+  freezes: number;
+  trapsMade: number;
+  latches: number;
   /** Сколько выстрелов сделано башнями. */
   shots: number;
   /** Скорость игры, выбранная игроком кнопкой (1, 2, 3). */
@@ -125,7 +129,9 @@ export interface DebugSnapshot {
     /** Стоит ли башня в облаке токсина (не стреляет) и множитель паузы от ауры Витамина рядом (1 — нет). */
     suppressed: boolean;
     auraMul: number;
-    stats: { damage: number; cooldownMs: number; range: number; beamPulses: number; blastRadius: number; puddleRadius: number; puddleSec: number; slowFactor: number; beamHalfWidthPx: number; dotPerSec: number; dotSec: number; coneDeg: number; auraMul: number };
+    /** Множитель паузы от присосавшегося паразита (1 — нет). */
+    latchMul: number;
+    stats: { damage: number; cooldownMs: number; range: number; beamPulses: number; blastRadius: number; puddleRadius: number; puddleSec: number; slowFactor: number; beamHalfWidthPx: number; dotPerSec: number; dotSec: number; coneDeg: number; auraMul: number; freezeSec: number; trapSec: number; trapDps: number };
   }[];
   /** Выбранная на карте башня (клетка), идёт ли режим выбора пары для слияния, сколько слияний, продаж и выборов мутаций было за партию. */
   selectedTower: { col: number; row: number } | null;
@@ -141,6 +147,8 @@ export interface DebugSnapshot {
   puddles: { x: number; y: number; r: number; left: number }[];
   /** Облака токсина: центр, радиус и сколько секунд ещё живут. */
   clouds: { x: number; y: number; r: number; left: number }[];
+  /** Ловушки Пластыря: где приклеена бактерия и сколько секунд ещё держит. */
+  traps: { x: number; y: number; left: number }[];
   /** Накопленный, но ещё не списанный урон по жизням от «дробных» бактерий (рой: 0,25 за штуку); при 1 списывается целая жизнь. */
   lifePool: number;
   /** Бактерии: центр в пикселях мира, радиус, номер ребра дорожки и пройденный по нему путь, идёт ли рывок, замедлена ли («Сироп»),
@@ -163,6 +171,11 @@ export interface DebugSnapshot {
     hits: number;
     absorbed: number;
     leaps: number;
+    /** Сколько секунд ещё заморожена (0 — нет), сколько секунд ещё приклеена, мутант: вид башни, ударившей последней; паразит: клетка башни, к которой присосался. */
+    freezeLeft: number;
+    trapLeft: number;
+    memory: string | null;
+    latchedTo: { col: number; row: number } | null;
   }[];
   /** Снаряды, капли сиропа и очереди луча в полёте. */
   projectiles: number;
@@ -191,7 +204,7 @@ export interface DebugSnapshot {
   /** Сколько обработчиков нажатия навешено на сцену (при перезапуске не должно расти — иначе утечка). */
   pointerListeners: number;
   /** Сколько раз сработали вспышка, частицы, «+монеты», кольцо постановки, красная вспышка потери жизни, кольцо глушения башни, взрыв шипучки, удар луча шприца и всплеск лужи. */
-  effects: { flashes: number; bursts: number; popups: number; damageNumbers: number; placements: number; lifeLosses: number; zaps: number; blasts: number; beams: number; splats: number };
+  effects: { flashes: number; bursts: number; popups: number; damageNumbers: number; placements: number; lifeLosses: number; zaps: number; blasts: number; beams: number; splats: number; frosts: number };
   /** Звук: состояние аудио («running» — играет) и сколько звуков сыграно с загрузки страницы. */
   sound: { state: string; played: number };
 }

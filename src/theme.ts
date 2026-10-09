@@ -35,6 +35,9 @@ export const COLORS = {
     /** Скрытная — тёмно-серая (рисуется полупрозрачной) с бледным ободком; токсин — болотно-зелёный с жёлтыми пузырями. */
     stealth: { body: 0x4a525c, shell: 0xc4d0dc, crack: 0x1c2026 },
     toxin: { body: 0x7a9a2a, shell: 0x3e5a14, crack: 0x1f2e08 },
+    /** Мутант — фиолетовый с радужными пятнами; паразит — болотно-коричневый с присоской-щупальцем. */
+    mutant: { body: 0xa24fd8, shell: 0x56208a, crack: 0x2a0c4a },
+    parasite: { body: 0x9a7240, shell: 0x4c3416, crack: 0x261a08 },
   } satisfies Record<Kind, { body: number; shell: number; crack: number }>,
   /** Крест лекаря, аура лекаря, лужа сиропа и луч шприца. */
   cross: 0xe0457a,
@@ -102,6 +105,20 @@ export const COLORS = {
   cloudBubble: 0xf2e04a,
   /** Бледный ободок и светлая точка скрытной бактерии. */
   stealthRim: 0xdde6ee,
+  /** Холод (ледяной кристалл: заморозка) и пластырь (телесная липучка: ловушка). */
+  frost: 0x9fe6ff,
+  frostEdge: 0x3a8ec0,
+  frostLight: 0xe6fbff,
+  patch: 0xf2c48a,
+  patchEdge: 0xa8703a,
+  patchPad: 0xfff6e6,
+  /** Лёд на замороженной бактерии, нить паразита к башне, радужные пятна мутанта. */
+  ice: 0xcff3ff,
+  iceEdge: 0xffffff,
+  thread: 0xb98a4a,
+  mutantA: 0x5fe3ff,
+  mutantB: 0xff6bd6,
+  mutantC: 0xc4ee45,
   /** «Призрак» башни и её радиус при выборе клетки. */
   ghost: 0x74b8ff,
   ghostEdge: 0x9fd0ff,
@@ -154,7 +171,27 @@ export const TOWER_ART = {
   vitaminLight: 0xffd29a,
   vitaminGreen: 0x7be07b,
   vitaminDark: 0xd06a14,
+  frostDeep: 0x2a6a9a,
+  frostMid: 0x5ab8e8,
+  frostShard: 0xc8f2ff,
+  patchStrip: 0xe0a868,
+  patchHole: 0xb07a40,
+  patchRed: 0xe0453a,
 } as const;
+
+/** Цвет метки «запомненный вид башни» у мутанта (по id башни). */
+export const TOWER_MARK: Record<string, number> = {
+  pill: 0xffffff,
+  syrup: 0xff9f43,
+  fizz: 0xff5fa8,
+  syringe: 0x5fe3ff,
+  ampule: 0x3aa8ff,
+  antibiotic: 0x3fbf6a,
+  lamp: 0xffe27a,
+  vitamin: 0xff7a1a,
+  frost: 0x9fe6ff,
+  patch: 0xf2c48a,
+};
 
 /** Цвета карты в формате CSS (карта рисуется один раз в текстуры обычным canvas). */
 export const MAP_COLORS = {

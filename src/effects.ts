@@ -86,6 +86,7 @@ export class Effects {
   blasts = 0;
   beams = 0;
   splats = 0;
+  frosts = 0;
   damageNumbers = 0;
 
   /** Один эмиттер на все разлёты частиц. */
@@ -326,6 +327,23 @@ export class Effects {
     line.setPosition(x, y).setRotation(angle);
     this.layer.add(line);
     this.scene.tweens.add({ targets: line, alpha: 0, duration: 200, onComplete: () => line.destroy() });
+  }
+
+  /** Холод заморозил бактерий: бело-голубой круг радиуса башни вспыхивает и медленно гаснет, по его краю расходится кольцо, внутри разлетаются ледяные искры. */
+  frost(x: number, y: number, radius: number): void {
+    this.frosts++;
+    const base = radius / DISC_R / ART_DENSITY;
+    const disc = this.scene.add.image(x, y, 'fx-disc').setScale(base * 0.4).setTint(COLORS.frost).setAlpha(0.42).setBlendMode(Phaser.BlendModes.ADD);
+    this.layer.add(disc);
+    this.scene.tweens.add({ targets: disc, scale: base, alpha: 0, duration: 560, ease: 'Cubic.easeOut', onComplete: () => disc.destroy() });
+    this.ring(x, y, radius * 0.9, 6, COLORS.frostLight, 1.12, 520);
+    for (let i = 0; i < 9; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const dist = radius * (0.2 + Math.random() * 0.7);
+      const spark = this.scene.add.circle(x + Math.cos(angle) * dist * 0.5, y + Math.sin(angle) * dist * 0.5, 3 + Math.random() * 3, 0xffffff).setBlendMode(Phaser.BlendModes.ADD);
+      this.layer.add(spark);
+      this.scene.tweens.add({ targets: spark, x: x + Math.cos(angle) * dist, y: y + Math.sin(angle) * dist, alpha: 0, scale: 0.3, duration: 520, ease: 'Cubic.easeOut', onComplete: () => spark.destroy() });
+    }
   }
 
   /** Лужа сиропа шлёпнулась на дорожку: оранжевое кольцо расходится от места падения. */

@@ -21,25 +21,29 @@ export const ALMANAC_TOWERS: Record<TowerId, TowerEntry> = {
   lamp: { strong: ['swarm', 'splitter', 'brood'], weak: ['armored', 'giant'] },
   // Витамин сам никого не бьёт: списки пустые, в альманахе у него только строка «Усиливает соседние башни» (пустые подписи не рисуются)
   vitamin: { strong: [], weak: [] },
+  frost: { strong: ['swarm', 'runner', 'brood'], weak: ['slick', 'giant'] },
+  patch: { strong: ['giant', 'armored', 'brood'], weak: ['leaper', 'slick', 'swarm'] },
 };
 
 /** Какие башни бьют бактерию лучше всего (значки в строке бактерии). */
 export const ALMANAC_BEATEN_BY: Record<BacteriumKind, TowerId[]> = {
   coccus: ['pill', 'fizz'],
   rod: ['pill', 'syrup'],
-  swarm: ['fizz', 'lamp', 'syrup'],
-  runner: ['syrup', 'pill'],
+  swarm: ['fizz', 'lamp', 'frost', 'syrup'],
+  runner: ['syrup', 'frost', 'pill'],
   splitter: ['fizz', 'lamp', 'pill'],
-  armored: ['syringe', 'ampule'],
+  armored: ['syringe', 'ampule', 'patch'],
   healer: ['syringe', 'fizz', 'antibiotic'],
   spore: ['syringe', 'pill'],
   slick: ['pill', 'syringe'],
   regen: ['syringe', 'antibiotic', 'ampule'],
   commander: ['pill', 'syringe'],
-  brood: ['fizz', 'lamp', 'antibiotic', 'ampule'],
-  giant: ['syringe', 'ampule', 'syrup'],
+  brood: ['fizz', 'lamp', 'frost', 'antibiotic', 'ampule'],
+  giant: ['syringe', 'ampule', 'patch', 'syrup'],
   leaper: ['pill', 'syringe'],
   phago: ['fizz', 'syringe', 'antibiotic'],
   stealth: ['lamp', 'syringe', 'ampule'],
   toxin: ['ampule', 'syringe'],
+  mutant: ['ampule', 'lamp', 'syringe'],
+  parasite: ['pill', 'lamp', 'frost'],
 };

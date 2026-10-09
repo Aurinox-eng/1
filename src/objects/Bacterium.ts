@@ -2,8 +2,9 @@ import Phaser from 'phaser';
 import { CONFIG } from '../config';
 import { EDGES_FROM } from '../level';
 import { pointAt, type Edge } from '../pathing';
-import { COLORS } from '../theme';
+import { COLORS, TOWER_MARK } from '../theme';
 import { artDensity, artImage, bakeArt, discImage, ringImage, setArt, squareBox, type ArtBox } from '../art';
+import type { Tower } from './Tower';
 import { bodyHalfSize, crackCount, drawCracks, drawShape, hasRadialCracks, shellWidth, SPLITTER_LOBE_OFFSET } from './bacteriumArt';
 
 export type BacteriumKind = keyof typeof CONFIG.types;
@@ -16,6 +17,26 @@ function bodyBox(kind: BacteriumKind): ArtBox {
 
 /** Прозрачность тела скрытной бактерии (вид, не баланс). */
 const STEALTH_ALPHA = 0.62;
+/** Лёд на замороженной бактерии: полупрозрачный неровный кристалл вокруг тела, с гранями и бликом (одна картинка на радиус). */
+function iceImage(scene: Phaser.Scene, radius: number): Phaser.GameObjects.Image {
+  const r = Math.round(radius * 2) / 2 + 7;
+  const box = squareBox(r + 4);
+  const key = bakeArt(scene, `ice-${r}`, box, (g) => {
+    const pts: { x: number; y: number }[] = [];
+    for (let i = 0; i < 12; i++) {
+      const a = (i / 12) * Math.PI * 2 + 0.2;
+      const rr = i % 2 === 0 ? r : r * 0.8;
+      pts.push({ x: Math.cos(a) * rr, y: Math.sin(a) * rr });
+    }
+    g.fillStyle(COLORS.ice, 0.5).fillPoints(pts, true);
+    g.lineStyle(3, COLORS.iceEdge, 0.95).strokePoints(pts, true);
+    g.lineStyle(2, COLORS.iceEdge, 0.5);
+    for (let i = 0; i < 12; i += 2) g.lineBetween(0, 0, pts[i].x * 0.9, pts[i].y * 0.9);
+    g.fillStyle(0xffffff, 0.7).fillCircle(-r * 0.4, -r * 0.45, r * 0.12);
+  });
+  return artImage(scene, key, box);
+}
+
 /** Сколько секунд видна вспышка «поглощено» у фагоцита. */
 const ABSORB_SEC = 0.3;
 
@@ -95,6 +116,13 @@ export class Bacterium {
   /** Конус Лампы: накопленный, ещё не показанный урон и когда (игровое время) показывалось число в прошлый раз. */
   numAcc = 0;
   numAt = -1;
+  /** Мутант: вид (id) башни, ударившей по бактерии последней; null — ещё не били. Удар башни того же вида слабее (`types.mutant.memoryMul`), смена вида штрафа не даёт. */
+  memory: string | null = null;
+  /** Ловушка Пластыря: сколько секунд бактерия ещё приклеена (0 — свободна) и сколько HP в секунду теряет. Пока приклеена, не идёт. */
+  trapLeft = 0;
+  trapDps = 0;
+  /** Паразит: башня, к которой присосался (null — пока ни к какой или башня исчезла); выставляет сцена. */
+  latchedTo: Tower | null = null;
 
   private readonly baseSpeed: number;
   /** Замедление от «Сиропа»: сколько секунд ещё действует и во сколько раз медленнее идёт (1 — не замедлена). */
@@ -109,6 +137,13 @@ export class Bacterium {
   private poisonRing: Phaser.GameObjects.Image | null = null;
   private absorbRing: Phaser.GameObjects.Image | null = null;
   private absorbLeft = 0;
+  /** Заморозка Холода: сколько секунд ещё стоит на месте и картинка льда. */
+  private freezeLeft = 0;
+  private ice: Phaser.GameObjects.Image | null = null;
+  /** Кольцо липучки на приклеенной бактерии; метка вида башни мутанта (подложка и точка). */
+  private trapRing: Phaser.GameObjects.Image | null = null;
+  private markBack: Phaser.GameObjects.Image | null = null;
+  private markDot: Phaser.GameObjects.Image | null = null;
   /** Часы прыжков (у прыгуна свой сдвиг, чтобы прыжки не шли в ногу). */
   private leapClock: number;
   /** Какое HP показано на теле (перерисовываем при заметном изменении: лечение идёт каждый кадр). */
@@ -250,15 +285,97 @@ export class Bacterium {
     return died;
   }
 
+  /** Заморозка: бактерия стоит на месте `seconds` секунд (повторная заморозка продлевает до `seconds`, не складывается). Не действует на тех, кто не замерзает (`freezeImmune`). */
+  freeze(seconds: number): void {
+    if (seconds <= 0 || this.hp <= 0 || CONFIG.types[this.kind].freezeImmune > 0) return;
+    this.freezeLeft = Math.max(this.freezeLeft, seconds);
+    if (!this.ice) {
+      this.ice = iceImage(this.scene, this.radius);
+      this.container.add(this.ice);
+    }
+    this.ice.setVisible(true);
+  }
+
+  /** Заморожена ли бактерия. */
+  get frozen(): boolean {
+    return this.freezeLeft > 0;
+  }
+
+  /** Сколько секунд ещё заморожена (0 — нет); для проверок. */
+  get frozenFor(): number {
+    return this.freezeLeft;
+  }
+
+  /** Ловушка: бактерия приклеена на `seconds` секунд и теряет `dps` HP в секунду (броню не учитывает). Не действует на тех, кто не липнет (`trapImmune`). */
+  trap(seconds: number, dps: number): void {
+    if (seconds <= 0 || this.hp <= 0 || CONFIG.types[this.kind].trapImmune > 0) return;
+    this.trapLeft = Math.max(this.trapLeft, seconds);
+    this.trapDps = Math.max(this.trapDps, dps);
+    if (!this.trapRing) {
+      this.trapRing = ringImage(this.scene, 0, 0, this.radius + 6, 3, COLORS.patch, 0.95);
+      this.container.add(this.trapRing);
+    }
+    this.trapRing.setVisible(true);
+  }
+
+  /** Приклеена ли бактерия. */
+  get trapped(): boolean {
+    return this.trapLeft > 0;
+  }
+
+  /** Один кадр ловушки: снимает HP за прошедшее время (не больше оставшегося). Возвращает true, если бактерия погибла. */
+  tickTrap(dt: number): boolean {
+    if (this.trapLeft <= 0) return false;
+    const step = Math.min(dt, this.trapLeft);
+    this.trapLeft -= dt;
+    const died = this.drain(this.trapDps * step);
+    if (this.trapLeft <= 0) {
+      this.trapLeft = 0;
+      this.trapDps = 0;
+      this.trapRing?.setVisible(false);
+    }
+    return died;
+  }
+
+  /** Стоит ли бактерия на месте (заморожена или приклеена): у неё не идут рывки, прыжки и рождение. */
+  get held(): boolean {
+    return this.freezeLeft > 0 || this.trapLeft > 0;
+  }
+
+  /** Мутант запомнил, что по нему ударила башня вида `towerId`: рядом с полоской прочности загорается цветная метка этого вида. */
+  remember(towerId: string): void {
+    this.memory = towerId;
+    if (!this.markBack || !this.markDot) {
+      const dotKey = bakeArt(this.scene, 'mark-dot', squareBox(9), (g) => g.fillStyle(0xffffff, 1).fillCircle(0, 0, 9));
+      this.markBack = artImage(this.scene, dotKey, squareBox(9)).setTint(0x0b1020).setAlpha(0.85);
+      this.markDot = artImage(this.scene, dotKey, squareBox(9)).setScale(0.7 / artDensity(dotKey));
+      const x = -Math.max(30, this.radius * 1.6) / 2 - 11;
+      const y = this.radius + 9;
+      this.markBack.setPosition(x, y);
+      this.markDot.setPosition(x, y);
+      this.container.add([this.markBack, this.markDot]);
+    }
+    this.markDot.setTint(TOWER_MARK[towerId] ?? 0xffffff);
+  }
+
   update(dt: number): void {
     const cfg = CONFIG.types[this.kind];
     let factor = 1;
+    // Заморожена или приклеена: стоит на месте, часы рывков и прыжков не идут
+    const held = this.freezeLeft > 0 || this.trapLeft > 0;
+    if (this.freezeLeft > 0) {
+      this.freezeLeft -= dt;
+      if (this.freezeLeft <= 0) {
+        this.freezeLeft = 0;
+        this.ice?.setVisible(false);
+      }
+    }
     if (this.absorbLeft > 0) {
       this.absorbLeft -= dt;
       if (this.absorbLeft <= 0) this.absorbRing?.setVisible(false);
       else this.absorbRing?.setAlpha(Math.min(1, this.absorbLeft / ABSORB_SEC));
     }
-    if (cfg.leapEverySec > 0) {
+    if (!held && cfg.leapEverySec > 0) {
       // Прыжок: мгновенный сдвиг вперёд по дорожке (через концы рёбер и развилки), короткая «пружина» — сжатие и рывок
       this.leapClock += dt;
       if (this.leapClock >= cfg.leapEverySec) {
@@ -288,7 +405,7 @@ export class Bacterium {
         factor *= this.slowBy;
       }
     }
-    if (cfg.dashEverySec > 0) {
+    if (!held && cfg.dashEverySec > 0) {
       // Рывок — последние dashSec секунд каждого периода dashEverySec
       this.dashClock += dt;
       const dashing = this.dashClock % cfg.dashEverySec >= cfg.dashEverySec - cfg.dashSec;
@@ -299,7 +416,7 @@ export class Bacterium {
       if (dashing) factor *= cfg.dashFactor;
     }
     if (cfg.regenPerSec > 0) this.heal(cfg.regenPerSec * dt);
-    this.advance(this.baseSpeed * factor * this.haste * dt);
+    if (!held) this.advance(this.baseSpeed * factor * this.haste * dt);
   }
 
   /**
