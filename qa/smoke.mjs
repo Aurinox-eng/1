@@ -3624,16 +3624,18 @@ async function towersMixed(browser, baseUrl) {
     'waves.intervalEndSec:0.7',
     'waves.firstDelaySec:2',
     ...FIXED_NO_TOWERS,
-    'types.coccus.hp:8', // восемь башен: при 3 HP Лампа и Шприц убивают всех раньше, чем Сироп бросит лужу, а Шипучка взорвётся
+    'types.coccus.hp:12', // восемь башен: при 3 HP Лампа и Шприц убивают всех раньше, чем Сироп бросит лужу, а Шипучка взорвётся
     `economy.startCoins:${sum}`,
     NO_LIFE_LOSS,
   ].join(',');
   const game = await openGame(context, baseUrl, p, { query: ALL_TOWERS, speed: 4, cfg });
   await panTo(game, 'left');
   const cells = trunkCells(TOWER_IDS.length);
-  for (let i = 0; i < TOWER_IDS.length; i++) await game.placeTowersOf(TOWER_IDS[i], [cells[i]]);
+  // ближайшие к входу клетки — Шипучке и Сиропу (они бьют по площади и лужей и должны успеть сработать до того, как Лампа и Шприц убьют всех)
+  const order = ['fizz', 'syrup', ...TOWER_IDS.filter((id) => id !== 'fizz' && id !== 'syrup')];
+  for (let i = 0; i < order.length; i++) await game.placeTowersOf(order[i], [cells[i]]);
   let s = await game.state();
-  check(`${p} ${TOWER_IDS.length} башен разных видов стоят рядом с дорожкой (${s.towers.map((t) => t.id).join(', ')}), монет 0`, s.towers.map((t) => t.id).join() === TOWER_IDS.join() && s.coins === 0, `монет ${s.coins}`);
+  check(`${p} ${TOWER_IDS.length} башен разных видов стоят рядом с дорожкой (${s.towers.map((t) => t.id).join(', ')}), монет 0`, [...s.towers.map((t) => t.id)].sort().join() === [...TOWER_IDS].sort().join() && s.coins === 0, `монет ${s.coins}`);
   let shotDone = false;
   const end = await pollUntil(game, async (st) => {
     // снимок для владельца: бой в разгаре (несколько бактерий, снаряды в воздухе, уже было замедление или взрыв); условие без жёсткого совпадения всех эффектов в одном кадре
