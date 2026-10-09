@@ -179,7 +179,7 @@ export function readWaveList() {
   });
 }
 
-/** С какого уровня открыта каждая башня: `levels.towerUnlock` из src/config.ts, например { pill: 1, syrup: 1, fizz: 5, syringe: 10, ampule: 3, antibiotic: 6 }. */
+/** С какого уровня открыта каждая башня: `levels.towerUnlock` из src/config.ts, например { pill: 1, syrup: 1, fizz: 5, syringe: 10, ampule: 3, antibiotic: 6, lamp: 5, vitamin: 7 }. */
 export function readTowerUnlock() {
   const src = readSource('src/config.ts');
   const found = /towerUnlock:\s*\{([^}]*)\}/.exec(src);
@@ -191,7 +191,8 @@ export function readTowerUnlock() {
 
 /**
  * Таблица башен из src/config.ts (раздел `towers`): { id: { price, range, damage, cooldownMs, projectileSpeed, blastRadius,
- * slowFactor, slowSec, targeting, side, dotPerSec, dotSec, … } } в порядке строк (с 9 октября 2026 шесть башен: pill, syrup, fizz, syringe, ampule, antibiotic). Читает числа и строки в одинарных кавычках из каждой строки таблицы
+ * slowFactor, slowSec, targeting, side, dotPerSec, dotSec, coneDeg, auraMul, auraStep, … } } в порядке строк (с 9 октября 2026 восемь башен: pill, syrup, fizz, syringe, ampule, antibiotic, lamp, vitamin;
+ * у Витамина `damage` и `cooldownMs` равны 0 — он сам не стреляет: на них нельзя делить). Читает числа и строки в одинарных кавычках из каждой строки таблицы
  * (комментарии пропускает). Бот баланса берёт отсюда цены и радиусы (подмену `?cfg=towers.<id>.<ключ>:<число>` он накладывает сам).
  */
 export function readTowerTable() {
@@ -221,6 +222,27 @@ export function readTowerTable() {
   }
   if (!Object.keys(table).length) throw new Error('В разделе «towers» config.ts не нашёл ни одной башни');
   return table;
+}
+
+/**
+ * Мутации башен из src/config.ts (`mutations`): { id башни: [[id варианта 1, id варианта 2] для порога 1, … для порога 2] }. Бот выбирает мутации по номерам вариантов
+ * и сверяет номера с названиями (чтобы перестановка строк в config.ts не подменила выбор молча).
+ */
+export function readMutationIds() {
+  const src = readSource('src/config.ts');
+  const from = src.indexOf('mutations: {', src.indexOf('mutationLevels'));
+  const to = src.indexOf('} as Record<string, MutationSpec[][]>', from);
+  if (from < 0 || to < 0) throw new Error('В config.ts нет таблицы mutations');
+  const block = src.slice(from + 'mutations: {'.length, to);
+  const out = {};
+  for (const m of block.matchAll(/(\w+):\s*\[\s*\n([\s\S]*?)\n\s{4}\],/g)) {
+    out[m[1]] = m[2]
+      .split('\n')
+      .filter((line) => line.trim().startsWith('['))
+      .map((line) => [...line.matchAll(/id:\s*'(\w+)'/g)].map((x) => x[1]));
+  }
+  if (!Object.keys(out).length) throw new Error('В таблице mutations config.ts не нашёл ни одной башни');
+  return out;
 }
 
 /**
