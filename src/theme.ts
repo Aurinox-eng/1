@@ -29,6 +29,9 @@ export const COLORS = {
     commander: { body: 0x4a5aa8, shell: 0x222f6e, crack: 0x10184a },
     brood: { body: 0xecd2a8, shell: 0xa4713f, crack: 0x5c3a18 },
     giant: { body: 0x8a2a3a, shell: 0x3c0e18, crack: 0x1c0408 },
+    /** Прыгун — лимонно-жёлтый; фагоцит — светло-розовый с тёмным ртом. */
+    leaper: { body: 0xf2e04a, shell: 0x9a8a10, crack: 0x5a4c06 },
+    phago: { body: 0xffc4d6, shell: 0xc0507a, crack: 0x6a2040 },
   } satisfies Record<Kind, { body: number; shell: number; crack: number }>,
   /** Крест лекаря, аура лекаря, лужа сиропа и луч шприца. */
   cross: 0xe0457a,
@@ -37,6 +40,9 @@ export const COLORS = {
   haste: 0xff6b4a,
   /** Кислота Шипучки (кольцо на бактерии) и яд лужи Сиропа. */
   acid: 0xb6ff3c,
+  /** Яд «Антибиотика» (кольцо на отравленной бактерии) и вспышка «поглощено» у фагоцита. */
+  poison: 0x6fe07a,
+  absorb: 0xffd0e0,
   /** Подсветка башен, с которыми можно слить выбранную. */
   merge: 0x5dff9a,
   star: 0xffd84d,
@@ -76,6 +82,11 @@ export const COLORS = {
   syringe: 0xe8f1ff,
   syringeEdge: 0x9fb4d8,
   needle: 0x5fe3ff,
+  /** Ампула (стеклянная, голубая: точный дальний выстрел) и антибиотик (зелёная капсула: яд). */
+  ampule: 0xbfe9ff,
+  ampuleEdge: 0x2a78b8,
+  antibiotic: 0x3fbf6a,
+  antibioticEdge: 0x1d7a3e,
   /** «Призрак» башни и её радиус при выборе клетки. */
   ghost: 0x74b8ff,
   ghostEdge: 0x9fd0ff,
@@ -115,6 +126,13 @@ export const TOWER_ART = {
   liquidLight: 0xd8ffff,
   liquidDark: 0x25b8e0,
   crystalDark: 0x1fa8d0,
+  ampuleLiquid: 0x3aa8ff,
+  ampuleLiquidLight: 0x9fdcff,
+  ampuleGold: 0xe8c25a,
+  ampuleLens: 0x7fe9ff,
+  capsuleLight: 0x8df0a8,
+  capsuleDark: 0x1d7a3e,
+  capsuleBubble: 0xc8ffd8,
 } as const;
 
 /** Цвета карты в формате CSS (карта рисуется один раз в текстуры обычным canvas). */

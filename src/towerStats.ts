@@ -21,6 +21,9 @@ export interface TowerRow {
   beamGapMs: number;
   beamLengthPx: number;
   beamHalfWidthPx: number;
+  /** Яд ('poison'): HP в секунду и сколько секунд идёт (у остальных башен 0). */
+  dotPerSec: number;
+  dotSec: number;
 }
 
 /** Итоговые числа башни: строка таблицы с учётом уровня и выбранных мутаций + свойства мутаций. */
@@ -85,6 +88,7 @@ export function computeStats(id: TowerKey, level: number, picks: readonly string
     spiral: 0,
   };
   s.damage = base.damage * lv.damageMul;
+  s.dotPerSec = base.dotPerSec * lv.damageMul;
   s.cooldownMs = base.cooldownMs * lv.cooldownMul;
   s.range = base.range * lv.reachMul;
   s.blastRadius = base.blastRadius * lv.reachMul;
@@ -122,6 +126,8 @@ export function computeStats(id: TowerKey, level: number, picks: readonly string
     }
     if (spec.secondBeam) s.secondBeam = true;
     if (spec.spiral) s.spiral += spec.spiral * share;
+    if (spec.dotSecMul) s.dotSec *= scaled(spec.dotSecMul);
+    if (spec.dotDpsMul) s.dotPerSec *= scaled(spec.dotDpsMul);
   }
   // Улучшения вне партии ветки этой башни (docs/upgrades.md, раздел 12): пауза, радиусы, лужа, замедление, луч
   const bonus = (effect: UpgradeEffect): number => upgradeBonus(effect, id as UpgradeBranch);
@@ -138,5 +144,6 @@ export function computeStats(id: TowerKey, level: number, picks: readonly string
   }
   // Улучшение вне партии «Сильное вещество»: урон всех башен (docs/upgrades.md)
   s.damage *= damageMul();
+  s.dotPerSec *= (1 + bonus('towerDamage')) * damageMul();
   return s;
 }

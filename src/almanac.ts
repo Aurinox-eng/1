@@ -16,6 +16,8 @@ export const ALMANAC_TOWERS: Record<TowerId, TowerEntry> = {
   syrup: { strong: ['rod', 'runner', 'swarm'], weak: ['slick'] },
   fizz: { strong: ['swarm', 'splitter', 'brood'], weak: ['giant'] },
   syringe: { strong: ['armored', 'healer', 'giant'], weak: ['swarm'] },
+  ampule: { strong: ['giant', 'armored', 'brood', 'regen'], weak: ['swarm', 'runner'] },
+  antibiotic: { strong: ['regen', 'healer', 'brood', 'giant'], weak: ['swarm', 'runner', 'leaper'] },
 };
 
 /** Какие башни бьют бактерию лучше всего (значки в строке бактерии). */
@@ -25,12 +27,14 @@ export const ALMANAC_BEATEN_BY: Record<BacteriumKind, TowerId[]> = {
   swarm: ['fizz', 'syrup'],
   runner: ['syrup', 'pill'],
   splitter: ['fizz', 'pill'],
-  armored: ['syringe'],
-  healer: ['syringe', 'fizz'],
+  armored: ['syringe', 'ampule'],
+  healer: ['syringe', 'fizz', 'antibiotic'],
   spore: ['syringe', 'pill'],
   slick: ['pill', 'syringe'],
-  regen: ['syringe', 'fizz'],
+  regen: ['syringe', 'antibiotic', 'ampule'],
   commander: ['pill', 'syringe'],
-  brood: ['fizz', 'pill'],
-  giant: ['syringe', 'syrup'],
+  brood: ['fizz', 'antibiotic', 'ampule'],
+  giant: ['syringe', 'ampule', 'syrup'],
+  leaper: ['pill', 'syringe'],
+  phago: ['fizz', 'syringe', 'antibiotic'],
 };

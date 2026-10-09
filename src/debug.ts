@@ -67,6 +67,10 @@ export interface DebugSnapshot {
   splits: number;
   disables: number;
   slows: number;
+  /** Сколько раз Антибиотик отравил бактерию, сколько ударов поглотил фагоцит, сколько прыжков сделали прыгуны (за партию). */
+  poisons: number;
+  absorbs: number;
+  leaps: number;
   /** Сколько выстрелов сделано башнями. */
   shots: number;
   /** Скорость игры, выбранная игроком кнопкой (1, 2, 3). */
@@ -116,7 +120,7 @@ export interface DebugSnapshot {
     level: number;
     picks: string[];
     pending: number | null;
-    stats: { damage: number; cooldownMs: number; range: number; beamPulses: number; blastRadius: number; puddleRadius: number; puddleSec: number; slowFactor: number; beamHalfWidthPx: number };
+    stats: { damage: number; cooldownMs: number; range: number; beamPulses: number; blastRadius: number; puddleRadius: number; puddleSec: number; slowFactor: number; beamHalfWidthPx: number; dotPerSec: number; dotSec: number };
   }[];
   /** Выбранная на карте башня (клетка), идёт ли режим выбора пары для слияния, сколько слияний, продаж и выборов мутаций было за партию. */
   selectedTower: { col: number; row: number } | null;
@@ -147,6 +151,11 @@ export interface DebugSnapshot {
     dashing: boolean;
     slowed: boolean;
     remaining: number;
+    /** Яд: сколько секунд ещё идёт (0 — не отравлена); фагоцит: ударов было и поглощено; прыгун: прыжков сделано. */
+    poisonLeft: number;
+    hits: number;
+    absorbed: number;
+    leaps: number;
   }[];
   /** Снаряды, капли сиропа и очереди луча в полёте. */
   projectiles: number;

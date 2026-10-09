@@ -14,6 +14,9 @@ function bodyBox(kind: BacteriumKind): ArtBox {
   return { x: -hx, y: -hy, w: hx * 2, h: hy * 2 };
 }
 
+/** Сколько секунд видна вспышка «поглощено» у фагоцита. */
+const ABSORB_SEC = 0.3;
+
 /** Полоска прочности: белая картинка 32×6, левый край в (0, 0); цвет задаётся оттенком, длина — масштабом. */
 const BAR_BOX: ArtBox = { x: 0, y: -3, w: 32, h: 6 };
 const BAR_KEY = (scene: Phaser.Scene): string => bakeArt(scene, 'hp-bar', BAR_BOX, (g) => g.fillStyle(0xffffff, 1).fillRect(0, -3, 32, 6));
@@ -78,6 +81,15 @@ export class Bacterium {
   haste = 1;
   /** Сколько секунд прошло с последнего рождения (у матки). */
   brewClock = 0;
+  /** Яд башни «Антибиотик»: сколько секунд ещё идёт и сколько HP в секунду снимает (0 — не отравлена). Пока бактерия отравлена, она не лечится. */
+  poisonLeft = 0;
+  poisonDps = 0;
+  /** Фагоцит: сколько ударов по бактерии было (яд не считается), сколько из них поглощено; последний удар поглощён ли. */
+  hits = 0;
+  absorbed = 0;
+  justAbsorbed = false;
+  /** Прыгун: сколько прыжков сделано. */
+  leaps = 0;
 
   private readonly baseSpeed: number;
   /** Замедление от «Сиропа»: сколько секунд ещё действует и во сколько раз медленнее идёт (1 — не замедлена). */
@@ -88,6 +100,12 @@ export class Bacterium {
   private acidLeft = 0;
   private acidBy = 1;
   private acidRing: Phaser.GameObjects.Image | null = null;
+  /** Зелёное кольцо яда и светло-розовое кольцо «поглощено» (держится absorbLeft секунд). */
+  private poisonRing: Phaser.GameObjects.Image | null = null;
+  private absorbRing: Phaser.GameObjects.Image | null = null;
+  private absorbLeft = 0;
+  /** Часы прыжков (у прыгуна свой сдвиг, чтобы прыжки не шли в ногу). */
+  private leapClock: number;
   /** Какое HP показано на теле (перерисовываем при заметном изменении: лечение идёт каждый кадр). */
   private drawnHp: number;
   private readonly scene: Phaser.Scene;
@@ -126,6 +144,7 @@ export class Bacterium {
     const spread = 1 + (Math.random() * 2 - 1) * CONFIG.bacteria.speedSpread;
     this.baseSpeed = CONFIG.bacteria.baseSpeed * cfg.speedFactor * spread;
     this.dashClock = Math.random() * Math.max(1, cfg.dashEverySec);
+    this.leapClock = Math.random() * Math.max(0, cfg.leapEverySec);
     this.edge = edge;
     this.s = Math.max(0, Math.min(edge.length, s));
 
@@ -187,9 +206,60 @@ export class Bacterium {
     this.acidRing.setVisible(true);
   }
 
+  /**
+   * Яд: следующие `seconds` секунд бактерия теряет `dps` HP в секунду (броню не учитывает) и не лечится. Повторный укол продлевает время до `seconds`
+   * (не суммируя) и берёт большую силу.
+   */
+  poison(dps: number, seconds: number): void {
+    if (dps <= 0 || seconds <= 0 || this.hp <= 0) return;
+    this.poisonDps = this.poisonLeft > 0 ? Math.max(this.poisonDps, dps) : dps;
+    this.poisonLeft = Math.max(this.poisonLeft, seconds);
+    if (!this.poisonRing) {
+      this.poisonRing = ringImage(this.scene, 0, 0, this.radius + 11, 3, COLORS.poison, 0.9);
+      this.container.add(this.poisonRing);
+    }
+    this.poisonRing.setVisible(true);
+  }
+
+  /** Идёт ли яд. */
+  get poisoned(): boolean {
+    return this.poisonLeft > 0;
+  }
+
+  /** Один кадр яда: снимает HP за прошедшее время (не больше оставшегося времени яда). Возвращает true, если бактерия погибла от яда. */
+  tickPoison(dt: number): boolean {
+    if (this.poisonLeft <= 0) return false;
+    const step = Math.min(dt, this.poisonLeft);
+    this.poisonLeft -= dt;
+    const died = this.drain(this.poisonDps * step);
+    if (this.poisonLeft <= 0) {
+      this.poisonLeft = 0;
+      this.poisonDps = 0;
+      this.poisonRing?.setVisible(false);
+    }
+    return died;
+  }
+
   update(dt: number): void {
     const cfg = CONFIG.types[this.kind];
     let factor = 1;
+    if (this.absorbLeft > 0) {
+      this.absorbLeft -= dt;
+      if (this.absorbLeft <= 0) this.absorbRing?.setVisible(false);
+      else this.absorbRing?.setAlpha(Math.min(1, this.absorbLeft / ABSORB_SEC));
+    }
+    if (cfg.leapEverySec > 0) {
+      // Прыжок: мгновенный сдвиг вперёд по дорожке (через концы рёбер и развилки), короткая «пружина» — сжатие и рывок
+      this.leapClock += dt;
+      if (this.leapClock >= cfg.leapEverySec) {
+        this.leapClock -= cfg.leapEverySec;
+        this.leaps++;
+        this.advance(cfg.leapPx);
+        this.scene.tweens.killTweensOf(this.container);
+        this.container.setScale(1.3, 0.75);
+        this.scene.tweens.add({ targets: this.container, scaleX: 1, scaleY: 1, duration: 200, ease: 'Quad.easeOut' });
+      }
+    }
     if (this.acidLeft > 0) {
       this.acidLeft -= dt;
       if (this.acidLeft <= 0) {
@@ -227,7 +297,19 @@ export class Bacterium {
    * Под кислотой удар сильнее. Возвращает true, если бактерия уничтожена.
    */
   hit(damage: number, pierce = false): boolean {
-    const { armor } = CONFIG.types[this.kind];
+    const { armor, absorbEvery } = CONFIG.types[this.kind];
+    this.justAbsorbed = false;
+    if (absorbEvery > 0) {
+      // Фагоцит: каждый absorbEvery-й удар (3, 6, 9…) ничего не снимает
+      this.hits++;
+      if (this.hits % absorbEvery === 0) {
+        this.absorbed++;
+        this.justAbsorbed = true;
+        this.lastDealt = 0;
+        this.showAbsorb();
+        return false;
+      }
+    }
     const raw = damage * (this.acidLeft > 0 ? this.acidBy : 1);
     const dealt = armor > 0 && !pierce ? Math.max(raw * CONFIG.combat.armorMinShare, raw - armor) : raw;
     this.lastDealt = Math.min(dealt, this.hp);
@@ -241,13 +323,26 @@ export class Bacterium {
   drain(amount: number): boolean {
     if (this.hp <= 0) return true;
     this.hp = Math.max(0, this.hp - amount);
-    if (Math.abs(this.hp - this.drawnHp) >= 0.5 || this.hp <= 0) this.redraw();
+    if (Math.abs(this.hp - this.drawnHp) >= 0.5 || this.hp <= 0) {
+      this.redraw();
+      this.updateBar();
+    }
     return this.hp <= 0;
   }
 
-  /** Лечение (от лекаря рядом): не выше полного HP; тело перерисовывается, когда HP изменилось заметно. */
+  /** Вспышка «поглощено» на теле фагоцита: светло-розовое кольцо, гаснет за ABSORB_SEC. */
+  private showAbsorb(): void {
+    if (!this.absorbRing) {
+      this.absorbRing = ringImage(this.scene, 0, 0, this.radius + 2, 6, COLORS.absorb, 1);
+      this.container.add(this.absorbRing);
+    }
+    this.absorbLeft = ABSORB_SEC;
+    this.absorbRing.setVisible(true).setAlpha(1);
+  }
+
+  /** Лечение (от лекаря рядом, самолечение): не выше полного HP; отравленная бактерия не лечится; тело перерисовывается, когда HP изменилось заметно. */
   heal(amount: number): void {
-    if (this.hp <= 0 || this.hp >= this.maxHp) return;
+    if (this.hp <= 0 || this.hp >= this.maxHp || this.poisonLeft > 0) return;
     this.hp = Math.min(this.maxHp, this.hp + amount);
     if (Math.abs(this.hp - this.drawnHp) >= 0.5 || this.hp >= this.maxHp) {
       this.redraw();
@@ -275,6 +370,7 @@ export class Bacterium {
   }
 
   destroy(): void {
+    if (CONFIG.types[this.kind].leapEverySec > 0) this.scene.tweens.killTweensOf(this.container);
     this.container.destroy();
   }
 

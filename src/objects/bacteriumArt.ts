@@ -7,7 +7,7 @@ type Kind = keyof typeof CONFIG.types;
 /** Какую долю радиуса (у палочки — половины ширины) занимает оболочка при полном HP (у кокка и споры оболочка тонкая и не меняется).
  *  Доля меньше половины, поэтому тело внутри не исчезает при любом числе HP в config.ts (раньше толщина росла на фиксированное число
  *  пикселей за каждое HP, и у бронированной с 14 HP радиус тела выходил отрицательным — режим canvas на этом падал). */
-const SHELL_MAX_SHARE: Record<Kind, number> = { coccus: 0, rod: 0.45, splitter: 0.4, armored: 0.45, spore: 0, swarm: 0, runner: 0.4, healer: 0.3, slick: 0.25, regen: 0.3, commander: 0.3, brood: 0.3, giant: 0.4 };
+const SHELL_MAX_SHARE: Record<Kind, number> = { coccus: 0, rod: 0.45, splitter: 0.4, armored: 0.45, spore: 0, swarm: 0, runner: 0.4, healer: 0.3, slick: 0.25, regen: 0.3, commander: 0.3, brood: 0.3, giant: 0.4, leaper: 0.3, phago: 0.35 };
 const SHELL_BASE = 4;
 /** Расстояние от центра делящейся до центра каждой доли, в радиусах доли (чем больше, тем глубже перетяжка). */
 export const SPLITTER_LOBE_OFFSET = 0.95;
@@ -63,6 +63,7 @@ export function bodyHalfSize(kind: Kind): { hx: number; hy: number } {
   if (kind === 'rod') return { hx: r + pad, hy: l / 2 + pad };
   if (kind === 'splitter') return { hx: r * SPLITTER_LOBE_OFFSET + r + pad, hy: r + pad };
   if (kind === 'giant') return { hx: r * 1.28 + pad, hy: r * 1.28 + pad };
+  if (kind === 'leaper') return { hx: r + pad, hy: r * 1.35 + pad };
   if (kind === 'slick') return { hx: r + pad, hy: r * 1.52 + pad };
   return { hx: r + pad, hy: r + pad };
 }
@@ -144,11 +145,41 @@ export function drawShape(g: Phaser.GameObjects.Graphics, kind: Kind, sw: number
     g.fillStyle(col.shell, 1);
     for (const [dx, len] of [[-0.45, 0.45], [0.05, 0.62], [0.5, 0.38]] as const) g.fillRoundedRect(dx * r - r * 0.12, r * 0.5, r * 0.24, r * len + r * 0.4, r * 0.12);
   }
+  if (kind === 'leaper') {
+    // Прыгун: «пружинка» под телом — три дуги-витка разной ширины
+    g.lineStyle(Math.max(3, r * 0.14), col.shell, 1);
+    for (let i = 0; i < 3; i++) g.strokeEllipse(0, r * (0.92 + i * 0.14), r * (0.95 - i * 0.2), r * 0.2);
+  }
   g.fillStyle(col.shell, 1);
   g.fillCircle(0, 0, r);
   g.fillStyle(col.body, 1);
   g.fillCircle(0, 0, Math.max(1, r - sw));
   shine(g, -r * 0.35, -r * 0.38, r * (kind === 'slick' ? 0.24 : 0.16));
+  if (kind === 'leaper') {
+    // «Галочка» вверх — знак прыжка
+    g.lineStyle(Math.max(3, r * 0.14), col.shell, 0.95);
+    g.beginPath();
+    g.moveTo(-r * 0.4, r * 0.18);
+    g.lineTo(0, -r * 0.24);
+    g.lineTo(r * 0.4, r * 0.18);
+    g.strokePath();
+  }
+  if (kind === 'phago') {
+    // Фагоцит: большой тёмный «рот» полукругом снизу, зубчики по верхнему краю рта и три вакуоли
+    g.fillStyle(col.crack, 1);
+    g.beginPath();
+    g.arc(0, r * 0.02, r * 0.52, 0, Math.PI, false);
+    g.closePath();
+    g.fillPath();
+    g.fillStyle(0xffffff, 0.95);
+    for (const dx of [-0.3, 0, 0.3]) g.fillTriangle(dx * r - r * 0.09, r * 0.02, dx * r + r * 0.09, r * 0.02, dx * r, r * 0.17);
+    for (const [vx, vy, vr] of [[-0.38, -0.38, 0.15], [0.3, -0.45, 0.11], [0.5, -0.12, 0.09]] as const) {
+      g.fillStyle(0xffffff, 0.55);
+      g.fillCircle(vx * r, vy * r, vr * r);
+      g.lineStyle(2, col.shell, 0.8);
+      g.strokeCircle(vx * r, vy * r, vr * r);
+    }
+  }
   if (kind === 'regen') {
     // Регенератор: белая стрелка-кольцо (круговая)
     g.lineStyle(Math.max(3, r * 0.1), 0xffffff, 0.9);

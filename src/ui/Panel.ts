@@ -24,6 +24,8 @@ const TOWER_TEXT: Record<TowerId, { name: TextKey; tag: TextKey }> = {
   syrup: { name: 'towerSyrup', tag: 'tagSyrup' },
   fizz: { name: 'towerFizz', tag: 'tagFizz' },
   syringe: { name: 'towerSyringe', tag: 'tagSyringe' },
+  ampule: { name: 'towerAmpule', tag: 'tagAmpule' },
+  antibiotic: { name: 'towerAntibiotic', tag: 'tagAntibiotic' },
 };
 
 // Раскладка панели сверху вниз, пикселей экрана игры
@@ -31,7 +33,8 @@ const CARD_X = PX + 12;
 const CARD_W = PANEL_W - 24;
 const WAVE_CARD = { y: 10, h: 78 };
 const RES_CARD = { y: 96, h: 84 };
-const SLOT = { x: PX + 12, y0: 190, w: PANEL_W - 24, h: 96, gap: 8 };
+/** Кнопки башен: шесть штук должны уместиться между карточкой монет (до y = 180) и кнопкой «Начать волну» (с y = 614): 6 × 64 + 5 × 4 = 404 px (при четырёх башнях было 96 + 8). */
+const SLOT = { x: PX + 12, y0: 190, w: PANEL_W - 24, h: 64, gap: 4 };
 const WAVE_BTN = { y: 614, w: PANEL_W - 24, h: 38 };
 const CTRL = { y: 686, r: 22, dx: 38 };
 /** Полоса компактных кнопок башен над карточкой (видна, только пока открыта карточка): высота и промежуток до карточки, пикселей. */
@@ -137,14 +140,16 @@ export class Panel {
       };
       this.slotOff.set(id, scene.add.image(CX, cy, slotTexture(scene, false, r.w, r.h)).setDepth(D.item));
       this.slotOn.set(id, scene.add.image(CX, cy, slotTexture(scene, true, r.w, r.h)).setDepth(D.item).setVisible(false));
-      track(scene.add.circle(r.x + 36, cy, 29, 0x0e1b38, 1).setStrokeStyle(2, 0x3a5f9c, 1).setDepth(D.item + 1));
-      const icon = track(scene.add.container(r.x + 36, cy).setDepth(D.item + 1).setScale(0.62));
+      track(scene.add.circle(r.x + 31, cy, 25, 0x0e1b38, 1).setStrokeStyle(2, 0x3a5f9c, 1).setDepth(D.item + 1));
+      const icon = track(scene.add.container(r.x + 31, cy).setDepth(D.item + 1).setScale(0.5));
       createTowerArt(scene, icon, id);
-      track(this.text(r.x + 74, r.y + 26, t(TOWER_TEXT[id].name), 20, TEXT_COLORS.main, 0, 0.5));
-      track(this.text(r.x + 74, r.y + 50, t(TOWER_TEXT[id].tag), 16, TEXT_COLORS.soft, 0, 0.5).setFontStyle('normal'));
+      const nameText = track(this.text(r.x + 62, r.y + 15, t(TOWER_TEXT[id].name), 19, TEXT_COLORS.main, 0, 0.5));
+      // Длинное название («Антибиотик») не должно выходить за край кнопки: сжимаем до ширины, что осталась справа от значка
+      if (nameText.width > r.w - 68) nameText.setScale((r.w - 68) / nameText.width);
+      track(this.text(r.x + 62, r.y + 33, t(TOWER_TEXT[id].tag), 15, TEXT_COLORS.soft, 0, 0.5).setFontStyle('normal'));
       if (open) {
-        track(this.coin(r.x + 84, r.y + 76, 10));
-        const price = track(this.text(r.x + 100, r.y + 76, String(towerPrice(id)), 24, TEXT_COLORS.accent, 0, 0.5));
+        track(this.coin(r.x + 71, r.y + 51, 8));
+        const price = track(this.text(r.x + 85, r.y + 51, String(towerPrice(id)), 22, TEXT_COLORS.accent, 0, 0.5));
         this.priceTexts.set(id, price);
       } else {
         // Серая «шторка» поверх кнопки, замок справа и надпись вместо цены
@@ -152,8 +157,8 @@ export class Panel {
         veil.fillStyle(0x070d1c, 0.68).fillRoundedRect(r.x, r.y, r.w, r.h, 16);
         track(veil);
         // Замок — поверх значка башни (не закрывает название), надпись «Уровень N» — на месте цены
-        track(this.lockIcon(r.x + 36, cy - 4));
-        track(this.text(r.x + 74, r.y + 76, t('lockedLevel', { n: unlockLevel(id) }), 16, TEXT_COLORS.soft, 0, 0.5).setDepth(D.item + 3));
+        track(this.lockIcon(r.x + 31, cy - 4));
+        track(this.text(r.x + 62, r.y + 51, t('lockedLevel', { n: unlockLevel(id) }), 15, TEXT_COLORS.soft, 0, 0.5).setDepth(D.item + 3));
       }
       scene.add
         .zone(r.x + r.w / 2, cy, r.w, r.h)
@@ -435,17 +440,19 @@ export class Panel {
     const ids = TOWER_IDS.filter((id) => isTowerOpen(id));
     if (ids.length === 0) return;
     const n = ids.length;
-    const w = (SLOT.w - STRIP.gap * (n - 1)) / n;
+    // Открытых башен до шести: промежуток и надписи сжимаются, чтобы все кнопки помещались в ряд
+    const gap = n > 4 ? 3 : STRIP.gap;
+    const w = (SLOT.w - gap * (n - 1)) / n;
     ids.forEach((id, i) => {
-      const x = SLOT.x + i * (w + STRIP.gap);
+      const x = SLOT.x + i * (w + gap);
       const y = SLOT.y0;
       const cx = x + w / 2;
       const plate = this.scene.add.graphics().setDepth(D.item + 8);
       plate.fillStyle(0x1d366a, 1).fillRoundedRect(x, y, w, STRIP.h, 12);
       plate.lineStyle(2, 0x3a5f9c, 1).strokeRoundedRect(x, y, w, STRIP.h, 12);
-      const icon = this.scene.add.container(cx, y + 15).setDepth(D.item + 9).setScale(0.3);
+      const icon = this.scene.add.container(cx, y + 15).setDepth(D.item + 9).setScale(Math.min(0.3, w / 88));
       createTowerArt(this.scene, icon, id);
-      const price = this.text(cx, y + STRIP.h - 9, String(towerPrice(id)), 14, TEXT_COLORS.accent).setDepth(D.item + 9);
+      const price = this.text(cx, y + STRIP.h - 9, String(towerPrice(id)), w < 34 ? 11 : 14, TEXT_COLORS.accent).setDepth(D.item + 9);
       const zone = this.scene.add
         .zone(cx, y + STRIP.h / 2, w, STRIP.h)
         .setDepth(D.item + 10)

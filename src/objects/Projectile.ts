@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import { artImage, bakeArt, squareBox } from '../art';
 import { CONFIG } from '../config';
-import { COLORS } from '../theme';
+import { COLORS, TOWER_ART } from '../theme';
 import type { TowerStats } from '../towerStats';
 import type { Bacterium } from './Bacterium';
 import type { TowerId } from './Tower';
@@ -9,9 +9,22 @@ import type { TowerId } from './Tower';
 /** Рамка рисунка снаряда (капля сиропа тянется хвостом влево до −26). */
 const SHOT_BOX = squareBox(28);
 
-/** Рисует снаряд башни: таблетка (капсула), капля сиропа, шарик шипучки. Вправо, потом поворачивается по полёту. */
+/** Рисует снаряд башни: таблетка (капсула), капля сиропа, шарик шипучки, ампула, зелёная капсула. Вправо, потом поворачивается по полёту. */
 function drawShot(gfx: Phaser.GameObjects.Graphics, id: TowerId): void {
-  if (id === 'syrup') {
+  if (id === 'ampule') {
+    // длинная тонкая стеклянная ампула: тело с жидкостью, узкое горлышко, запаянный кончик
+    gfx.fillStyle(COLORS.ampule, 1).fillRoundedRect(-24, -4.5, 28, 9, 4.5).fillRoundedRect(2, -2, 17, 4, 2);
+    gfx.fillTriangle(18, -2, 27, 0, 18, 2);
+    gfx.lineStyle(1.5, COLORS.ampuleEdge, 1).strokeRoundedRect(-24, -4.5, 28, 9, 4.5);
+    gfx.fillStyle(TOWER_ART.ampuleLiquid, 1).fillRoundedRect(-21, -2.5, 22, 5, 2.5);
+    gfx.fillStyle(0xffffff, 0.8).fillRoundedRect(-18, -3.6, 12, 1.6, 0.8);
+  } else if (id === 'antibiotic') {
+    // зелёная капсула с белой полосой посередине
+    gfx.fillStyle(COLORS.antibiotic, 1).fillRoundedRect(-14, -6, 28, 12, 6);
+    gfx.fillStyle(0xffffff, 1).fillRect(-3, -6, 6, 12);
+    gfx.lineStyle(1.5, COLORS.antibioticEdge, 1).strokeRoundedRect(-14, -6, 28, 12, 6);
+    gfx.fillStyle(0xffffff, 0.5).fillRoundedRect(-11, -4.5, 6, 2, 1);
+  } else if (id === 'syrup') {
     gfx.fillStyle(COLORS.syrup, 1).fillCircle(0, 0, 10).fillCircle(-13, 0, 6.5).fillCircle(-22, 0, 3.5);
     gfx.lineStyle(2, COLORS.syrupDark, 1).strokeCircle(0, 0, 10);
     gfx.fillStyle(0xffffff, 0.6).fillCircle(3, -3.5, 3);
@@ -50,9 +63,10 @@ export class Projectile {
     this.y = y;
     this.lastX = target.x;
     this.lastY = target.y;
-    const key = bakeArt(scene, `shot-${towerId === 'syrup' || towerId === 'fizz' ? towerId : 'pill'}`, SHOT_BOX, (g) => drawShot(g, towerId));
+    const key = bakeArt(scene, `shot-${towerId === 'syrup' || towerId === 'fizz' || towerId === 'ampule' || towerId === 'antibiotic' ? towerId : 'pill'}`, SHOT_BOX, (g) => drawShot(g, towerId));
     // Снаряд сильной башни крупнее: до ×1,7 при уроне в 6 раз выше, чем у башни 1-го уровня (сила видна на глаз)
-    const ratio = stats.damage / CONFIG.towers[towerId].damage;
+    const base = CONFIG.towers[towerId];
+    const ratio = base.damage > 0 ? stats.damage / base.damage : base.dotPerSec > 0 ? stats.dotPerSec / base.dotPerSec : 1;
     const size = ratio > 1 ? Math.min(1.7, 1 + 0.28 * Math.log2(ratio)) : 1;
     this.container = scene.add.container(x, y, [artImage(scene, key, SHOT_BOX)]).setScale(size);
     layer.add(this.container);
