@@ -179,7 +179,7 @@ export function readWaveList() {
   });
 }
 
-/** С какого уровня открыта каждая башня: `levels.towerUnlock` из src/config.ts, например { pill: 1, syrup: 1, fizz: 5, syringe: 10 }. */
+/** С какого уровня открыта каждая башня: `levels.towerUnlock` из src/config.ts, например { pill: 1, syrup: 1, fizz: 5, syringe: 10, ampule: 3, antibiotic: 6 }. */
 export function readTowerUnlock() {
   const src = readSource('src/config.ts');
   const found = /towerUnlock:\s*\{([^}]*)\}/.exec(src);
@@ -191,7 +191,7 @@ export function readTowerUnlock() {
 
 /**
  * Таблица башен из src/config.ts (раздел `towers`): { id: { price, range, damage, cooldownMs, projectileSpeed, blastRadius,
- * slowFactor, slowSec, targeting, side } } в порядке строк. Читает числа и строки в одинарных кавычках из каждой строки таблицы
+ * slowFactor, slowSec, targeting, side, dotPerSec, dotSec, … } } в порядке строк (с 9 октября 2026 шесть башен: pill, syrup, fizz, syringe, ampule, antibiotic). Читает числа и строки в одинарных кавычках из каждой строки таблицы
  * (комментарии пропускает). Бот баланса берёт отсюда цены и радиусы (подмену `?cfg=towers.<id>.<ключ>:<число>` он накладывает сам).
  */
 export function readTowerTable() {

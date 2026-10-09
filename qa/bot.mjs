@@ -5,7 +5,7 @@
  * машиночитаемый итог — qa/bot-results/<tag>.json (дописывается после каждой партии; в git не коммитить).
  *
  * Запуск (сначала `npm run build:qa`; если src новее dist-qa, скрипт остановится сам):
- *   node qa/bot.mjs [--profile=novice|average|strong|expert|all] [--runs=N] [--speed=2] [--exclude=syrup,fizz,syringe,pill]
+ *   node qa/bot.mjs [--profile=novice|average|strong|expert|all] [--runs=N] [--speed=2] [--exclude=syrup,fizz,syringe,pill,ampule,antibiotic]
  *                   [--cfg=путь:число,...] [--tag=имя] [--seed=N] [--max-game-sec=2400] [--verbose] [--shots] [--help]
  *
  * Профили («игроки»; порядок покупок и выбор клеток — в makePlayer ниже):
@@ -25,6 +25,14 @@
  *                        НЕ ЗНАЕТ приёмов: ставит Шипучку без упора на узлы слияния, а Шприц — без учёта, сколько бактерий идёт по каждой ветке,
  *                        и не поворачивает его (остаётся направление, которое игра выбирает при постановке сама). Это тот навык, что отличает
  *                        «особо сильного».
+ *
+ * НОВЫЕ БАШНИ (этап 7, пачка 1; когда открыты на уровне партии — кнопка без замка, levels.towerUnlock: Ампула с 3-го уровня, Антибиотик с 6-го): профили average, strong и expert
+ * докупают их НАД своим кругом (novice — только Таблетки). Считают в «обычных башнях» (башня уровня L = 2^(L−1) штук): Ампула — одна на каждые 3–4 Таблетки (первая при 3 Таблетках,
+ * дальше при 7, 10, 14…), клетка — с наибольшей длиной дорожки в радиусе башни (радиус 520 px из таблицы: Ампула видит полкарты; охват уже накрытого другими башнями не скидывается,
+ * а сама Ампула в «накрытые» участки не записывается — иначе она обесценила бы клетки остальных башен); Антибиотик — по одной на каждые 2 Таблетки, но не раньше, чем стоят ≥ 3 Таблетки
+ * и 1 Сироп (если Сироп вообще доступен), клетка — как у Таблетки (радиус из таблицы). Ждут монет на них, как на любую дорогую башню (терпение профиля). Слияние — по общим правилам
+ * (пара одноимённых башен 1-го уровня в радиусе слияния; клетка выбирается предпочтительно рядом с такой башней). Мутации на порогах — первая из двух. Новые типы бактерий
+ * (Прыгун, Фагоцит) бот отдельно не обрабатывает.
  *
  * СЛИЯНИЕ (правило игры с 8 октября 2026): две одинаковые башни (вид и уровень) сливаются, только если расстояние между их центрами
  * не больше mergeRadiusPx (состояние игры, 235 px мира ≈ 3 новые клетки); башни, ждущие выбора мутации, не сливаются; у получившейся башни мутации обеих складываются.
@@ -91,11 +99,16 @@ const MERGE_ZONE_PX = 170; // «Шипучка»: участки дорожки 
 const MERGE_FACTOR = 2; // … и ценятся вдвое
 const MERGE_UP_TO = { novice: -1, average: -1, strong: 1, expert: 99 }; // башни какого уровня и ниже профиль сливает (−1 — не сливает совсем): «сильный» — только пары первого уровня, «особо сильный» — всё; сливают только пары в радиусе mergeRadiusPx
 // Какую мутацию выбирает профиль (номер варианта 0/1 по порогам): «сильный» всегда первую; «особо сильный» — по таблице (Сироп — «Едкая» в конце, чтобы лужа ещё и убивала; Шприц — «Бронебойный», затем «Второй луч»)
-const MUTATION_PICKS = { strong: { default: [0, 0] }, expert: { pill: [0, 0], syrup: [0, 0], fizz: [0, 0], syringe: [1, 0] } };
+const MUTATION_PICKS = { strong: { default: [0, 0] }, expert: { pill: [0, 0], syrup: [0, 0], fizz: [0, 0], syringe: [1, 0], ampule: [0, 0], antibiotic: [0, 0] } };
+// Новые башни (этап 7): сколько «обычных» Таблеток приходится на одну Ампулу (3–4: первая при 3 Таблетках, дальше при 7, 10, 14…), на один Антибиотик, и что нужно Антибиотику до первой покупки
+const AMPULE_PILLS_PER = 3.5;
+const ANTIBIOTIC_PILLS_PER = 2;
+const ANTIBIOTIC_MIN_PILLS = 3;
+const ANTIBIOTIC_MIN_SYRUPS = 1;
 const STALL_SEC = 30; // игровое время не идёт столько реальных секунд подряд — партия зависла
 
-const NAMES = { pill: 'Таблетка', syrup: 'Сироп', fizz: 'Шипучка', syringe: 'Шприц' };
-const SHORT = { pill: 'Таб', syrup: 'Сир', fizz: 'Шип', syringe: 'Шпр' };
+const NAMES = { pill: 'Таблетка', syrup: 'Сироп', fizz: 'Шипучка', syringe: 'Шприц', ampule: 'Ампула', antibiotic: 'Антибиотик' };
+const SHORT = { pill: 'Таб', syrup: 'Сир', fizz: 'Шип', syringe: 'Шпр', ampule: 'Амп', antibiotic: 'Ант' };
 const PROFILE_TITLES = { novice: 'новичок', average: 'средний', strong: 'сильный', expert: 'особо сильный' };
 const PROFILE_IDS = Object.keys(PROFILE_TITLES);
 const AVERAGE_CYCLE = ['pill', 'pill', 'syrup', 'pill', 'fizz', 'syringe'];
@@ -113,7 +126,7 @@ const HELP = `Бот-замерщик баланса: играет целые п
   --profile=novice|average|strong|expert|all   кто играет (по умолчанию all); expert — «особо сильный» (бывший «сильный» кругов 1–2)
   --runs=N                              партий на профиль (по умолчанию 10; для замера нужно не меньше 10)
   --speed=2                             ускорение игрового времени, 0.1…4 (по умолчанию 2). ВЫШЕ 2 ЗАМЕРЫ ГРУБЕЕ: годится для проб, не для итоговых чисел
-  --exclude=syrup,fizz,syringe,pill     каких башен профили не строят (проверка «нужна ли башня»)
+  --exclude=syrup,fizz,syringe,pill,ampule,antibiotic   каких башен профили не строят (проверка «нужна ли башня»)
   --cfg=путь:число,...                  подмена чисел игры без правки config.ts, например towers.pill.price:40,economy.startCoins:5000
                                         (бот сам учтёт подмену цен и радиусов; непонятная запись останавливает замер)
   --tag=имя                             имя файла результата qa/bot-results/<имя>.json (по умолчанию latest)
@@ -122,8 +135,11 @@ const HELP = `Бот-замерщик баланса: играет целые п
   --max-real-sec=3600                   потолок реального времени одной партии (страховка); дольше — «timeout»
   --verbose                             печатать каждую покупку и раз в 30 с — где идёт партия
   --shots                               снимок экрана в конце партии: qa/bot-results/<tag>-shots/
-  --level=N                             номер уровня (1…10, по умолчанию 1): от него зависит, какие башни открыты (levels.towerUnlock в config.ts; на уровне 1 — только Таблетка и Сироп);
+  --level=N                             номер уровня (1…10, по умолчанию 1): от него зависит, какие башни открыты (levels.towerUnlock в config.ts; на уровне 1 — только Таблетка и Сироп; Ампула открыта с 3-го уровня, Антибиотик с 6-го);
                                         на уровнях 2–10 партия идёт по составу волн своего уровня (levels.specs; адрес получает &levelwaves)
+                                        Новые башни (Ампула с 3-го уровня, Антибиотик с 6-го): average/strong/expert докупают их, когда башня открыта на уровне партии, — Ампулу одну на 3–4 Таблетки
+                                        (клетка с наибольшей длиной дорожки в её радиусе 520 px), Антибиотик по одному на каждые 2 Таблетки, но не раньше чем стоят ≥ 3 Таблетки и 1 Сироп
+                                        (клетка как у Таблетки); novice строит только Таблетки. Слияние и мутации — по общим правилам. Новые бактерии (Прыгун, Фагоцит) бот особо не обрабатывает.
   --meta=lives:2,coins:5,damage:5,reward:5,shield:1,pillRate:3   фиксированные улучшения вне партии (id и уровни по таблице meta.upgrades из config.ts, в том числе ветки башен; не больше наибольшего уровня; без параметра — 0). Не сочетается с --campaign
   --campaign=N                          режим «серия партий» (этап 6а): каждая из --runs серий — до N партий подряд одним профилем; после каждой партии бот начисляет очки ДНК
                                         (по формуле config.ts, раздел meta) и покупает улучшения по порядку damage, coins, lives, reward, затем остальные по таблице (ветка башни — если башня открыта на уровне партии); серия кончается первой победой.
@@ -446,6 +462,12 @@ function buildWorld(graph, map, cols, rows) {
     strongScore(type, cell, covCount, smart = true) {
       const T = TABLE[type];
       if (T.targeting === 'beam') return bestAim(type, cell, smart, covCount).value;
+      if (T.targeting === 'snipe') {
+        // Ампула: радиус огромный (полкарты) — важна длина дорожки в круге; скидка за «уже накрытое» не нужна (накрыто почти всё); список отрезков в круге — из кэша inRange
+        let total = 0;
+        for (const si of inRange(T.range)[cell.idx]) if (sideOk(T, cell, segs[si])) total += segs[si].len * segs[si].w;
+        return total;
+      }
       const discount = type === 'syrup' ? SYRUP_OVERLAP : smart ? EXPERT_OVERLAP : OVERLAP_DISCOUNT;
       const list = inRange(T.range)[cell.idx];
       let sum = 0;
@@ -466,7 +488,7 @@ function buildWorld(graph, map, cols, rows) {
       for (const tw of towers) {
         const cell = byKey.get(`${tw.col},${tw.row}`);
         const T = TABLE[tw.id];
-        if (!cell || !T) continue;
+        if (!cell || !T || T.targeting === 'snipe') continue; // Ампула накрывает полкарты: в «накрытое другими башнями» её не записываем, иначе клетки остальных башен обесценятся
         const list = T.targeting === 'beam' ? rayOf(tw.id, cell, tw.aim ?? 0) : inRange(T.range)[cell.idx];
         for (const si of list) counts[si]++;
       }
@@ -492,6 +514,19 @@ function makePlayer(profile, { world, rng, buttons }) {
     return (cell) => partners.some((tw) => Math.hypot(tw.x - cell.x, tw.y - cell.y) <= radius);
   };
 
+  /** Сколько «обычных» башен вида id стоит (башня уровня L — это 2^(L−1) штук). */
+  const unitsOf = (view, id) => view.towers.filter((tw) => tw.id === id).reduce((sum, tw) => sum + 2 ** ((tw.level ?? 1) - 1), 0);
+  const extraGaveUp = new Set(); // новые башни, для которых клеток с охватом не нашлось: больше не пробуем
+  /** Какую новую башню (Ампула, Антибиотик) пора докупить поверх круга: null — никакую (башня закрыта на уровне, исключена или ещё рано). */
+  const wantedExtra = (view) => {
+    const pills = unitsOf(view, 'pill');
+    if (pills < 3) return null;
+    if (available('ampule') && !extraGaveUp.has('ampule') && unitsOf(view, 'ampule') < Math.floor((pills + 0.5) / AMPULE_PILLS_PER)) return 'ampule';
+    const syrupOk = !available('syrup') || unitsOf(view, 'syrup') >= ANTIBIOTIC_MIN_SYRUPS;
+    if (available('antibiotic') && !extraGaveUp.has('antibiotic') && pills >= ANTIBIOTIC_MIN_PILLS && syrupOk && unitsOf(view, 'antibiotic') < Math.floor(pills / ANTIBIOTIC_PILLS_PER)) return 'antibiotic';
+    return null;
+  };
+
   if (profile === 'novice') {
     return {
       decide(view) {
@@ -511,20 +546,22 @@ function makePlayer(profile, { world, rng, buttons }) {
     };
     return {
       decide(view) {
-        const type = skip();
+        const extra = wantedExtra(view); // Ампула / Антибиотик, когда открыты и пора (иначе null) — вне круга
+        const type = extra ?? skip();
         if (!type || view.coins < TABLE[type].price) return null;
         const scored = view.free
           .map((c) => ({ c, v: world.cover(type, c) }))
           .sort((a, b) => b.v - a.v || a.c.idx - b.c.idx);
         const top = scored.slice(0, Math.max(3, Math.ceil(scored.length * AVERAGE_TOP_SHARE))).filter((x) => x.v > 0);
         if (!top.length) {
-          ptr++; // для этой башни нет клеток с охватом — пропускает её
+          if (extra) extraGaveUp.add(extra);
+          else ptr++; // для этой башни нет клеток с охватом — пропускает её
           return null;
         }
-        return { type, cell: pick(top).c };
+        return { type, cell: pick(top).c, extra: Boolean(extra) };
       },
-      bought() {
-        ptr++;
+      bought(choice) {
+        if (!choice?.extra) ptr++; // новая башня место в круге не двигает
       },
     };
   }
@@ -537,12 +574,14 @@ function makePlayer(profile, { world, rng, buttons }) {
   const gaveUp = new Set(); // башни, для которых «копить на первую» не вышло (нет подходящих клеток): дальше обычный круг
   let ptr = 0;
   let headSince = 0;
-  let lastPtr = -1;
+  let lastPtr = -1; // голова очереди (номер в круге или «x:вид» для новой башни)
   return {
     decide(view) {
       const now = view.s.elapsed;
-      if (ptr !== lastPtr) {
-        lastPtr = ptr;
+      const extraHead = wantedExtra(view);
+      const headKey = extraHead ? `x:${extraHead}` : ptr;
+      if (headKey !== lastPtr) {
+        lastPtr = headKey;
         headSince = now;
       }
       let order = [];
@@ -563,6 +602,7 @@ function makePlayer(profile, { world, rng, buttons }) {
       const firstOf = (id) => available(id) && !gaveUp.has(id) && !view.towers.some((tw) => tw.id === id);
       const needFirst = imperfect || opening ? null : firstOf('fizz') && view.s.wave <= FIZZ_BY_WAVE ? 'fizz' : ['syrup', 'syringe'].find(firstOf) ?? null;
       if (needFirst) order = [{ idx: STRONG_CYCLE.indexOf(needFirst), type: needFirst }];
+      else if (extraHead && !opening) order.unshift({ idx: -2, type: extraHead }); // Ампула / Антибиотик — во главе очереди (ждёт монет, как на любую дорогую башню); место в круге не двигает
       if (!order.length) return null;
       const calm = view.s.lives >= view.s.maxLives && view.s.bacteria.length <= CALM_MAX_BACTERIA;
       let chosen = null;
@@ -595,6 +635,7 @@ function makePlayer(profile, { world, rng, buttons }) {
       if (!best) {
         if (needFirst) gaveUp.add(chosen.type);
         if (chosen.idx >= 0) ptr = chosen.idx + 1; // клеток для этой башни нет — переходит к следующей в списке
+        else if (chosen.idx === -2) extraGaveUp.add(chosen.type);
         return null;
       }
       return { type: chosen.type, cell: best.c, cycleIdx: chosen.idx };
