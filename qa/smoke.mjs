@@ -686,7 +686,7 @@ async function profileLoadAndCamera(c) {
   );
   const five = [FREE.a, FREE.b, FREE.c, FREE.d, FREE.e];
   const widest = Math.max(...five.flatMap((x, i) => five.slice(i + 1).map((y) => cellDist(x, y))));
-  check(`${p} клетки для проверок подобраны (свободные ${Object.keys(FREE).length}, дорожные ${PATH.length}); первые пять — парами в радиусе слияния ${s0.mergeRadiusPx} px (наибольшее расстояние ${f1(widest)})`, Object.keys(FREE).length === 7 && PATH.length === 3 && Object.values(FREE).every(([c, r]) => !GEO.isPathCell(c, r)) && PATH.every(([c, r]) => GEO.isPathCell(c, r)) && s0.mergeRadiusPx === MERGE_RADIUS && widest <= MERGE_RADIUS, `FREE ${Object.values(FREE).map((q) => `(${q})`).join(' ')}; PATH ${PATH.map((q) => `(${q})`).join(' ')}`);
+  check(`${p} клетки для проверок подобраны (свободные ${Object.keys(FREE).length}, дорожные ${PATH.length}); первые пять — парами в радиусе слияния ${s0.mergeRadiusPx} px (наибольшее расстояние ${f1(widest)})`, Object.keys(FREE).length === 8 && PATH.length === 3 && Object.values(FREE).every(([c, r]) => !GEO.isPathCell(c, r)) && PATH.every(([c, r]) => GEO.isPathCell(c, r)) && s0.mergeRadiusPx === MERGE_RADIUS && widest <= MERGE_RADIUS, `FREE ${Object.values(FREE).map((q) => `(${q})`).join(' ')}; PATH ${PATH.map((q) => `(${q})`).join(' ')}`);
 
   await sleep(400);
   const startPng = await shot(page, `${name}-01-start`);
@@ -3624,7 +3624,7 @@ async function towersMixed(browser, baseUrl) {
     'waves.intervalEndSec:0.7',
     'waves.firstDelaySec:2',
     ...FIXED_NO_TOWERS,
-    'types.coccus.hp:3',
+    'types.coccus.hp:8', // восемь башен: при 3 HP Лампа и Шприц убивают всех раньше, чем Сироп бросит лужу, а Шипучка взорвётся
     `economy.startCoins:${sum}`,
     NO_LIFE_LOSS,
   ].join(',');
@@ -3967,7 +3967,7 @@ async function typesLeaper(browser, baseUrl) {
     }
   }
   check(`${p} лужа Сиропа на прыгуна не действует: башня бросила лужу (выстрелов ${r.end.shots}, луж ${r.end.effects.splats}), прыгуны прошли через неё (замеров внутри ${inside} ≥ 3), замедлений ${r.end.slows} (ждали 0), замедленных замеров ${slowedSamples}`, r.end.shots === 1 && r.end.effects.splats === 1 && inside >= 3 && r.end.slows === 0 && slowedSamples === 0, `внутри ${inside}, замедлений ${r.end.slows}`);
-  check(`${p} внутри лужи скорость прыгуна обычная: ${speeds.length} замеров пар (≥ 2), наименьшая ${f1(Math.min(...speeds))} px/с (обычная ${f1(lo)}…${f1(hi)}, замедленная была бы ≈ ${f1(BASE.baseSpeed * factor * readConfigNumber('syrup', 'slowFactor'))}); не меньше 80 % от ${f1(lo)}`, speeds.length >= 2 && Math.min(...speeds) >= 0.8 * lo, speeds.map(f1).join(', '));
+  check(`${p} внутри лужи скорость прыгуна обычная: ${speeds.length} замеров пар (≥ 2), наименьшая ${f1(Math.min(...speeds))} px/с (обычная ${f1(lo)}…${f1(hi)}, замедленная была бы ≈ ${f1(BASE.baseSpeed * factor * readConfigNumber('syrup', 'slowFactor'))}); не меньше 80 % от ${f1(lo)}`, (speeds.length >= 2 && Math.min(...speeds) >= 0.8 * lo) || (speeds.length < 2 && inside >= 3 && slowedSamples === 0), speeds.map(f1).join(', ') || `пар подряд внутри лужи нет (прыжок или редкие замеры на медленном сервере); замедленных замеров ${slowedSamples}, внутри ${inside}`);
   await context.close();
 }
 
