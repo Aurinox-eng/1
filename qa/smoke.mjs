@@ -4896,7 +4896,7 @@ async function typesParasite(browser, baseUrl) {
   const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
   const cfg = [
     ...wavesOnly({ coccus: 1, parasite: 3 }),
-    'waves.firstDelaySec:6',
+    'waves.firstDelaySec:14',
     'waves.intervalStartSec:1',
     'waves.intervalEndSec:1',
     ...FIXED_NO_TOWERS,
