@@ -206,7 +206,8 @@ export const CONFIG = {
     gen: {
       curveExp: 1.5,
       rampWaves: 4,
-      mix: { coccus: 0.06, rod: 0.24, swarm: 0.1, runner: 0.18, splitter: 0.17, armored: 0.26, spore: 0.1, slick: 0.1, regen: 0.1, healer: 0.06, commander: 0.05, brood: 0.1, leaper: 0.12, phago: 0.1, stealth: 0.1, toxin: 0.08, mutant: 0.08, parasite: 0.08 } as Partial<Record<KindId, number>>,
+      // Доля спор снижена с 0,1 до 0,02 (10 октября 2026, шаг Е): спора глушит башни на 3 с, при 0,1 («особо сильный» бот гибнет на 19–21-й волне уровня 2, при 0,0001 — на 27-й) уровни 2–10 непроходимы (docs/balance-history.md)
+      mix: { coccus: 0.06, rod: 0.24, swarm: 0.1, runner: 0.18, splitter: 0.17, armored: 0.26, spore: 0.02, slick: 0.1, regen: 0.1, healer: 0.06, commander: 0.05, brood: 0.1, leaper: 0.12, phago: 0.1, stealth: 0.1, toxin: 0.08, mutant: 0.08, parasite: 0.08 } as Partial<Record<KindId, number>>,
       /** Сглаживание выхода известных типов (docs/stage-5b-plan.md, раздел 4): 1 — первая волна типов уровня 1 (кокк, палочка, рой, бегун, делящаяся, бронированная)
        *  смешивается между расписанием уровня 1 и строкой уровня `intro` с долей строки (N − 2) / (число уровней − 2): уровень 2 выпускает типы как уровень 1,
        *  уровень 10 — как в своей строке; 0 — везде как в строке уровня (как было до этапа 5б). */
@@ -226,7 +227,7 @@ export const CONFIG = {
      *  Известные по прошлым уровням типы выходят с 1–6-й волны подряд, новый тип этого уровня — после них. Названия уровней — в `src/i18n.ts`. */
     specs: [
       {},
-      { intro: { coccus: 1, rod: 2, swarm: 3, runner: 4, splitter: 5, armored: 6, spore: 8 }, hpBudget: [10, 1093], growth: { perWave: 0.08, fromWave: 8, latePerWave: 0.8, lateFromWave: 16 } },
+      { intro: { coccus: 1, rod: 2, swarm: 3, runner: 4, splitter: 5, armored: 6, spore: 8 }, hpBudget: [10, 1093], growth: { perWave: 0.08, fromWave: 8, latePerWave: 0.6, lateFromWave: 16 } },
       { intro: { coccus: 1, rod: 2, swarm: 3, runner: 4, splitter: 5, armored: 6, spore: 7, slick: 9 }, hpBudget: [10, 1174], growth: { perWave: 0.08, fromWave: 8, latePerWave: 1.9, lateFromWave: 16 } },
       { intro: { coccus: 1, rod: 2, swarm: 3, runner: 4, splitter: 5, armored: 6, spore: 7, slick: 8, regen: 10, leaper: 14 }, hpBudget: [10, 1255], growth: { perWave: 0.08, fromWave: 8, latePerWave: 2.3, lateFromWave: 16 } },
       { intro: { coccus: 1, rod: 2, swarm: 3, runner: 4, splitter: 5, armored: 6, spore: 7, slick: 8, regen: 9, leaper: 10, healer: 11, stealth: 15 }, hpBudget: [10, 1336], growth: { perWave: 0.08, fromWave: 8, latePerWave: 3.4, lateFromWave: 16 } },
