@@ -12,6 +12,7 @@
  *   http://localhost:5173/?qa&menu       — открыть игру на главном меню (в режиме проверки без этого параметра игра открывается сразу на партии; в игровой сборке меню открывается, если в адресе нет ?level=N)
  *   http://localhost:5173/?qa&levelwaves — в режиме проверки волны и награды берутся из таблицы уровня (`levels.specs`); без параметра все уровни идут с волнами уровня 1 (так работают прежние проверки и бот)
  *   http://localhost:5173/?qa&stress&fps — стресс-сценарий для замера скорости (40 башен, ≈200 бактерий, ×3) со счётчиком кадров
+ *   http://localhost:5173/?qa&entrance=<номер ребра> — все бактерии волн выходят по одному входу (номер ребра берётся из `getGraph().entrances`): без этого вход случайный, и проверка «башня у входа» зависит от жребия
  *   http://localhost:5173/?fps          — счётчик кадров в углу; работает и в игровой сборке (только показывает число)
  *   http://localhost:5173/?level=5       — номер уровня (какие башни открыты); работает и в игровой сборке, пока нет меню уровней (этап 5)
  *   http://localhost:5173/?qa&meta=lives:1,coins:2,damage:3,reward:0,dna:50 — подменяет уровни улучшений вне партии и очки ДНК (в сохранение ничего не пишется)
@@ -34,8 +35,30 @@ export const LEVEL_WAVES: boolean = !QA_MODE || params.has('levelwaves');
 /** Стресс-сценарий для замера скорости (только вместе с ?qa): 40 башен разных уровней, ≈200 бактерий всех типов, скорость ×3, без волн и без поражения. */
 export const STRESS: boolean = QA_MODE && params.has('stress');
 
+/** Вход (номер ребра), по которому выходят ВСЕ бактерии волн (только вместе с ?qa&entrance=N); null — вход случайный, как в игре. */
+export const QA_ENTRANCE: number | null = QA_MODE && params.has('entrance') && Number.isFinite(Number(params.get('entrance'))) ? Number(params.get('entrance')) : null;
+
 /** Множитель игрового времени (1 = обычная скорость). Работает только вместе с ?qa. */
 export const TIME_SCALE: number = QA_MODE ? Math.min(10, Math.max(0.1, Number(params.get('speed')) || 1)) : 1;
+
+/**
+ * Событие журнала игры (только режим проверки). `t` — игровое время (`elapsed`) в момент события, остальные поля зависят от типа:
+ *  spawn   — бактерия вышла: id, kind, edge (ребро входа);
+ *  kill    — бактерия убита: id, kind, gain (монет за неё), coins (монет после);
+ *  blast   — взрыв Шипучки: x, y, radius, hits (сколько задето), kills (сколько убито), chain (второй взрыв «Цепной»);
+ *  beam    — удар очереди луча Шприца: col, row (башня), index (номер удара с нуля), hits (сколько на линии), kills;
+ *  latch   — паразит присосался: id, col, row (башня), dist (расстояние до неё в этот момент);
+ *  chip    — подсказка «◀ Организм» сменила состояние: visible, danger, nearest (до организма от ближайшей бактерии, px; null — бактерий нет).
+ * Журнал пишет сама игра в тот кадр, когда событие случилось, поэтому проверкам не нужно «ловить» его опросом состояния, а реальное время (и скорость сервера) на него не влияет.
+ */
+export interface QaEvent {
+  type: 'spawn' | 'kill' | 'blast' | 'beam' | 'latch' | 'chip';
+  t: number;
+  [key: string]: unknown;
+}
+
+/** Сколько событий журнал хранит (дальше новые не пишутся: в обычной проверке их тысячи, а не сотни тысяч). */
+export const QA_EVENTS_MAX = 100000;
 
 export interface DebugSnapshot {
   state: 'playing' | 'paused' | 'won' | 'lost';
@@ -82,6 +105,13 @@ export interface DebugSnapshot {
   /** Скорость игры, выбранная игроком кнопкой (1, 2, 3). */
   speed: number;
   elapsed: number;
+  /** Часы игры: сколько кадров посчитано (пока идёт партия) и сумма «базовых» шагов времени (шаг кадра, не больше MAX_FRAME_MS, × ?speed=, БЕЗ кнопки скорости).
+   *  За любой отрезок при одной и той же кнопке скорости `Δelapsed = speed × ΔbaseSec`, а `ΔbaseSec / Δframes` не больше MAX_FRAME_MS / 1000 × ?speed=: проверки скорости опираются на это, а не на секунды реального времени. */
+  clock: { frames: number; baseSec: number };
+  /** Подсказка «◀ Организм»: видна ли, тревога ли (красная), прозрачность сейчас (в тревоге мигает 0,3…1) и цвет заливки (число 0xRRGGBB). */
+  chip: { visible: boolean; danger: boolean; alpha: number; fill: number };
+  /** Сколько событий в журнале игры (`getEvents`). */
+  events: number;
   lang: string;
   renderer: 'webgl' | 'canvas';
   /** Размер экрана игры и ширина окна карты (без правой панели), пикселей. */
@@ -229,6 +259,8 @@ export interface DebugApi {
   /** Центр клетки → координаты на странице. */
   cellToClient: (col: number, row: number) => { x: number; y: number };
   /** Замер скорости с последнего сброса (reset — начать заново) и сколько объектов сейчас рисуется. */
+  /** Журнал событий игры (с номера `from`): см. QaEvent. Сбрасывается при перезапуске уровня. */
+  getEvents: (from?: number) => QaEvent[];
   getPerf: (reset?: boolean) => PerfReport & { objects: number; bacteria: number; towers: number; renderer: 'webgl' | 'canvas' };
 }
 

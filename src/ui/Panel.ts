@@ -117,6 +117,7 @@ export class Panel {
   private lives = 0;
   private maxLives: number = CONFIG.lives.start;
   private chipDanger: boolean | null = null;
+  private chipFill = 0;
   private waveBtnVisible = false;
   private waveBtnBonusValue = 0;
 
@@ -341,6 +342,11 @@ export class Panel {
     this.chip.setAlpha(danger ? 0.65 + 0.35 * Math.sin(timeSec * 9) : 0.92);
   }
 
+  /** Подсказка «◀ Организм» для проверок: видна ли, тревога ли, прозрачность сейчас и цвет заливки (проверка читает это, а не пиксели снимка экрана). */
+  chipState(): { visible: boolean; danger: boolean; alpha: number; fill: number } {
+    return { visible: this.chip.visible, danger: this.chipDanger === true, alpha: this.chip.alpha, fill: this.chipFill };
+  }
+
   /** Кладёт текст в плашку и, если он не помещается в окно карты, уменьшает его (до 0,5): так длинные сообщения не уходят за край и под панель. */
   private fitPlate(text: Phaser.GameObjects.Text, plate: Phaser.GameObjects.Graphics, y: number): void {
     const scale = Math.min(1, (VIEW_W - 40) / (text.width + 48));
@@ -408,8 +414,9 @@ export class Panel {
 
   private drawChip(danger: boolean): void {
     this.chipDanger = danger;
+    this.chipFill = danger ? COLORS.loseLine : 0x5c2436;
     this.chipBg.clear();
-    this.chipBg.fillStyle(danger ? COLORS.loseLine : 0x5c2436, 0.95).fillRoundedRect(0, 0, 128, 34, { tl: 0, bl: 0, tr: 17, br: 17 });
+    this.chipBg.fillStyle(this.chipFill, 0.95).fillRoundedRect(0, 0, 128, 34, { tl: 0, bl: 0, tr: 17, br: 17 });
     this.chipBg.lineStyle(2, COLORS.loseLine, 1).strokeRoundedRect(0, 0, 128, 34, { tl: 0, bl: 0, tr: 17, br: 17 });
   }
 
