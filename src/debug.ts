@@ -12,6 +12,7 @@
  *   http://localhost:5173/?qa&menu       — открыть игру на главном меню (в режиме проверки без этого параметра игра открывается сразу на партии; в игровой сборке меню открывается, если в адресе нет ?level=N)
  *   http://localhost:5173/?qa&levelwaves — в режиме проверки волны и награды берутся из таблицы уровня (`levels.specs`); без параметра все уровни идут с волнами уровня 1 (так работают прежние проверки и бот)
  *   http://localhost:5173/?qa&stress&fps — стресс-сценарий для замера скорости (40 башен, ≈200 бактерий, ×3) со счётчиком кадров
+ *   http://localhost:5173/?qa&stress=fizz&fps — второй стресс-сценарий: 12 Шипучек 4-го уровня («Цепная» + «Кислота»), ≈200 бактерий, ×3 (взрывы)
  *   http://localhost:5173/?fps          — счётчик кадров в углу; работает и в игровой сборке (только показывает число)
  *   http://localhost:5173/?level=5       — номер уровня (какие башни открыты); работает и в игровой сборке, пока нет меню уровней (этап 5)
  *   http://localhost:5173/?qa&meta=lives:1,coins:2,damage:3,reward:0,dna:50 — подменяет уровни улучшений вне партии и очки ДНК (в сохранение ничего не пишется)
@@ -33,6 +34,9 @@ export const LEVEL_WAVES: boolean = !QA_MODE || params.has('levelwaves');
 
 /** Стресс-сценарий для замера скорости (только вместе с ?qa): 40 башен разных уровней, ≈200 бактерий всех типов, скорость ×3, без волн и без поражения. */
 export const STRESS: boolean = QA_MODE && params.has('stress');
+
+/** Второй стресс-сценарий (`?qa&stress=fizz`): 12 Шипучек 4-го уровня с мутациями «Цепная» и «Кислота» и ≈200 бактерий — нагрузка на взрывы (круг и кольцо на каждый взрыв). Включает и `STRESS`. */
+export const STRESS_FIZZ: boolean = STRESS && params.get('stress') === 'fizz';
 
 /** Множитель игрового времени (1 = обычная скорость). Работает только вместе с ?qa. */
 export const TIME_SCALE: number = QA_MODE ? Math.min(10, Math.max(0.1, Number(params.get('speed')) || 1)) : 1;
@@ -229,7 +233,7 @@ export interface DebugApi {
   /** Центр клетки → координаты на странице. */
   cellToClient: (col: number, row: number) => { x: number; y: number };
   /** Замер скорости с последнего сброса (reset — начать заново) и сколько объектов сейчас рисуется. */
-  getPerf: (reset?: boolean) => PerfReport & { objects: number; bacteria: number; towers: number; renderer: 'webgl' | 'canvas' };
+  getPerf: (reset?: boolean) => PerfReport & { objects: number; bacteria: number; towers: number; renderer: 'webgl' | 'canvas'; scenario?: 'stress' | 'fizz' };
 }
 
 declare global {

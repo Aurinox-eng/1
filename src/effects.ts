@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { ART_DENSITY, bakeArt, ringImage, squareBox } from './art';
+import { ART_DENSITY, artDensity, bakeArt, ringArt, squareBox } from './art';
 import { CONFIG } from './config';
 import type { BacteriumKind } from './objects/Bacterium';
 import { num } from './i18n';
@@ -16,8 +16,10 @@ import { COLORS, FONT, TEXT_COLORS } from './theme';
  * Частые эффекты сделаны без создания объектов на каждое событие (это и тормозило конец партии):
  *  • частицы — один эмиттер частиц Phaser на всю сцену; при множестве уничтожений в секунду частиц на каждое меньше;
  *  • «+монеты» — готовый запас надписей (не больше `feedback.popupMax` на экране, лишние не показываются);
- *  • вспышки попадания — готовый запас картинок-кружков (не больше `feedback.flashMax` на экране).
- * Надписи и вспышки двигаются вручную в обработчике кадра (как прежние анимации: в реальном времени, и на паузе тоже).
+ *  • вспышки попадания — готовый запас картинок-кружков (не больше `feedback.flashMax` на экране);
+ *  • кольца, круги и искры (взрыв Шипучки, холод, постановка, слияние, глушение, лужа) — общий запас картинок (не больше `feedback.ringMax`);
+ *  • лучи Шприца — запас картинок одной заранее нарисованной линии (её растягивают и поворачивают; не больше `feedback.beamMax`).
+ * Надписи, вспышки, кольца и лучи двигаются вручную в обработчике кадра (как прежние анимации: в реальном времени, и на паузе тоже).
  */
 
 /** Кружок для частиц и вспышек (белый, цвет задаётся оттенком), радиус в пикселях мира. */
@@ -26,6 +28,15 @@ const DISC_R = 32;
 /** Сколько длится вспышка попадания и во сколько раз она расширяется. */
 const FLASH_MS = 180;
 const FLASH_GROW = 0.6;
+/** Луч Шприца: заранее нарисованная линия (длина и толщина в пикселях мира; на экране растягивается по длине луча), сколько живёт удар, мс.
+ *  Вид прежний: широкая полоса цвета иглы (14 px, прозрачность 0,35) и яркая белая полоса (5 px, 0,95), сложение света. */
+const BEAM_TEX_W = 128;
+const BEAM_TEX_H = 16;
+const BEAM_MS = 200;
+
+/** Равномерное движение (как «Linear»/«Power0» у прежних анимаций). */
+const linear = (p: number): number => p;
+
 /** За какое окно считается частота уничтожений (для числа частиц), мс. */
 const KILL_WINDOW_MS = 1000;
 
@@ -75,6 +86,29 @@ interface FlashAnim {
   busy: boolean;
 }
 
+/** Кольцо, круг или искра (картинка из запаса): как двигается, растёт и гаснет за dur мс. */
+interface FxAnim {
+  img: Phaser.GameObjects.Image;
+  x0: number;
+  y0: number;
+  x1: number;
+  y1: number;
+  s0: number;
+  s1: number;
+  a0: number;
+  dur: number;
+  ease: (p: number) => number;
+  ms: number;
+  busy: boolean;
+}
+
+/** Удар луча Шприца (картинка из запаса): сколько уже живёт, мс. */
+interface BeamAnim {
+  img: Phaser.GameObjects.Image;
+  ms: number;
+  busy: boolean;
+}
+
 export class Effects {
   /** Сколько раз сработало каждое — для проверок. */
   flashes = 0;
@@ -95,6 +129,9 @@ export class Effects {
   private readonly popupPool: PopupAnim[] = [];
   private readonly flashPool: FlashAnim[] = [];
   private readonly damagePool: DamageAnim[] = [];
+  /** Запас колец, кругов и искр и запас лучей Шприца. */
+  private readonly fxPool: FxAnim[] = [];
+  private readonly beamPool: BeamAnim[] = [];
   /** Когда были последние уничтожения (реальные часы, мс): по ним считается, сколько частиц давать на каждое. */
   private readonly killTimes: number[] = [];
 
@@ -104,6 +141,15 @@ export class Effects {
   ) {
     const dot = bakeArt(scene, 'fx-dot', squareBox(DOT_R), (g) => g.fillStyle(0xffffff, 1).fillCircle(0, 0, DOT_R));
     bakeArt(scene, 'fx-disc', squareBox(DISC_R), (g) => g.fillStyle(0xffffff, 1).fillCircle(0, 0, DISC_R));
+    // Луч: две полосы вместо двух линий. Картинка рисуется «поверх» (слои не складываются), а на экран выводится со сложением света, поэтому узкая яркая
+    // полоса получает цвет, равный сумме обоих слоёв (цвет иглы × 0,35 + белый × 0,95, не больше белого) — как при сложении двух линий.
+    bakeArt(scene, 'fx-beam', { x: 0, y: -BEAM_TEX_H / 2, w: BEAM_TEX_W, h: BEAM_TEX_H }, (g) => {
+      const needle = COLORS.needle;
+      const mix = (shift: number): number => Math.min(255, Math.round(((needle >> shift) & 255) * 0.35 + 255 * 0.95));
+      const core = (mix(16) << 16) | (mix(8) << 8) | mix(0);
+      g.fillStyle(needle, 0.35).fillRect(0, -7, BEAM_TEX_W, 14);
+      g.fillStyle(core, 1).fillRect(0, -2.5, BEAM_TEX_W, 5);
+    });
     this.emitter = scene.add.particles(0, 0, dot, { emitting: false, speed: 0, lifespan: CONFIG.feedback.particleLifeMs });
     this.emitter.addParticleProcessor(new BurstMotion());
     layer.add(this.emitter);
@@ -145,6 +191,27 @@ export class Effects {
       if (p >= 1) {
         a.busy = false;
         a.disc.setVisible(false);
+      }
+    }
+    for (const a of this.fxPool) {
+      if (!a.busy) continue;
+      a.ms += deltaMs;
+      const p = Math.min(1, a.ms / a.dur);
+      const e = a.ease(p);
+      a.img.setPosition(a.x0 + (a.x1 - a.x0) * e, a.y0 + (a.y1 - a.y0) * e).setScale(a.s0 + (a.s1 - a.s0) * e).setAlpha(a.a0 * (1 - e));
+      if (p >= 1) {
+        a.busy = false;
+        a.img.setVisible(false);
+      }
+    }
+    for (const a of this.beamPool) {
+      if (!a.busy) continue;
+      a.ms += deltaMs;
+      const p = Math.min(1, a.ms / BEAM_MS);
+      a.img.setAlpha(1 - p);
+      if (p >= 1) {
+        a.busy = false;
+        a.img.setVisible(false);
       }
     }
   }
@@ -291,20 +358,10 @@ export class Effects {
   merged(x: number, y: number): void {
     this.placements++;
     this.ring(x, y, 44, 6, COLORS.gold, 2.8, 460);
+    const s0 = 5 / DOT_R / ART_DENSITY;
     for (let i = 0; i < 10; i++) {
       const angle = (Math.PI * 2 * i) / 10;
-      const spark = this.scene.add.circle(x, y, 5, i % 2 === 0 ? COLORS.gold : COLORS.merge);
-      this.layer.add(spark);
-      this.scene.tweens.add({
-        targets: spark,
-        x: x + Math.cos(angle) * 90,
-        y: y + Math.sin(angle) * 90,
-        alpha: 0,
-        scale: 0.3,
-        duration: 480,
-        ease: 'Cubic.easeOut',
-        onComplete: () => spark.destroy(),
-      });
+      this.spawnFx('fx-dot', Phaser.BlendModes.NORMAL, i % 2 === 0 ? COLORS.gold : COLORS.merge, x, y, x + Math.cos(angle) * 90, y + Math.sin(angle) * 90, s0, s0 * 0.3, 1, 480, cubicOut);
     }
   }
 
@@ -312,37 +369,43 @@ export class Effects {
   blast(x: number, y: number, radius: number): void {
     this.blasts++;
     const base = radius / DISC_R / ART_DENSITY;
-    const disc = this.scene.add.image(x, y, 'fx-disc').setScale(base).setTint(COLORS.fizz).setAlpha(0.28).setBlendMode(Phaser.BlendModes.ADD);
-    this.layer.add(disc);
-    this.scene.tweens.add({ targets: disc, scale: base * 1.12, alpha: 0, duration: 320, onComplete: () => disc.destroy() });
+    this.spawnFx('fx-disc', Phaser.BlendModes.ADD, COLORS.fizz, x, y, x, y, base, base * 1.12, 0.28, 320, linear);
     this.ring(x, y, radius, 5, COLORS.fizz, 1.25, 380);
   }
 
   /** Удар луча шприца: яркая бирюзовая линия от башни на длину луча быстро гаснет. */
   beam(x: number, y: number, angle: number, length: number): void {
     this.beams++;
-    const line = this.scene.add.graphics().setBlendMode(Phaser.BlendModes.ADD);
-    line.lineStyle(14, COLORS.needle, 0.35).lineBetween(0, 0, length, 0);
-    line.lineStyle(5, 0xffffff, 0.95).lineBetween(0, 0, length, 0);
-    line.setPosition(x, y).setRotation(angle);
-    this.layer.add(line);
-    this.scene.tweens.add({ targets: line, alpha: 0, duration: 200, onComplete: () => line.destroy() });
+    let a = this.beamPool.find((b) => !b.busy);
+    if (!a) {
+      if (this.beamPool.length < CONFIG.feedback.beamMax) {
+        const img = this.scene.add.image(0, 0, 'fx-beam').setOrigin(0, 0.5).setBlendMode(Phaser.BlendModes.ADD);
+        this.layer.add(img);
+        a = { img, ms: 0, busy: false };
+        this.beamPool.push(a);
+      } else {
+        // Все лучи заняты: заменяется самый старый (он уже почти угас)
+        a = this.beamPool.reduce((oldest, b) => (b.ms > oldest.ms ? b : oldest));
+      }
+    }
+    a.busy = true;
+    a.ms = 0;
+    // Картинка растягивается по длине луча; по толщине — в натуральную величину (плотность картинки учтена)
+    a.img.setPosition(x, y).setRotation(angle).setScale(length / a.img.width, 1 / ART_DENSITY).setAlpha(1).setVisible(true);
+    this.layer.bringToTop(a.img);
   }
 
   /** Холод заморозил бактерий: бело-голубой круг радиуса башни вспыхивает и медленно гаснет, по его краю расходится кольцо, внутри разлетаются ледяные искры. */
   frost(x: number, y: number, radius: number): void {
     this.frosts++;
     const base = radius / DISC_R / ART_DENSITY;
-    const disc = this.scene.add.image(x, y, 'fx-disc').setScale(base * 0.4).setTint(COLORS.frost).setAlpha(0.42).setBlendMode(Phaser.BlendModes.ADD);
-    this.layer.add(disc);
-    this.scene.tweens.add({ targets: disc, scale: base, alpha: 0, duration: 560, ease: 'Cubic.easeOut', onComplete: () => disc.destroy() });
+    this.spawnFx('fx-disc', Phaser.BlendModes.ADD, COLORS.frost, x, y, x, y, base * 0.4, base, 0.42, 560, cubicOut);
     this.ring(x, y, radius * 0.9, 6, COLORS.frostLight, 1.12, 520);
     for (let i = 0; i < 9; i++) {
       const angle = Math.random() * Math.PI * 2;
       const dist = radius * (0.2 + Math.random() * 0.7);
-      const spark = this.scene.add.circle(x + Math.cos(angle) * dist * 0.5, y + Math.sin(angle) * dist * 0.5, 3 + Math.random() * 3, 0xffffff).setBlendMode(Phaser.BlendModes.ADD);
-      this.layer.add(spark);
-      this.scene.tweens.add({ targets: spark, x: x + Math.cos(angle) * dist, y: y + Math.sin(angle) * dist, alpha: 0, scale: 0.3, duration: 520, ease: 'Cubic.easeOut', onComplete: () => spark.destroy() });
+      const s0 = (3 + Math.random() * 3) / DOT_R / ART_DENSITY;
+      this.spawnFx('fx-dot', Phaser.BlendModes.ADD, 0xffffff, x + Math.cos(angle) * dist * 0.5, y + Math.sin(angle) * dist * 0.5, x + Math.cos(angle) * dist, y + Math.sin(angle) * dist, s0, s0 * 0.3, 1, 520, cubicOut);
     }
   }
 
@@ -360,9 +423,42 @@ export class Effects {
 
   /** Расходящееся кольцо (картинка): радиус и толщина в начале, цвет; за ms миллисекунд увеличивается в grow раз и гаснет. */
   private ring(x: number, y: number, radius: number, width: number, color: number, grow: number, ms: number): void {
-    const ring = ringImage(this.scene, x, y, radius, width, color);
-    this.layer.add(ring);
-    this.scene.tweens.add({ targets: ring, scale: ring.scale * grow, alpha: 0, duration: ms, onComplete: () => ring.destroy() });
+    const { key } = ringArt(this.scene, radius, width);
+    const s0 = 1 / artDensity(key);
+    this.spawnFx(key, Phaser.BlendModes.NORMAL, color, x, y, x, y, s0, s0 * grow, 1, ms, linear);
+  }
+
+  /**
+   * Картинка из общего запаса колец, кругов и искр: стартует в (x0, y0) с масштабом s0 и прозрачностью a0, за dur мс по кривой ease доходит до (x1, y1), масштаба s1 и
+   * полной прозрачности. Если все картинки заняты и предел `feedback.ringMax` достигнут, заменяется самая старая (по доле пройденного времени).
+   */
+  private spawnFx(key: string, blend: number, tint: number, x0: number, y0: number, x1: number, y1: number, s0: number, s1: number, a0: number, dur: number, ease: (p: number) => number): void {
+    let a = this.fxPool.find((f) => !f.busy);
+    if (!a) {
+      if (this.fxPool.length < CONFIG.feedback.ringMax) {
+        const img = this.scene.add.image(0, 0, key);
+        this.layer.add(img);
+        a = { img, x0, y0, x1, y1, s0, s1, a0, dur, ease, ms: 0, busy: false };
+        this.fxPool.push(a);
+      } else {
+        a = this.fxPool.reduce((oldest, f) => (f.ms / f.dur > oldest.ms / oldest.dur ? f : oldest));
+      }
+    }
+    a.x0 = x0;
+    a.y0 = y0;
+    a.x1 = x1;
+    a.y1 = y1;
+    a.s0 = s0;
+    a.s1 = s1;
+    a.a0 = a0;
+    a.dur = dur;
+    a.ease = ease;
+    a.ms = 0;
+    a.busy = true;
+    if (a.img.texture.key !== key) a.img.setTexture(key);
+    a.img.setBlendMode(blend).setTint(tint).setPosition(x0, y0).setScale(s0).setAlpha(a0).setVisible(true);
+    // поверх остальных эффектов, как прежний только что созданный объект
+    this.layer.bringToTop(a.img);
   }
 
   /** Бактерия дошла до организма: красная вспышка на всём экране и тряска. */

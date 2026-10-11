@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import { CameraRig } from '../cameraRig';
 import { CONFIG } from '../config';
-import { exposeDebug, QA_MODE, STRESS, TIME_SCALE, type DebugSnapshot } from '../debug';
+import { exposeDebug, QA_MODE, STRESS, STRESS_FIZZ, TIME_SCALE, type DebugSnapshot } from '../debug';
 import { Effects } from '../effects';
 import { drawStar, setScreenInfo } from '../screens';
 import { awardDna, coinsBonus, exposeMetaDebug, HIDDEN_SCREEN, livesBonus, markSeen, metaDna, metaSeen, recordResult, refundBonus, rewardMul, shieldCharges, starsForLoss, waveCoinsBonus } from '../meta';
@@ -83,7 +83,7 @@ const BEAM_START_PX = 50;
 const SPLITS_INTO: BacteriumKind = 'coccus';
 /** Кого рожает матка (правило игры; сколько и как часто — в таблице типов). */
 const BREWS_INTO: BacteriumKind = 'swarm';
-/** Стресс-сценарий (`?qa&stress`): сколько башен, сколько бактерий держится на карте, скорость игры, во сколько раз прочнее бактерии (чтобы жили дольше). */
+/** Стресс-сценарий (`?qa&stress`; второй — `?qa&stress=fizz`, см. ниже): сколько башен, сколько бактерий держится на карте, скорость игры, во сколько раз прочнее бактерии (чтобы жили дольше). */
 const STRESS_TOWERS = 40;
 const STRESS_BACTERIA = 200;
 const STRESS_SPEED = 3;
@@ -92,6 +92,9 @@ const STRESS_HP_MUL = 3;
 const STRESS_REFILL_PER_FRAME = 20;
 /** Новые бактерии стресс-сценария появляются не ближе стольких клеток к организму. */
 const STRESS_ORGANISM_GAP_TILES = 3;
+/** Второй стресс-сценарий (`?qa&stress=fizz`): сколько Шипучек 4-го уровня, во сколько раз прочнее бактерии (Шипучки бьют по площади и сильно — иначе бактерии гибли бы с одного-двух взрывов). */
+const STRESS_FIZZ_TOWERS = 12;
+const STRESS_FIZZ_HP_MUL = 40;
 
 /** Кто выходит следующим в волне: тип, вход (null — случайный) и сколько секунд ждать до следующего (в пачке — короткая пауза). */
 interface SpawnItem {
@@ -412,6 +415,7 @@ export class GameScene extends Phaser.Scene {
           bacteria: this.bacteria.length,
           towers: this.towers.length,
           renderer: this.game.renderer.type === Phaser.WEBGL ? 'webgl' : 'canvas',
+          scenario: STRESS ? (STRESS_FIZZ ? 'fizz' : 'stress') : undefined,
         };
       },
       worldToClient: (wx, wy) => {
@@ -1520,6 +1524,10 @@ export class GameScene extends Phaser.Scene {
         if (!PATH_TILES.has(key) && !BLOCKED_TILES.has(key)) free.push([col, row]);
       }
     }
+    if (STRESS_FIZZ) {
+      this.setupStressFizz(free);
+      return;
+    }
     // Клетки берутся равномерно по всему списку, чтобы башни стояли по всей карте
     const count = Math.min(STRESS_TOWERS, free.length);
     for (let i = 0; i < count; i++) {
@@ -1528,6 +1536,34 @@ export class GameScene extends Phaser.Scene {
       const tower = new Tower(this, this.towerLayer, ids[i % ids.length], col, row, center.x, center.y);
       for (let level = 1; level < 1 + (Math.floor(i / ids.length) % MAX_TOWER_LEVEL); level++) tower.upgrade();
       while (tower.pendingTier !== null) tower.pickMutation(i % 2);
+      this.occupied.add(cellKey(col, row));
+      this.towers.push(tower);
+    }
+    this.placedAny = true;
+    this.updateHint();
+    this.refillStress(STRESS_BACTERIA);
+  }
+
+  /**
+   * Сценарий «Шипучки»: 12 Шипучек 4-го уровня на свободных клетках вплотную к дорожкам (равномерно по их списку — по всей карте), у каждой три мутации: «Быстрая» (чаще взрывы),
+   * «Цепная» (второй взрыв) и «Кислота» (как после слияния: мутации сливаемой башни переходят к новой). Взрывы идут часто и по кучкам бактерий.
+   */
+  private setupStressFizz(free: [number, number][]): void {
+    const nearPath = free.filter(([col, row]) => {
+      for (let dc = -1; dc <= 1; dc++) for (let dr = -1; dr <= 1; dr++) if (PATH_TILES.has(cellKey(col + dc, row + dr))) return true;
+      return false;
+    });
+    const cells = nearPath.length >= STRESS_FIZZ_TOWERS ? nearPath : free;
+    const count = Math.min(STRESS_FIZZ_TOWERS, cells.length);
+    for (let i = 0; i < count; i++) {
+      const [col, row] = cells[Math.floor((i * cells.length) / count)];
+      const center = tileCenter(col, row);
+      const tower = new Tower(this, this.towerLayer, 'fizz', col, row, center.x, center.y);
+      tower.upgrade();
+      tower.upgrade();
+      tower.upgrade(['fizzAcid']);
+      tower.pickMutation(1); // порог 1: «Быстрая» (fizzFast)
+      tower.pickMutation(0); // порог 2: «Цепная» (fizzChain); «Кислота» уже пришла при слиянии
       this.occupied.add(cellKey(col, row));
       this.towers.push(tower);
     }
@@ -1548,7 +1584,7 @@ export class GameScene extends Phaser.Scene {
         s = Math.random() * edge.length;
         if (pointAt(edge, s).x > CONFIG.map.orgW + STRESS_ORGANISM_GAP_TILES * CONFIG.map.tile) break;
       }
-      this.bacteria.push(new Bacterium(this, this.bacteriaLayer, kind, edge, s, STRESS_HP_MUL));
+      this.bacteria.push(new Bacterium(this, this.bacteriaLayer, kind, edge, s, STRESS_FIZZ ? STRESS_FIZZ_HP_MUL : STRESS_HP_MUL));
       this.spawned++;
     }
   }
