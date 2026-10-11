@@ -74,17 +74,27 @@ for (const r of results) {
   const cfg = a.cfg ?? '';
   const level = a.level ?? 1;
   const meta = a.meta ? Object.entries(a.meta).map(([id, n]) => `${id}:${n}`).join(',') : '';
+  const solo = a.solo ?? '';
   for (const g of r.games) {
-    const key = [g.profile, exclude, cfg, level, meta].join('|');
-    if (!groups.has(key)) groups.set(key, { profile: g.profile, exclude, cfg, level, meta, games: [], tags: new Set(), seeds: [] });
+    const key = [g.profile, exclude, cfg, level, meta, solo].join('|');
+    if (!groups.has(key)) groups.set(key, { profile: g.profile, exclude, cfg, level, meta, solo, games: [], tags: new Set(), seeds: [] });
     const group = groups.get(key);
     group.games.push(g);
     group.tags.add(r.tag);
   }
 }
 const orderedGroups = [...groups.values()].sort(
-  (x, y) => x.level - y.level || x.meta.localeCompare(y.meta) || x.cfg.localeCompare(y.cfg) || x.exclude.localeCompare(y.exclude) || PROFILE_ORDER.indexOf(x.profile) - PROFILE_ORDER.indexOf(y.profile),
+  (x, y) => x.level - y.level || x.meta.localeCompare(y.meta) || x.cfg.localeCompare(y.cfg) || x.exclude.localeCompare(y.exclude) || x.solo.localeCompare(y.solo) || PROFILE_ORDER.indexOf(x.profile) - PROFILE_ORDER.indexOf(y.profile),
 );
+
+/** До какой волны дошла партия: победа — все волны уровня, иначе номер волны на момент конца (проигрыш, timeout). */
+const waveReached = (g) => (g.result === 'won' ? g.waveTotal ?? g.wave : g.wave);
+function median(values) {
+  const a = values.filter(Number.isFinite).sort((x, y) => x - y);
+  if (!a.length) return NaN;
+  const mid = Math.floor(a.length / 2);
+  return a.length % 2 ? a[mid] : (a[mid - 1] + a[mid]) / 2;
+}
 
 function summarize(games) {
   const own = games.filter((g) => g.result !== 'error');
@@ -98,6 +108,7 @@ function summarize(games) {
     winRate: own.filter((g) => g.result === 'won').length / own.length,
     avgLivesLost: mean(own.map((g) => g.maxLives - g.lives)),
     avgLossWave: mean(losses.map((g) => g.wave)),
+    medianWave: median(own.map(waveReached)),
     avgTowers: Object.fromEntries(KNOWN_TOWERS.map((id) => [id, mean(own.map((g) => g.towers?.[id] ?? 0))])),
     avgCoinsEnd: mean(own.map((g) => g.coins)),
     avgRealSec: mean(own.map((g) => g.realSec)),
@@ -105,7 +116,7 @@ function summarize(games) {
   };
 }
 
-const variant = (g) => [g.exclude ? `без: ${g.exclude.split(',').map((id) => NAMES[id] ?? id).join(', ')}` : '', g.cfg ? `cfg: ${g.cfg}` : '', g.level !== 1 ? `уровень ${g.level}` : '', g.meta ? `улучшения: ${g.meta}` : ''].filter(Boolean).join('; ') || 'обычный';
+const variant = (g) => [g.solo ? `одна башня: ${NAMES[g.solo] ?? g.solo}` : '', g.exclude ? `без: ${g.exclude.split(',').map((id) => NAMES[id] ?? id).join(', ')}` : '', g.cfg ? `cfg: ${g.cfg}` : '', g.level !== 1 ? `уровень ${g.level}` : '', g.meta ? `улучшения: ${g.meta}` : ''].filter(Boolean).join('; ') || 'обычный';
 
 const gameLine = (g, index, total) => {
   const head = `[${PROFILE_TITLES[g.profile] ?? g.profile} ${index}/${total}]`;
@@ -146,17 +157,17 @@ lines.push('');
 if (!orderedGroups.length && !campaignResults.length && !ladderResults.length) {
   lines.push('**Результатов нет:** ни одна задача не прислала файл с партиями.');
 } else if (orderedGroups.length) {
-  const head = ['Вариант', 'Профиль', 'Партий', 'Побед', 'Потеряно жизней', 'Волна гибели', `Башни (${KNOWN_TOWERS.map((id) => SHORT[id] ?? id).join('/')})`, 'Монеты в конце', 'Реал. время партии'];
+  const head = ['Вариант', 'Профиль', 'Партий', 'Побед', 'Потеряно жизней', 'Волна гибели', 'Медиана волны', `Башни (${KNOWN_TOWERS.map((id) => SHORT[id] ?? id).join('/')})`, 'Монеты в конце', 'Реал. время партии'];
   lines.push(`| ${head.join(' | ')} |`);
   lines.push(`|${head.map(() => '---').join('|')}|`);
   for (const g of orderedGroups) {
     const s = summarize(g.games);
     if (!s) {
-      lines.push(`| ${esc(variant(g))} | ${PROFILE_TITLES[g.profile] ?? g.profile} | 0 (все партии с ошибкой) | — | — | — | — | — | — |`);
+      lines.push(`| ${esc(variant(g))} | ${PROFILE_TITLES[g.profile] ?? g.profile} | 0 (все партии с ошибкой) | — | — | — | — | — | — | — |`);
       continue;
     }
     lines.push(
-      `| ${esc(variant(g))} | ${PROFILE_TITLES[g.profile] ?? g.profile} | ${s.games}${s.timeout ? ` (timeout ${s.timeout})` : ''} | ${s.won}/${s.games} (${pct(s.winRate)}) | ${f1(s.avgLivesLost)} | ${s.lost ? f1(s.avgLossWave) : '—'} | ${KNOWN_TOWERS.map((id) => f1(s.avgTowers[id])).join(' / ')} | ${f1(s.avgCoinsEnd)} | ${f1(s.avgRealSec)} с (игра ${f1(s.avgGameSec)} с) |`,
+      `| ${esc(variant(g))} | ${PROFILE_TITLES[g.profile] ?? g.profile} | ${s.games}${s.timeout ? ` (timeout ${s.timeout})` : ''} | ${s.won}/${s.games} (${pct(s.winRate)}) | ${f1(s.avgLivesLost)} | ${s.lost ? f1(s.avgLossWave) : '—'} | ${f1(s.medianWave)} | ${KNOWN_TOWERS.map((id) => f1(s.avgTowers[id])).join(' / ')} | ${f1(s.avgCoinsEnd)} | ${f1(s.avgRealSec)} с (игра ${f1(s.avgGameSec)} с) |`,
     );
   }
   lines.push('');

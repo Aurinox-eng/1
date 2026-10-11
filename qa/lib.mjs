@@ -537,3 +537,12 @@ export function buyOrder(upgrades) {
   const first = ['damage', 'coins', 'lives', 'reward'];
   return [...first, ...Object.keys(upgrades).filter((id) => !first.includes(id))];
 }
+
+/**
+ * Порядок покупок для замера «одна башня» (docs/fizz-solo-plan.md): сначала улучшения ветки этой башни (в порядке таблицы; недоступные по уровню или без очков
+ * пропускаются жадным выбором), затем обычный порядок. Игрок, который играет одной башней, качает именно её.
+ */
+export function buyOrderSolo(upgrades, tower) {
+  const own = Object.keys(upgrades).filter((id) => upgrades[id].branch === tower);
+  return [...own, ...buyOrder(upgrades).filter((id) => !own.includes(id))];
+}

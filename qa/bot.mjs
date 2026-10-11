@@ -194,6 +194,9 @@ const HELP = `Бот-замерщик баланса: играет целые п
                                         Дорожка, не выигравшая за K партий, «застряла» и дальше не идёт. Не сочетается с --campaign, --meta, --level
   --run-offset=N                        (лестница) номер дорожки = номер в --runs + N: так дорожки разных задач различаются
   --from-level=N, --to-level=M          участок лестницы (по умолчанию 1…10); дорожку между задачами передают --state-in=файл (состояние до) и --state-out=файл (после)
+  --solo=<башня>                        «одна башня» (docs/fizz-solo-plan.md): игрок строит только эту башню и не больше одного Сиропа. Башни с уроном (pill, fizz, syringe, ampule,
+                                        antibiotic, lamp): «башня + 1 Сироп»; vitamin, frost, patch: «башня + 1 Сироп + Таблетки» (Таблетки — основа, башня докупается как всегда). --solo=pill —
+                                        база для сравнения («только Таблетки + 1 Сироп»). Играет только --profile=strong или expert; башня должна быть открыта на --level; не сочетается с --ladder и --campaign
   --canvas                              рисовать игру через canvas вместо WebGL (?qa&canvas): на слабом контейнере партия идёт ≈ втрое быстрее.
                                         Логика игры та же; для замеров баланса годится (картинка не важна)
   --help                                эта справка
@@ -209,7 +212,7 @@ if (args.help || args.h) {
   console.log(HELP);
   process.exit(0);
 }
-const KNOWN = new Set(['profile', 'runs', 'speed', 'exclude', 'cfg', 'tag', 'seed', 'max-game-sec', 'max-real-sec', 'verbose', 'shots', 'canvas', 'level', 'meta', 'campaign', 'ladder', 'from-level', 'to-level', 'state-in', 'state-out', 'run-offset', 'help']);
+const KNOWN = new Set(['profile', 'runs', 'speed', 'exclude', 'cfg', 'tag', 'seed', 'max-game-sec', 'max-real-sec', 'verbose', 'shots', 'canvas', 'level', 'meta', 'campaign', 'ladder', 'from-level', 'to-level', 'state-in', 'state-out', 'run-offset', 'solo', 'help']);
 for (const key of Object.keys(args)) if (!KNOWN.has(key)) die(`Неизвестный параметр --${key}. Справка: node qa/bot.mjs --help`);
 
 function numArg(name, fallback, { min = -Infinity, max = Infinity, int = false } = {}) {
@@ -241,6 +244,10 @@ const STATE_OUT = args['state-out'] === undefined || args['state-out'] === true 
 if (LADDER && (CAMPAIGN || args.meta !== undefined || args.level !== undefined)) die('--ladder не сочетается с --campaign, --meta и --level: уровни и улучшения ведёт сам бот (участок уровней — --from-level, --to-level).');
 if (!LADDER && (args['from-level'] !== undefined || args['to-level'] !== undefined || args['run-offset'] !== undefined || STATE_IN || STATE_OUT)) die('--from-level, --to-level, --run-offset, --state-in, --state-out работают только вместе с --ladder=K.');
 if (LADDER_FROM > LADDER_TO) die('--from-level не может быть больше --to-level.');
+const SOLO_SUPPORT = ['vitamin', 'frost', 'patch']; // не бьют сами: идут поверх Таблеток
+const SOLO = args.solo === undefined ? null : String(args.solo);
+if (SOLO !== null && (args.solo === true || !SOLO)) die('--solo=<башня>: после «=» нужен id башни, например --solo=fizz.');
+if (SOLO && (LADDER || CAMPAIGN)) die('--solo не сочетается с --ladder и --campaign: сравнение «одна башня» идёт на одном уровне с фиксированными улучшениями (--meta).');
 const SEED = args.seed === undefined ? Math.floor(Math.random() * 1e9) : numArg('seed', 0, { min: 0, max: 4294967295, int: true });
 const TAG = args.tag === undefined ? 'latest' : String(args.tag);
 if (!/^[\w-]+$/.test(TAG)) die(`Неверный --tag=«${TAG}»: только буквы, цифры, «_» и «-».`);
@@ -258,6 +265,15 @@ const EXCLUDE = new Set(
         .map((x) => x.trim())
         .filter(Boolean),
 );
+if (SOLO) {
+  if (!KNOWN_TOWERS.includes(SOLO) || SOLO === 'syrup') die(`--solo: нет такой башни «${SOLO}». Есть: ${KNOWN_TOWERS.filter((id) => id !== 'syrup').join(', ')}.`);
+  if ((TOWER_UNLOCK[SOLO] ?? 1) > LEVEL) die(`--solo=${SOLO}: башня открыта с уровня ${TOWER_UNLOCK[SOLO]}, а замер идёт на уровне ${LEVEL} (--level).`);
+  if (profileArg !== 'strong' && profileArg !== 'expert') die('--solo играют только профили strong и expert: укажите --profile=strong или --profile=expert.');
+}
+/** Какие башни строит игрок при --solo: сама башня, Сироп (не больше одного) и, если башня не бьёт сама, Таблетки. */
+const SOLO_ALLOWED = SOLO ? new Set([SOLO, 'syrup', ...(SOLO === 'pill' || SOLO_SUPPORT.includes(SOLO) ? ['pill'] : [])]) : null;
+/** Круг покупок при --solo (вместо STRONG_CYCLE): Сироп встаёт один раз, дальше только основа. */
+const SOLO_CYCLE = SOLO ? (SOLO_SUPPORT.includes(SOLO) ? ['pill', 'pill', 'syrup', 'pill'] : [SOLO, 'syrup', SOLO]) : null;
 for (const id of EXCLUDE) if (!KNOWN_TOWERS.includes(id)) die(`--exclude: нет башни «${id}». Есть: ${KNOWN_TOWERS.join(', ')}.`);
 
 /** --cfg=путь:число,...: проверяем запись и накладываем на то, что бот знает сам (цены и радиусы башен, ширина дорожки). */
@@ -623,7 +639,8 @@ function buildWorld(graph, map, cols, rows) {
  * без занятых и «плохих»), covCount }. После успешной покупки зовётся bought(), после неудачи клетку бот сам помечает «плохой».
  */
 function makePlayer(profile, { world, rng, buttons }) {
-  const available = (id) => TABLE[id] && buttons.includes(id) && !EXCLUDE.has(id);
+  const available = (id) => TABLE[id] && buttons.includes(id) && !EXCLUDE.has(id) && (!SOLO_ALLOWED || SOLO_ALLOWED.has(id));
+  const cycle = SOLO_CYCLE ?? STRONG_CYCLE;
   const pick = (list) => list[Math.floor(rng() * list.length)];
   /** Проверка «клетка в радиусе слияния от стоящей башни этого вида 1-го уровня (мутация не ждёт)»; null — таких башен нет (тогда как раньше). */
   const nearPartner = (view, type) => {
@@ -769,9 +786,10 @@ function makePlayer(profile, { world, rng, buttons }) {
         headSince = now;
       }
       let order = [];
-      for (let k = 0; k < STRONG_CYCLE.length; k++) {
-        const idx = (ptr + k) % STRONG_CYCLE.length;
-        if (available(STRONG_CYCLE[idx])) order.push({ idx, type: STRONG_CYCLE[idx] });
+      const syrupDone = SOLO && view.towers.some((tw) => tw.id === 'syrup'); // при --solo Сироп один: построен — из круга уходит
+      for (let k = 0; k < cycle.length; k++) {
+        const idx = (ptr + k) % cycle.length;
+        if (available(cycle[idx]) && !(syrupDone && cycle[idx] === 'syrup')) order.push({ idx, type: cycle[idx] });
       }
       // Начало партии: пока башен с уроном мало, главное — урон: берётся самая дешёвая башня с уроном (вне списка по кругу; Сироп без урона ничего не убьёт)
       // Считаем в «обычных башнях»: башня уровня L — это 2^(L−1) обычных (иначе после слияния двух Таблеток «начало партии» включалось снова и бот до конца партии покупал только Таблетки: Сироп не строился)
@@ -785,7 +803,7 @@ function makePlayer(profile, { world, rng, buttons }) {
       // Так же он копит на первый Сироп и первый Шприц (без этого в бою, когда «не спокойно», терпение 0 и он до конца партии покупает только дешёвые Таблетки: Сироп не строился ни разу)
       const firstOf = (id) => available(id) && !gaveUp.has(id) && !view.towers.some((tw) => tw.id === id);
       const needFirst = imperfect || opening ? null : firstOf('fizz') && view.s.wave <= FIZZ_BY_WAVE ? 'fizz' : ['syrup', 'syringe'].find(firstOf) ?? null;
-      if (needFirst) order = [{ idx: STRONG_CYCLE.indexOf(needFirst), type: needFirst }];
+      if (needFirst) order = [{ idx: cycle.indexOf(needFirst), type: needFirst }];
       else if (extraHead && !opening) order.unshift({ idx: -2, type: extraHead }); // Ампула / Антибиотик — во главе очереди (ждёт монет, как на любую дорогую башню); место в круге не двигает
       if (!order.length) return null;
       const calm = view.s.lives >= view.s.maxLives && view.s.bacteria.length <= CALM_MAX_BACTERIA;
@@ -837,7 +855,7 @@ function makePlayer(profile, { world, rng, buttons }) {
       return { type: chosen.type, cell: best.c, cycleIdx: chosen.idx };
     },
     bought(choice) {
-      if (choice.cycleIdx >= 0) ptr = (choice.cycleIdx + 1) % STRONG_CYCLE.length; // покупка «начала партии» (cycleIdx -1) место в списке не двигает
+      if (choice.cycleIdx >= 0) ptr = (choice.cycleIdx + 1) % cycle.length; // покупка «начала партии» (cycleIdx -1) место в списке не двигает
     },
   };
 }
@@ -1279,6 +1297,14 @@ function gameLine(g, runs) {
   return `${head} ${RESULT_RU[g.result]} · волна ${g.wave}/${g.waveTotal} · жизни ${g.lives}/${g.maxLives} · убито ${g.kills}, дошло ${g.leaked} · монеты ${g.coins} · башни ${towers}${merged} · игра ${f1(g.gameSec)} с · реал. ${f1(g.realSec)} с`;
 }
 
+/** До какой волны дошла партия: победа — все волны уровня, иначе номер волны на момент конца (проигрыш, timeout). */
+const waveReached = (g) => (g.result === 'won' ? g.waveTotal ?? g.wave : g.wave);
+function median(values) {
+  const a = values.filter(Number.isFinite).sort((x, y) => x - y);
+  if (!a.length) return NaN;
+  const mid = Math.floor(a.length / 2);
+  return a.length % 2 ? a[mid] : (a[mid - 1] + a[mid]) / 2;
+}
 function summarize(games) {
   const out = {};
   for (const profile of PROFILES) {
@@ -1293,6 +1319,7 @@ function summarize(games) {
       winRate: own.filter((g) => g.result === 'won').length / own.length,
       avgLivesLost: mean(own.map((g) => g.maxLives - g.lives)),
       avgLossWave: mean(losses.map((g) => g.wave)),
+      medianWave: median(own.map(waveReached)),
       avgTowers: Object.fromEntries(KNOWN_TOWERS.map((id) => [id, mean(own.map((g) => g.towers[id]))])),
       avgTowerTotal: mean(own.map((g) => g.towerTotal)),
       avgCoinsEnd: mean(own.map((g) => g.coins)),
@@ -1309,13 +1336,14 @@ function summarize(games) {
 }
 
 function printSummary(summary) {
-  const cols = ['Профиль', 'Партий', 'Побед', 'Потеряно жизней', 'Волна гибели', `Башни (${KNOWN_TOWERS.map((id) => SHORT[id] ?? id).join('/')})`, 'Монеты в конце', 'Слияний (мимо)', 'Реал. время партии'];
+  const cols = ['Профиль', 'Партий', 'Побед', 'Потеряно жизней', 'Волна гибели', 'Медиана волны (победа = все волны)', `Башни (${KNOWN_TOWERS.map((id) => SHORT[id] ?? id).join('/')})`, 'Монеты в конце', 'Слияний (мимо)', 'Реал. время партии'];
   const rows = Object.entries(summary).map(([profile, x]) => [
     PROFILE_TITLES[profile],
     `${x.games}${x.timeout ? ` (timeout ${x.timeout})` : ''}`,
     `${x.won}/${x.games} (${pct(x.winRate)})`,
     f1(x.avgLivesLost),
     x.lost ? f1(x.avgLossWave) : '—',
+    f1(x.medianWave),
     KNOWN_TOWERS.map((id) => f1(x.avgTowers[id])).join(' / '),
     f1(x.avgCoinsEnd),
     `${f1(x.avgMerges)} (${f1(x.avgMergeMisses)})`,
@@ -1350,7 +1378,7 @@ const saveResults = () => {
   const payload = {
     tag: TAG,
     startedAt: startedAt.toISOString(),
-    args: { profiles: PROFILES, runs: RUNS, speed: SPEED, level: LEVEL, exclude: [...EXCLUDE], cfg: CFG_STRING, seed: SEED, maxGameSec: MAX_GAME_SEC, campaign: CAMPAIGN, meta: META_FIXED },
+    args: { profiles: PROFILES, runs: RUNS, speed: SPEED, level: LEVEL, exclude: [...EXCLUDE], solo: SOLO, cfg: CFG_STRING, seed: SEED, maxGameSec: MAX_GAME_SEC, campaign: CAMPAIGN, meta: META_FIXED },
     campaign: CAMPAIGN ? { n: CAMPAIGN, series, metaTable: META } : undefined,
     ladder: LADDER ? { k: LADDER, from: LADDER_FROM, to: LADDER_TO, lanes: ladderLanes, metaTable: META } : undefined,
     towerTable: TABLE,
@@ -1371,6 +1399,7 @@ process.on('SIGINT', () => {
 console.log(`Бот-замерщик: профили ${PROFILES.map((p) => PROFILE_TITLES[p]).join(', ')}; партий на профиль ${RUNS}; speed ${SPEED}; потолок ${MAX_GAME_SEC} игровых с; seed ${SEED}`);
 console.log(`  башни из config.ts${CFG_STRING ? ' с подменой --cfg' : ''}: ${KNOWN_TOWERS.map((id) => `${NAMES[id] ?? id} ${TABLE[id].price}₽/${TABLE[id].targeting === 'beam' ? 'луч' : `${TABLE[id].range}px`}`).join(', ')}`);
 console.log(`  уровень ${LEVEL}: открыты башни ${KNOWN_TOWERS.filter((id) => (TOWER_UNLOCK[id] ?? 1) <= LEVEL).map((id) => NAMES[id] ?? id).join(', ')}`);
+if (SOLO) console.log(`  --solo=${SOLO}: строят только ${[...SOLO_ALLOWED].map((id) => NAMES[id] ?? id).join(', ')} (Сироп — не больше одного)`);
 if (EXCLUDE.size) console.log(`  не строят: ${[...EXCLUDE].map((id) => NAMES[id] ?? id).join(', ')}`);
 if (CFG_STRING) console.log(`  подмена чисел (--cfg): ${CFG_STRING}`);
 if (SPEED > 2) console.log(`  ⚠ speed ${SPEED} выше 2: замеры грубее (кадры крупнее, бот тратит больше игрового времени на тап). Для итоговых чисел баланса используйте speed 2.`);

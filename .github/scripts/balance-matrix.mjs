@@ -6,6 +6,7 @@
  * Поля: PROFILES — «novice,average,strong,expert» (или «all»); RUNS — партий на профиль и набор; SHARDS — на сколько параллельных задач разнести партии
  * каждой пары «профиль + набор» (1 — одна задача, партии идут подряд; 5 при RUNS=5 — по одной партии в задаче: быстрее всего);
  * EXCLUDES — наборы исключений через «;», внутри набора башни через «,» (например «-;syrup;fizz,syringe»; «-» или пусто — без исключений);
+ * SOLOS — варианты «одна башня» (--solo) через «;» (например «-;fizz;pill»: «-» — обычная игра смешанным набором, «fizz» — только Шипучка и один Сироп); играют только профили strong и expert (docs/fizz-solo-plan.md);
  * CFG — подмена чисел «путь:число,путь:число»; LEVEL, SPEED; CAMPAIGN — число партий в серии (0 — обычный замер; N — каждая из RUNS серий играет до N партий подряд с очками ДНК и улучшениями, до первой победы).
  * Если запуск от push (EVENT_NAME=push), поля берутся из файла `.github/balance-request.json` (ключи profiles, runs, shards, excludes, cfg, level, speed, campaign, meta — в нижнем регистре),
  * а не из переменных окружения: так замер можно запустить без кнопки — изменив этот файл и сделав push в рабочую ветку.
@@ -15,7 +16,7 @@ import fs from 'node:fs';
 const env = { ...process.env };
 if (env.EVENT_NAME === 'push') {
   const request = JSON.parse(fs.readFileSync('.github/balance-request.json', 'utf8'));
-  for (const name of ['PROFILES', 'RUNS', 'SHARDS', 'EXCLUDES', 'CFG', 'LEVEL', 'SPEED', 'CAMPAIGN', 'META', 'MAX_GAME_SEC', 'MAX_REAL_SEC']) {
+  for (const name of ['PROFILES', 'RUNS', 'SHARDS', 'EXCLUDES', 'SOLOS', 'CFG', 'LEVEL', 'SPEED', 'CAMPAIGN', 'META', 'MAX_GAME_SEC', 'MAX_REAL_SEC']) {
     const value = request[name.toLowerCase()];
     if (value !== undefined && value !== null) env[name] = String(value);
   }
@@ -27,6 +28,7 @@ const fail = (message) => {
 };
 const PROFILES = ['novice', 'average', 'strong', 'expert'];
 const TOWERS = ['pill', 'syrup', 'fizz', 'syringe'];
+const SOLO_TOWERS = ['pill', 'fizz', 'syringe', 'ampule', 'antibiotic', 'lamp', 'vitamin', 'frost', 'patch'];
 const TITLES = { novice: 'новичок', average: 'средний', strong: 'сильный', expert: 'особо сильный' };
 
 const rawProfiles = (env.PROFILES ?? '').split(',').map((s) => s.trim()).filter(Boolean);
@@ -55,6 +57,15 @@ for (const part of (env.EXCLUDES ?? '').split(';')) {
 }
 if (excludeSets.length === 0) excludeSets.push('');
 
+const soloList = [];
+for (const part of (env.SOLOS ?? '').split(';')) {
+  const id = part.trim() === '-' ? '' : part.trim();
+  if (id && !SOLO_TOWERS.includes(id)) fail(`SOLOS: нет башни «${id}». Есть: ${SOLO_TOWERS.join(', ')} (или «-» — без ограничения)`);
+  if (!soloList.includes(id)) soloList.push(id);
+}
+if (soloList.length === 0) soloList.push('');
+if (soloList.some(Boolean)) for (const p of profiles) if (p !== 'strong' && p !== 'expert') fail(`SOLOS: «одна башня» играют только профили strong и expert, а в списке «${p}»`);
+
 const cfg = (env.CFG ?? '').trim();
 if (cfg && !/^[\w.\-]+:-?[\d.]+(,[\w.\-]+:-?[\d.]+)*$/.test(cfg)) fail(`CFG=«${cfg}»: нужно «путь:число,путь:число», например economy.rewardMul:0.85`);
 
@@ -73,12 +84,14 @@ if (meta && campaign) fail('META не сочетается с CAMPAIGN: в се�
 const include = [];
 for (const profile of profiles) {
   for (const exclude of excludeSets) {
-    for (let shard = 0; shard < shards; shard++) {
-      const games = Math.floor(runs / shards) + (shard < runs % shards ? 1 : 0);
-      const variant = exclude ? `no-${exclude.replace(/,/g, '-')}` : 'base';
-      const tag = `${profile}-${variant}${level !== 1 ? `-L${level}` : ''}${meta ? '-m' : ''}-s${shard + 1}`;
-      const title = `${TITLES[profile]}${exclude ? ` · без ${exclude}` : ''}${campaign ? ` · серии до ${campaign}` : ''}${level !== 1 ? ` · уровень ${level}` : ''}${meta ? ` · улучшения ${meta}` : ''}${shards > 1 ? ` · доля ${shard + 1}/${shards}` : ''} (${games} парт.)`;
-      include.push({ profile, exclude, runs: games, tag, title, cfg, level, speed, campaign, meta, max_game_sec, max_real_sec });
+    for (const solo of soloList) {
+      for (let shard = 0; shard < shards; shard++) {
+        const games = Math.floor(runs / shards) + (shard < runs % shards ? 1 : 0);
+        const variant = `${exclude ? `no-${exclude.replace(/,/g, '-')}` : 'base'}${solo ? `-solo-${solo}` : ''}`;
+        const tag = `${profile}-${variant}${level !== 1 ? `-L${level}` : ''}${meta ? '-m' : ''}-s${shard + 1}`;
+        const title = `${TITLES[profile]}${solo ? ` · одна башня: ${solo}` : ''}${exclude ? ` · без ${exclude}` : ''}${campaign ? ` · серии до ${campaign}` : ''}${level !== 1 ? ` · уровень ${level}` : ''}${meta ? ` · улучшения ${meta}` : ''}${shards > 1 ? ` · доля ${shard + 1}/${shards}` : ''} (${games} парт.)`;
+        include.push({ profile, exclude, solo, runs: games, tag, title, cfg, level, speed, campaign, meta, max_game_sec, max_real_sec });
+      }
     }
   }
 }
