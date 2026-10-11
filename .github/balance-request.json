@@ -1,11 +1,12 @@
 {
-  "note": "Прикидка 6 партий: смешанный набор (strong), уровень 10, эталонный набор улучшений",
+  "note": "Подбор: смешанный набор, уровень 5, latePerWave 2,4 (6 партий)",
   "profiles": "strong",
   "runs": 6,
   "shards": 6,
   "excludes": "-",
   "solos": "-",
-  "level": 10,
+  "cfg": "levels.specs.4.growth.latePerWave:2.4",
+  "level": 5,
   "speed": 2,
-  "meta": "damage:10,coins:10,reward:10,lives:3,shield:5,recycle:5,reinforce:8,pillPower:6"
+  "meta": "damage:10,coins:10,reward:5,lives:3,recycle:1"
 }
