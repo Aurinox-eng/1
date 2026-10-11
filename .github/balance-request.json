@@ -1,10 +1,11 @@
 {
-  "note": "Пробный прогон инфраструктуры: числа круга 14 (88a7881) воспроизведены подменой, чтобы сравнить с замером из чатов",
-  "profiles": "novice,average,strong,expert",
-  "runs": 2,
-  "shards": 2,
+  "note": "Пробный прогон бота --solo (docs/fizz-solo-plan.md): одна партия, Шипучка + 1 Сироп, уровень 5, набор улучшений с веткой Шипучки первой. Цель — проверить, что бот не падает и играет только эти башни",
+  "profiles": "strong",
+  "runs": 1,
+  "shards": 1,
   "excludes": "-",
-  "cfg": "economy.rewardMul:0.3,economy.rewardCurve.0.1:1,economy.rewardCurve.1.1:1,economy.rewardCurve.2.1:1,economy.rewardCurve.3.1:1,waves.hpGrowthPerWave:0.03",
-  "level": 1,
-  "speed": 2
+  "solos": "fizz",
+  "level": 5,
+  "speed": 2,
+  "meta": "damage:3,coins:2,fizzPower:6,fizzBlast:8,fizzRate:2,fizzRange:1"
 }
