@@ -1,11 +1,11 @@
 {
-  "note": "Прикидка 6 партий: одна башня fizz (strong), уровень 5, набор с веткой Шипучки первой",
+  "note": "Прикидка 6 партий: смешанный набор (strong), уровень 10, эталонный набор улучшений",
   "profiles": "strong",
   "runs": 6,
   "shards": 6,
   "excludes": "-",
-  "solos": "fizz",
-  "level": 5,
+  "solos": "-",
+  "level": 10,
   "speed": 2,
-  "meta": "damage:3,coins:2,fizzPower:6,fizzBlast:8,fizzRate:2,fizzRange:1"
+  "meta": "damage:10,coins:10,reward:10,lives:3,shield:5,recycle:5,reinforce:8,pillPower:6"
 }
