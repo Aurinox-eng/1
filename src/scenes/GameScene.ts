@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import { CameraRig } from '../cameraRig';
 import { CONFIG } from '../config';
-import { exposeDebug, QA_MODE, STRESS, STRESS_FIZZ, TIME_SCALE, type DebugSnapshot } from '../debug';
+import { exposeDebug, QA_ENTRANCE, QA_EVENTS_MAX, QA_MODE, STRESS, STRESS_FIZZ, TIME_SCALE, type DebugSnapshot, type QaEvent } from '../debug';
 import { Effects } from '../effects';
 import { drawStar, setScreenInfo } from '../screens';
 import { awardDna, coinsBonus, exposeMetaDebug, HIDDEN_SCREEN, livesBonus, markSeen, metaDna, metaSeen, recordResult, refundBonus, rewardMul, shieldCharges, starsForLoss, waveCoinsBonus } from '../meta';
@@ -124,6 +124,11 @@ type WavePhase = 'countdown' | 'spawning' | 'pause' | 'done';
 export class GameScene extends Phaser.Scene {
   private state: State = 'playing';
   private elapsed = 0;
+  /** Только режим проверки: сколько кадров посчитано, сумма базовых шагов времени (без кнопки скорости) и журнал событий игры (см. QaEvent в debug.ts). */
+  private qaFrames = 0;
+  private qaBaseSec = 0;
+  private qaEvents: QaEvent[] = [];
+  private qaChip = '';
   private coins = 0;
   private lives = 0;
   private kills = 0;
@@ -259,6 +264,10 @@ export class GameScene extends Phaser.Scene {
     // Сцена при перезапуске не создаётся заново, поэтому всё обнуляем вручную.
     this.state = 'playing';
     this.elapsed = 0;
+    this.qaFrames = 0;
+    this.qaBaseSec = 0;
+    this.qaEvents = [];
+    this.qaChip = '';
     this.coins = CONFIG.economy.startCoins + coinsBonus();
     this.lives = this.maxLives();
     this.kills = 0;
@@ -389,6 +398,7 @@ export class GameScene extends Phaser.Scene {
     exposeMetaDebug(() => HIDDEN_SCREEN);
     exposeDebug({
       getState: () => this.snapshot(),
+      getEvents: (from = 0) => this.qaEvents.slice(from),
       getGraph: () => ({
         edges: EDGES.map((e) => ({ id: e.id, from: e.from, to: e.to, length: e.length, pts: e.pts.map((p): [number, number] => [p.x, p.y]) })),
         entrances: ENTRANCE_EDGES.map((e) => e.id),
@@ -436,6 +446,10 @@ export class GameScene extends Phaser.Scene {
 
     const dt = (Math.min(deltaMs, MAX_FRAME_MS) / 1000) * TIME_SCALE * this.userSpeed;
     this.elapsed += dt;
+    if (QA_MODE) {
+      this.qaFrames++;
+      this.qaBaseSec += dt / this.userSpeed;
+    }
     this.updateWaves(dt);
     if (this.state !== 'playing') return;
 
@@ -464,6 +478,17 @@ export class GameScene extends Phaser.Scene {
 
     if (this.phase === 'done' && this.bacteria.length === 0) this.endGame(true);
     this.refreshPanel();
+  }
+
+  /** Запись в журнал событий игры (только режим проверки; вызывать как `if (QA_MODE) this.qa(...)`, чтобы в игровой сборке не собирался и сам объект). */
+  private qa(type: QaEvent['type'], data: Record<string, unknown>): void {
+    if (QA_MODE && this.qaEvents.length < QA_EVENTS_MAX) this.qaEvents.push({ type, t: this.elapsed, ...data });
+  }
+
+  /** Вход, по которому выходит бактерия: случайный, а в режиме проверки с `&entrance=N` — всегда ребро N. */
+  private pickEntrance(): Edge {
+    const forced = QA_ENTRANCE === null ? undefined : ENTRANCE_EDGES.find((e) => e.id === QA_ENTRANCE);
+    return forced ?? ENTRANCE_EDGES[Math.floor(Math.random() * ENTRANCE_EDGES.length)];
   }
 
   // ---------------------------------------------------------------- волны
@@ -530,7 +555,7 @@ export class GameScene extends Phaser.Scene {
         for (let p = 0; p < packs; p++) {
           const size = Math.ceil(n / (packs - p));
           n -= size;
-          const edge = ENTRANCE_EDGES[Math.floor(Math.random() * ENTRANCE_EDGES.length)];
+          const edge = this.pickEntrance();
           const pack: SpawnItem[] = [];
           for (let m = 0; m < size; m++) pack.push({ kind, edge, gapSec: m < size - 1 ? gap : this.waveInterval });
           blocks.push(pack);
@@ -594,9 +619,11 @@ export class GameScene extends Phaser.Scene {
   /** Бактерия выходит справа; на какой из входов — случайно. Дальше на каждой развилке она сама выберет путь. */
   private spawnBacterium(item: SpawnItem): void {
     const { kind } = item;
-    const edge = item.edge ?? ENTRANCE_EDGES[Math.floor(Math.random() * ENTRANCE_EDGES.length)];
-    this.bacteria.push(new Bacterium(this, this.bacteriaLayer, kind, edge, 0, this.waveHpMul()));
+    const edge = item.edge ?? this.pickEntrance();
+    const born = new Bacterium(this, this.bacteriaLayer, kind, edge, 0, this.waveHpMul());
+    this.bacteria.push(born);
     this.spawned++;
+    if (QA_MODE) this.qa('spawn', { id: born.id, kind, edge: edge.id });
     if (!this.introduced.includes(kind)) {
       this.introduced.push(kind);
       const text = NEW_TYPE_TEXT[kind];
@@ -768,7 +795,10 @@ export class GameScene extends Phaser.Scene {
             b.latchedTo = tower;
           }
         }
-        if (b.latchedTo) this.latches++;
+        if (b.latchedTo) {
+          this.latches++;
+          if (QA_MODE) this.qa('latch', { id: b.id, col: b.latchedTo.col, row: b.latchedTo.row, dist: bestDist });
+        }
       }
       const host = b.latchedTo;
       if (!host) continue;
@@ -893,7 +923,10 @@ export class GameScene extends Phaser.Scene {
     }
     sfx.zap();
     const damage = st.damage + index * st.spiral * CONFIG.towerLevels[Math.min(tower.level, CONFIG.towerLevels.length) - 1].damageMul;
-    for (const bacterium of tower.beamHits(this.bacteria)) this.damageBacterium(bacterium, st, true, damage);
+    const hits = tower.beamHits(this.bacteria);
+    const killsBefore = this.kills;
+    for (const bacterium of hits) this.damageBacterium(bacterium, st, true, damage);
+    if (QA_MODE) this.qa('beam', { col: tower.col, row: tower.row, index, hits: hits.length, kills: this.kills - killsBefore });
   }
 
   /** Попадание: урон (у бронированных броня вычитается, если мутация не «бронебойная»); «кислота» делает следующие удары сильнее. Если бактерия погибла — монеты, частицы, распад делящейся. */
@@ -943,11 +976,15 @@ export class GameScene extends Phaser.Scene {
     const radius = st.blastRadius * radiusMul;
     this.effects.blast(x, y, radius);
     sfx.blast();
+    const killsBefore = this.kills;
+    let hits = 0;
     for (const bacterium of [...this.bacteria]) {
       if (bacterium.hp <= 0) continue;
       if (Math.hypot(bacterium.x - x, bacterium.y - y) - bacterium.radius > radius) continue;
+      hits++;
       this.damageBacterium(bacterium, st, true, st.damage * damageMul);
     }
+    if (QA_MODE) this.qa('blast', { x, y, radius, hits, kills: this.kills - killsBefore, chain: !allowChain });
     if (allowChain && st.chain) this.chains.push({ left: CHAIN_DELAY_SEC, x, y, stats: st });
   }
 
@@ -974,6 +1011,7 @@ export class GameScene extends Phaser.Scene {
     const gain = Math.floor(this.rewardPool + 1e-9);
     this.rewardPool -= gain;
     this.coins += gain;
+    if (QA_MODE) this.qa('kill', { id: bacterium.id, kind: bacterium.kind, gain, coins: this.coins });
     this.effects.burst(bacterium.x, bacterium.y, bacterium.kind);
     if (gain > 0) this.effects.popup(bacterium.x, bacterium.y, t('coinsPopup', { n: gain }));
     sfx.destroy();
@@ -1732,6 +1770,13 @@ export class GameScene extends Phaser.Scene {
     const visible = leftEdge > CONFIG.map.orgW;
     const danger = visible && this.bacteria.some((b) => b.x - CONFIG.map.orgW < CONFIG.ui.dangerDistancePx);
     this.panel.setChip(visible, danger, timeSec);
+    if (QA_MODE) {
+      const key = `${visible}|${danger}`;
+      if (key !== this.qaChip) {
+        this.qaChip = key;
+        this.qa('chip', { visible, danger, nearest: this.bacteria.length ? Math.min(...this.bacteria.map((b) => b.x - CONFIG.map.orgW)) : null });
+      }
+    }
   }
 
   // ---------------------------------------------------------------- проверка
@@ -1773,6 +1818,9 @@ export class GameScene extends Phaser.Scene {
       shots: this.shots,
       speed: this.userSpeed,
       elapsed: this.elapsed,
+      clock: { frames: this.qaFrames, baseSec: this.qaBaseSec },
+      chip: this.panel.chipState(),
+      events: this.qaEvents.length,
       lang: document.documentElement.lang,
       renderer: this.game.renderer.type === Phaser.WEBGL ? 'webgl' : 'canvas',
       width: W,
