@@ -32,6 +32,9 @@ export interface TowerRow {
   freezeSec: number;
   trapSec: number;
   trapDps: number;
+  /** Взрыв ('area'): сколько ближайших к центру бактерий получают полный урон и множитель урона остальным в круге (blastFullTargets 0 — не ограничено, у остальных башен 0 и 1). */
+  blastFullTargets: number;
+  blastRestMul: number;
 }
 
 /** Итоговые числа башни: строка таблицы с учётом уровня и выбранных мутаций + свойства мутаций. */

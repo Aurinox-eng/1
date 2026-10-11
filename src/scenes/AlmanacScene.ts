@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import { ALMANAC_BEATEN_BY, ALMANAC_TOWERS } from '../almanac';
 import { CONFIG } from '../config';
-import { t, type TextKey } from '../i18n';
+import { num, t, type TextKey } from '../i18n';
 import { drawBody } from '../objects/bacteriumArt';
 import { extentOf, type BacteriumKind } from '../objects/Bacterium';
 import { createTowerArt, type TowerId } from '../objects/Tower';
@@ -136,7 +136,13 @@ export class AlmanacScene extends Phaser.Scene {
     const line = t(tab === 'towers' ? (`almTower${key}` as TextKey) : (`almBac${key}` as TextKey));
     this.rowTexts.push(`${name}: ${line}`);
     this.list.add(this.add.text(NAME_X, cy, name, textStyle(28)).setOrigin(0, 0.5));
-    this.list.add(this.add.text(LINE_X, cy, line, { ...textStyle(22, TEXT_COLORS.main, false), fontStyle: 'normal', wordWrap: { width: LINE_W } }).setOrigin(0, 0.5));
+    // Шипучка: под строкой — сколько целей взрыва получают полный урон (числа из config.ts); строка из i18n.ts и проверка её текста не меняются
+    const limit = tab === 'towers' ? CONFIG.towers[id as TowerId].blastFullTargets : 0;
+    this.list.add(this.add.text(LINE_X, limit > 0 ? cy - 14 : cy, line, { ...textStyle(22, TEXT_COLORS.main, false), fontStyle: 'normal', wordWrap: { width: LINE_W } }).setOrigin(0, 0.5));
+    if (limit > 0) {
+      const note = t('blastLimitNote', { n: limit, m: num(CONFIG.towers[id as TowerId].blastRestMul) });
+      this.list.add(this.add.text(LINE_X, cy + 16, note, { ...textStyle(17, TEXT_COLORS.soft, false), fontStyle: 'normal', wordWrap: { width: LINE_W } }).setOrigin(0, 0.5));
+    }
 
     if (tab === 'towers') {
       this.list.add(this.towerIcon(ICON_X, cy, id as TowerId, 0.78));
