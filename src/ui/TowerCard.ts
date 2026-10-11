@@ -9,6 +9,8 @@ export interface CardModel {
   maxLevel: number;
   /** До трёх строк чисел башни. */
   stats: string[];
+  /** Короткое пояснение под всем остальным (Шипучка: сколько целей взрыва получают полный урон); рисуется, только если под него осталось место, иначе пропускается. */
+  note: string | null;
   /** Два варианта мутации на выбор (если выбор ждёт) или null. */
   pending: { name: string; desc: string }[] | null;
   /** Уже выбранные мутации. */
@@ -71,6 +73,7 @@ export class TowerCard {
   private readonly pickNames: Phaser.GameObjects.Text[];
   private readonly pickDescs: Phaser.GameObjects.Text[];
   private readonly listText: Phaser.GameObjects.Text;
+  private readonly noteText: Phaser.GameObjects.Text;
   private readonly mergeText: Phaser.GameObjects.Text;
   private readonly sellText: Phaser.GameObjects.Text;
   private readonly closeText: Phaser.GameObjects.Text;
@@ -100,6 +103,7 @@ export class TowerCard {
     this.pickNames = [0, 1].map(() => this.text(0, 0, '', 17, TEXT_COLORS.main, 0));
     this.pickDescs = [0, 1].map(() => this.text(0, 0, '', 13, TEXT_COLORS.soft, 0).setFontStyle('normal').setWordWrapWidth(area.w - 2 * PAD - 12));
     this.listText = this.text(0, 0, '', 15, TEXT_COLORS.main, 0).setWordWrapWidth(area.w - 2 * PAD);
+    this.noteText = this.text(0, 0, '', 12, TEXT_COLORS.soft, 0).setFontStyle('normal').setWordWrapWidth(area.w - 2 * PAD);
     this.mergeText = this.text(0, 0, '', 18, TEXT_COLORS.main);
     this.sellText = this.text(0, 0, '', 18, TEXT_COLORS.main);
     this.closeText = this.text(0, 0, '✕', 22, TEXT_COLORS.soft);
@@ -221,6 +225,20 @@ export class TowerCard {
     // Нижние кнопки: «Слить» и «Продать»
     const sellY = y + h - PAD - BTN_H;
     const mergeY = sellY - SELL_GAP - BTN_H;
+
+    // Пояснение (Шипучка): под выбором мутации или списком выбранных; не помещается над кнопкой «Слить» — не рисуется (выбор мутации и кнопки важнее)
+    let noteShown = false;
+    if (m.note) {
+      let endY = cy;
+      if (m.pending) endY += 2 * pickH + (dense ? DENSE.pickGap : 4);
+      else if (m.picked.length > 0) endY += this.listText.height;
+      this.noteText.setText(m.note);
+      if (endY + 4 + this.noteText.height <= mergeY - 4) {
+        this.noteText.setPosition(left, endY + 4);
+        noteShown = true;
+      }
+    }
+    this.noteText.setVisible(noteShown);
     // В режиме слияния «Продать» скрыта: выбор пары по карте не должен заканчиваться случайной продажей
     this.sellVisible = m.merge !== 'active';
     this.mergeEnabled = m.merge === 'ready' || m.merge === 'active';
@@ -284,7 +302,7 @@ export class TowerCard {
   private setShown(on: boolean): void {
     this.shown = on;
     for (const item of this.all) (item as unknown as { setVisible(v: boolean): unknown }).setVisible(on);
-    for (const text of [this.nameText, this.levelText, ...this.statTexts, this.headerText, ...this.pickNames, ...this.pickDescs, this.listText, this.mergeText, this.sellText, this.closeText]) {
+    for (const text of [this.nameText, this.levelText, ...this.statTexts, this.headerText, ...this.pickNames, ...this.pickDescs, this.listText, this.noteText, this.mergeText, this.sellText, this.closeText]) {
       text.setVisible(on);
     }
     this.blocker.input!.enabled = on;

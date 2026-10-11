@@ -164,7 +164,7 @@ export interface DebugSnapshot {
     auraMul: number;
     /** Множитель паузы от присосавшегося паразита (1 — нет). */
     latchMul: number;
-    stats: { damage: number; cooldownMs: number; range: number; beamPulses: number; blastRadius: number; puddleRadius: number; puddleSec: number; slowFactor: number; beamHalfWidthPx: number; dotPerSec: number; dotSec: number; coneDeg: number; auraMul: number; freezeSec: number; trapSec: number; trapDps: number };
+    stats: { damage: number; cooldownMs: number; range: number; beamPulses: number; blastRadius: number; blastFullTargets: number; blastRestMul: number; puddleRadius: number; puddleSec: number; slowFactor: number; beamHalfWidthPx: number; dotPerSec: number; dotSec: number; coneDeg: number; auraMul: number; freezeSec: number; trapSec: number; trapDps: number };
   }[];
   /** Выбранная на карте башня (клетка), идёт ли режим выбора пары для слияния, сколько слияний, продаж и выборов мутаций было за партию. */
   selectedTower: { col: number; row: number } | null;

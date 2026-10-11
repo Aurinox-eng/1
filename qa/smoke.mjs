@@ -34,7 +34,7 @@
  *                          выбора, цвет цен (кнопки по 38 px, одна строка: значок, название, справа цена; подписи способа стрельбы на кнопках нет), нижняя подсказка целиком в окне — у Шприца она шире окна, это известная ошибка игры); кнопки скорости ×1/×2/×3 и
  *                          «Начать волну»; цены (списывается ровно price, при нехватке не ставится); Сироп — ЛУЖА (капля летит в точку дорожки впереди бактерии,
  *                          лужа живёт puddleSec, в ней идут ×slowFactor, после выхода ещё slowSec, поверх старой лужи новая не кладётся, слизень не замедляется);
- *                          Шипучка (малый взрыв: задевает всех в круге blastRadius и никого дальше, 1 взрыв за выстрел, монеты); Шприц — ЛУЧ (range 0, первый тап по башне выбирает её, поворот —
+ *                          Шипучка (малый взрыв: задевает всех в круге blastRadius и никого дальше, 1 взрыв за выстрел, монеты; с 11 октября 2026 полный урон только первым blastFullTargets целям круга (ближайшим к центру), остальным × blastRestMul — по журналу `blast`: поля full, rest, acid, fullDealt, restDealt); Шприц — ЛУЧ (range 0, первый тап по башне выбирает её, поворот —
  *                          стрелками карточки или тапом по правой/левой половине выбранной башни на компьютере и телефоне, очередь beamPulses ударов по всем на линии издалека и по диагонали,
  *                          урон с учётом брони, молчит, пока на линии никого нет); Таблетка (цель — ближайшая к организму); Ампула (этап 7: числа башни из таблицы, цель — самая прочная по текущему HP из находящихся в радиусе, урон и порядок выстрелов; пауза между выстрелами из таблицы — с допуском на шаг кадра);
  *                          Антибиотик (выстрел не снимает HP сразу, яд идёт каждый кадр: потеря за яд = dotPerSec·dotSec, повторный укол продлевает время до полного, а не складывается; отравленный регенератор и лекарь не лечатся, броню яд не учитывает);
@@ -58,7 +58,7 @@
  *   sell                   продажа: возврат round(цена × 2^(уровень−1) × sellRefund) на всех уровнях и у всех видов, клетка свободна, в режиме слияния «Продать» скрыта,
  *                          проданный Шприц обрывает очередь луча
  *   special                особые мутации в бою (с контролем без мутации): «Бронебойная» Таблетка (урон по брони), «Двойной выстрел» (прирост выстрелов по 2), «Едкая» лужа Сиропа
- *                          убивает сама, «Цепная» Шипучка (взрывов больше выстрелов), «Второй луч» Шприца (вспышек вдвое больше). QA_SPECIAL_ONLY=pierce,double,caustic,chain,twin
+ *                          убивает сама, «Цепная» Шипучка (взрывов больше выстрелов), Шипучка: «Большой взрыв» + «Кислота»/«Цепная» при ограничении по площади (часть fizzlimit: кислота только целям с полным уроном, цепной взрыв тоже ограничен), «Второй луч» Шприца (вспышек вдвое больше). QA_SPECIAL_ONLY=pierce,double,caustic,chain,twin
  *   danger                 подсказка «◀ Организм» краснеет и мигает, когда бактерия близко к организму (по состоянию подсказки и журналу игры, не по пикселям)
  *   rotate                 телефон вертикально ↔ горизонтально (на ru и en): вертикально — подсказка «Поверните телефон», время стоит, тапы
  *                          игре не мешают; обратно — подсказка пропала, время идёт; на компьютере подсказки нет ни в каком окне
@@ -2488,7 +2488,8 @@ function towerTable() {
       puddleSec: readConfigNumber('syrup', 'puddleSec'),
       puddleLeadPx: readConfigNumber('syrup', 'puddleLeadPx'),
     },
-    fizz: { ...row('fizz'), blastRadius: readConfigNumber('fizz', 'blastRadius') },
+    // ограничение взрыва по площади (11 октября 2026): первые blastFullTargets целей круга — полный урон, остальные — урон × blastRestMul
+    fizz: { ...row('fizz'), blastRadius: readConfigNumber('fizz', 'blastRadius'), blastFullTargets: readConfigNumber('fizz', 'blastFullTargets'), blastRestMul: readConfigNumber('fizz', 'blastRestMul') },
     syringe: {
       ...row('syringe'),
       beamPulses: readConfigNumber('syringe', 'beamPulses'),
@@ -3196,8 +3197,8 @@ function farVisibleCell(state) {
  * достижимых в кадре выстрела (так выбирает башня); её положение до и после взрыва зажимает центр. Бактерия «точно внутри», если даже в самом
  * дальнем из двух замеров она ближе blastRadius + её радиус, «точно снаружи» — если и в самом близком дальше (с запасом на изгиб дорожки).
  */
-function analyzeBlasts(log, tw, radius, damage) {
-  const out = { fires: 0, blasts: 0, analyzed: 0, skipped: 0, hitsMax: 0, hitsList: [], sureIn: 0, sureOut: 0, inNotHit: [], outHit: [], wrongDamage: 0, invariantBad: 0 };
+function analyzeBlasts(log, tw, radius, damage, restMul = 1) {
+  const out = { fires: 0, blasts: 0, analyzed: 0, skipped: 0, hitsMax: 0, hitsList: [], sureIn: 0, sureOut: 0, inNotHit: [], outHit: [], wrongDamage: 0, invariantBad: 0, fullMax: 0, fullList: [] };
   const queue = [];
   for (let i = 1; i < log.length; i++) {
     const prev = log[i - 1];
@@ -3222,13 +3223,17 @@ function analyzeBlasts(log, tw, radius, damage) {
       }
       out.analyzed++;
       let hits = 0;
+      let fulls = 0;
       for (const [id, b1] of post) {
         const b0 = pre.get(id);
         if (!b0) continue;
         const hit = b1.hp < b0.hp;
         if (hit) {
           hits++;
-          if (b0.hp - b1.hp !== damage) out.wrongDamage++;
+          // с 11 октября 2026: полный урон получают первые blastFullTargets целей круга, остальные — урон × blastRestMul
+          const lost = b0.hp - b1.hp;
+          if (Math.abs(lost - damage) < 1e-6) fulls++;
+          else if (Math.abs(lost - damage * restMul) >= 1e-6) out.wrongDamage++;
         }
         if (id === fire.targetId) continue;
         const d0 = Math.hypot(b0.x - t0.x, b0.y - t0.y);
@@ -3246,6 +3251,8 @@ function analyzeBlasts(log, tw, radius, damage) {
       }
       out.hitsList.push(hits);
       out.hitsMax = Math.max(out.hitsMax, hits);
+      out.fullList.push(fulls);
+      out.fullMax = Math.max(out.fullMax, fulls);
     }
     const ns = cur.shots - prev.shots;
     if (ns > 0) {
@@ -3289,13 +3296,13 @@ async function towersFizz(browser, baseUrl) {
     return st.state !== 'playing' || (st.effects.blasts >= 7 && st.projectiles === 0) || Date.now() - startedAt > 100000;
   }, 120000, 20);
   await game.page.close();
-  const a = analyzeBlasts(log, tw, R, dmg);
+  const a = analyzeBlasts(log, tw, R, dmg, TW.fizz.blastRestMul);
   const last = log.at(-1);
   check(`${p} Шипучка поставлена у входа (клетка ${cell.col};${cell.row}) и сделала ${last.shots} выстрелов; взрывов ${last.effects.blasts}: каждый выстрел даёт ровно один взрыв (взрывов не больше выстрелов, разница ≤ 1 снаряда в полёте, без снарядов в воздухе — поровну; нарушений ${a.invariantBad})`, placed.towers.length === 1 && placed.towers[0].id === 'fizz' && last.shots >= 6 && last.effects.blasts >= 6 && a.invariantBad === 0, `выстрелов ${last.shots}, взрывов ${last.effects.blasts}`);
   check(`${p} один выстрел задевает несколько бактерий: в самом удачном взрыве задето ${a.hitsMax} (≥ 2); по взрывам: ${a.hitsList.join(', ')}`, a.analyzed >= 4 && a.hitsMax >= 2, `разобрано взрывов ${a.analyzed} из ${a.blasts} (пропущено ${a.skipped})`);
   check(`${p} каждая бактерия «точно внутри» круга взрыва (ближе ${R} px + её радиус) задета: проверено ${a.sureIn}, не задето ${a.inNotHit.length}`, a.sureIn >= 3 && a.inNotHit.length === 0, a.inNotHit.slice(0, 4).join('; '));
   check(`${p} бактерии дальше ${R} px + радиус от места взрыва НЕ задеты: проверено ${a.sureOut}, задето лишних ${a.outHit.length}`, a.sureOut >= 10 && a.outHit.length === 0, a.outHit.slice(0, 4).join('; '));
-  check(`${p} каждая задетая бактерия теряет ровно ${dmg} HP за взрыв (отклонений ${a.wrongDamage})`, a.analyzed >= 4 && a.wrongDamage === 0);
+  check(`${p} каждая задетая бактерия теряет за взрыв ровно ${dmg} HP (полный урон) или ${f2(dmg * TW.fizz.blastRestMul)} HP (× ${TW.fizz.blastRestMul}, сниженный): иных значений нет (отклонений ${a.wrongDamage}); целей с полным уроном за взрыв не больше ${TW.fizz.blastFullTargets} (по взрывам: ${a.fullList.join(', ')})`, a.analyzed >= 4 && a.wrongDamage === 0 && a.fullMax <= TW.fizz.blastFullTargets);
 
   // ---- B. у «ствола», кокки по 1 HP: убитые взрывом дают монеты, одним взрывом убивается больше одной бактерии; снимок взрыва
   const cfgB = [
@@ -3331,6 +3338,112 @@ async function towersFizz(browser, baseUrl) {
   check(`${p} одним взрывом убивается больше одной бактерии: по журналу игры взрывов ${blastLog.length} (в счётчике ${endB.effects.blasts}), убито за каждый ${perBlast.join(', ')} — наибольшее ${Math.max(0, ...perBlast)} (≥ 2), всего ${perBlast.reduce((a, b) => a + b, 0)} из ${endB.kills} убитых (все убиты взрывами), убитых больше взрывов`, blastLog.length >= 2 && blastLog.length === endB.effects.blasts && Math.max(0, ...perBlast) >= 2 && perBlast.reduce((a, b) => a + b, 0) === endB.kills && endB.kills > blastLog.length, `убито ${endB.kills}, взрывов ${blastLog.length}, за каждый ${perBlast.join(',')}, выстрелов ${endB.shots}`);
   check(`${p} снимок взрыва Шипучки сделан (в кадре есть бактерии)`, shotDone);
   await context.close();
+}
+
+/**
+ * Разбор журнала `blast` на соблюдение ограничения по площади: в каждом взрыве первые blastFullTargets целей круга (ближайшие к центру) получают полный урон, остальные — × blastRestMul;
+ * кислота — не больше, чем целей с полным уроном. Возвращает числа для проверок (сам ничего не проверяет). Читает только журнал игры (игровое время, не опрос).
+ */
+function summarizeBlastLimit(events) {
+  const L = TW.fizz.blastFullTargets;
+  const out = { n: events.length, hitsMax: 0, bad: [], big: 0, bigBad: [], acidBad: [], acidSum: 0, acidEvents: 0, nearBad: [] };
+  for (const b of events) {
+    const want = Math.min(L, b.hits);
+    if (b.full > L || b.full !== want || b.rest !== b.hits - want) out.bad.push(`t=${f2(b.t)}: задето ${b.hits}, полных ${b.full}, сниженных ${b.rest}`);
+    out.hitsMax = Math.max(out.hitsMax, b.hits);
+    if (b.hits >= L + 3) {
+      out.big++;
+      if (b.full !== L || b.rest < 3) out.bigBad.push(`t=${f2(b.t)}: задето ${b.hits}, полных ${b.full}, сниженных ${b.rest}`);
+    }
+    out.acidSum += b.acid;
+    if (b.acid > 0) out.acidEvents++;
+    if (b.acid > b.full || (b.rest > 0 && b.acid >= b.hits)) out.acidBad.push(`t=${f2(b.t)}: кислота ${b.acid}, полных ${b.full}, задето ${b.hits}`);
+    if (b.restNear !== null && b.fullFar > b.restNear + 1e-9) out.nearBad.push(`t=${f2(b.t)}: самая дальняя полная ${f1(b.fullFar)} px, ближайшая сниженная ${f1(b.restNear)} px`);
+  }
+  return out;
+}
+
+/**
+ * Ограничение взрыва Шипучки по площади (решение владельца 11 октября 2026): у входа, медленная плотная куча кокков (≥ 9 в одном круге), башня без мутаций. По журналу игры `blast`:
+ * в каждом взрыве полный урон получают первые blastFullTargets целей (ближайшие к центру), остальные — × blastRestMul (сколько HP снял каждый удар — поля fullDealt и restDealt), кислоты нет
+ * (мутации нет). Время — игровое (журнал), а не секунды реального времени и не частота опроса.
+ */
+async function towersFizzLimit(browser, baseUrl) {
+  const p = '[башни: Шипучка, ограничение по площади]';
+  const L = TW.fizz.blastFullTargets;
+  const M = TW.fizz.blastRestMul;
+  const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
+  const cell = entranceCell();
+  const cfg = [
+    'waves.total:1',
+    'waves.list.0.coccus:60',
+    'waves.intervalStartSec:0.2',
+    'waves.intervalEndSec:0.2',
+    'waves.firstDelaySec:4',
+    ...FIXED_NO_TOWERS,
+    'bacteria.baseSpeed:20',
+    'types.coccus.hp:400',
+    'towers.fizz.cooldownMs:800',
+    `economy.startCoins:${TW.fizz.price}`,
+    NO_LIFE_LOSS,
+  ].join(',');
+  const game = await openGame(context, baseUrl, p, { query: ALL_TOWERS + middleEntranceOnly(), speed: 3, cfg });
+  await panTo(game, 'right');
+  await game.placeTowersOf('fizz', [[cell.col, cell.row]]);
+  const end = await pollUntil(game, async (st) => st.state !== 'playing' || (await game.events('blast')).length >= 12, 240000, 400);
+  const events = await game.events('blast');
+  const tower = (await game.state()).towers.find((x) => x.id === 'fizz');
+  await game.page.close();
+  await context.close();
+  const a = summarizeBlastLimit(events);
+  const withRest = events.filter((b) => b.rest > 0);
+  const fullOk = withRest.every((b) => b.fullDealt.length === b.full && b.fullDealt.every((d) => Math.abs(d - TW.fizz.damage) < 1e-6));
+  const restOk = withRest.every((b) => b.restDealt.length === b.rest && b.restDealt.every((d) => Math.abs(d - TW.fizz.damage * M) < 1e-6));
+  check(`${p} в игре те же числа, что в config.ts: полный урон первым ${L} целям, остальным × ${M} (у башни в снимке ${tower?.stats.blastFullTargets} и ${tower?.stats.blastRestMul})`, Boolean(tower) && tower.stats.blastFullTargets === L && Math.abs(tower.stats.blastRestMul - M) < 1e-9 && L >= 1 && M > 0 && M < 1);
+  check(`${p} журнал игры записал ≥ 8 взрывов (всего ${a.n}), у каждого есть поля full, rest, acid; в самой плотной куче задето ${a.hitsMax} (нужно ≥ ${L + 4})`, a.n >= 8 && events.every((b) => ['full', 'rest', 'acid'].every((k) => Number.isFinite(b[k]))) && a.hitsMax >= L + 4, `состояние ${end.state}`);
+  check(`${p} в каждом взрыве целей с полным уроном не больше ${L}, а при куче — ровно ${L}: full = min(${L}, задето), rest = задето − full (нарушений ${a.bad.length})`, a.n >= 8 && a.bad.length === 0, a.bad.slice(0, 4).join('; '));
+  check(`${p} взрывов с кучей (задето ≥ ${L + 3}) не меньше 3 (было ${a.big}); в каждом полных ровно ${L}, сниженных ≥ 3 (нарушений ${a.bigBad.length})`, a.big >= 3 && a.bigBad.length === 0, a.bigBad.slice(0, 4).join('; '));
+  check(`${p} полный удар снимает ${TW.fizz.damage} HP у каждой из ${L} целей, сниженный — ровно × ${M} = ${f2(TW.fizz.damage * M)} HP (взрывов с кучей ${withRest.length})`, withRest.length >= 3 && fullOk && restOk, JSON.stringify(withRest.slice(0, 2).map((b) => [b.fullDealt, b.restDealt])).slice(0, 300));
+  check(`${p} полный урон получают БЛИЖАЙШИЕ к центру: самая дальняя цель с полным уроном не дальше ближайшей со сниженным (нарушений ${a.nearBad.length})`, withRest.length >= 3 && a.nearBad.length === 0, a.nearBad.slice(0, 3).join('; '));
+  check(`${p} без мутации «Кислота» кислота не накладывается ни в одном взрыве (сумма acid = ${a.acidSum})`, a.n >= 8 && a.acidSum === 0);
+}
+
+/**
+ * Мутации Шипучки при ограничении по площади. Башня уровня 2 у входа, медленная плотная куча: «Большой взрыв» (радиус ×1,5: круг шире, а целей с полным уроном по-прежнему ≤ blastFullTargets)
+ * вместе с «Кислотой» (кислота только первым blastFullTargets целям: acid ≤ full, у взрыва с кучей acid < задето) или «Цепной» (второй, цепной взрыв тоже ограничен: у каждого full ≤ blastFullTargets).
+ */
+async function specialFizzLimit(context, baseUrl) {
+  const p = '[особые мутации: Шипучка, ограничение по площади]';
+  const L = TW.fizz.blastFullTargets;
+  const R = TW.fizz.blastRadius;
+  const ec = entranceCell();
+  const cell = [ec.col, ec.row];
+  const [helper] = freeCellsNear(cell);
+  if (!helper) throw new Error(`рядом с клеткой входа ${cell.join(';')} нет свободной клетки в радиусе слияния`);
+  const run = async (field, label) => {
+    const picks = [pickIndex('fizz', 0, 'blastMul'), pickIndex('fizz', 1, field)];
+    const extra = ['waves.total:1', 'waves.list.0.coccus:80', 'waves.intervalStartSec:0.2', 'waves.intervalEndSec:0.2', 'bacteria.baseSpeed:20', 'types.coccus.hp:900', 'towers.fizz.cooldownMs:800', SPECIAL_SHORTCUT];
+    const game = await openGame(context, baseUrl, `${p} ${label}`, { query: ALL_TOWERS + middleEntranceOnly(), speed: 3, cfg: s4Cfg(extra) });
+    await panTo(game, 'right');
+    await specialTower(game, 'fizz', cell, helper, picks);
+    await startWave(game);
+    const end = await pollUntil(game, async (st) => st.state !== 'playing' || (await game.events('blast')).length >= 14, 240000, 400);
+    const events = await game.events('blast');
+    await game.page.close();
+    return { events, end, sum: summarizeBlastLimit(events) };
+  };
+  const acid = await run('acidSec', 'кислота');
+  const chain = await run('chain', 'цепная');
+  const first = acid.events.find((b) => !b.chain);
+  check(`${p} «Большой взрыв» расширяет круг, а число целей с полным уроном не растёт: радиус первого взрыва ${first ? f1(first.radius) : '—'} px при ${R} px у башни уровня 1; полных в каждом взрыве не больше ${L} (взрывов ${acid.sum.n}, нарушений ${acid.sum.bad.length}, задето до ${acid.sum.hitsMax})`,
+    acid.sum.n >= 8 && Boolean(first) && first.radius > R * 1.3 && acid.sum.bad.length === 0 && acid.sum.hitsMax > L, acid.sum.bad.slice(0, 3).join('; '));
+  check(`${p} «Кислота» ложится только на цели с полным уроном: в каждом взрыве acid ≤ full (у взрыва с кучей acid < задето), нарушений ${acid.sum.acidBad.length}; кислота была в ${acid.sum.acidEvents} взрывах из ${acid.sum.n}`,
+    acid.sum.n >= 8 && acid.sum.acidEvents >= 3 && acid.sum.acidBad.length === 0, acid.sum.acidBad.slice(0, 3).join('; '));
+  const chains = chain.events.filter((b) => b.chain);
+  const chainBad = chains.filter((b) => b.full > L || b.full !== Math.min(L, b.hits) || b.rest !== b.hits - b.full);
+  check(`${p} цепной взрыв тоже ограничен: цепных взрывов ${chains.length} (≥ 3), в каждом полных не больше ${L} (full = min(${L}, задето)), нарушений ${chainBad.length}; со сниженными целями ${chains.filter((b) => b.rest > 0).length} (≥ 1)`,
+    chains.length >= 3 && chainBad.length === 0 && chains.some((b) => b.rest > 0), chainBad.slice(0, 3).map((b) => `задето ${b.hits}, полных ${b.full}`).join('; '));
+  check(`${p} у «Цепной» (первые и цепные взрывы вместе) полных не больше ${L}, кислоты нет (сумма acid = ${chain.sum.acidSum}); нарушений ${chain.sum.bad.length}`, chain.sum.n >= 8 && chain.sum.bad.length === 0 && chain.sum.acidSum === 0, chain.sum.bad.slice(0, 3).join('; '));
 }
 
 // ---------------------------------------------------------------- Шприц: луч
@@ -5670,7 +5783,7 @@ function cardTexts() {
   const ids = TOWER_IDS.flatMap((tw) => S4.mutations[tw].flat().map((m) => m.id));
   const keys = [
     'cardLevel', 'cardMerge', 'cardMergeCancel', 'cardNoPair', 'cardMaxLevel', 'cardSell', 'cardPick', 'cardMutations', 'statDamage', 'statDps', 'statCooldown', 'statRange', 'statPuddle', 'statSlow',
-    'statBlast', 'statBeam', 'statBeams', 'statPoison', 'statCone', 'statAura', 'statFreeze', 'statTrap', 'statCooldownLatched', 'statAuraLatched', 'hintMerge', 'toastMerged', 'toastPickMutation', 'toastSold',
+    'statBlast', 'blastLimitNote', 'statBeam', 'statBeams', 'statPoison', 'statCone', 'statAura', 'statFreeze', 'statTrap', 'statCooldownLatched', 'statAuraLatched', 'hintMerge', 'toastMerged', 'toastPickMutation', 'toastSold',
     ...ids.flatMap((id) => [`mut${cap(id)}`, `mutd${cap(id)}`]),
   ];
   const rows = keys.map((k) => {
@@ -5687,7 +5800,7 @@ function cardTexts() {
   const bad = rows.filter((r) => r.ok && (!r.ru.trim() || !r.en.trim() || r.ru === r.en || !cyr.test(r.ru) || cyr.test(r.en)));
   check(`${p} русские строки по-русски, английские по-английски, не пустые и различаются`, bad.length === 0, bad.map((r) => `${r.k}: «${r.ru}» / «${r.en}»`).join('; '));
   const holes = {
-    cardLevel: ['{n}', '{max}'], cardSell: ['{n}'], toastMerged: ['{n}'], toastSold: ['{n}'], statDamage: ['{n}'], statDps: ['{n}'], statCooldown: ['{n}'], statRange: ['{n}'], statPuddle: ['{r}', '{s}'], statSlow: ['{n}'], statBlast: ['{r}'], statBeam: ['{n}'], statBeams: ['{n}'], statPoison: ['{n}', '{s}'], statCone: ['{a}', '{r}'], statAura: ['{n}'], statFreeze: ['{n}'], statTrap: ['{s}', '{n}'], statCooldownLatched: ['{n}', '{m}'], statAuraLatched: ['{n}'],
+    cardLevel: ['{n}', '{max}'], cardSell: ['{n}'], toastMerged: ['{n}'], toastSold: ['{n}'], statDamage: ['{n}'], statDps: ['{n}'], statCooldown: ['{n}'], statRange: ['{n}'], statPuddle: ['{r}', '{s}'], statSlow: ['{n}'], statBlast: ['{r}'], blastLimitNote: ['{n}', '{m}'], statBeam: ['{n}'], statBeams: ['{n}'], statPoison: ['{n}', '{s}'], statCone: ['{a}', '{r}'], statAura: ['{n}'], statFreeze: ['{n}'], statTrap: ['{s}', '{n}'], statCooldownLatched: ['{n}', '{m}'], statAuraLatched: ['{n}'],
   };
   const noHole = rows.filter((r) => r.ok && holes[r.k] && !holes[r.k].every((h) => r.ru.includes(h) && r.en.includes(h))).map((r) => r.k);
   check(`${p} строки со вставками (${Object.keys(holes).join(', ')}) содержат вставки на обоих языках`, noHole.length === 0, noHole.join(', '));
@@ -6378,7 +6491,7 @@ async function specialPierce(context, baseUrl) {
   check(`${p} бронебойный удар сильнее обычного (${pierce.hit ? f2(pierce.hit.drop) : '—'} против ${plain.hit ? f2(plain.hit.drop) : '—'})`, pierce.hit !== null && plain.hit !== null && pierce.hit.drop > plain.hit.drop);
 }
 
-/** QA_SPECIAL_ONLY=chain,twin — только эти части (chain, twin, caustic, double, pierce). */
+/** QA_SPECIAL_ONLY=chain,twin — только эти части (chain, twin, caustic, double, pierce, fizzlimit). */
 const specialOnly = process.env.QA_SPECIAL_ONLY ? process.env.QA_SPECIAL_ONLY.split(',') : null;
 async function runSpecial(browser, baseUrl) {
   prepareStage4();
@@ -6388,6 +6501,7 @@ async function runSpecial(browser, baseUrl) {
   await part('double', '[особые мутации: Двойной выстрел]', specialDouble);
   await part('caustic', '[особые мутации: Едкая]', specialCaustic);
   await part('chain', '[особые мутации: Цепная]', specialChain);
+  await part('fizzlimit', '[особые мутации: Шипучка, ограничение по площади]', specialFizzLimit);
   await part('twin', '[особые мутации: Второй луч]', specialTwin);
   await context.close();
 }
@@ -6425,6 +6539,7 @@ async function runTowers(browser, baseUrl) {
   await part('prices', '[башни: цены]', () => towersPrices(browser, baseUrl));
   await part('syrup', '[башни: Сироп]', () => towersSyrup(browser, baseUrl));
   await part('fizz', '[башни: Шипучка]', () => towersFizz(browser, baseUrl));
+  await part('fizz', '[башни: Шипучка, ограничение по площади]', () => towersFizzLimit(browser, baseUrl));
   await part('syringe', '[башни: Шприц]', () => towersSyringe(browser, baseUrl));
   await part('pill', '[башни: Таблетка]', () => towersPill(browser, baseUrl));
   await part('ampule', '[башни: числа Ампулы и Антибиотика]', () => towersNewStats(browser, baseUrl));

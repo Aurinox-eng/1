@@ -929,9 +929,12 @@ export class GameScene extends Phaser.Scene {
     if (QA_MODE) this.qa('beam', { col: tower.col, row: tower.row, index, hits: hits.length, kills: this.kills - killsBefore });
   }
 
-  /** Попадание: урон (у бронированных броня вычитается, если мутация не «бронебойная»); «кислота» делает следующие удары сильнее. Если бактерия погибла — монеты, частицы, распад делящейся. */
-  private damageBacterium(bacterium: Bacterium, st: TowerStats, quiet = false, damage: number = st.damage, light = false): void {
-    if (bacterium.hp <= 0) return;
+  /**
+   * Попадание: урон (у бронированных броня вычитается, если мутация не «бронебойная»); «кислота» делает следующие удары сильнее (`acid` false — кислоту не накладывать:
+   * так взрыв Шипучки не даёт её целям со сниженным уроном). Если бактерия погибла — монеты, частицы, распад делящейся. Возвращает true, если на бактерию наложена кислота.
+   */
+  private damageBacterium(bacterium: Bacterium, st: TowerStats, quiet = false, damage: number = st.damage, light = false, acid = true): boolean {
+    if (bacterium.hp <= 0) return false;
     // Мутант помнит вид башни, ударившей последней: удар башни того же вида слабее; удар другого вида штрафа не получает и запоминается
     const memoryMul = CONFIG.types[bacterium.kind].memoryMul;
     const resisted = memoryMul > 0 && bacterium.memory === st.towerId;
@@ -943,7 +946,7 @@ export class GameScene extends Phaser.Scene {
       // Фагоцит поглотил удар: урона нет (вспышку «поглощено» рисует сама бактерия), числа не показываем
       this.absorbs++;
       if (!quiet) sfx.hit('armored');
-      return;
+      return false;
     }
     if (light) {
       // Тик конуса Лампы: вспышки нет; число урона раз в LIGHT_NUMBER_SEC, с накопленным уроном
@@ -954,37 +957,66 @@ export class GameScene extends Phaser.Scene {
         bacterium.numAt = this.elapsed;
       }
       if (killed) this.killBacterium(bacterium);
-      return;
+      return false;
     }
     this.effects.damageNumber(bacterium.id, bacterium.x, bacterium.y - bacterium.radius * 0.7, bacterium.lastDealt, bacterium.lastDealt / bacterium.maxHp, color);
     if (killed) {
       this.killBacterium(bacterium);
-      return;
+      return false;
     }
-    if (st.acidSec > 0) bacterium.expose(st.acidMul, st.acidSec);
+    const exposed = acid && st.acidSec > 0 && st.acidMul > 1;
+    if (exposed) bacterium.expose(st.acidMul, st.acidSec);
     // Чем сильнее удар относительно прочности бактерии, тем крупнее вспышка: до полуторных размеров обычной
     const strength = Math.min(1, (bacterium.lastDealt / bacterium.maxHp) * 2);
     this.effects.flash(bacterium.x, bacterium.y, bacterium.radius * 0.6 * (1 + 0.5 * strength), st.targeting === 'beam' ? COLORS.needle : COLORS.hit);
     if (!quiet) sfx.hit(bacterium.kind);
+    return exposed;
   }
 
   /**
-   * Взрыв «Шипучки»: урон всем бактериям, которых касается круг взрыва (в том числе когда цель уже погибла от другого выстрела).
-   * Мутация «Цепная»: через 0,3 с второй взрыв (радиус ×0,7, урон ×0,6) на ближайшей бактерии рядом (`allowChain` — только у первого).
+   * Взрыв «Шипучки»: бактерии, которых касается круг взрыва (в том числе когда цель уже погибла от другого выстрела), сортируются по расстоянию от центра
+   * (ближайшие первыми, при равенстве — по номеру); первые `blastFullTargets` получают полный урон и «кислоту», остальные — урон × `blastRestMul` и без кислоты.
+   * `blastFullTargets` 0 — не ограничено (у башен кроме Шипучки). Радиус взрыва число целей с полным уроном не меняет.
+   * Мутация «Цепная»: через 0,3 с второй взрыв (радиус ×0,7, урон ×0,6) на ближайшей бактерии рядом (`allowChain` — только у первого); у него ограничение считается отдельно.
    */
   private explode(x: number, y: number, st: TowerStats, radiusMul = 1, damageMul = 1, allowChain = true): void {
     const radius = st.blastRadius * radiusMul;
     this.effects.blast(x, y, radius);
     sfx.blast();
     const killsBefore = this.kills;
-    let hits = 0;
-    for (const bacterium of [...this.bacteria]) {
+    const inCircle: { bacterium: Bacterium; dist: number }[] = [];
+    for (const bacterium of this.bacteria) {
       if (bacterium.hp <= 0) continue;
-      if (Math.hypot(bacterium.x - x, bacterium.y - y) - bacterium.radius > radius) continue;
-      hits++;
-      this.damageBacterium(bacterium, st, true, st.damage * damageMul);
+      const dist = Math.hypot(bacterium.x - x, bacterium.y - y);
+      if (dist - bacterium.radius > radius) continue;
+      inCircle.push({ bacterium, dist });
     }
-    if (QA_MODE) this.qa('blast', { x, y, radius, hits, kills: this.kills - killsBefore, chain: !allowChain });
+    inCircle.sort((a, b) => a.dist - b.dist || a.bacterium.id - b.bacterium.id);
+    const fullLimit = st.blastFullTargets > 0 ? st.blastFullTargets : inCircle.length;
+    let full = 0;
+    let rest = 0;
+    let acid = 0;
+    const fullDealt: number[] = [];
+    const restDealt: number[] = [];
+    let fullFar = 0; // расстояние от центра до самой дальней цели с полным уроном и до ближайшей цели со сниженным (только для журнала QA)
+    let restNear: number | null = null;
+    for (let i = 0; i < inCircle.length; i++) {
+      const { bacterium } = inCircle[i];
+      if (QA_MODE) {
+        if (i < fullLimit) fullFar = inCircle[i].dist;
+        else if (restNear === null) restNear = inCircle[i].dist;
+      }
+      if (i < fullLimit) {
+        full++;
+        if (this.damageBacterium(bacterium, st, true, st.damage * damageMul)) acid++;
+        if (QA_MODE) fullDealt.push(bacterium.lastDealt);
+      } else {
+        rest++;
+        this.damageBacterium(bacterium, st, true, st.damage * damageMul * st.blastRestMul, false, false);
+        if (QA_MODE) restDealt.push(bacterium.lastDealt);
+      }
+    }
+    if (QA_MODE) this.qa('blast', { x, y, radius, hits: inCircle.length, full, rest, acid, fullDealt, restDealt, fullFar, restNear, kills: this.kills - killsBefore, chain: !allowChain });
     if (allowChain && st.chain) this.chains.push({ left: CHAIN_DELAY_SEC, x, y, stats: st });
   }
 
@@ -1369,6 +1401,7 @@ export class GameScene extends Phaser.Scene {
       level: tower.level,
       maxLevel: MAX_TOWER_LEVEL,
       stats: this.cardStats(tower),
+      note: tower.stats.targeting === 'area' && tower.stats.blastFullTargets > 0 ? t('blastLimitNote', { n: tower.stats.blastFullTargets, m: num(tower.stats.blastRestMul) }) : null,
       pending: tier === null ? null : mutationOptions(tower.id, tier).map((m) => label(m.id)),
       picked: [...new Map(tower.picks.map((id) => [id, tower.picks.filter((p) => p === id).length] as const))].map(([id, n]) => {
         const l = label(id);
@@ -1867,6 +1900,8 @@ export class GameScene extends Phaser.Scene {
           range: tw.stats.range,
           beamPulses: tw.stats.beamPulses,
           blastRadius: tw.stats.blastRadius,
+          blastFullTargets: tw.stats.blastFullTargets,
+          blastRestMul: tw.stats.blastRestMul,
           puddleRadius: tw.stats.puddleRadius,
           puddleSec: tw.stats.puddleSec,
           slowFactor: tw.stats.slowFactor,
