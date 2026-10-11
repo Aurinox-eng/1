@@ -56,7 +56,7 @@ jobs:
             cp src/perf.ts base/src/perf.ts
             (cd base && npm run build:qa)
           fi
-      - name: Замер (оба сценария: stress и fizz)
+      - name: "Замер (оба сценария: stress и fizz)"
         run: |
           if [ -d base ]; then
             node qa/perf.mjs --roots=base,. --names=до,после --tag=ci
