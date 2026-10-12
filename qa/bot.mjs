@@ -250,10 +250,10 @@ if (!LADDER && (args['from-level'] !== undefined || args['to-level'] !== undefin
 if (LADDER_FROM > LADDER_TO) die('--from-level не может быть больше --to-level.');
 const LAMPS = Boolean(args.lamps);
 if (LAMPS && args.profile !== undefined && !['strong', 'expert', 'all'].includes(String(args.profile))) die('--lamps играют только профили strong и expert.');
-if (LAMPS && SOLO) die('--lamps не сочетается с --solo (при --solo башни выбирает сам режим).');
 const SOLO_SUPPORT = ['vitamin', 'frost', 'patch']; // не бьют сами: идут поверх Таблеток
 const SOLO = args.solo === undefined ? null : String(args.solo);
 if (SOLO !== null && (args.solo === true || !SOLO)) die('--solo=<башня>: после «=» нужен id башни, например --solo=fizz.');
+if (LAMPS && SOLO) die('--lamps не сочетается с --solo (при --solo башни выбирает сам режим).');
 if (SOLO && (LADDER || CAMPAIGN)) die('--solo не сочетается с --ladder и --campaign: сравнение «одна башня» идёт на одном уровне с фиксированными улучшениями (--meta).');
 const SEED = args.seed === undefined ? Math.floor(Math.random() * 1e9) : numArg('seed', 0, { min: 0, max: 4294967295, int: true });
 const TAG = args.tag === undefined ? 'latest' : String(args.tag);
