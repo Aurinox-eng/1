@@ -1448,8 +1448,8 @@ export class Tower {
     const found: Bacterium[] = [];
     for (const b of bacteria) {
       if (b.hp <= 0) continue;
-      // Скрытную башня видит только на доле радиуса (b.stealth); конус Лампы видит полностью
-      const reach = b.stealth > 0 && targeting !== 'cone' ? range * b.stealth : range;
+      // Скрытную башня видит только на доле радиуса (b.stealth); конус Лампы видит полностью; подсвеченную Лампой (b.lit) видят на полном радиусе
+      const reach = b.stealth > 0 && targeting !== 'cone' && !b.lit ? range * b.stealth : range;
       if (Math.hypot(b.x - this.x, b.y - this.y) > reach + b.radius) continue;
       if (side === 'forward' && !(b.remaining > this.remaining)) continue;
       if (side === 'back' && !(b.remaining < this.remaining)) continue;

@@ -468,6 +468,7 @@ export class GameScene extends Phaser.Scene {
     this.updateClouds(dt);
     this.updateParasites();
     this.applyAuras();
+    this.applyLamps();
     for (const tower of this.towers) tower.update(dt, this.bacteria, (target, x, y) => this.fire(tower, target, x, y));
     this.updateProjectiles(dt);
     this.updateGroundShots(dt);
@@ -846,6 +847,17 @@ export class GameScene extends Phaser.Scene {
   }
 
   /** Яд идёт каждый кадр; погибшая от яда бактерия — обычное убийство (награда, частицы, распад делящейся). */
+  /** Лампы подсвечивают скрытных в круге радиуса range (башня работает: не заглушена спорой и не в облаке); подсвеченных видят все башни на полном радиусе. */
+  private applyLamps(): void {
+    for (const tower of this.towers) {
+      const sec = tower.stats.lightSec;
+      if (sec <= 0 || !tower.isWorking) continue;
+      for (const b of this.bacteria) {
+        if (b.hp > 0 && b.stealth > 0 && Math.hypot(b.x - tower.x, b.y - tower.y) <= tower.stats.range + b.radius) b.light(sec);
+      }
+    }
+  }
+
   private applyPoison(dt: number): void {
     let died: Bacterium[] | null = null;
     for (const bacterium of this.bacteria) {
@@ -1938,6 +1950,7 @@ export class GameScene extends Phaser.Scene {
         s: b.s,
         dashing: b.dashing,
         slowed: b.slowed,
+        lit: b.lit,
         remaining: b.remaining,
         poisonLeft: b.poisonLeft,
         hits: b.hits,

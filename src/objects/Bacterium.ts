@@ -131,6 +131,8 @@ export class Bacterium {
   private slowRing: Phaser.GameObjects.Image | null = null;
   /** «Кислота» Шипучки: сколько секунд ещё действует и во сколько раз сильнее удары по этой бактерии. */
   private acidLeft = 0;
+  /** Сколько секунд ещё подсвечена Лампой (только скрытные); пока > 0, башни видят её на полном радиусе. */
+  private litLeft = 0;
   private acidBy = 1;
   private acidRing: Phaser.GameObjects.Image | null = null;
   /** Зелёное кольцо яда и светло-розовое кольцо «поглощено» (держится absorbLeft секунд). */
@@ -387,6 +389,14 @@ export class Bacterium {
         this.scene.tweens.add({ targets: this.container, scaleX: 1, scaleY: 1, duration: 200, ease: 'Quad.easeOut' });
       }
     }
+    if (this.litLeft > 0) {
+      this.litLeft -= dt;
+      if (this.litLeft <= 0) {
+        this.litLeft = 0;
+        this.body.setAlpha(STEALTH_ALPHA);
+        this.cracks.setAlpha(STEALTH_ALPHA);
+      }
+    }
     if (this.acidLeft > 0) {
       this.acidLeft -= dt;
       if (this.acidLeft <= 0) {
@@ -481,6 +491,21 @@ export class Bacterium {
   pointAhead(distance: number): { x: number; y: number } {
     const p = pointAt(this.edge, Math.min(this.edge.length, this.s + Math.max(0, distance)));
     return { x: p.x, y: p.y };
+  }
+
+  /** Лампа подсвечивает скрытную бактерию на `seconds` секунд (время продлевается; на нескрытных не действует): тело становится непрозрачным. */
+  light(seconds: number): void {
+    if (this.stealth <= 0 || seconds <= 0 || this.hp <= 0) return;
+    if (this.litLeft <= 0) {
+      this.body.setAlpha(1);
+      this.cracks.setAlpha(1);
+    }
+    this.litLeft = Math.max(this.litLeft, seconds);
+  }
+
+  /** Подсвечена ли скрытная бактерия Лампой сейчас. */
+  get lit(): boolean {
+    return this.litLeft > 0;
   }
 
   /** Скрытность: доля радиуса башни, на которой её видят (0 — не скрытная). */

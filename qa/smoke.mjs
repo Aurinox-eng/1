@@ -4591,6 +4591,25 @@ async function towersStealth(browser, baseUrl) {
   }
   const ratio = exp > 0 ? got / exp : NaN;
   check(`${p} Лампа (длина конуса ${f1(L)}) бьёт скрытную на всей длине, в том числе дальше ${f1(stealth * L)} px, где Таблетка её не видит: по ${steps} замерам потеряно ${f1(got)} HP при ожидаемых ${f1(exp)} (отношение ${f2(ratio)}, допуск 0,75…1,25)`, steps >= 8 && ratio >= 0.75 && ratio <= 1.25, `замеров ${steps}, отношение ${f2(ratio)}, без потерь ${zero}`);
+  // Подсветка (12 октября 2026): скрытная в круге радиуса range Лампы подсвечена (lit), далеко за кругом — нет (подсветка держится lightSec после выхода: запас на путь = скорость × lightSec)
+  const lightSec = readConfigNumber('lamp', 'lightSec');
+  let inCircle = 0;
+  let inLit = 0;
+  let outCircle = 0;
+  let outLit = 0;
+  for (const s of lamp.log) {
+    const b = stealthIn(s);
+    if (!b) continue;
+    const d = distTo(lt, b);
+    if (d <= L - 6) {
+      inCircle++;
+      if (b.lit) inLit++;
+    } else if (d >= L + b.r + 90) {
+      outCircle++;
+      if (b.lit) outLit++;
+    }
+  }
+  check(`${p} Лампа подсвечивает скрытную в круге радиуса ${f1(L)}: кадров в круге ${inCircle}, подсвечена в ${inLit} (все, lightSec ${lightSec}); кадров далеко за кругом ${outCircle}, подсвечена в ${outLit} (ни в одном)`, lightSec > 0 && inCircle >= 20 && inLit === inCircle && outCircle >= 20 && outLit === 0);
   await context.close();
 }
 

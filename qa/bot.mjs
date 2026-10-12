@@ -134,6 +134,7 @@ const ANTIBIOTIC_MIN_SYRUPS = 1;
 const LAMP_PILLS_PER = 4;
 const LAMP_PREP_WAVE = 8; // --lamps: с этой волны «сильный» и «особо сильный» знают, что скоро выйдут скрытные (с 15–16-й волны), и ставят Лампы раньше Ампулы
 const LAMP_PILLS_PER_STEALTH = 2; // --lamps: одна Лампа на каждые 2 Таблетки (обычно — на 4)
+const LAMP_MAX_STEALTH = 3; // --lamps: не больше стольких «обычных» Ламп (Лампа — детектор, docs/lamp-plan.md: смешанный набор с 1–3 Лампами)
 const VITAMIN_MIN_FIGHTING = 3;
 const VITAMIN_FIGHTING_PER = 4;
 const VITAMIN_MIN_GROUP = 2;
@@ -710,11 +711,11 @@ function makePlayer(profile, { world, rng, buttons }) {
     const pills = unitsOf(view, 'pill');
     if (pills < 3) return null;
     // --lamps: перед скрытными (с 15–16-й волны) Лампа идёт первой — иначе очередь стоит на дорогой Ампуле и до Ламп не доходит
-    if (LAMPS && (profile === 'strong' || profile === 'expert') && available('lamp') && !extraGaveUp.has('lamp') && view.s.wave >= LAMP_PREP_WAVE && unitsOf(view, 'lamp') < Math.floor(pills / LAMP_PILLS_PER_STEALTH)) return 'lamp';
+    if (LAMPS && (profile === 'strong' || profile === 'expert') && available('lamp') && !extraGaveUp.has('lamp') && view.s.wave >= LAMP_PREP_WAVE && unitsOf(view, 'lamp') < Math.min(LAMP_MAX_STEALTH, Math.floor(pills / LAMP_PILLS_PER_STEALTH))) return 'lamp';
     if (available('ampule') && !extraGaveUp.has('ampule') && unitsOf(view, 'ampule') < Math.floor((pills + 0.5) / AMPULE_PILLS_PER)) return 'ampule';
     const syrupOk = !available('syrup') || unitsOf(view, 'syrup') >= ANTIBIOTIC_MIN_SYRUPS;
     if (available('antibiotic') && !extraGaveUp.has('antibiotic') && pills >= ANTIBIOTIC_MIN_PILLS && syrupOk && unitsOf(view, 'antibiotic') < Math.floor(pills / ANTIBIOTIC_PILLS_PER)) return 'antibiotic';
-    if (available('lamp') && !extraGaveUp.has('lamp') && pills >= LAMP_PILLS_PER && unitsOf(view, 'lamp') < Math.floor(pills / LAMP_PILLS_PER)) return 'lamp';
+    if (available('lamp') && !extraGaveUp.has('lamp') && pills >= LAMP_PILLS_PER && unitsOf(view, 'lamp') < Math.floor(pills / LAMP_PILLS_PER) && !(LAMPS && unitsOf(view, 'lamp') >= LAMP_MAX_STEALTH)) return 'lamp';
     if (available('vitamin') && !extraGaveUp.has('vitamin')) {
       const fighting = view.towers.filter(isFighting).length; // штук, а не «обычных» башен
       const allowed = fighting >= VITAMIN_MIN_FIGHTING ? 1 + Math.floor((fighting - VITAMIN_MIN_FIGHTING) / VITAMIN_FIGHTING_PER) : 0;

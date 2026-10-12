@@ -198,6 +198,8 @@ export interface DebugSnapshot {
     s: number;
     dashing: boolean;
     slowed: boolean;
+    /** Подсвечена ли скрытная бактерия Лампой (башни видят её на полном радиусе). */
+    lit: boolean;
     remaining: number;
     /** Яд: сколько секунд ещё идёт (0 — не отравлена); фагоцит: ударов было и поглощено; прыгун: прыжков сделано. */
     poisonLeft: number;
