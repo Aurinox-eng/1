@@ -1,11 +1,10 @@
 {
-  "note": "Подбор: смешанный набор, уровень 5, latePerWave 1,8 (6 партий)",
+  "note": "Одиночные башни на уровне 5 с теми же улучшениями, что у смешанного набора (чистая разница от башни): Шипучка, Таблетка (база), Ампула, Лампа; 6 партий каждая",
   "profiles": "strong",
   "runs": 6,
   "shards": 6,
   "excludes": "-",
-  "solos": "-",
-  "cfg": "levels.specs.4.growth.latePerWave:1.8",
+  "solos": "fizz;pill;ampule;lamp",
   "level": 5,
   "speed": 2,
   "meta": "damage:10,coins:10,reward:5,lives:3,recycle:1"
