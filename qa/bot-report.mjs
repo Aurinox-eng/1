@@ -191,7 +191,7 @@ if (!orderedGroups.length && !campaignResults.length && !ladderResults.length) {
     lines.push(`# ${PROFILE_TITLES[g.profile] ?? g.profile} — ${variant(g)}`);
     g.games.forEach((game, i) => {
       if (game.result === 'error') return;
-      lines.push(`  партия ${i + 1}: потеря жизней на волнах [${(game.lifeLossWaves ?? []).join(', ')}]; постройки: ${buildsOf(game)}; уровни башен ${JSON.stringify(game.levels ?? {})}; слияний ${game.merges ?? 0}, мутаций ${game.picks ?? 0}`);
+      lines.push(`  партия ${i + 1}: потеря жизней на волнах [${(game.lifeLossWaves ?? []).join(', ')}]${game.lifeLossKinds?.length ? ` (виды: ${[...new Set(game.lifeLossKinds)].map((k) => `${k}×${game.lifeLossKinds.filter((x) => x === k).length}`).join(', ')})` : ''}; постройки: ${buildsOf(game)}; уровни башен ${JSON.stringify(game.levels ?? {})}; слияний ${game.merges ?? 0}, мутаций ${game.picks ?? 0}`);
     });
     const first = g.games.find((game) => game.result !== 'error');
     if (first?.timeline?.length) lines.push(`  ход первой партии (волна: игровая секунда, монеты, башен, жизни): ${first.timeline.map((x) => `${x.wave}: ${x.t} с ${x.coins}м ${x.towers}б ${x.lives}ж`).join(' | ')}`);

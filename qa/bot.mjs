@@ -1146,6 +1146,8 @@ async function playGame(browser, baseUrl, profile, run, metaLevels = null, salt 
     const waveSeen = { wave: 0 };
     const timeline = [];
     const lifeLossWaves = [];
+    const lifeLossKinds = []; // вид бактерии, ближайшей к организму в последнем опросе до потери жизни (кто пробивает оборону)
+    let frontKind = null;
     let lastLives = s.lives;
     let minLives = s.lives;
     let maxOnMap = 0;
@@ -1200,9 +1202,13 @@ async function playGame(browser, baseUrl, profile, run, metaLevels = null, salt 
         timeline.push({ wave: s.wave, t: Math.round(s.elapsed), coins: s.coins, towers: s.towers.length, lives: s.lives });
       }
       if (s.lives < lastLives) {
-        for (let k = 0; k < lastLives - s.lives; k++) lifeLossWaves.push(s.wave);
+        for (let k = 0; k < lastLives - s.lives; k++) {
+          lifeLossWaves.push(s.wave);
+          lifeLossKinds.push(frontKind ?? '?');
+        }
         lastLives = s.lives;
       }
+      if (s.bacteria.length) frontKind = s.bacteria.reduce((a, b) => (b.remaining < a.remaining ? b : a)).kind;
       minLives = Math.min(minLives, s.lives);
       maxOnMap = Math.max(maxOnMap, s.bacteria.length);
 
@@ -1267,6 +1273,7 @@ async function playGame(browser, baseUrl, profile, run, metaLevels = null, salt 
       shieldAbsorbed: last.shieldAbsorbed ?? 0,
       minLives,
       lifeLossWaves,
+      lifeLossKinds,
       kills: last.kills,
       leaked: last.leaked,
       spawned: last.spawned,
