@@ -75,9 +75,10 @@ for (const r of results) {
   const level = a.level ?? 1;
   const meta = a.meta ? Object.entries(a.meta).map(([id, n]) => `${id}:${n}`).join(',') : '';
   const solo = a.solo ?? '';
+  const lamps = a.lamps ? 'лампы' : '';
   for (const g of r.games) {
-    const key = [g.profile, exclude, cfg, level, meta, solo].join('|');
-    if (!groups.has(key)) groups.set(key, { profile: g.profile, exclude, cfg, level, meta, solo, games: [], tags: new Set(), seeds: [] });
+    const key = [g.profile, exclude, cfg, level, meta, solo, lamps].join('|');
+    if (!groups.has(key)) groups.set(key, { profile: g.profile, exclude, cfg, level, meta, solo, lamps, games: [], tags: new Set(), seeds: [] });
     const group = groups.get(key);
     group.games.push(g);
     group.tags.add(r.tag);
@@ -116,7 +117,7 @@ function summarize(games) {
   };
 }
 
-const variant = (g) => [g.solo ? `одна башня: ${NAMES[g.solo] ?? g.solo}` : '', g.exclude ? `без: ${g.exclude.split(',').map((id) => NAMES[id] ?? id).join(', ')}` : '', g.cfg ? `cfg: ${g.cfg}` : '', g.level !== 1 ? `уровень ${g.level}` : '', g.meta ? `улучшения: ${g.meta}` : ''].filter(Boolean).join('; ') || 'обычный';
+const variant = (g) => [g.lamps ? 'Лампы против скрытных' : '', g.solo ? `одна башня: ${NAMES[g.solo] ?? g.solo}` : '', g.exclude ? `без: ${g.exclude.split(',').map((id) => NAMES[id] ?? id).join(', ')}` : '', g.cfg ? `cfg: ${g.cfg}` : '', g.level !== 1 ? `уровень ${g.level}` : '', g.meta ? `улучшения: ${g.meta}` : ''].filter(Boolean).join('; ') || 'обычный';
 
 const gameLine = (g, index, total) => {
   const head = `[${PROFILE_TITLES[g.profile] ?? g.profile} ${index}/${total}]`;

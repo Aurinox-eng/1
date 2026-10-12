@@ -132,6 +132,8 @@ const ANTIBIOTIC_MIN_SYRUPS = 1;
 // Башни пачки 2 (этап 7): Лампа — одна на каждые LAMP_PILLS_PER «обычных» Таблеток (первая при стольких же); Витамин — не раньше VITAMIN_MIN_FIGHTING стреляющих башен, дальше по одному на каждые VITAMIN_FIGHTING_PER,
 // в центре группы: в радиусе его ауры (из таблицы башни) должно стоять не меньше VITAMIN_MIN_GROUP стреляющих башен
 const LAMP_PILLS_PER = 4;
+const LAMP_PREP_WAVE = 8; // --lamps: с этой волны «сильный» и «особо сильный» знают, что скоро выйдут скрытные (с 15–16-й волны), и ставят Лампы раньше Ампулы
+const LAMP_PILLS_PER_STEALTH = 2; // --lamps: одна Лампа на каждые 2 Таблетки (обычно — на 4)
 const VITAMIN_MIN_FIGHTING = 3;
 const VITAMIN_FIGHTING_PER = 4;
 const VITAMIN_MIN_GROUP = 2;
@@ -197,6 +199,8 @@ const HELP = `Бот-замерщик баланса: играет целые п
   --solo=<башня>                        «одна башня» (docs/fizz-solo-plan.md): игрок строит только эту башню и не больше одного Сиропа. Башни с уроном (pill, fizz, syringe, ampule,
                                         antibiotic, lamp): «башня + 1 Сироп»; vitamin, frost, patch: «башня + 1 Сироп + Таблетки» (Таблетки — основа, башня докупается как всегда). --solo=pill —
                                         база для сравнения («только Таблетки + 1 Сироп»). Играет только --profile=strong или expert; башня должна быть открыта на --level; не сочетается с --ladder и --campaign
+  --lamps                               «Лампы против скрытных» (только strong и expert, башня открыта на уровне): с 8-й волны Лампа идёт раньше Ампулы и Антибиотика, по одной на каждые 2 Таблетки (вместо 4);
+                                        без параметра бот ведёт себя как раньше (прежние замеры сравнимы). Нужен, потому что скрытные бактерии (с 15–16-й волны) — стена для набора без Ламп
   --canvas                              рисовать игру через canvas вместо WebGL (?qa&canvas): на слабом контейнере партия идёт ≈ втрое быстрее.
                                         Логика игры та же; для замеров баланса годится (картинка не важна)
   --help                                эта справка
@@ -212,7 +216,7 @@ if (args.help || args.h) {
   console.log(HELP);
   process.exit(0);
 }
-const KNOWN = new Set(['profile', 'runs', 'speed', 'exclude', 'cfg', 'tag', 'seed', 'max-game-sec', 'max-real-sec', 'verbose', 'shots', 'canvas', 'level', 'meta', 'campaign', 'ladder', 'from-level', 'to-level', 'state-in', 'state-out', 'run-offset', 'solo', 'help']);
+const KNOWN = new Set(['profile', 'runs', 'speed', 'exclude', 'cfg', 'tag', 'seed', 'max-game-sec', 'max-real-sec', 'verbose', 'shots', 'canvas', 'level', 'meta', 'campaign', 'ladder', 'from-level', 'to-level', 'state-in', 'state-out', 'run-offset', 'solo', 'lamps', 'help']);
 for (const key of Object.keys(args)) if (!KNOWN.has(key)) die(`Неизвестный параметр --${key}. Справка: node qa/bot.mjs --help`);
 
 function numArg(name, fallback, { min = -Infinity, max = Infinity, int = false } = {}) {
@@ -244,6 +248,9 @@ const STATE_OUT = args['state-out'] === undefined || args['state-out'] === true 
 if (LADDER && (CAMPAIGN || args.meta !== undefined || args.level !== undefined)) die('--ladder не сочетается с --campaign, --meta и --level: уровни и улучшения ведёт сам бот (участок уровней — --from-level, --to-level).');
 if (!LADDER && (args['from-level'] !== undefined || args['to-level'] !== undefined || args['run-offset'] !== undefined || STATE_IN || STATE_OUT)) die('--from-level, --to-level, --run-offset, --state-in, --state-out работают только вместе с --ladder=K.');
 if (LADDER_FROM > LADDER_TO) die('--from-level не может быть больше --to-level.');
+const LAMPS = Boolean(args.lamps);
+if (LAMPS && args.profile !== undefined && !['strong', 'expert', 'all'].includes(String(args.profile))) die('--lamps играют только профили strong и expert.');
+if (LAMPS && SOLO) die('--lamps не сочетается с --solo (при --solo башни выбирает сам режим).');
 const SOLO_SUPPORT = ['vitamin', 'frost', 'patch']; // не бьют сами: идут поверх Таблеток
 const SOLO = args.solo === undefined ? null : String(args.solo);
 if (SOLO !== null && (args.solo === true || !SOLO)) die('--solo=<башня>: после «=» нужен id башни, например --solo=fizz.');
@@ -702,6 +709,8 @@ function makePlayer(profile, { world, rng, buttons }) {
   const wantedExtra = (view) => {
     const pills = unitsOf(view, 'pill');
     if (pills < 3) return null;
+    // --lamps: перед скрытными (с 15–16-й волны) Лампа идёт первой — иначе очередь стоит на дорогой Ампуле и до Ламп не доходит
+    if (LAMPS && (profile === 'strong' || profile === 'expert') && available('lamp') && !extraGaveUp.has('lamp') && view.s.wave >= LAMP_PREP_WAVE && unitsOf(view, 'lamp') < Math.floor(pills / LAMP_PILLS_PER_STEALTH)) return 'lamp';
     if (available('ampule') && !extraGaveUp.has('ampule') && unitsOf(view, 'ampule') < Math.floor((pills + 0.5) / AMPULE_PILLS_PER)) return 'ampule';
     const syrupOk = !available('syrup') || unitsOf(view, 'syrup') >= ANTIBIOTIC_MIN_SYRUPS;
     if (available('antibiotic') && !extraGaveUp.has('antibiotic') && pills >= ANTIBIOTIC_MIN_PILLS && syrupOk && unitsOf(view, 'antibiotic') < Math.floor(pills / ANTIBIOTIC_PILLS_PER)) return 'antibiotic';
@@ -1379,7 +1388,7 @@ const saveResults = () => {
   const payload = {
     tag: TAG,
     startedAt: startedAt.toISOString(),
-    args: { profiles: PROFILES, runs: RUNS, speed: SPEED, level: LEVEL, exclude: [...EXCLUDE], solo: SOLO, cfg: CFG_STRING, seed: SEED, maxGameSec: MAX_GAME_SEC, campaign: CAMPAIGN, meta: META_FIXED },
+    args: { profiles: PROFILES, runs: RUNS, speed: SPEED, level: LEVEL, exclude: [...EXCLUDE], solo: SOLO, lamps: LAMPS, cfg: CFG_STRING, seed: SEED, maxGameSec: MAX_GAME_SEC, campaign: CAMPAIGN, meta: META_FIXED },
     campaign: CAMPAIGN ? { n: CAMPAIGN, series, metaTable: META } : undefined,
     ladder: LADDER ? { k: LADDER, from: LADDER_FROM, to: LADDER_TO, lanes: ladderLanes, metaTable: META } : undefined,
     towerTable: TABLE,

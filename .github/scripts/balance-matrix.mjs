@@ -7,6 +7,7 @@
  * каждой пары «профиль + набор» (1 — одна задача, партии идут подряд; 5 при RUNS=5 — по одной партии в задаче: быстрее всего);
  * EXCLUDES — наборы исключений через «;», внутри набора башни через «,» (например «-;syrup;fizz,syringe»; «-» или пусто — без исключений);
  * SOLOS — варианты «одна башня» (--solo) через «;» (например «-;fizz;pill»: «-» — обычная игра смешанным набором, «fizz» — только Шипучка и один Сироп); играют только профили strong и expert (docs/fizz-solo-plan.md);
+ * LAMPS — «1»: бот строит Лампы против скрытных (--lamps; только strong и expert);
  * CFG — подмена чисел «путь:число,путь:число»; LEVEL, SPEED; CAMPAIGN — число партий в серии (0 — обычный замер; N — каждая из RUNS серий играет до N партий подряд с очками ДНК и улучшениями, до первой победы).
  * Если запуск от push (EVENT_NAME=push), поля берутся из файла `.github/balance-request.json` (ключи profiles, runs, shards, excludes, cfg, level, speed, campaign, meta — в нижнем регистре),
  * а не из переменных окружения: так замер можно запустить без кнопки — изменив этот файл и сделав push в рабочую ветку.
@@ -16,7 +17,7 @@ import fs from 'node:fs';
 const env = { ...process.env };
 if (env.EVENT_NAME === 'push') {
   const request = JSON.parse(fs.readFileSync('.github/balance-request.json', 'utf8'));
-  for (const name of ['PROFILES', 'RUNS', 'SHARDS', 'EXCLUDES', 'SOLOS', 'CFG', 'LEVEL', 'SPEED', 'CAMPAIGN', 'META', 'MAX_GAME_SEC', 'MAX_REAL_SEC']) {
+  for (const name of ['PROFILES', 'RUNS', 'SHARDS', 'EXCLUDES', 'SOLOS', 'LAMPS', 'CFG', 'LEVEL', 'SPEED', 'CAMPAIGN', 'META', 'MAX_GAME_SEC', 'MAX_REAL_SEC']) {
     const value = request[name.toLowerCase()];
     if (value !== undefined && value !== null) env[name] = String(value);
   }
@@ -68,6 +69,9 @@ if (soloList.some(Boolean)) for (const p of profiles) if (p !== 'strong' && p !=
 
 // CFG — один вариант «путь:число,путь:число» или несколько через «;» (например «-;towers.fizz.blastFullTargets:999»: «-» — без подмены): каждый вариант идёт отдельными задачами
 // в одном прогоне, так сравнение «до/после» выполняется в одинаковых условиях
+const lamps = (env.LAMPS ?? '').trim() === '1' ? '1' : '';
+if (lamps) for (const p of profiles) if (p !== 'strong' && p !== 'expert') fail(`LAMPS: --lamps играют только профили strong и expert, а в списке «${p}»`);
+if (lamps && soloList.some(Boolean)) fail('LAMPS не сочетается с SOLOS');
 const cfgList = [];
 for (const part of (env.CFG ?? '').split(';')) {
   const variant = part.trim() === '-' ? '' : part.trim();
@@ -95,10 +99,10 @@ for (const profile of profiles) {
       for (const [cfgIndex, cfg] of cfgList.entries()) {
         for (let shard = 0; shard < shards; shard++) {
           const games = Math.floor(runs / shards) + (shard < runs % shards ? 1 : 0);
-          const variant = `${exclude ? `no-${exclude.replace(/,/g, '-')}` : 'base'}${solo ? `-solo-${solo}` : ''}${cfgList.length > 1 ? `-c${cfgIndex + 1}` : ''}`;
+          const variant = `${exclude ? `no-${exclude.replace(/,/g, '-')}` : 'base'}${solo ? `-solo-${solo}` : ''}${lamps ? '-lamps' : ''}${cfgList.length > 1 ? `-c${cfgIndex + 1}` : ''}`;
           const tag = `${profile}-${variant}${level !== 1 ? `-L${level}` : ''}${meta ? '-m' : ''}-s${shard + 1}`;
-          const title = `${TITLES[profile]}${solo ? ` · одна башня: ${solo}` : ''}${exclude ? ` · без ${exclude}` : ''}${cfgList.length > 1 ? ` · подмена ${cfg || 'нет'}` : ''}${campaign ? ` · серии до ${campaign}` : ''}${level !== 1 ? ` · уровень ${level}` : ''}${meta ? ` · улучшения ${meta}` : ''}${shards > 1 ? ` · доля ${shard + 1}/${shards}` : ''} (${games} парт.)`;
-          include.push({ profile, exclude, solo, runs: games, tag, title, cfg, level, speed, campaign, meta, max_game_sec, max_real_sec });
+          const title = `${TITLES[profile]}${solo ? ` · одна башня: ${solo}` : ''}${lamps ? ' · Лампы против скрытных' : ''}${exclude ? ` · без ${exclude}` : ''}${cfgList.length > 1 ? ` · подмена ${cfg || 'нет'}` : ''}${campaign ? ` · серии до ${campaign}` : ''}${level !== 1 ? ` · уровень ${level}` : ''}${meta ? ` · улучшения ${meta}` : ''}${shards > 1 ? ` · доля ${shard + 1}/${shards}` : ''} (${games} парт.)`;
+          include.push({ profile, exclude, solo, lamps, runs: games, tag, title, cfg, level, speed, campaign, meta, max_game_sec, max_real_sec });
         }
       }
     }

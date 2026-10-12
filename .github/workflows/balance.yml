@@ -34,6 +34,10 @@ on:
         description: 'Наборы исключённых башен (--exclude), через «;»: «-;syrup» — без исключений и без Сиропа; «fizz,syringe» — без двух башен; «-» — не исключать'
         type: string
         default: '-'
+      lamps:
+        description: 'Лампы против скрытных (--lamps): 1 — включить; только профили strong и expert; не сочетается с «solos» (пусто или 0 — как раньше)'
+        type: string
+        default: ''
       solos:
         description: 'Варианты «одна башня» (--solo) через «;»: «-;fizz» — обычная игра и только Шипучка + 1 Сироп; башни: pill, fizz, syringe, ampule, antibiotic, lamp, vitamin, frost, patch; только профили strong и expert (пусто или «-» — без ограничения)'
         type: string
@@ -96,6 +100,7 @@ jobs:
           SHARDS: ${{ inputs.shards }}
           EXCLUDES: ${{ inputs.excludes }}
           SOLOS: ${{ inputs.solos }}
+          LAMPS: ${{ inputs.lamps }}
           CFG: ${{ inputs.cfg }}
           LEVEL: ${{ inputs.level }}
           SPEED: ${{ inputs.speed }}
@@ -140,6 +145,7 @@ jobs:
           RUNS: ${{ matrix.runs }}
           EXCLUDE: ${{ matrix.exclude }}
           SOLO: ${{ matrix.solo }}
+          LAMPS: ${{ matrix.lamps }}
           CFG: ${{ matrix.cfg }}
           LEVEL: ${{ matrix.level }}
           SPEED: ${{ matrix.speed }}
@@ -152,6 +158,7 @@ jobs:
           args=(--profile="$PROFILE" --runs="$RUNS" --speed="$SPEED" --canvas --level="$LEVEL" --tag="$TAG")
           if [ -n "$EXCLUDE" ]; then args+=(--exclude="$EXCLUDE"); fi
           if [ -n "$SOLO" ]; then args+=(--solo="$SOLO"); fi
+          if [ "$LAMPS" = "1" ]; then args+=(--lamps); fi
           if [ -n "$CFG" ]; then args+=(--cfg="$CFG"); fi
           if [ -n "$CAMPAIGN" ] && [ "$CAMPAIGN" != "0" ]; then args+=(--campaign="$CAMPAIGN"); fi
           if [ -n "$META" ]; then args+=(--meta="$META"); fi
