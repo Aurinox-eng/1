@@ -1,14 +1,14 @@
 {
-  "note": "Шипучка одна, уровень 5, expert и strong, улучшения: ветка Шипучки первой; до (предел выключен) и после, один прогон",
+  "note": "Таблетка одна (база), уровень 5, expert и strong, улучшения: ветка Таблетки первой",
   "profiles": "expert,strong",
   "runs": 6,
   "shards": 6,
   "excludes": "-",
-  "solos": "fizz",
-  "cfg": "-;towers.fizz.blastFullTargets:999",
+  "solos": "pill",
+  "cfg": "-",
   "level": 5,
   "speed": 2,
-  "meta": "damage:3,coins:2,fizzPower:6,fizzBlast:8,fizzRate:2,fizzRange:1",
+  "meta": "damage:3,pillPower:6,pillRate:8,pillRange:6,pillCheap:5",
   "max_game_sec": 3000,
   "max_real_sec": 7200
 }
