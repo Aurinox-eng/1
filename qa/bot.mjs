@@ -135,6 +135,7 @@ const LAMP_PILLS_PER = 4;
 const LAMP_PREP_WAVE = 8; // --lamps: с этой волны «сильный» и «особо сильный» знают, что скоро выйдут скрытные (с 15–16-й волны), и ставят Лампы раньше Ампулы
 const LAMP_PILLS_PER_STEALTH = 2; // --lamps: одна Лампа на каждые 2 Таблетки (обычно — на 4)
 const LAMP_MAX_STEALTH = 3; // --lamps: не больше стольких «обычных» Ламп (Лампа — детектор, docs/lamp-plan.md: смешанный набор с 1–3 Лампами)
+const LAMP_LEAD_WAVES = 3; // --lamps=veteran: Лампы начинают покупать за столько волн до выхода скрытных
 const VITAMIN_MIN_FIGHTING = 3;
 const VITAMIN_FIGHTING_PER = 4;
 const VITAMIN_MIN_GROUP = 2;
@@ -200,8 +201,11 @@ const HELP = `Бот-замерщик баланса: играет целые п
   --solo=<башня>                        «одна башня» (docs/fizz-solo-plan.md): игрок строит только эту башню и не больше одного Сиропа. Башни с уроном (pill, fizz, syringe, ampule,
                                         antibiotic, lamp): «башня + 1 Сироп»; vitamin, frost, patch: «башня + 1 Сироп + Таблетки» (Таблетки — основа, башня докупается как всегда). --solo=pill —
                                         база для сравнения («только Таблетки + 1 Сироп»). Играет только --profile=strong или expert; башня должна быть открыта на --level; не сочетается с --ladder и --campaign
-  --lamps                               «Лампы против скрытных» (только strong и expert, башня открыта на уровне): с 8-й волны Лампа идёт раньше Ампулы и Антибиотика, по одной на каждые 2 Таблетки (вместо 4);
-                                        без параметра бот ведёт себя как раньше (прежние замеры сравнимы). Нужен, потому что скрытные бактерии (с 15–16-й волны) — стена для набора без Ламп
+  --lamps[=вариант]                     «Лампы против скрытных» (только strong и expert, башня открыта на уровне; не больше 3 Ламп, одна на каждые 2 Таблетки; Лампа идёт раньше Ампулы и Антибиотика
+                                        и копится вне очереди). Без параметра бот ведёт себя как раньше (прежние замеры сравнимы). Варианты (docs/lamp-plan.md):
+                                        1 — прежний: с 8-й волны, а обычное правило «Лампа на каждые 4 Таблетки» работает с самого начала;
+                                        veteran («опытный») — Лампы не покупаются, пока до выхода скрытных больше 3 волн; с (волна выхода − 3)-й волны идут вне очереди;
+                                        first («первая встреча») — Лампы не покупаются, пока не вышла первая скрытная (её плашка); потом вне очереди
   --canvas                              рисовать игру через canvas вместо WebGL (?qa&canvas): на слабом контейнере партия идёт ≈ втрое быстрее.
                                         Логика игры та же; для замеров баланса годится (картинка не важна)
   --help                                эта справка
@@ -249,11 +253,31 @@ const STATE_OUT = args['state-out'] === undefined || args['state-out'] === true 
 if (LADDER && (CAMPAIGN || args.meta !== undefined || args.level !== undefined)) die('--ladder не сочетается с --campaign, --meta и --level: уровни и улучшения ведёт сам бот (участок уровней — --from-level, --to-level).');
 if (!LADDER && (args['from-level'] !== undefined || args['to-level'] !== undefined || args['run-offset'] !== undefined || STATE_IN || STATE_OUT)) die('--from-level, --to-level, --run-offset, --state-in, --state-out работают только вместе с --ladder=K.');
 if (LADDER_FROM > LADDER_TO) die('--from-level не может быть больше --to-level.');
-const LAMPS = Boolean(args.lamps);
+// --lamps: true / «1» — прежний вариант (prep8), «veteran», «first»
+const LAMP_MODE = args.lamps === undefined || args.lamps === '0' ? null : args.lamps === true || args.lamps === '1' ? 'prep8' : String(args.lamps);
+if (LAMP_MODE !== null && !['prep8', 'veteran', 'first'].includes(LAMP_MODE)) die(`--lamps=«${LAMP_MODE}»: есть 1, veteran, first.`);
+const LAMPS = LAMP_MODE !== null;
 if (LAMPS && args.profile !== undefined && !['strong', 'expert', 'all'].includes(String(args.profile))) die('--lamps играют только профили strong и expert.');
+/** Волна выхода скрытных на уровне — из таблицы `levels.specs` в src/config.ts (null — на уровне их нет); нужна режиму --lamps=veteran. */
+function stealthIntroWave(level) {
+  const lines = fs.readFileSync(path.join(ROOT, 'src/config.ts'), 'utf8').split('\n');
+  const start = lines.findIndex((l) => /^\s*specs:\s*\[/.test(l));
+  if (start < 0) return null;
+  const rows = [];
+  for (const line of lines.slice(start + 1)) {
+    const text = line.trim();
+    if (text.startsWith(']')) break;
+    if (text.startsWith('{')) rows.push(text);
+  }
+  const found = /\bstealth:\s*(\d+)/.exec(rows[level - 1] ?? '');
+  return found ? Number(found[1]) : null;
+}
 const SOLO_SUPPORT = ['vitamin', 'frost', 'patch']; // не бьют сами: идут поверх Таблеток
 const SOLO = args.solo === undefined ? null : String(args.solo);
 if (SOLO !== null && (args.solo === true || !SOLO)) die('--solo=<башня>: после «=» нужен id башни, например --solo=fizz.');
+if (LAMP_MODE === 'veteran' && LADDER) die('--lamps=veteran не сочетается с --ladder: волна выхода скрытных берётся с одного уровня (--level).');
+const STEALTH_WAVE = LAMP_MODE === 'veteran' ? stealthIntroWave(LEVEL) : null;
+if (LAMP_MODE === 'veteran' && STEALTH_WAVE === null) console.warn(`--lamps=veteran: на уровне ${LEVEL} нет скрытных — Лампы не покупаются`);
 if (LAMPS && SOLO) die('--lamps не сочетается с --solo (при --solo башни выбирает сам режим).');
 if (SOLO && (LADDER || CAMPAIGN)) die('--solo не сочетается с --ladder и --campaign: сравнение «одна башня» идёт на одном уровне с фиксированными улучшениями (--meta).');
 const SEED = args.seed === undefined ? Math.floor(Math.random() * 1e9) : numArg('seed', 0, { min: 0, max: 4294967295, int: true });
@@ -706,16 +730,22 @@ function makePlayer(profile, { world, rng, buttons }) {
     if (profile === 'strong') return pick(scored.slice(0, Math.max(STRONG_PICK_MIN, Math.ceil(scored.length * STRONG_PICK_SHARE)))).c;
     return scored[0].c;
   };
+  /** --lamps: пора ли покупать Лампы вне очереди. 1 — с LAMP_PREP_WAVE-й волны; veteran — за LAMP_LEAD_WAVES волн до выхода скрытных; first — когда первая скрытная уже вышла (плашка нового типа). */
+  const lampTime = (view) => {
+    if (LAMP_MODE === 'veteran') return STEALTH_WAVE !== null && view.s.wave >= STEALTH_WAVE - LAMP_LEAD_WAVES;
+    if (LAMP_MODE === 'first') return (view.s.introduced ?? []).includes('stealth');
+    return view.s.wave >= LAMP_PREP_WAVE;
+  };
   /** Какую новую башню (Ампула, Антибиотик, Лампа, Витамин, Холод, Пластырь) пора докупить поверх круга: null — никакую (башня закрыта на уровне, исключена или ещё рано). */
   const wantedExtra = (view) => {
     const pills = unitsOf(view, 'pill');
     if (pills < 3) return null;
     // --lamps: перед скрытными (с 15–16-й волны) Лампа идёт первой — иначе очередь стоит на дорогой Ампуле и до Ламп не доходит
-    if (LAMPS && (profile === 'strong' || profile === 'expert') && available('lamp') && !extraGaveUp.has('lamp') && view.s.wave >= LAMP_PREP_WAVE && unitsOf(view, 'lamp') < Math.min(LAMP_MAX_STEALTH, Math.floor(pills / LAMP_PILLS_PER_STEALTH))) return 'lamp';
+    if (LAMPS && (profile === 'strong' || profile === 'expert') && available('lamp') && !extraGaveUp.has('lamp') && lampTime(view) && unitsOf(view, 'lamp') < Math.min(LAMP_MAX_STEALTH, Math.floor(pills / LAMP_PILLS_PER_STEALTH))) return 'lamp';
     if (available('ampule') && !extraGaveUp.has('ampule') && unitsOf(view, 'ampule') < Math.floor((pills + 0.5) / AMPULE_PILLS_PER)) return 'ampule';
     const syrupOk = !available('syrup') || unitsOf(view, 'syrup') >= ANTIBIOTIC_MIN_SYRUPS;
     if (available('antibiotic') && !extraGaveUp.has('antibiotic') && pills >= ANTIBIOTIC_MIN_PILLS && syrupOk && unitsOf(view, 'antibiotic') < Math.floor(pills / ANTIBIOTIC_PILLS_PER)) return 'antibiotic';
-    if (available('lamp') && !extraGaveUp.has('lamp') && pills >= LAMP_PILLS_PER && unitsOf(view, 'lamp') < Math.floor(pills / LAMP_PILLS_PER) && !(LAMPS && unitsOf(view, 'lamp') >= LAMP_MAX_STEALTH)) return 'lamp';
+    if (LAMP_MODE !== 'veteran' && LAMP_MODE !== 'first' && available('lamp') && !extraGaveUp.has('lamp') && pills >= LAMP_PILLS_PER && unitsOf(view, 'lamp') < Math.floor(pills / LAMP_PILLS_PER) && !(LAMPS && unitsOf(view, 'lamp') >= LAMP_MAX_STEALTH)) return 'lamp';
     if (available('vitamin') && !extraGaveUp.has('vitamin')) {
       const fighting = view.towers.filter(isFighting).length; // штук, а не «обычных» башен
       const allowed = fighting >= VITAMIN_MIN_FIGHTING ? 1 + Math.floor((fighting - VITAMIN_MIN_FIGHTING) / VITAMIN_FIGHTING_PER) : 0;
@@ -1260,6 +1290,10 @@ async function playGame(browser, baseUrl, profile, run, metaLevels = null, salt 
       fs.mkdirSync(dir, { recursive: true });
       await page.screenshot({ path: path.join(dir, `${profile}-${run}-${result}.png`) });
     }
+    // Жизни по видам бактерий, дошедших до организма (журнал игры: событие leak; погашенные «Щитом у линии» не считаются) — для критерия «жизней от скрытных» (docs/lamp-plan.md)
+    const leakEvents = (await page.evaluate(() => window.__pvb?.getEvents(0) ?? []).catch(() => [])).filter((e) => e.type === 'leak' && !e.absorbed);
+    const leakLives = {};
+    for (const e of leakEvents) leakLives[e.kind] = Math.round(((leakLives[e.kind] ?? 0) + e.damage) * 100) / 100;
     const counts = {};
     for (const id of KNOWN_TOWERS) counts[id] = last.towers.filter((tw) => tw.id === id).length;
     const startCoins = (cfgGet('economy.startCoins') ?? readConfigNumber('economy', 'startCoins')) + (metaLevels ? metaLevels.coins * META.upgrades.coins.perLevel : 0);
@@ -1275,6 +1309,8 @@ async function playGame(browser, baseUrl, profile, run, metaLevels = null, salt 
       minLives,
       lifeLossWaves,
       lifeLossKinds,
+      leakLives,
+      stealthLives: leakLives.stealth ?? 0,
       kills: last.kills,
       leaked: last.leaked,
       spawned: last.spawned,
@@ -1397,7 +1433,7 @@ const saveResults = () => {
   const payload = {
     tag: TAG,
     startedAt: startedAt.toISOString(),
-    args: { profiles: PROFILES, runs: RUNS, speed: SPEED, level: LEVEL, exclude: [...EXCLUDE], solo: SOLO, lamps: LAMPS, cfg: CFG_STRING, seed: SEED, maxGameSec: MAX_GAME_SEC, campaign: CAMPAIGN, meta: META_FIXED },
+    args: { profiles: PROFILES, runs: RUNS, speed: SPEED, level: LEVEL, exclude: [...EXCLUDE], solo: SOLO, lamps: LAMP_MODE, cfg: CFG_STRING, seed: SEED, maxGameSec: MAX_GAME_SEC, campaign: CAMPAIGN, meta: META_FIXED },
     campaign: CAMPAIGN ? { n: CAMPAIGN, series, metaTable: META } : undefined,
     ladder: LADDER ? { k: LADDER, from: LADDER_FROM, to: LADDER_TO, lanes: ladderLanes, metaTable: META } : undefined,
     towerTable: TABLE,

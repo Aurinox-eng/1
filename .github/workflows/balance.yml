@@ -35,7 +35,7 @@ on:
         type: string
         default: '-'
       lamps:
-        description: 'Лампы против скрытных (--lamps): 1 — включить; только профили strong и expert; не сочетается с «solos» (пусто или 0 — как раньше)'
+        description: 'Лампы против скрытных (--lamps): 1 — прежний вариант, veteran — «опытный» (Лампа за 3 волны до выхода скрытных), first — «первая встреча» (Лампа по плашке скрытной); несколько через «;», «-» — без Ламп; только профили strong и expert; не сочетается с «solos» (пусто — как раньше)'
         type: string
         default: ''
       solos:
@@ -158,7 +158,7 @@ jobs:
           args=(--profile="$PROFILE" --runs="$RUNS" --speed="$SPEED" --canvas --level="$LEVEL" --tag="$TAG")
           if [ -n "$EXCLUDE" ]; then args+=(--exclude="$EXCLUDE"); fi
           if [ -n "$SOLO" ]; then args+=(--solo="$SOLO"); fi
-          if [ "$LAMPS" = "1" ]; then args+=(--lamps); fi
+          if [ "$LAMPS" = "1" ]; then args+=(--lamps); elif [ -n "$LAMPS" ]; then args+=(--lamps="$LAMPS"); fi
           if [ -n "$CFG" ]; then args+=(--cfg="$CFG"); fi
           if [ -n "$CAMPAIGN" ] && [ "$CAMPAIGN" != "0" ]; then args+=(--campaign="$CAMPAIGN"); fi
           if [ -n "$META" ]; then args+=(--meta="$META"); fi

@@ -1119,6 +1119,7 @@ export class GameScene extends Phaser.Scene {
       if (!bacterium.reachedOrganism) continue;
       lastY = bacterium.y;
       this.leaked++;
+      if (QA_MODE) this.qa('leak', { id: bacterium.id, kind: bacterium.kind, wave: this.waveIdx, damage: bacterium.lifeDamage, absorbed: this.shieldLeft > 0 });
       if (this.shieldLeft > 0) {
         // «Щит у линии»: бактерия гасится, жизни не отнимаются (для звёзд она считается потерянной жизнью)
         this.shieldLeft--;

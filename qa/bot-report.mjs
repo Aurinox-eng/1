@@ -75,7 +75,7 @@ for (const r of results) {
   const level = a.level ?? 1;
   const meta = a.meta ? Object.entries(a.meta).map(([id, n]) => `${id}:${n}`).join(',') : '';
   const solo = a.solo ?? '';
-  const lamps = a.lamps ? 'лампы' : '';
+  const lamps = a.lamps ? (a.lamps === true || a.lamps === 'true' ? 'prep8' : String(a.lamps)) : '';
   for (const g of r.games) {
     const key = [g.profile, exclude, cfg, level, meta, solo, lamps].join('|');
     if (!groups.has(key)) groups.set(key, { profile: g.profile, exclude, cfg, level, meta, solo, lamps, games: [], tags: new Set(), seeds: [] });
@@ -109,6 +109,7 @@ function summarize(games) {
     winRate: own.filter((g) => g.result === 'won').length / own.length,
     avgLivesLost: mean(own.map((g) => g.maxLives - g.lives)),
     avgLossWave: mean(losses.map((g) => g.wave)),
+    avgStealthLives: own.some((g) => g.stealthLives !== undefined) ? mean(own.map((g) => g.stealthLives ?? 0)) : null,
     medianWave: median(own.map(waveReached)),
     avgTowers: Object.fromEntries(KNOWN_TOWERS.map((id) => [id, mean(own.map((g) => g.towers?.[id] ?? 0))])),
     avgCoinsEnd: mean(own.map((g) => g.coins)),
@@ -117,7 +118,8 @@ function summarize(games) {
   };
 }
 
-const variant = (g) => [g.lamps ? 'Лампы против скрытных' : '', g.solo ? `одна башня: ${NAMES[g.solo] ?? g.solo}` : '', g.exclude ? `без: ${g.exclude.split(',').map((id) => NAMES[id] ?? id).join(', ')}` : '', g.cfg ? `cfg: ${g.cfg}` : '', g.level !== 1 ? `уровень ${g.level}` : '', g.meta ? `улучшения: ${g.meta}` : ''].filter(Boolean).join('; ') || 'обычный';
+const LAMP_TITLES = { prep8: 'Лампы против скрытных', veteran: 'Лампы: опытный (за 3 волны до скрытных)', first: 'Лампы: первая встреча (по плашке скрытной)' };
+const variant = (g) => [g.lamps ? (LAMP_TITLES[g.lamps] ?? 'Лампы против скрытных') : '', g.solo ? `одна башня: ${NAMES[g.solo] ?? g.solo}` : '', g.exclude ? `без: ${g.exclude.split(',').map((id) => NAMES[id] ?? id).join(', ')}` : '', g.cfg ? `cfg: ${g.cfg}` : '', g.level !== 1 ? `уровень ${g.level}` : '', g.meta ? `улучшения: ${g.meta}` : ''].filter(Boolean).join('; ') || 'обычный';
 
 const gameLine = (g, index, total) => {
   const head = `[${PROFILE_TITLES[g.profile] ?? g.profile} ${index}/${total}]`;
@@ -158,17 +160,17 @@ lines.push('');
 if (!orderedGroups.length && !campaignResults.length && !ladderResults.length) {
   lines.push('**Результатов нет:** ни одна задача не прислала файл с партиями.');
 } else if (orderedGroups.length) {
-  const head = ['Вариант', 'Профиль', 'Партий', 'Побед', 'Потеряно жизней', 'Волна гибели', 'Медиана волны', `Башни (${KNOWN_TOWERS.map((id) => SHORT[id] ?? id).join('/')})`, 'Монеты в конце', 'Реал. время партии'];
+  const head = ['Вариант', 'Профиль', 'Партий', 'Побед', 'Потеряно жизней', 'Жизней от скрытных', 'Волна гибели', 'Медиана волны', `Башни (${KNOWN_TOWERS.map((id) => SHORT[id] ?? id).join('/')})`, 'Монеты в конце', 'Реал. время партии'];
   lines.push(`| ${head.join(' | ')} |`);
   lines.push(`|${head.map(() => '---').join('|')}|`);
   for (const g of orderedGroups) {
     const s = summarize(g.games);
     if (!s) {
-      lines.push(`| ${esc(variant(g))} | ${PROFILE_TITLES[g.profile] ?? g.profile} | 0 (все партии с ошибкой) | — | — | — | — | — | — | — |`);
+      lines.push(`| ${esc(variant(g))} | ${PROFILE_TITLES[g.profile] ?? g.profile} | 0 (все партии с ошибкой) | — | — | — | — | — | — | — | — |`);
       continue;
     }
     lines.push(
-      `| ${esc(variant(g))} | ${PROFILE_TITLES[g.profile] ?? g.profile} | ${s.games}${s.timeout ? ` (timeout ${s.timeout})` : ''} | ${s.won}/${s.games} (${pct(s.winRate)}) | ${f1(s.avgLivesLost)} | ${s.lost ? f1(s.avgLossWave) : '—'} | ${f1(s.medianWave)} | ${KNOWN_TOWERS.map((id) => f1(s.avgTowers[id])).join(' / ')} | ${f1(s.avgCoinsEnd)} | ${f1(s.avgRealSec)} с (игра ${f1(s.avgGameSec)} с) |`,
+      `| ${esc(variant(g))} | ${PROFILE_TITLES[g.profile] ?? g.profile} | ${s.games}${s.timeout ? ` (timeout ${s.timeout})` : ''} | ${s.won}/${s.games} (${pct(s.winRate)}) | ${f1(s.avgLivesLost)} | ${s.avgStealthLives === null ? '—' : f1(s.avgStealthLives)} | ${s.lost ? f1(s.avgLossWave) : '—'} | ${f1(s.medianWave)} | ${KNOWN_TOWERS.map((id) => f1(s.avgTowers[id])).join(' / ')} | ${f1(s.avgCoinsEnd)} | ${f1(s.avgRealSec)} с (игра ${f1(s.avgGameSec)} с) |`,
     );
   }
   lines.push('');
@@ -191,7 +193,7 @@ if (!orderedGroups.length && !campaignResults.length && !ladderResults.length) {
     lines.push(`# ${PROFILE_TITLES[g.profile] ?? g.profile} — ${variant(g)}`);
     g.games.forEach((game, i) => {
       if (game.result === 'error') return;
-      lines.push(`  партия ${i + 1}: потеря жизней на волнах [${(game.lifeLossWaves ?? []).join(', ')}]${game.lifeLossKinds?.length ? ` (виды: ${[...new Set(game.lifeLossKinds)].map((k) => `${k}×${game.lifeLossKinds.filter((x) => x === k).length}`).join(', ')})` : ''}; постройки: ${buildsOf(game)}; уровни башен ${JSON.stringify(game.levels ?? {})}; слияний ${game.merges ?? 0}, мутаций ${game.picks ?? 0}`);
+      lines.push(`  партия ${i + 1}: потеря жизней на волнах [${(game.lifeLossWaves ?? []).join(', ')}]${game.lifeLossKinds?.length ? ` (виды: ${[...new Set(game.lifeLossKinds)].map((k) => `${k}×${game.lifeLossKinds.filter((x) => x === k).length}`).join(', ')})` : ''}${game.leakLives && Object.keys(game.leakLives).length ? `; жизней по видам: ${Object.entries(game.leakLives).map(([k, v]) => `${k} ${v}`).join(', ')}` : ''}; постройки: ${buildsOf(game)}; уровни башен ${JSON.stringify(game.levels ?? {})}; слияний ${game.merges ?? 0}, мутаций ${game.picks ?? 0}`);
     });
     const first = g.games.find((game) => game.result !== 'error');
     if (first?.timeline?.length) lines.push(`  ход первой партии (волна: игровая секунда, монеты, башен, жизни): ${first.timeline.map((x) => `${x.wave}: ${x.t} с ${x.coins}м ${x.towers}б ${x.lives}ж`).join(' | ')}`);

@@ -51,11 +51,12 @@ export const TIME_SCALE: number = QA_MODE ? Math.min(10, Math.max(0.1, Number(pa
  *  blast   — взрыв Шипучки: x, y, radius, hits (сколько задето), kills (сколько убито), chain (второй взрыв «Цепной»);
  *  beam    — удар очереди луча Шприца: col, row (башня), index (номер удара с нуля), hits (сколько на линии), kills;
  *  latch   — паразит присосался: id, col, row (башня), dist (расстояние до неё в этот момент);
- *  chip    — подсказка «◀ Организм» сменила состояние: visible, danger, nearest (до организма от ближайшей бактерии, px; null — бактерий нет).
+ *  chip    — подсказка «◀ Организм» сменила состояние: visible, danger, nearest (до организма от ближайшей бактерии, px; null — бактерий нет);
+ *  leak    — бактерия дошла до организма: id, kind, wave (номер волны), damage (сколько жизней она отнимает), absorbed (true — погашена «Щитом у линии», жизни не отняты).
  * Журнал пишет сама игра в тот кадр, когда событие случилось, поэтому проверкам не нужно «ловить» его опросом состояния, а реальное время (и скорость сервера) на него не влияет.
  */
 export interface QaEvent {
-  type: 'spawn' | 'kill' | 'blast' | 'beam' | 'latch' | 'chip';
+  type: 'spawn' | 'kill' | 'blast' | 'beam' | 'latch' | 'chip' | 'leak';
   t: number;
   [key: string]: unknown;
 }
