@@ -1,11 +1,13 @@
 {
-  "note": "Одиночные башни на уровне 5 с теми же улучшениями, что у смешанного набора (чистая разница от башни): Шипучка, Таблетка (база), Ампула, Лампа; 6 партий каждая",
+  "note": "Уровень 10: девять одиночных башен с эталонными улучшениями уровня 10 (чистая разница от башни), 6 партий каждая; потолки времени увеличены",
   "profiles": "strong",
   "runs": 6,
   "shards": 6,
   "excludes": "-",
-  "solos": "fizz;pill;ampule;lamp",
-  "level": 5,
+  "solos": "pill;fizz;ampule;antibiotic;lamp;syringe;vitamin;frost;patch",
+  "level": 10,
   "speed": 2,
-  "meta": "damage:10,coins:10,reward:5,lives:3,recycle:1"
+  "meta": "damage:10,coins:10,reward:10,lives:3,shield:5,recycle:5,reinforce:8,pillPower:6",
+  "max_game_sec": 3000,
+  "max_real_sec": 7200
 }
