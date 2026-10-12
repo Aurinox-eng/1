@@ -66,8 +66,15 @@ for (const part of (env.SOLOS ?? '').split(';')) {
 if (soloList.length === 0) soloList.push('');
 if (soloList.some(Boolean)) for (const p of profiles) if (p !== 'strong' && p !== 'expert') fail(`SOLOS: «одна башня» играют только профили strong и expert, а в списке «${p}»`);
 
-const cfg = (env.CFG ?? '').trim();
-if (cfg && !/^[\w.\-]+:-?[\d.]+(,[\w.\-]+:-?[\d.]+)*$/.test(cfg)) fail(`CFG=«${cfg}»: нужно «путь:число,путь:число», например economy.rewardMul:0.85`);
+// CFG — один вариант «путь:число,путь:число» или несколько через «;» (например «-;towers.fizz.blastFullTargets:999»: «-» — без подмены): каждый вариант идёт отдельными задачами
+// в одном прогоне, так сравнение «до/после» выполняется в одинаковых условиях
+const cfgList = [];
+for (const part of (env.CFG ?? '').split(';')) {
+  const variant = part.trim() === '-' ? '' : part.trim();
+  if (variant && !/^[\w.\-]+:-?[\d.]+(,[\w.\-]+:-?[\d.]+)*$/.test(variant)) fail(`CFG=«${variant}»: нужно «путь:число,путь:число», например economy.rewardMul:0.85 (несколько вариантов — через «;», «-» — без подмены)`);
+  if (!cfgList.includes(variant)) cfgList.push(variant);
+}
+if (cfgList.length === 0) cfgList.push('');
 
 const limitField = (name) => {
   const text = (env[name] ?? '').trim();
@@ -85,19 +92,21 @@ const include = [];
 for (const profile of profiles) {
   for (const exclude of excludeSets) {
     for (const solo of soloList) {
-      for (let shard = 0; shard < shards; shard++) {
-        const games = Math.floor(runs / shards) + (shard < runs % shards ? 1 : 0);
-        const variant = `${exclude ? `no-${exclude.replace(/,/g, '-')}` : 'base'}${solo ? `-solo-${solo}` : ''}`;
-        const tag = `${profile}-${variant}${level !== 1 ? `-L${level}` : ''}${meta ? '-m' : ''}-s${shard + 1}`;
-        const title = `${TITLES[profile]}${solo ? ` · одна башня: ${solo}` : ''}${exclude ? ` · без ${exclude}` : ''}${campaign ? ` · серии до ${campaign}` : ''}${level !== 1 ? ` · уровень ${level}` : ''}${meta ? ` · улучшения ${meta}` : ''}${shards > 1 ? ` · доля ${shard + 1}/${shards}` : ''} (${games} парт.)`;
-        include.push({ profile, exclude, solo, runs: games, tag, title, cfg, level, speed, campaign, meta, max_game_sec, max_real_sec });
+      for (const [cfgIndex, cfg] of cfgList.entries()) {
+        for (let shard = 0; shard < shards; shard++) {
+          const games = Math.floor(runs / shards) + (shard < runs % shards ? 1 : 0);
+          const variant = `${exclude ? `no-${exclude.replace(/,/g, '-')}` : 'base'}${solo ? `-solo-${solo}` : ''}${cfgList.length > 1 ? `-c${cfgIndex + 1}` : ''}`;
+          const tag = `${profile}-${variant}${level !== 1 ? `-L${level}` : ''}${meta ? '-m' : ''}-s${shard + 1}`;
+          const title = `${TITLES[profile]}${solo ? ` · одна башня: ${solo}` : ''}${exclude ? ` · без ${exclude}` : ''}${cfgList.length > 1 ? ` · подмена ${cfg || 'нет'}` : ''}${campaign ? ` · серии до ${campaign}` : ''}${level !== 1 ? ` · уровень ${level}` : ''}${meta ? ` · улучшения ${meta}` : ''}${shards > 1 ? ` · доля ${shard + 1}/${shards}` : ''} (${games} парт.)`;
+          include.push({ profile, exclude, solo, runs: games, tag, title, cfg, level, speed, campaign, meta, max_game_sec, max_real_sec });
+        }
       }
     }
   }
 }
-if (include.length > 120) fail(`слишком много задач (${include.length}): уменьшите профили, наборы исключений или число долей`);
+if (include.length > 256) fail(`слишком много задач (${include.length}, предел 256): уменьшите профили, наборы исключений или число долей`);
 
 fs.writeFileSync('plan.json', JSON.stringify(include, null, 1));
 if (env.GITHUB_OUTPUT) fs.appendFileSync(env.GITHUB_OUTPUT, `matrix=${JSON.stringify({ include })}\ncount=${include.length}\n`);
-console.log(`Задач: ${include.length} (профили ${profiles.join(', ')}; наборы исключений: ${excludeSets.map((s) => s || '—').join(' | ')}; партий ${runs}, долей ${shards}; cfg «${cfg}»; уровень ${level}; улучшения «${meta}»; speed ${speed}${campaign ? `; серии до ${campaign} партий` : ''})`);
+console.log(`Задач: ${include.length} (профили ${profiles.join(', ')}; наборы исключений: ${excludeSets.map((s) => s || '—').join(' | ')}; партий ${runs}, долей ${shards}; подмены «${cfgList.map((c) => c || "—").join(" | ")}»; уровень ${level}; улучшения «${meta}»; speed ${speed}${campaign ? `; серии до ${campaign} партий` : ''})`);
 for (const job of include) console.log(`  ${job.tag}: ${job.title}`);
