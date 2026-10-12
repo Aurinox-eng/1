@@ -814,6 +814,7 @@ function makePlayer(profile, { world, rng, buttons }) {
       const firstOf = (id) => available(id) && !gaveUp.has(id) && !view.towers.some((tw) => tw.id === id);
       const needFirst = imperfect || opening ? null : firstOf('fizz') && view.s.wave <= FIZZ_BY_WAVE ? 'fizz' : ['syrup', 'syringe'].find(firstOf) ?? null;
       if (needFirst) order = [{ idx: cycle.indexOf(needFirst), type: needFirst }];
+      else if (LAMPS && extraHead === 'lamp' && !opening) order = [{ idx: -2, type: 'lamp' }]; // --lamps: копит на Лампу и ничего другого не покупает (иначе в бою, когда «не спокойно», терпение 0 и дешёвые Таблетки забирают все монеты: Лампа не строилась ни разу)
       else if (extraHead && !opening) order.unshift({ idx: -2, type: extraHead }); // Ампула / Антибиотик — во главе очереди (ждёт монет, как на любую дорогую башню); место в круге не двигает
       if (!order.length) return null;
       const calm = view.s.lives >= view.s.maxLives && view.s.bacteria.length <= CALM_MAX_BACTERIA;
