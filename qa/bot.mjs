@@ -793,11 +793,12 @@ function makePlayer(profile, { world, rng, buttons }) {
       }
       // Начало партии: пока башен с уроном мало, главное — урон: берётся самая дешёвая башня с уроном (вне списка по кругу; Сироп без урона ничего не убьёт)
       // Считаем в «обычных башнях»: башня уровня L — это 2^(L−1) обычных (иначе после слияния двух Таблеток «начало партии» включалось снова и бот до конца партии покупал только Таблетки: Сироп не строился)
-      const damageCount = view.towers.filter((tw) => TABLE[tw.id]?.damage > 0).reduce((sum, tw) => sum + 2 ** ((tw.level ?? 1) - 1), 0);
+      const hitsHard = (id) => TABLE[id]?.damage > 0 || (Boolean(SOLO) && TABLE[id]?.dotPerSec > 0); // при --solo яд (Антибиотик, damage 0) тоже считается уроном: иначе «начало партии» не находит башню и ничего не строится
+      const damageCount = view.towers.filter((tw) => hitsHard(tw.id)).reduce((sum, tw) => sum + 2 ** ((tw.level ?? 1) - 1), 0);
       const opening = damageCount < OPENING_DAMAGE_TOWERS;
       if (opening) {
-        const cheapest = KNOWN_TOWERS.filter((id) => available(id) && TABLE[id].damage > 0).sort((a, b) => TABLE[a].price - TABLE[b].price)[0];
-        order = cheapest ? [{ idx: -1, type: cheapest }] : order.filter((o) => TABLE[o.type].damage > 0);
+        const cheapest = KNOWN_TOWERS.filter((id) => available(id) && hitsHard(id)).sort((a, b) => TABLE[a].price - TABLE[b].price)[0];
+        order = cheapest ? [{ idx: -1, type: cheapest }] : order.filter((o) => hitsHard(o.type));
       }
       // «Особо сильный» знает, что с 4-й волны идёт рой, а одними Таблетками он не остановим: до 5-й волны копит монеты на первую Шипучку и ничего другого не покупает (слияния Таблеток при этом идут как обычно)
       // Так же он копит на первый Сироп и первый Шприц (без этого в бою, когда «не спокойно», терпение 0 и он до конца партии покупает только дешёвые Таблетки: Сироп не строился ни разу)

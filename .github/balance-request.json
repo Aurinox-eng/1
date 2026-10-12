@@ -1,13 +1,13 @@
 {
-  "note": "Уровень 10: девять одиночных башен с эталонными улучшениями уровня 10 (чистая разница от башни), 6 партий каждая; потолки времени увеличены",
+  "note": "Антибиотик (после исправления бота): одна башня на уровне 6, эталонные улучшения уровня 6; и база «Таблетки» на том же уровне; 6 партий каждая",
   "profiles": "strong",
   "runs": 6,
   "shards": 6,
   "excludes": "-",
-  "solos": "pill;fizz;ampule;antibiotic;lamp;syringe;vitamin;frost;patch",
-  "level": 10,
+  "solos": "antibiotic;pill",
+  "level": 6,
   "speed": 2,
-  "meta": "damage:10,coins:10,reward:10,lives:3,shield:5,recycle:5,reinforce:8,pillPower:6",
+  "meta": "damage:10,coins:10,reward:10,lives:3,shield:1",
   "max_game_sec": 3000,
   "max_real_sec": 7200
 }
