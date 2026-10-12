@@ -2,8 +2,9 @@ import Phaser from 'phaser';
 import { CONFIG } from '../config';
 import { EDGES_FROM } from '../level';
 import { pointAt, type Edge } from '../pathing';
-import { COLORS } from '../theme';
-import { artImage, bakeArt, discImage, ringImage, setArt, squareBox, type ArtBox } from '../art';
+import { COLORS, TOWER_MARK } from '../theme';
+import { artDensity, artImage, bakeArt, discImage, ringImage, setArt, squareBox, type ArtBox } from '../art';
+import type { Tower } from './Tower';
 import { bodyHalfSize, crackCount, drawCracks, drawShape, hasRadialCracks, shellWidth, SPLITTER_LOBE_OFFSET } from './bacteriumArt';
 
 export type BacteriumKind = keyof typeof CONFIG.types;
@@ -13,6 +14,35 @@ function bodyBox(kind: BacteriumKind): ArtBox {
   const { hx, hy } = bodyHalfSize(kind);
   return { x: -hx, y: -hy, w: hx * 2, h: hy * 2 };
 }
+
+/** Прозрачность тела скрытной бактерии (вид, не баланс). */
+const STEALTH_ALPHA = 0.62;
+/** Лёд на замороженной бактерии: полупрозрачный неровный кристалл вокруг тела, с гранями и бликом (одна картинка на радиус). */
+function iceImage(scene: Phaser.Scene, radius: number): Phaser.GameObjects.Image {
+  const r = Math.round(radius * 2) / 2 + 7;
+  const box = squareBox(r + 4);
+  const key = bakeArt(scene, `ice-${r}`, box, (g) => {
+    const pts: { x: number; y: number }[] = [];
+    for (let i = 0; i < 12; i++) {
+      const a = (i / 12) * Math.PI * 2 + 0.2;
+      const rr = i % 2 === 0 ? r : r * 0.8;
+      pts.push({ x: Math.cos(a) * rr, y: Math.sin(a) * rr });
+    }
+    g.fillStyle(COLORS.ice, 0.5).fillPoints(pts, true);
+    g.lineStyle(3, COLORS.iceEdge, 0.95).strokePoints(pts, true);
+    g.lineStyle(2, COLORS.iceEdge, 0.5);
+    for (let i = 0; i < 12; i += 2) g.lineBetween(0, 0, pts[i].x * 0.9, pts[i].y * 0.9);
+    g.fillStyle(0xffffff, 0.7).fillCircle(-r * 0.4, -r * 0.45, r * 0.12);
+  });
+  return artImage(scene, key, box);
+}
+
+/** Сколько секунд видна вспышка «поглощено» у фагоцита. */
+const ABSORB_SEC = 0.3;
+
+/** Полоска прочности: белая картинка 32×6, левый край в (0, 0); цвет задаётся оттенком, длина — масштабом. */
+const BAR_BOX: ArtBox = { x: 0, y: -3, w: 32, h: 6 };
+const BAR_KEY = (scene: Phaser.Scene): string => bakeArt(scene, 'hp-bar', BAR_BOX, (g) => g.fillStyle(0xffffff, 1).fillRect(0, -3, 32, 6));
 
 /** Толщина оболочки округляется до целого пикселя: столько разных картинок тела у типа (разница в долю пикселя не видна). */
 const SHELL_STEP_PX = 1;
@@ -68,10 +98,31 @@ export class Bacterium {
   readonly disabledTowers = new Set<unknown>();
   /** Радиус описанного круга, пикселей. */
   readonly radius: number;
+  /** Сколько HP снял последний удар (после брони и кислоты): по нему сцена показывает число урона. */
+  lastDealt = 0;
   /** Ускорение от командира рядом (1 — нет); сцена выставляет его каждый кадр. */
   haste = 1;
   /** Сколько секунд прошло с последнего рождения (у матки). */
   brewClock = 0;
+  /** Яд башни «Антибиотик»: сколько секунд ещё идёт и сколько HP в секунду снимает (0 — не отравлена). Пока бактерия отравлена, она не лечится. */
+  poisonLeft = 0;
+  poisonDps = 0;
+  /** Фагоцит: сколько ударов по бактерии было (яд не считается), сколько из них поглощено; последний удар поглощён ли. */
+  hits = 0;
+  absorbed = 0;
+  justAbsorbed = false;
+  /** Прыгун: сколько прыжков сделано. */
+  leaps = 0;
+  /** Конус Лампы: накопленный, ещё не показанный урон и когда (игровое время) показывалось число в прошлый раз. */
+  numAcc = 0;
+  numAt = -1;
+  /** Мутант: вид (id) башни, ударившей по бактерии последней; null — ещё не били. Удар башни того же вида слабее (`types.mutant.memoryMul`), смена вида штрафа не даёт. */
+  memory: string | null = null;
+  /** Ловушка Пластыря: сколько секунд бактерия ещё приклеена (0 — свободна) и сколько HP в секунду теряет. Пока приклеена, не идёт. */
+  trapLeft = 0;
+  trapDps = 0;
+  /** Паразит: башня, к которой присосался (null — пока ни к какой или башня исчезла); выставляет сцена. */
+  latchedTo: Tower | null = null;
 
   private readonly baseSpeed: number;
   /** Замедление от «Сиропа»: сколько секунд ещё действует и во сколько раз медленнее идёт (1 — не замедлена). */
@@ -80,8 +131,23 @@ export class Bacterium {
   private slowRing: Phaser.GameObjects.Image | null = null;
   /** «Кислота» Шипучки: сколько секунд ещё действует и во сколько раз сильнее удары по этой бактерии. */
   private acidLeft = 0;
+  /** Сколько секунд ещё подсвечена Лампой (только скрытные); пока > 0, башни видят её на полном радиусе. */
+  private litLeft = 0;
   private acidBy = 1;
   private acidRing: Phaser.GameObjects.Image | null = null;
+  /** Зелёное кольцо яда и светло-розовое кольцо «поглощено» (держится absorbLeft секунд). */
+  private poisonRing: Phaser.GameObjects.Image | null = null;
+  private absorbRing: Phaser.GameObjects.Image | null = null;
+  private absorbLeft = 0;
+  /** Заморозка Холода: сколько секунд ещё стоит на месте и картинка льда. */
+  private freezeLeft = 0;
+  private ice: Phaser.GameObjects.Image | null = null;
+  /** Кольцо липучки на приклеенной бактерии; метка вида башни мутанта (подложка и точка). */
+  private trapRing: Phaser.GameObjects.Image | null = null;
+  private markBack: Phaser.GameObjects.Image | null = null;
+  private markDot: Phaser.GameObjects.Image | null = null;
+  /** Часы прыжков (у прыгуна свой сдвиг, чтобы прыжки не шли в ногу). */
+  private leapClock: number;
   /** Какое HP показано на теле (перерисовываем при заметном изменении: лечение идёт каждый кадр). */
   private drawnHp: number;
   private readonly scene: Phaser.Scene;
@@ -89,6 +155,9 @@ export class Bacterium {
   /** Тело и трещины — готовые картинки (см. art.ts); показанные ключи, чтобы не менять картинку без нужды. */
   private readonly body: Phaser.GameObjects.Image;
   private readonly cracks: Phaser.GameObjects.Image;
+  /** Полоска прочности под телом: появляется, когда бактерию задели (две картинки: подложка и заливка). */
+  private barBack: Phaser.GameObjects.Image | null = null;
+  private barFill: Phaser.GameObjects.Image | null = null;
   private bodyKey = '';
   private cracksKey = '';
   private readonly seed = Math.random() * Math.PI * 2;
@@ -117,6 +186,7 @@ export class Bacterium {
     const spread = 1 + (Math.random() * 2 - 1) * CONFIG.bacteria.speedSpread;
     this.baseSpeed = CONFIG.bacteria.baseSpeed * cfg.speedFactor * spread;
     this.dashClock = Math.random() * Math.max(1, cfg.dashEverySec);
+    this.leapClock = Math.random() * Math.max(0, cfg.leapEverySec);
     this.edge = edge;
     this.s = Math.max(0, Math.min(edge.length, s));
 
@@ -134,6 +204,11 @@ export class Bacterium {
     if (cfg.hasteRadius > 0) {
       const aura = discImage(scene, cfg.hasteRadius, COLORS.haste, 0.06, COLORS.haste, 3, 0.42);
       this.container.addAt(aura, 0);
+    }
+    // Скрытная: тело полупрозрачное
+    if (cfg.stealth > 0) {
+      this.body.setAlpha(STEALTH_ALPHA);
+      this.cracks.setAlpha(STEALTH_ALPHA);
     }
     layer.add(this.container);
     this.drawnHp = this.hp;
@@ -178,9 +253,150 @@ export class Bacterium {
     this.acidRing.setVisible(true);
   }
 
+  /**
+   * Яд: следующие `seconds` секунд бактерия теряет `dps` HP в секунду (броню не учитывает) и не лечится. Повторный укол продлевает время до `seconds`
+   * (не суммируя) и берёт большую силу.
+   */
+  poison(dps: number, seconds: number): void {
+    if (dps <= 0 || seconds <= 0 || this.hp <= 0) return;
+    this.poisonDps = this.poisonLeft > 0 ? Math.max(this.poisonDps, dps) : dps;
+    this.poisonLeft = Math.max(this.poisonLeft, seconds);
+    if (!this.poisonRing) {
+      this.poisonRing = ringImage(this.scene, 0, 0, this.radius + 11, 3, COLORS.poison, 0.9);
+      this.container.add(this.poisonRing);
+    }
+    this.poisonRing.setVisible(true);
+  }
+
+  /** Идёт ли яд. */
+  get poisoned(): boolean {
+    return this.poisonLeft > 0;
+  }
+
+  /** Один кадр яда: снимает HP за прошедшее время (не больше оставшегося времени яда). Возвращает true, если бактерия погибла от яда. */
+  tickPoison(dt: number): boolean {
+    if (this.poisonLeft <= 0) return false;
+    const step = Math.min(dt, this.poisonLeft);
+    this.poisonLeft -= dt;
+    const died = this.drain(this.poisonDps * step);
+    if (this.poisonLeft <= 0) {
+      this.poisonLeft = 0;
+      this.poisonDps = 0;
+      this.poisonRing?.setVisible(false);
+    }
+    return died;
+  }
+
+  /** Заморозка: бактерия стоит на месте `seconds` секунд (повторная заморозка продлевает до `seconds`, не складывается). Не действует на тех, кто не замерзает (`freezeImmune`). */
+  freeze(seconds: number): void {
+    if (seconds <= 0 || this.hp <= 0 || CONFIG.types[this.kind].freezeImmune > 0) return;
+    this.freezeLeft = Math.max(this.freezeLeft, seconds);
+    if (!this.ice) {
+      this.ice = iceImage(this.scene, this.radius);
+      this.container.add(this.ice);
+    }
+    this.ice.setVisible(true);
+  }
+
+  /** Заморожена ли бактерия. */
+  get frozen(): boolean {
+    return this.freezeLeft > 0;
+  }
+
+  /** Сколько секунд ещё заморожена (0 — нет); для проверок. */
+  get frozenFor(): number {
+    return this.freezeLeft;
+  }
+
+  /** Ловушка: бактерия приклеена на `seconds` секунд и теряет `dps` HP в секунду (броню не учитывает). Не действует на тех, кто не липнет (`trapImmune`). */
+  trap(seconds: number, dps: number): void {
+    if (seconds <= 0 || this.hp <= 0 || CONFIG.types[this.kind].trapImmune > 0) return;
+    this.trapLeft = Math.max(this.trapLeft, seconds);
+    this.trapDps = Math.max(this.trapDps, dps);
+    if (!this.trapRing) {
+      this.trapRing = ringImage(this.scene, 0, 0, this.radius + 6, 3, COLORS.patch, 0.95);
+      this.container.add(this.trapRing);
+    }
+    this.trapRing.setVisible(true);
+  }
+
+  /** Приклеена ли бактерия. */
+  get trapped(): boolean {
+    return this.trapLeft > 0;
+  }
+
+  /** Один кадр ловушки: снимает HP за прошедшее время (не больше оставшегося). Возвращает true, если бактерия погибла. */
+  tickTrap(dt: number): boolean {
+    if (this.trapLeft <= 0) return false;
+    const step = Math.min(dt, this.trapLeft);
+    this.trapLeft -= dt;
+    const died = this.drain(this.trapDps * step);
+    if (this.trapLeft <= 0) {
+      this.trapLeft = 0;
+      this.trapDps = 0;
+      this.trapRing?.setVisible(false);
+    }
+    return died;
+  }
+
+  /** Стоит ли бактерия на месте (заморожена или приклеена): у неё не идут рывки, прыжки и рождение. */
+  get held(): boolean {
+    return this.freezeLeft > 0 || this.trapLeft > 0;
+  }
+
+  /** Мутант запомнил, что по нему ударила башня вида `towerId`: рядом с полоской прочности загорается цветная метка этого вида. */
+  remember(towerId: string): void {
+    this.memory = towerId;
+    if (!this.markBack || !this.markDot) {
+      const dotKey = bakeArt(this.scene, 'mark-dot', squareBox(9), (g) => g.fillStyle(0xffffff, 1).fillCircle(0, 0, 9));
+      this.markBack = artImage(this.scene, dotKey, squareBox(9)).setTint(0x0b1020).setAlpha(0.85);
+      this.markDot = artImage(this.scene, dotKey, squareBox(9)).setScale(0.7 / artDensity(dotKey));
+      const x = -Math.max(30, this.radius * 1.6) / 2 - 11;
+      const y = this.radius + 9;
+      this.markBack.setPosition(x, y);
+      this.markDot.setPosition(x, y);
+      this.container.add([this.markBack, this.markDot]);
+    }
+    this.markDot.setTint(TOWER_MARK[towerId] ?? 0xffffff);
+  }
+
   update(dt: number): void {
     const cfg = CONFIG.types[this.kind];
     let factor = 1;
+    // Заморожена или приклеена: стоит на месте, часы рывков и прыжков не идут
+    const held = this.freezeLeft > 0 || this.trapLeft > 0;
+    if (this.freezeLeft > 0) {
+      this.freezeLeft -= dt;
+      if (this.freezeLeft <= 0) {
+        this.freezeLeft = 0;
+        this.ice?.setVisible(false);
+      }
+    }
+    if (this.absorbLeft > 0) {
+      this.absorbLeft -= dt;
+      if (this.absorbLeft <= 0) this.absorbRing?.setVisible(false);
+      else this.absorbRing?.setAlpha(Math.min(1, this.absorbLeft / ABSORB_SEC));
+    }
+    if (!held && cfg.leapEverySec > 0) {
+      // Прыжок: мгновенный сдвиг вперёд по дорожке (через концы рёбер и развилки), короткая «пружина» — сжатие и рывок
+      this.leapClock += dt;
+      if (this.leapClock >= cfg.leapEverySec) {
+        this.leapClock -= cfg.leapEverySec;
+        this.leaps++;
+        this.advance(cfg.leapPx);
+        this.scene.tweens.killTweensOf(this.container);
+        this.container.setScale(1.3, 0.75);
+        this.scene.tweens.add({ targets: this.container, scaleX: 1, scaleY: 1, duration: 200, ease: 'Quad.easeOut' });
+      }
+    }
+    if (this.litLeft > 0) {
+      this.litLeft -= dt;
+      if (this.litLeft <= 0) {
+        this.litLeft = 0;
+        this.body.setAlpha(STEALTH_ALPHA);
+        this.cracks.setAlpha(STEALTH_ALPHA);
+      }
+    }
     if (this.acidLeft > 0) {
       this.acidLeft -= dt;
       if (this.acidLeft <= 0) {
@@ -199,7 +415,7 @@ export class Bacterium {
         factor *= this.slowBy;
       }
     }
-    if (cfg.dashEverySec > 0) {
+    if (!held && cfg.dashEverySec > 0) {
       // Рывок — последние dashSec секунд каждого периода dashEverySec
       this.dashClock += dt;
       const dashing = this.dashClock % cfg.dashEverySec >= cfg.dashEverySec - cfg.dashSec;
@@ -210,7 +426,7 @@ export class Bacterium {
       if (dashing) factor *= cfg.dashFactor;
     }
     if (cfg.regenPerSec > 0) this.heal(cfg.regenPerSec * dt);
-    this.advance(this.baseSpeed * factor * this.haste * dt);
+    if (!held) this.advance(this.baseSpeed * factor * this.haste * dt);
   }
 
   /**
@@ -218,11 +434,25 @@ export class Bacterium {
    * Под кислотой удар сильнее. Возвращает true, если бактерия уничтожена.
    */
   hit(damage: number, pierce = false): boolean {
-    const { armor } = CONFIG.types[this.kind];
+    const { armor, absorbEvery } = CONFIG.types[this.kind];
+    this.justAbsorbed = false;
+    if (absorbEvery > 0) {
+      // Фагоцит: каждый absorbEvery-й удар (3, 6, 9…) ничего не снимает
+      this.hits++;
+      if (this.hits % absorbEvery === 0) {
+        this.absorbed++;
+        this.justAbsorbed = true;
+        this.lastDealt = 0;
+        this.showAbsorb();
+        return false;
+      }
+    }
     const raw = damage * (this.acidLeft > 0 ? this.acidBy : 1);
     const dealt = armor > 0 && !pierce ? Math.max(raw * CONFIG.combat.armorMinShare, raw - armor) : raw;
+    this.lastDealt = Math.min(dealt, this.hp);
     this.hp = Math.max(0, this.hp - dealt);
     this.redraw();
+    this.updateBar();
     return this.hp <= 0;
   }
 
@@ -230,21 +460,57 @@ export class Bacterium {
   drain(amount: number): boolean {
     if (this.hp <= 0) return true;
     this.hp = Math.max(0, this.hp - amount);
-    if (Math.abs(this.hp - this.drawnHp) >= 0.5 || this.hp <= 0) this.redraw();
+    if (Math.abs(this.hp - this.drawnHp) >= 0.5 || this.hp <= 0) {
+      this.redraw();
+      this.updateBar();
+    }
     return this.hp <= 0;
   }
 
-  /** Лечение (от лекаря рядом): не выше полного HP; тело перерисовывается, когда HP изменилось заметно. */
+  /** Вспышка «поглощено» на теле фагоцита: светло-розовое кольцо, гаснет за ABSORB_SEC. */
+  private showAbsorb(): void {
+    if (!this.absorbRing) {
+      this.absorbRing = ringImage(this.scene, 0, 0, this.radius + 2, 6, COLORS.absorb, 1);
+      this.container.add(this.absorbRing);
+    }
+    this.absorbLeft = ABSORB_SEC;
+    this.absorbRing.setVisible(true).setAlpha(1);
+  }
+
+  /** Лечение (от лекаря рядом, самолечение): не выше полного HP; отравленная бактерия не лечится; тело перерисовывается, когда HP изменилось заметно. */
   heal(amount: number): void {
-    if (this.hp <= 0 || this.hp >= this.maxHp) return;
+    if (this.hp <= 0 || this.hp >= this.maxHp || this.poisonLeft > 0) return;
     this.hp = Math.min(this.maxHp, this.hp + amount);
-    if (Math.abs(this.hp - this.drawnHp) >= 0.5 || this.hp >= this.maxHp) this.redraw();
+    if (Math.abs(this.hp - this.drawnHp) >= 0.5 || this.hp >= this.maxHp) {
+      this.redraw();
+      this.updateBar();
+    }
   }
 
   /** Точка дорожки впереди на distance пикселей, но не дальше конца текущего ребра (развилку не пересекаем: дальше путь случаен). */
   pointAhead(distance: number): { x: number; y: number } {
     const p = pointAt(this.edge, Math.min(this.edge.length, this.s + Math.max(0, distance)));
     return { x: p.x, y: p.y };
+  }
+
+  /** Лампа подсвечивает скрытную бактерию на `seconds` секунд (время продлевается; на нескрытных не действует): тело становится непрозрачным. */
+  light(seconds: number): void {
+    if (this.stealth <= 0 || seconds <= 0 || this.hp <= 0) return;
+    if (this.litLeft <= 0) {
+      this.body.setAlpha(1);
+      this.cracks.setAlpha(1);
+    }
+    this.litLeft = Math.max(this.litLeft, seconds);
+  }
+
+  /** Подсвечена ли скрытная бактерия Лампой сейчас. */
+  get lit(): boolean {
+    return this.litLeft > 0;
+  }
+
+  /** Скрытность: доля радиуса башни, на которой её видят (0 — не скрытная). */
+  get stealth(): number {
+    return CONFIG.types[this.kind].stealth;
   }
 
   get lifeDamage(): number {
@@ -261,6 +527,7 @@ export class Bacterium {
   }
 
   destroy(): void {
+    if (CONFIG.types[this.kind].leapEverySec > 0) this.scene.tweens.killTweensOf(this.container);
     this.container.destroy();
   }
 
@@ -292,6 +559,30 @@ export class Bacterium {
     this.container.setPosition(p.x, p.y);
     // Палочка вытянута вдоль движения
     if (this.kind === 'rod' || this.kind === 'runner') this.container.setRotation(p.angle + Math.PI / 2);
+  }
+
+  /** Полоска прочности: видна, пока HP меньше полного; цвет от зелёного к красному, ширина — по размеру бактерии. */
+  private updateBar(): void {
+    if (this.hp >= this.maxHp || this.hp <= 0) {
+      this.barBack?.setVisible(false);
+      this.barFill?.setVisible(false);
+      return;
+    }
+    if (!this.barBack || !this.barFill) {
+      this.barBack = artImage(this.scene, BAR_KEY(this.scene), BAR_BOX).setTint(0x000000).setAlpha(0.6);
+      this.barFill = artImage(this.scene, BAR_KEY(this.scene), BAR_BOX);
+      this.container.add([this.barBack, this.barFill]);
+    }
+    const width = Math.max(30, this.radius * 1.6);
+    const share = this.hp / this.maxHp;
+    const density = artDensity(BAR_KEY(this.scene));
+    const y = this.radius + 9;
+    this.barBack.setVisible(true).setPosition(-width / 2 - 1, y).setScale(((width + 2) / BAR_BOX.w) / density, 1.5 / density);
+    this.barFill
+      .setVisible(true)
+      .setPosition(-width / 2, y)
+      .setScale((width * share) / BAR_BOX.w / density, 1 / density)
+      .setTint(share > 0.5 ? 0x7be07b : share > 0.25 ? 0xffd84d : 0xff5a4a);
   }
 
   private redraw(): void {

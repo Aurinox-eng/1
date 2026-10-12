@@ -9,6 +9,8 @@ export interface CardModel {
   maxLevel: number;
   /** До трёх строк чисел башни. */
   stats: string[];
+  /** Короткое пояснение под всем остальным (Шипучка: сколько целей взрыва получают полный урон); рисуется, только если под него осталось место, иначе пропускается. */
+  note: string | null;
   /** Два варианта мутации на выбор (если выбор ждёт) или null. */
   pending: { name: string; desc: string }[] | null;
   /** Уже выбранные мутации. */
@@ -46,7 +48,12 @@ export interface CardGeometry {
 }
 
 const BTN_H = 34;
-const PICK_H = 64;
+const PICK_H = 58;
+/** Тесная раскладка (когда над карточкой стоит полоса кнопок башен в две строки — при 9–10 открытых башнях — и карточка ниже этого числа пикселей): строки чисел чаще, кнопки мутаций ниже. */
+const DENSE_BELOW = 364;
+const DENSE = { statStep: 16, pickH: 54, pickGap: 3, headerStep: 18 };
+/** Зазор между кнопками «Слить» и «Продать», пикселей: чтобы на телефоне не нажать «Продать» вместо «Слить» (решение владельца 8 октября 2026: без подтверждений, зазор больше). */
+const SELL_GAP = 22;
 const PAD = 12;
 /** Сторона кнопок поворота луча (Шприц), пикселей: они стоят справа от первых двух строк чисел и не должны их закрывать. */
 const ROT = 36;
@@ -66,6 +73,7 @@ export class TowerCard {
   private readonly pickNames: Phaser.GameObjects.Text[];
   private readonly pickDescs: Phaser.GameObjects.Text[];
   private readonly listText: Phaser.GameObjects.Text;
+  private readonly noteText: Phaser.GameObjects.Text;
   private readonly mergeText: Phaser.GameObjects.Text;
   private readonly sellText: Phaser.GameObjects.Text;
   private readonly closeText: Phaser.GameObjects.Text;
@@ -74,6 +82,7 @@ export class TowerCard {
   private readonly rects: Record<string, Rect> = {};
   private shown = false;
   private mergeEnabled = false;
+  private sellVisible = true;
   private pickVisible = [false, false];
   private rotVisible = false;
 
@@ -94,6 +103,7 @@ export class TowerCard {
     this.pickNames = [0, 1].map(() => this.text(0, 0, '', 17, TEXT_COLORS.main, 0));
     this.pickDescs = [0, 1].map(() => this.text(0, 0, '', 13, TEXT_COLORS.soft, 0).setFontStyle('normal').setWordWrapWidth(area.w - 2 * PAD - 12));
     this.listText = this.text(0, 0, '', 15, TEXT_COLORS.main, 0).setWordWrapWidth(area.w - 2 * PAD);
+    this.noteText = this.text(0, 0, '', 12, TEXT_COLORS.soft, 0).setFontStyle('normal').setWordWrapWidth(area.w - 2 * PAD);
     this.mergeText = this.text(0, 0, '', 18, TEXT_COLORS.main);
     this.sellText = this.text(0, 0, '', 18, TEXT_COLORS.main);
     this.closeText = this.text(0, 0, '✕', 22, TEXT_COLORS.soft);
@@ -157,9 +167,13 @@ export class TowerCard {
     this.levelText.setText(t('cardLevel', { n: m.level, max: m.maxLevel })).setPosition(left, cy);
     cy += 24;
     this.statTexts.forEach((text, i) => {
-      text.setVisible(i < m.stats.length).setText(m.stats[i] ?? '').setPosition(left, cy + i * 18);
+      text.setVisible(i < m.stats.length).setText(m.stats[i] ?? '');
     });
-    cy += 3 * 18 + 6;
+    const dense = h < DENSE_BELOW;
+    const statStep = dense ? DENSE.statStep : 18;
+    const pickH = dense ? DENSE.pickH : PICK_H;
+    this.statTexts.forEach((text, i) => text.setPosition(left, cy + i * statStep));
+    cy += 3 * statStep + (dense ? 4 : 6);
 
     const bw = w - 2 * PAD;
     // Поворот луча (Шприц): две кнопки справа от строк чисел
@@ -189,28 +203,44 @@ export class TowerCard {
     }
     if (m.pending) {
       this.headerText.setVisible(true).setText(t('cardPick')).setPosition(left, cy);
-      cy += 20;
+      cy += dense ? DENSE.headerStep : 20;
       m.pending.slice(0, 2).forEach((opt, i) => {
-        const by = cy + i * (PICK_H + 4);
-        this.btns.fillStyle(0x2a4d8e, 1).fillRoundedRect(left, by, bw, PICK_H, 12);
-        this.btns.lineStyle(3, COLORS.gold, 1).strokeRoundedRect(left, by, bw, PICK_H, 12);
-        this.pickNames[i].setVisible(true).setText(opt.name).setPosition(left + 8, by + 8);
-        this.pickDescs[i].setVisible(true).setText(opt.desc).setPosition(left + 8, by + 32);
+        const by = cy + i * (pickH + (dense ? DENSE.pickGap : 4));
+        this.btns.fillStyle(0x2a4d8e, 1).fillRoundedRect(left, by, bw, pickH, 12);
+        this.btns.lineStyle(3, COLORS.gold, 1).strokeRoundedRect(left, by, bw, pickH, 12);
+        this.pickNames[i].setVisible(true).setText(opt.name).setPosition(left + 8, by + (dense ? 6 : 8));
+        this.pickDescs[i].setVisible(true).setText(opt.desc).setPosition(left + 8, by + (dense ? 29 : 32));
         const zone = i === 0 ? this.zones.pick0 : this.zones.pick1;
-        zone.setPosition(left + bw / 2, by + PICK_H / 2);
+        zone.setPosition(left + bw / 2, by + pickH / 2);
         this.pickVisible[i] = true;
-        this.rects[`pick${i}`] = { x: left + bw / 2, y: by + PICK_H / 2, w: bw, h: PICK_H };
+        this.rects[`pick${i}`] = { x: left + bw / 2, y: by + pickH / 2, w: bw, h: pickH };
       });
     } else if (m.picked.length > 0) {
       this.headerText.setVisible(true).setText(t('cardMutations')).setPosition(left, cy);
-      cy += 20;
+      cy += dense ? DENSE.headerStep : 20;
       this.listText.setVisible(true).setText(m.picked.map((p) => `• ${p.name} — ${p.desc}`).join('\n')).setPosition(left, cy);
     }
     this.applyEnabled();
 
     // Нижние кнопки: «Слить» и «Продать»
     const sellY = y + h - PAD - BTN_H;
-    const mergeY = sellY - 6 - BTN_H;
+    const mergeY = sellY - SELL_GAP - BTN_H;
+
+    // Пояснение (Шипучка): под выбором мутации или списком выбранных; не помещается над кнопкой «Слить» — не рисуется (выбор мутации и кнопки важнее)
+    let noteShown = false;
+    if (m.note) {
+      let endY = cy;
+      if (m.pending) endY += 2 * pickH + (dense ? DENSE.pickGap : 4);
+      else if (m.picked.length > 0) endY += this.listText.height;
+      this.noteText.setText(m.note);
+      if (endY + 4 + this.noteText.height <= mergeY - 4) {
+        this.noteText.setPosition(left, endY + 4);
+        noteShown = true;
+      }
+    }
+    this.noteText.setVisible(noteShown);
+    // В режиме слияния «Продать» скрыта: выбор пары по карте не должен заканчиваться случайной продажей
+    this.sellVisible = m.merge !== 'active';
     this.mergeEnabled = m.merge === 'ready' || m.merge === 'active';
     const mergeColor = m.merge === 'active' ? 0x9a5a1c : this.mergeEnabled ? 0x2a8a4a : 0x2a3552;
     const mergeEdge = m.merge === 'active' ? 0xffb347 : this.mergeEnabled ? COLORS.merge : 0x4a5c82;
@@ -220,11 +250,17 @@ export class TowerCard {
     this.mergeText.setText(mergeLabel).setColor(this.mergeEnabled ? TEXT_COLORS.main : TEXT_COLORS.dim).setPosition(left + bw / 2, mergeY + BTN_H / 2);
     this.zones.merge.setPosition(left + bw / 2, mergeY + BTN_H / 2);
     this.rects.merge = { x: left + bw / 2, y: mergeY + BTN_H / 2, w: bw, h: BTN_H };
-    this.btns.fillStyle(0x7a2a3a, 1).fillRoundedRect(left, sellY, bw, BTN_H, 12);
-    this.btns.lineStyle(3, 0xff6b7a, 1).strokeRoundedRect(left, sellY, bw, BTN_H, 12);
-    this.sellText.setText(t('cardSell', { n: m.sell })).setPosition(left + bw / 2, sellY + BTN_H / 2);
-    this.zones.sell.setPosition(left + bw / 2, sellY + BTN_H / 2);
-    this.rects.sell = { x: left + bw / 2, y: sellY + BTN_H / 2, w: bw, h: BTN_H };
+    if (this.sellVisible) {
+      this.btns.fillStyle(0x7a2a3a, 1).fillRoundedRect(left, sellY, bw, BTN_H, 12);
+      this.btns.lineStyle(3, 0xff6b7a, 1).strokeRoundedRect(left, sellY, bw, BTN_H, 12);
+      this.sellText.setText(t('cardSell', { n: m.sell })).setPosition(left + bw / 2, sellY + BTN_H / 2);
+      this.zones.sell.setPosition(left + bw / 2, sellY + BTN_H / 2);
+      this.rects.sell = { x: left + bw / 2, y: sellY + BTN_H / 2, w: bw, h: BTN_H };
+    } else {
+      this.rects.sell = { x: 0, y: 0, w: 0, h: 0 };
+    }
+    this.sellText.setVisible(this.sellVisible);
+    this.applyEnabled();
   }
 
   /**
@@ -244,7 +280,7 @@ export class TowerCard {
     else if (this.rotVisible && hit('rotR')) this.callbacks.onRotate(1);
     else if (hit('merge')) {
       if (this.mergeEnabled) this.callbacks.onMerge();
-    } else if (hit('sell')) this.callbacks.onSell();
+    } else if (this.sellVisible && hit('sell')) this.callbacks.onSell();
     else return false;
     return true;
   }
@@ -266,7 +302,7 @@ export class TowerCard {
   private setShown(on: boolean): void {
     this.shown = on;
     for (const item of this.all) (item as unknown as { setVisible(v: boolean): unknown }).setVisible(on);
-    for (const text of [this.nameText, this.levelText, ...this.statTexts, this.headerText, ...this.pickNames, ...this.pickDescs, this.listText, this.mergeText, this.sellText, this.closeText]) {
+    for (const text of [this.nameText, this.levelText, ...this.statTexts, this.headerText, ...this.pickNames, ...this.pickDescs, this.listText, this.noteText, this.mergeText, this.sellText, this.closeText]) {
       text.setVisible(on);
     }
     this.blocker.input!.enabled = on;
@@ -278,7 +314,7 @@ export class TowerCard {
     const on = this.shown;
     this.setZone(this.zones.close, on);
     this.setZone(this.zones.merge, on);
-    this.setZone(this.zones.sell, on);
+    this.setZone(this.zones.sell, on && this.sellVisible);
     this.setZone(this.zones.pick0, on && this.pickVisible[0]);
     this.setZone(this.zones.pick1, on && this.pickVisible[1]);
     this.setZone(this.zones.rotL, on && this.rotVisible);

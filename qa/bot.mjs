@@ -5,13 +5,13 @@
  * машиночитаемый итог — qa/bot-results/<tag>.json (дописывается после каждой партии; в git не коммитить).
  *
  * Запуск (сначала `npm run build:qa`; если src новее dist-qa, скрипт остановится сам):
- *   node qa/bot.mjs [--profile=novice|average|strong|expert|all] [--runs=N] [--speed=2] [--exclude=syrup,fizz,syringe,pill]
+ *   node qa/bot.mjs [--profile=novice|average|strong|expert|all] [--runs=N] [--speed=2] [--exclude=syrup,fizz,syringe,pill,ampule,antibiotic,lamp,vitamin,frost,patch]
  *                   [--cfg=путь:число,...] [--tag=имя] [--seed=N] [--max-game-sec=2400] [--verbose] [--shots] [--help]
  *
  * Профили («игроки»; порядок покупок и выбор клеток — в makePlayer ниже):
  *   novice  («новичок»)  только Таблетки, клетки наугад (где хоть что-то видно с дорожки), не больше 6 башен, покупает, как только хватает.
  *   average («средний»)  по кругу [Таблетка, Таблетка, Сироп, Таблетка, Шипучка, Шприц], ждёт монет на очередную; клетка — наугад
- *                        из лучших 15 % по охвату дорожки (длина дорожки в радиусе башни).
+ *                        из лучших 15 % по охвату дорожки (длина дорожки в радиусе башни). Не сливает.
  *   (начало партии у expert и strong: пока башен с уроном меньше двух — только самая дешёвая башня с уроном (Таблетка); дальше по кругу, Шипучка первая; копят монеты на дорогую башню,
  *    только если жизни целы и на карте ≤ 8 бактерий — иначе берут первую доступную. Раньше они вторым покупали Сироп и 30 с копили на Шипучку — и проигрывали на 4–5-й волне.)
  *   expert  («особо сильный»)  по кругу [Таблетка, Сироп, Шипучка, Шприц, Таблетка, Шипучка, Сироп, Шприц]; клетка — лучшая именно для
@@ -21,10 +21,44 @@
  *                        решает каждые 2 с. ЭТО БЫВШИЙ «сильный» из кругов замеров 1–2 (до коммита с профилем expert): те же числа и поведение.
  *   strong  («сильный»)  тот же порядок и та же оценка клеток, но с человеческими несовершенствами: решает реже (раз в 3 с), копит на
  *                        дорогую башню только 8 с (потом берёт то, что по карману — больше дешёвых Таблеток), клетку берёт не самую лучшую,
- *                        а наугад из лучших 15 % клеток (≈ 19 из 123), оценка клеток «шумнее» (12 % вместо 3 %) и главное —
+ *                        а наугад из лучших 15 % клеток (≈ 30 из ≈ 200 свободных), оценка клеток «шумнее» (12 % вместо 3 %) и главное —
  *                        НЕ ЗНАЕТ приёмов: ставит Шипучку без упора на узлы слияния, а Шприц — без учёта, сколько бактерий идёт по каждой ветке,
  *                        и не поворачивает его (остаётся направление, которое игра выбирает при постановке сама). Это тот навык, что отличает
  *                        «особо сильного».
+ *
+ * НОВЫЕ БАШНИ (этап 7, пачка 1; когда открыты на уровне партии — кнопка без замка, levels.towerUnlock: Ампула с 3-го уровня, Антибиотик с 6-го): профили average, strong и expert
+ * докупают их НАД своим кругом (novice — только Таблетки). Считают в «обычных башнях» (башня уровня L = 2^(L−1) штук): Ампула — одна на каждые 3–4 Таблетки (первая при 3 Таблетках,
+ * дальше при 7, 10, 14…), клетка — с наибольшей длиной дорожки в радиусе башни (радиус 520 px из таблицы: Ампула видит полкарты; охват уже накрытого другими башнями не скидывается,
+ * а сама Ампула в «накрытые» участки не записывается — иначе она обесценила бы клетки остальных башен); Антибиотик — по одной на каждые 2 Таблетки, но не раньше, чем стоят ≥ 3 Таблетки
+ * и 1 Сироп (если Сироп вообще доступен), клетка — как у Таблетки (радиус из таблицы). Ждут монет на них, как на любую дорогую башню (терпение профиля). Слияние — по общим правилам
+ * (пара одноимённых башен 1-го уровня в радиусе слияния; клетка выбирается предпочтительно рядом с такой башней). Мутации на порогах — первая из двух. Новые типы бактерий
+ * (Прыгун, Фагоцит) бот отдельно не обрабатывает.
+ *
+ * НОВЫЕ БАШНИ (этап 7, пачка 2; Лампа открыта с 5-го уровня, Витамин с 7-го): те же три профиля докупают их НАД кругом после Ампулы и Антибиотика (novice — только Таблетки).
+ * Лампа (`cone`, 200 px; конус 50° сам поворачивается на ближайшую к организму бактерию) — одна на каждые 4 «обычные» Таблетки (первая при 4); клетка — где конус в лучшем из 8 направлений
+ * накрывает больше всего длины дорожки, по которой идут бактерии (у «особо сильного» и «сильного» — с весом веток и скидкой за уже накрытое, у «особо сильного» ещё вдвое ценнее участки
+ * у узлов слияния, где бактерии идут толпой; у «среднего» — просто длина): это клетка рядом с дорожкой у поворота, где путь проходит перед башней длинной дугой.
+ * Витамин (`aura`, радиус 235 px; сам не стреляет и урона у него нет — damage и cooldownMs в таблице 0, формулы бота на них не делят) — не раньше, чем стоят ≥ 3 стреляющие башни
+ * (урон или яд; Сироп и Витамин не считаются), первый при трёх, дальше по одному на каждые 4 стреляющие башни; клетка — в центре группы: свободная клетка, в радиусе ауры от которой стоит больше всего
+ * башен (стреляющие — по их числу «обычных» башен, Сироп — вдвое меньше; уже усиленные другим Витамином — вчетверо меньше), не меньше двух стреляющих; при равенстве — ближе к ним. Нет клетки с двумя башнями —
+ * Витамин не покупается, пока башни не соберутся в группу. В бюджете Витамин учитывается как любая башня (цена в `spent`). Витамин и Лампа сливаются и берут мутации по общим правилам; мутации — «Узкий пучок» → «Раскал»
+ * у Лампы и «Усиление» → «Сильное усиление» у Витамина (выбираются по названиям из config.ts, а не по номерам — перестановка строк не подменит выбор). От бактерий пачки 2 (Скрытная, Токсин) бот особой
+ * стратегии не имеет: Скрытную башни видят только в 60 % радиуса, облако Токсина глушит башни — это замер и должен показать.
+ *
+ * НОВЫЕ БАШНИ (этап 7, пачка 3; Холод открыт с 8-го уровня, Пластырь с 9-го): докупаются НАД кругом после Витамина (novice — только Таблетки). Это башни управления: damage у обеих 0
+ * (Холод — заморозка `freeze`, Пластырь — ловушка `trap`), в «стреляющие» они не считаются, а формулы бота на damage и cooldownMs для них не делят.
+ * Холод (радиус 170 px, `freeze`) — не раньше, чем стоят ≥ 3 стреляющие башни, дальше по одному на каждые 3 стреляющие; клетка — с наибольшим охватом дорожки в радиусе (длина × доля бактерий на ветке,
+ * участки у узлов слияния вдвое ценнее: толпа): это клетка у поворота или у слияния веток. Пластырь (радиус 200 px, `trap`) — не раньше, чем стоят ≥ 5 стреляющих башен, дальше по одному на каждые 5;
+ * клетка — с большим охватом дорожки, но ближе к организму (оценка охвата умножается на 1 − 0,5·(расстояние до организма / наибольшее): ловушка держит первую, самую опасную бактерию).
+ * Мутации — по названиям из config.ts: Холод «Глубокая заморозка» → «Долгий мороз», Пластырь «Скорый» → «Едкий». От бактерий пачки 3 (Мутант запоминает вид башни и принимает половину урона от повторных
+ * ударов того же вида; Паразит присасывается к башне и замедляет её) бот особой стратегии не имеет — замер и должен показать, мешают ли они.
+ *
+ * СЛИЯНИЕ (правило игры с 8 октября 2026): две одинаковые башни (вид и уровень) сливаются, только если расстояние между их центрами
+ * не больше mergeRadiusPx (состояние игры, 235 px мира ≈ 3 новые клетки); башни, ждущие выбора мутации, не сливаются; у получившейся башни мутации обеих складываются.
+ * Поэтому профили, которые сливают (strong — только пары 1-го уровня, expert — всё; average и novice не сливают), покупая башню, ПРЕДПОЧИТАЮТ хорошую клетку
+ * в радиусе слияния от стоящей башни того же вида и уровня 1 (клетка не хуже MERGE_NEAR_SHARE от лучшей по оценке; Сироп и Шприц — строже, MERGE_NEAR_SHARE_PICKY),
+ * а слияние делают, только когда такая пара есть. Если пары нет — не сливают, а «слияния мимо» (mergeMisses: группа ≥ 2 одинаковых башен, но ни одной пары в радиусе;
+ * одна и та же группа считается один раз) показывают, хватает ли ботам пар.
  *
  * Все решения принимаются не чаще, чем раз в 2 секунды ИГРОВОГО времени (как человек). Состояние опрашивается каждые ~120 мс реального времени.
  * Генератор случайных чисел бота — с --seed (игра сама случайна: путь на развилках выбирается наугад, поэтому нужно ≥ 10 партий на профиль).
@@ -45,6 +79,7 @@ import {
   makeGraphGeometry,
   parseArgs,
   readConfigNumber,
+  readMutationIds,
   readTowerTable,
   readMetaTable,
   readTowerUnlock,
@@ -73,18 +108,52 @@ const EXPERT_ADJACENT_FACTOR = 1; // … и соседство с другой �
 const NOVICE_MAX_TOWERS = 6;
 const OPENING_DAMAGE_TOWERS = 2; // «сильный» и «особо сильный»: пока башен с уроном меньше стольких, покупают самую дешёвую башню с уроном (Таблетку), а не Сироп/дорогую по списку
 const CALM_MAX_BACTERIA = 8; // они копят монеты на дорогую башню только в спокойной обстановке: жизни целы и на карте не больше стольких бактерий; иначе берут первую доступную
-const AVERAGE_TOP_SHARE = 0.15; // «средний» выбирает наугад из лучших 15 % клеток по охвату
+const AVERAGE_TOP_SHARE = 0.15; // «средний» выбирает наугад из лучших 15 % клеток по охвату (клеток теперь ≈ 200, а не ≈ 115 — доля прежняя)
+const MERGE_NEAR_SHARE = 0.8; // слияние по радиусу: покупая башню, профиль выбирает среди клеток с оценкой не хуже этой доли от лучшей ту, что в радиусе слияния от башни того же вида и 1-го уровня
+const MERGE_NEAR_SHARE_PICKY = 0.9; // … для Сиропа и Шприца (луч) доля строже: качеством клетки жертвуют меньше
+const MERGE_NEAR_STRONG_SHARE = 0.3; // «сильный»: пул для такой клетки — лучшие 30 % клеток (а не 15 %), но не хуже MERGE_NEAR_SHARE от лучшей
+const MERGE_NEAR_MARGIN = 0.98; // клетка считается «в радиусе», если расстояние до центра башни ≤ mergeRadiusPx × это (запас от округлений)
 const AIM_STEPS = 8; // «Шприц»: сколько направлений луча (тап по башне — шаг 45°; как AIM_STEPS в src/level.ts; 0 — вправо, дальше по часовой стрелке)
 const BEAM_MARGIN_PX = 22; // «Шприц»: насколько дальше полуширины луча от линии выстрела может лежать середина дорожки, чтобы луч её задел (как в игре)
 const MERGE_ZONE_PX = 170; // «Шипучка»: участки дорожки ближе этого к узлу слияния считаются «кучей»
 const MERGE_FACTOR = 2; // … и ценятся вдвое
-const MERGE_UP_TO = { novice: -1, average: -1, strong: 1, expert: 99 }; // башни какого уровня и ниже профиль сливает (−1 — не сливает совсем): «сильный» — только пары первого уровня, «особо сильный» — всё
+const MERGE_UP_TO = { novice: -1, average: -1, strong: 1, expert: 99 }; // башни какого уровня и ниже профиль сливает (−1 — не сливает совсем): «сильный» — только пары первого уровня, «особо сильный» — всё; сливают только пары в радиусе mergeRadiusPx
 // Какую мутацию выбирает профиль (номер варианта 0/1 по порогам): «сильный» всегда первую; «особо сильный» — по таблице (Сироп — «Едкая» в конце, чтобы лужа ещё и убивала; Шприц — «Бронебойный», затем «Второй луч»)
-const MUTATION_PICKS = { strong: { default: [0, 0] }, expert: { pill: [0, 0], syrup: [0, 0], fizz: [0, 0], syringe: [1, 0] } };
+const MUTATION_PICKS = { strong: { default: [0, 0] }, expert: { pill: [0, 0], syrup: [0, 0], fizz: [0, 0], syringe: [1, 0], ampule: [0, 0], antibiotic: [0, 0] } };
+// Мутации башен пачки 2 выбираются по названиям (id из config.ts), а не по номерам: порядок строк в config.ts бот сверяет с таблицей и при расхождении останавливает замер.
+// Лампа: «Узкий пучок» (угол 30°, урон ×1,5) на 2-м уровне, «Раскал» (урон ×1,6) на 4-м; Витамин: «Усиление» и «Сильное усиление» (прибавка к скорости ×1,5 каждая).
+// Пачка 3: Холод — «Глубокая заморозка» (время ×1,5) и «Долгий мороз» (время ×1,5); Пластырь — «Скорый» (пауза ×0,65) и «Едкий» (урон ловушки ×2).
+const MUTATION_PICKS_BY_ID = { lamp: ['lampNarrow', 'lampBlaze'], vitamin: ['vitaminBoost', 'vitaminStrong'], frost: ['frostDeep', 'frostLong'], patch: ['patchQuick', 'patchCaustic'] };
+// Новые башни (этап 7): сколько «обычных» Таблеток приходится на одну Ампулу (3–4: первая при 3 Таблетках, дальше при 7, 10, 14…), на один Антибиотик, и что нужно Антибиотику до первой покупки
+const AMPULE_PILLS_PER = 3.5;
+const ANTIBIOTIC_PILLS_PER = 2;
+const ANTIBIOTIC_MIN_PILLS = 3;
+const ANTIBIOTIC_MIN_SYRUPS = 1;
+// Башни пачки 2 (этап 7): Лампа — одна на каждые LAMP_PILLS_PER «обычных» Таблеток (первая при стольких же); Витамин — не раньше VITAMIN_MIN_FIGHTING стреляющих башен, дальше по одному на каждые VITAMIN_FIGHTING_PER,
+// в центре группы: в радиусе его ауры (из таблицы башни) должно стоять не меньше VITAMIN_MIN_GROUP стреляющих башен
+const LAMP_PILLS_PER = 4;
+const LAMP_PREP_WAVE = 8; // --lamps: с этой волны «сильный» и «особо сильный» знают, что скоро выйдут скрытные (с 15–16-й волны), и ставят Лампы раньше Ампулы
+const LAMP_PILLS_PER_STEALTH = 2; // --lamps: одна Лампа на каждые 2 Таблетки (обычно — на 4)
+const LAMP_MAX_STEALTH = 3; // --lamps: не больше стольких «обычных» Ламп (Лампа — детектор, docs/lamp-plan.md: смешанный набор с 1–3 Лампами)
+const LAMP_LEAD_WAVES = 3; // --lamps=veteran: Лампы начинают покупать за столько волн до выхода скрытных
+const VITAMIN_MIN_FIGHTING = 3;
+const VITAMIN_FIGHTING_PER = 4;
+const VITAMIN_MIN_GROUP = 2;
+const VITAMIN_SYRUP_WEIGHT = 0.5; // Сироп в группе Витамина считается за полбашни (ускорение лужи полезно, но урона у Сиропа нет)
+const VITAMIN_COVERED_WEIGHT = 0.25; // башня, которую уже усиливает другой Витамин, считается за четверть (второй Витамин её не ускорит: эффекты не складываются)
+// Башни пачки 3 (этап 7; управление, урона нет): Холод — не раньше FROST_MIN_FIGHTING стреляющих башен, дальше по одному на каждые FROST_FIGHTING_PER; Пластырь — то же с PATCH_MIN_FIGHTING и PATCH_FIGHTING_PER.
+// «Стреляющих» считается штуками (как у Витамина), Холод и Пластырь, Сироп и Витамин в счёт не идут.
+const FROST_MIN_FIGHTING = 3;
+const FROST_FIGHTING_PER = 3;
+const PATCH_MIN_FIGHTING = 5;
+const PATCH_FIGHTING_PER = 5;
+const PATCH_NEAR_ORGANISM = 0.5; // Пластырь: оценка клетки × (1 − это × расстояние до организма / наибольшее) — клетки ближе к организму ценятся до 2 раз выше
+const CONTROL_TOWERS = ['frost', 'patch']; // башни управления: клетку выбирает controlSpot, а не охват «по умолчанию»
+const CONE_MARGIN_DEG = 6; // Лампа: запас к половине угла конуса при подсчёте охвата (бактерия шире своей середины; конус поворачивается на цель)
 const STALL_SEC = 30; // игровое время не идёт столько реальных секунд подряд — партия зависла
 
-const NAMES = { pill: 'Таблетка', syrup: 'Сироп', fizz: 'Шипучка', syringe: 'Шприц' };
-const SHORT = { pill: 'Таб', syrup: 'Сир', fizz: 'Шип', syringe: 'Шпр' };
+const NAMES = { pill: 'Таблетка', syrup: 'Сироп', fizz: 'Шипучка', syringe: 'Шприц', ampule: 'Ампула', antibiotic: 'Антибиотик', lamp: 'Лампа', vitamin: 'Витамин', frost: 'Холод', patch: 'Пластырь' };
+const SHORT = { pill: 'Таб', syrup: 'Сир', fizz: 'Шип', syringe: 'Шпр', ampule: 'Амп', antibiotic: 'Ант', lamp: 'Лмп', vitamin: 'Вит', frost: 'Хол', patch: 'Пла' };
 const PROFILE_TITLES = { novice: 'новичок', average: 'средний', strong: 'сильный', expert: 'особо сильный' };
 const PROFILE_IDS = Object.keys(PROFILE_TITLES);
 const AVERAGE_CYCLE = ['pill', 'pill', 'syrup', 'pill', 'fizz', 'syringe'];
@@ -102,7 +171,7 @@ const HELP = `Бот-замерщик баланса: играет целые п
   --profile=novice|average|strong|expert|all   кто играет (по умолчанию all); expert — «особо сильный» (бывший «сильный» кругов 1–2)
   --runs=N                              партий на профиль (по умолчанию 10; для замера нужно не меньше 10)
   --speed=2                             ускорение игрового времени, 0.1…4 (по умолчанию 2). ВЫШЕ 2 ЗАМЕРЫ ГРУБЕЕ: годится для проб, не для итоговых чисел
-  --exclude=syrup,fizz,syringe,pill     каких башен профили не строят (проверка «нужна ли башня»)
+  --exclude=syrup,fizz,syringe,pill,ampule,antibiotic,lamp,vitamin,frost,patch   каких башен профили не строят (проверка «нужна ли башня»)
   --cfg=путь:число,...                  подмена чисел игры без правки config.ts, например towers.pill.price:40,economy.startCoins:5000
                                         (бот сам учтёт подмену цен и радиусов; непонятная запись останавливает замер)
   --tag=имя                             имя файла результата qa/bot-results/<имя>.json (по умолчанию latest)
@@ -111,8 +180,15 @@ const HELP = `Бот-замерщик баланса: играет целые п
   --max-real-sec=3600                   потолок реального времени одной партии (страховка); дольше — «timeout»
   --verbose                             печатать каждую покупку и раз в 30 с — где идёт партия
   --shots                               снимок экрана в конце партии: qa/bot-results/<tag>-shots/
-  --level=N                             номер уровня (1…10, по умолчанию 1): от него зависит, какие башни открыты (levels.towerUnlock в config.ts; на уровне 1 — только Таблетка и Сироп);
+  --level=N                             номер уровня (1…10, по умолчанию 1): от него зависит, какие башни открыты (levels.towerUnlock в config.ts; на уровне 1 — только Таблетка и Сироп; Ампула открыта с 3-го уровня, Антибиотик с 6-го);
                                         на уровнях 2–10 партия идёт по составу волн своего уровня (levels.specs; адрес получает &levelwaves)
+                                        Новые башни (Ампула с 3-го уровня, Антибиотик с 6-го): average/strong/expert докупают их, когда башня открыта на уровне партии, — Ампулу одну на 3–4 Таблетки
+                                        (клетка с наибольшей длиной дорожки в её радиусе 520 px), Антибиотик по одному на каждые 2 Таблетки, но не раньше чем стоят ≥ 3 Таблетки и 1 Сироп
+                                        (клетка как у Таблетки); novice строит только Таблетки. Слияние и мутации — по общим правилам. Новые бактерии (Прыгун, Фагоцит) бот особо не обрабатывает.
+                                        Лампа (с 5-го уровня): одна на каждые 4 Таблетки, клетка — где конус накрывает больше всего дорожки (у поворота); Витамин (с 7-го): не раньше чем стоят ≥ 3 стреляющие башни,
+                                        по одному на каждые 4, клетка — в центре группы (≥ 2 стреляющих башен в радиусе ауры). Скрытную и Токсин бот особо не обрабатывает.
+                                        Холод (с 8-го уровня): не раньше чем стоят ≥ 3 стреляющие башни, по одному на каждые 3, клетка — с наибольшим охватом дорожки (радиус 170 px, толпа у слияний ценнее);
+                                        Пластырь (с 9-го): не раньше ≥ 5 стреляющих, по одному на каждые 5, клетка — с охватом дорожки в радиусе 200 px, ближе к организму. Мутанта и Паразита бот особо не обрабатывает.
   --meta=lives:2,coins:5,damage:5,reward:5,shield:1,pillRate:3   фиксированные улучшения вне партии (id и уровни по таблице meta.upgrades из config.ts, в том числе ветки башен; не больше наибольшего уровня; без параметра — 0). Не сочетается с --campaign
   --campaign=N                          режим «серия партий» (этап 6а): каждая из --runs серий — до N партий подряд одним профилем; после каждой партии бот начисляет очки ДНК
                                         (по формуле config.ts, раздел meta) и покупает улучшения по порядку damage, coins, lives, reward, затем остальные по таблице (ветка башни — если башня открыта на уровне партии); серия кончается первой победой.
@@ -122,6 +198,14 @@ const HELP = `Бот-замерщик баланса: играет целые п
                                         Дорожка, не выигравшая за K партий, «застряла» и дальше не идёт. Не сочетается с --campaign, --meta, --level
   --run-offset=N                        (лестница) номер дорожки = номер в --runs + N: так дорожки разных задач различаются
   --from-level=N, --to-level=M          участок лестницы (по умолчанию 1…10); дорожку между задачами передают --state-in=файл (состояние до) и --state-out=файл (после)
+  --solo=<башня>                        «одна башня» (docs/fizz-solo-plan.md): игрок строит только эту башню и не больше одного Сиропа. Башни с уроном (pill, fizz, syringe, ampule,
+                                        antibiotic, lamp): «башня + 1 Сироп»; vitamin, frost, patch: «башня + 1 Сироп + Таблетки» (Таблетки — основа, башня докупается как всегда). --solo=pill —
+                                        база для сравнения («только Таблетки + 1 Сироп»). Играет только --profile=strong или expert; башня должна быть открыта на --level; не сочетается с --ladder и --campaign
+  --lamps[=вариант]                     «Лампы против скрытных» (только strong и expert, башня открыта на уровне; не больше 3 Ламп, одна на каждые 2 Таблетки; Лампа идёт раньше Ампулы и Антибиотика
+                                        и копится вне очереди). Без параметра бот ведёт себя как раньше (прежние замеры сравнимы). Варианты (docs/lamp-plan.md):
+                                        1 — прежний: с 8-й волны, а обычное правило «Лампа на каждые 4 Таблетки» работает с самого начала;
+                                        veteran («опытный») — Лампы не покупаются, пока до выхода скрытных больше 3 волн; с (волна выхода − 3)-й волны идут вне очереди;
+                                        first («первая встреча») — Лампы не покупаются, пока не вышла первая скрытная (её плашка); потом вне очереди
   --canvas                              рисовать игру через canvas вместо WebGL (?qa&canvas): на слабом контейнере партия идёт ≈ втрое быстрее.
                                         Логика игры та же; для замеров баланса годится (картинка не важна)
   --help                                эта справка
@@ -137,7 +221,7 @@ if (args.help || args.h) {
   console.log(HELP);
   process.exit(0);
 }
-const KNOWN = new Set(['profile', 'runs', 'speed', 'exclude', 'cfg', 'tag', 'seed', 'max-game-sec', 'max-real-sec', 'verbose', 'shots', 'canvas', 'level', 'meta', 'campaign', 'ladder', 'from-level', 'to-level', 'state-in', 'state-out', 'run-offset', 'help']);
+const KNOWN = new Set(['profile', 'runs', 'speed', 'exclude', 'cfg', 'tag', 'seed', 'max-game-sec', 'max-real-sec', 'verbose', 'shots', 'canvas', 'level', 'meta', 'campaign', 'ladder', 'from-level', 'to-level', 'state-in', 'state-out', 'run-offset', 'solo', 'lamps', 'help']);
 for (const key of Object.keys(args)) if (!KNOWN.has(key)) die(`Неизвестный параметр --${key}. Справка: node qa/bot.mjs --help`);
 
 function numArg(name, fallback, { min = -Infinity, max = Infinity, int = false } = {}) {
@@ -169,6 +253,33 @@ const STATE_OUT = args['state-out'] === undefined || args['state-out'] === true 
 if (LADDER && (CAMPAIGN || args.meta !== undefined || args.level !== undefined)) die('--ladder не сочетается с --campaign, --meta и --level: уровни и улучшения ведёт сам бот (участок уровней — --from-level, --to-level).');
 if (!LADDER && (args['from-level'] !== undefined || args['to-level'] !== undefined || args['run-offset'] !== undefined || STATE_IN || STATE_OUT)) die('--from-level, --to-level, --run-offset, --state-in, --state-out работают только вместе с --ladder=K.');
 if (LADDER_FROM > LADDER_TO) die('--from-level не может быть больше --to-level.');
+// --lamps: true / «1» — прежний вариант (prep8), «veteran», «first»
+const LAMP_MODE = args.lamps === undefined || args.lamps === '0' ? null : args.lamps === true || args.lamps === '1' ? 'prep8' : String(args.lamps);
+if (LAMP_MODE !== null && !['prep8', 'veteran', 'first'].includes(LAMP_MODE)) die(`--lamps=«${LAMP_MODE}»: есть 1, veteran, first.`);
+const LAMPS = LAMP_MODE !== null;
+if (LAMPS && args.profile !== undefined && !['strong', 'expert', 'all'].includes(String(args.profile))) die('--lamps играют только профили strong и expert.');
+/** Волна выхода скрытных на уровне — из таблицы `levels.specs` в src/config.ts (null — на уровне их нет); нужна режиму --lamps=veteran. */
+function stealthIntroWave(level) {
+  const lines = fs.readFileSync(path.join(ROOT, 'src/config.ts'), 'utf8').split('\n');
+  const start = lines.findIndex((l) => /^\s*specs:\s*\[/.test(l));
+  if (start < 0) return null;
+  const rows = [];
+  for (const line of lines.slice(start + 1)) {
+    const text = line.trim();
+    if (text.startsWith(']')) break;
+    if (text.startsWith('{')) rows.push(text);
+  }
+  const found = /\bstealth:\s*(\d+)/.exec(rows[level - 1] ?? '');
+  return found ? Number(found[1]) : null;
+}
+const SOLO_SUPPORT = ['vitamin', 'frost', 'patch']; // не бьют сами: идут поверх Таблеток
+const SOLO = args.solo === undefined ? null : String(args.solo);
+if (SOLO !== null && (args.solo === true || !SOLO)) die('--solo=<башня>: после «=» нужен id башни, например --solo=fizz.');
+if (LAMP_MODE === 'veteran' && LADDER) die('--lamps=veteran не сочетается с --ladder: волна выхода скрытных берётся с одного уровня (--level).');
+const STEALTH_WAVE = LAMP_MODE === 'veteran' ? stealthIntroWave(LEVEL) : null;
+if (LAMP_MODE === 'veteran' && STEALTH_WAVE === null) console.warn(`--lamps=veteran: на уровне ${LEVEL} нет скрытных — Лампы не покупаются`);
+if (LAMPS && SOLO) die('--lamps не сочетается с --solo (при --solo башни выбирает сам режим).');
+if (SOLO && (LADDER || CAMPAIGN)) die('--solo не сочетается с --ladder и --campaign: сравнение «одна башня» идёт на одном уровне с фиксированными улучшениями (--meta).');
 const SEED = args.seed === undefined ? Math.floor(Math.random() * 1e9) : numArg('seed', 0, { min: 0, max: 4294967295, int: true });
 const TAG = args.tag === undefined ? 'latest' : String(args.tag);
 if (!/^[\w-]+$/.test(TAG)) die(`Неверный --tag=«${TAG}»: только буквы, цифры, «_» и «-».`);
@@ -186,6 +297,15 @@ const EXCLUDE = new Set(
         .map((x) => x.trim())
         .filter(Boolean),
 );
+if (SOLO) {
+  if (!KNOWN_TOWERS.includes(SOLO) || SOLO === 'syrup') die(`--solo: нет такой башни «${SOLO}». Есть: ${KNOWN_TOWERS.filter((id) => id !== 'syrup').join(', ')}.`);
+  if ((TOWER_UNLOCK[SOLO] ?? 1) > LEVEL) die(`--solo=${SOLO}: башня открыта с уровня ${TOWER_UNLOCK[SOLO]}, а замер идёт на уровне ${LEVEL} (--level).`);
+  if (profileArg !== 'strong' && profileArg !== 'expert') die('--solo играют только профили strong и expert: укажите --profile=strong или --profile=expert.');
+}
+/** Какие башни строит игрок при --solo: сама башня, Сироп (не больше одного) и, если башня не бьёт сама, Таблетки. */
+const SOLO_ALLOWED = SOLO ? new Set([SOLO, 'syrup', ...(SOLO === 'pill' || SOLO_SUPPORT.includes(SOLO) ? ['pill'] : [])]) : null;
+/** Круг покупок при --solo (вместо STRONG_CYCLE): Сироп встаёт один раз, дальше только основа. */
+const SOLO_CYCLE = SOLO ? (SOLO_SUPPORT.includes(SOLO) ? ['pill', 'pill', 'syrup', 'pill'] : [SOLO, 'syrup', SOLO]) : null;
 for (const id of EXCLUDE) if (!KNOWN_TOWERS.includes(id)) die(`--exclude: нет башни «${id}». Есть: ${KNOWN_TOWERS.join(', ')}.`);
 
 /** --cfg=путь:число,...: проверяем запись и накладываем на то, что бот знает сам (цены и радиусы башен, ширина дорожки). */
@@ -208,6 +328,16 @@ for (const [cfgPath, value] of CFG_ITEMS) {
   if (m && TABLE[m[1]] && typeof TABLE[m[1]][m[2]] === 'number') TABLE[m[1]][m[2]] = value;
 }
 const MAP_PATH_WIDTH = cfgGet('map.pathWidth') ?? readConfigNumber('map', 'pathWidth');
+
+// Мутации Лампы и Витамина: номера вариантов по названиям из config.ts (readMutationIds); название не нашлось на своём пороге — замер останавливается
+const MUTATION_IDS = readMutationIds();
+for (const [towerId, ids] of Object.entries(MUTATION_PICKS_BY_ID)) {
+  if (!TABLE[towerId]) continue;
+  const picks = ids.map((id, tier) => MUTATION_IDS[towerId]?.[tier]?.indexOf(id) ?? -1);
+  if (picks.some((index) => index < 0)) die(`Мутации «${towerId}»: в config.ts на порогах нет вариантов ${ids.join(', ')} (есть ${JSON.stringify(MUTATION_IDS[towerId])}) — поправьте MUTATION_PICKS_BY_ID в qa/bot.mjs.`);
+  MUTATION_PICKS.strong[towerId] = picks;
+  MUTATION_PICKS.expert[towerId] = picks;
+}
 
 // Очки ДНК и улучшения (config.ts, раздел meta) с подменой --cfg: цены, очки за волну и за победу
 const META = readMetaTable();
@@ -376,6 +506,7 @@ function buildWorld(graph, map, cols, rows) {
     return rangeCache.get(range);
   };
   const byKey = new Map(cells.map((c) => [c.key, c]));
+  const maxRem = Math.max(0, ...cells.map((c) => c.rem));
   const dirs = Array.from({ length: AIM_STEPS }, (_, i) => [Math.cos((i * 2 * Math.PI) / AIM_STEPS), Math.sin((i * 2 * Math.PI) / AIM_STEPS)]);
   /** Отрезки дорожки под лучом «Шприца» из клетки в направлении dir (номер 0…7): середина отрезка в полосе длины beamLengthPx (кэш). */
   const rayCache = new Map();
@@ -410,6 +541,49 @@ function buildWorld(graph, map, cols, rows) {
     return best;
   };
 
+  /**
+   * Отрезки дорожки в конусе Лампы из клетки в направлении dir (номер 0…7): середина отрезка не дальше длины конуса и в пределах половины угла конуса плюс CONE_MARGIN_DEG (кэш; ключ — и длина конуса:
+   * улучшения ветки башни меняют радиус).
+   */
+  const coneCache = new Map();
+  const coneOf = (type, cell, dir) => {
+    const T = TABLE[type];
+    const key = `${type}|${Math.round(T.range)}|${cell.idx}|${dir}`;
+    if (!coneCache.has(key)) {
+      const [dx, dy] = dirs[dir];
+      const cosMin = Math.cos(((T.coneDeg / 2 + CONE_MARGIN_DEG) * Math.PI) / 180);
+      const list = [];
+      for (let i = 0; i < segs.length; i++) {
+        const px = segs[i].x - cell.x;
+        const py = segs[i].y - cell.y;
+        const dist = Math.hypot(px, py);
+        if (dist > T.range) continue;
+        if (dist < 1 || (px * dx + py * dy) / dist >= cosMin) list.push(i);
+      }
+      coneCache.set(key, list);
+    }
+    return coneCache.get(key);
+  };
+  /**
+   * Лучшее направление конуса из клетки: сколько длины дорожки он накрывает. weighted — с весом «сколько бактерий идёт по ветке» и скидкой за уже накрытое (covCount); smart — скидка мягче и участки у узлов
+   * слияния (толпа) вдвое ценнее. Лампа сама поворачивается на цель, поэтому берётся лучшее из направлений: клетка у поворота, где путь идёт перед башней длинной дугой, выигрывает у клетки у прямого участка.
+   */
+  const bestCone = (type, cell, weighted, covCount, smart = false) => {
+    let best = 0;
+    for (let dir = 0; dir < AIM_STEPS; dir++) {
+      let value = 0;
+      for (const si of coneOf(type, cell, dir)) {
+        const sg = segs[si];
+        if (!sideOk(TABLE[type], cell, sg)) continue;
+        let v = weighted ? sg.len * sg.w * Math.pow(smart ? EXPERT_OVERLAP : OVERLAP_DISCOUNT, covCount ? covCount[si] : 0) : sg.len;
+        if (weighted && smart && sg.merge) v *= MERGE_FACTOR;
+        value += v;
+      }
+      if (value > best) best = value;
+    }
+    return best;
+  };
+
   /** Подходит ли отрезок башне по стороне («вперёд» — бактериям до организма дальше, чем башне; «назад» — ближе). */
   const sideOk = (T, cell, sg) => (T.side === 'forward' ? sg.rem > cell.rem : T.side === 'back' ? sg.rem < cell.rem : true);
 
@@ -423,8 +597,26 @@ function buildWorld(graph, map, cols, rows) {
     cover(type, cell) {
       const T = TABLE[type];
       if (T.targeting === 'beam') return bestAim(type, cell, false).value;
+      if (T.targeting === 'aura') return 0; // Витамин ничего не бьёт: охвата дорожки у него нет (его клетку выбирает vitaminSpot по соседним башням)
+      if (T.targeting === 'cone') return bestCone(type, cell, false);
       let sum = 0;
       for (const si of inRange(T.range)[cell.idx]) if (sideOk(T, cell, segs[si])) sum += segs[si].len;
+      return sum;
+    },
+    /**
+     * Охват клетки башней управления (Холод, Пластырь): сумма длин отрезков дорожки в радиусе башни × доля бактерий на ветке; у Холода участки у узлов слияния (толпа) вдвое ценнее; у Пластыря оценка
+     * ещё умножается на 1 − PATCH_NEAR_ORGANISM × (rem клетки / наибольший rem): клетки ближе к организму лучше. Урона у этих башен нет — на damage и cooldownMs здесь не делим.
+     */
+    controlScore(type, cell) {
+      const T = TABLE[type];
+      let sum = 0;
+      for (const si of inRange(T.range)[cell.idx]) {
+        const sg = segs[si];
+        let v = sg.len * sg.w;
+        if (type === 'frost' && sg.merge) v *= MERGE_FACTOR;
+        sum += v;
+      }
+      if (type === 'patch') sum *= 1 - PATCH_NEAR_ORGANISM * (maxRem > 0 ? cell.rem / maxRem : 0);
       return sum;
     },
     /**
@@ -435,6 +627,14 @@ function buildWorld(graph, map, cols, rows) {
     strongScore(type, cell, covCount, smart = true) {
       const T = TABLE[type];
       if (T.targeting === 'beam') return bestAim(type, cell, smart, covCount).value;
+      if (T.targeting === 'aura') return 0;
+      if (T.targeting === 'cone') return bestCone(type, cell, true, covCount, smart);
+      if (T.targeting === 'snipe') {
+        // Ампула: радиус огромный (полкарты) — важна длина дорожки в круге; скидка за «уже накрытое» не нужна (накрыто почти всё); список отрезков в круге — из кэша inRange
+        let total = 0;
+        for (const si of inRange(T.range)[cell.idx]) if (sideOk(T, cell, segs[si])) total += segs[si].len * segs[si].w;
+        return total;
+      }
       const discount = type === 'syrup' ? SYRUP_OVERLAP : smart ? EXPERT_OVERLAP : OVERLAP_DISCOUNT;
       const list = inRange(T.range)[cell.idx];
       let sum = 0;
@@ -455,7 +655,7 @@ function buildWorld(graph, map, cols, rows) {
       for (const tw of towers) {
         const cell = byKey.get(`${tw.col},${tw.row}`);
         const T = TABLE[tw.id];
-        if (!cell || !T) continue;
+        if (!cell || !T || T.targeting === 'snipe' || T.targeting === 'aura' || T.targeting === 'freeze' || T.targeting === 'trap') continue; // Ампула накрывает полкарты: в «накрытое другими башнями» её не записываем, иначе клетки остальных башен обесценятся; Витамин, Холод и Пластырь урона не наносят и дорожку не «накрывают»
         const list = T.targeting === 'beam' ? rayOf(tw.id, cell, tw.aim ?? 0) : inRange(T.range)[cell.idx];
         for (const si of list) counts[si]++;
       }
@@ -471,8 +671,93 @@ function buildWorld(graph, map, cols, rows) {
  * без занятых и «плохих»), covCount }. После успешной покупки зовётся bought(), после неудачи клетку бот сам помечает «плохой».
  */
 function makePlayer(profile, { world, rng, buttons }) {
-  const available = (id) => TABLE[id] && buttons.includes(id) && !EXCLUDE.has(id);
+  const available = (id) => TABLE[id] && buttons.includes(id) && !EXCLUDE.has(id) && (!SOLO_ALLOWED || SOLO_ALLOWED.has(id));
+  const cycle = SOLO_CYCLE ?? STRONG_CYCLE;
   const pick = (list) => list[Math.floor(rng() * list.length)];
+  /** Проверка «клетка в радиусе слияния от стоящей башни этого вида 1-го уровня (мутация не ждёт)»; null — таких башен нет (тогда как раньше). */
+  const nearPartner = (view, type) => {
+    const radius = (view.s.mergeRadiusPx ?? 0) * MERGE_NEAR_MARGIN;
+    const partners = view.towers.filter((tw) => tw.id === type && tw.level === 1 && tw.pending === null && tw.level < view.s.maxTowerLevel);
+    if (!radius || !partners.length) return null;
+    return (cell) => partners.some((tw) => Math.hypot(tw.x - cell.x, tw.y - cell.y) <= radius);
+  };
+
+  /** Сколько «обычных» башен вида id стоит (башня уровня L — это 2^(L−1) штук). */
+  const unitsOf = (view, id) => view.towers.filter((tw) => tw.id === id).reduce((sum, tw) => sum + 2 ** ((tw.level ?? 1) - 1), 0);
+  const extraGaveUp = new Set(); // новые башни, для которых клеток с охватом не нашлось: больше не пробуем
+  /** Стреляющая башня (урон или яд): Сироп и Витамин не в счёте (у Витамина damage и cooldownMs — 0, он сам не стреляет). */
+  const isFighting = (tw) => (TABLE[tw.id]?.damage ?? 0) > 0 || (TABLE[tw.id]?.dotPerSec ?? 0) > 0;
+  /**
+   * Клетка для Витамина — «центр группы»: свободная клетка, в радиусе ауры (радиус башни из таблицы, но не больше радиуса слияния) от которой стоит больше всего башен: стреляющая — за её число «обычных» башен,
+   * Сироп — за VITAMIN_SYRUP_WEIGHT от него, уже усиленная другим Витамином (auraMul < 1) — за VITAMIN_COVERED_WEIGHT; нужно не меньше VITAMIN_MIN_GROUP стреляющих башен в радиусе. При равенстве — клетка
+   * ближе к охваченным башням. Возвращает { cell, score } или null (подходящей клетки нет).
+   */
+  const vitaminSpot = (view) => {
+    const T = TABLE.vitamin;
+    if (!T) return null;
+    const reach = Math.min(T.range, view.s.mergeRadiusPx || T.range) * 0.97; // граница ауры — по центру башни; небольшой запас от округлений
+    const targets = view.towers.filter((tw) => TABLE[tw.id] && TABLE[tw.id].targeting !== 'aura');
+    let best = null;
+    for (const c of view.free) {
+      let score = 0;
+      let fighting = 0;
+      let near = 0;
+      for (const tw of targets) {
+        const d = Math.hypot(tw.x - c.x, tw.y - c.y);
+        if (d > reach) continue;
+        const units = 2 ** ((tw.level ?? 1) - 1);
+        const fights = isFighting(tw);
+        if (fights) fighting++;
+        score += units * (fights ? 1 : VITAMIN_SYRUP_WEIGHT) * ((tw.auraMul ?? 1) < 1 ? VITAMIN_COVERED_WEIGHT : 1);
+        near += d;
+      }
+      if (fighting < VITAMIN_MIN_GROUP) continue;
+      if (!best || score > best.score + 1e-9 || (Math.abs(score - best.score) <= 1e-9 && near < best.near)) best = { cell: c, score, near };
+    }
+    return best;
+  };
+  /**
+   * Клетка для башни управления (Холод, Пластырь): лучшая по `world.controlScore` среди свободных; «средний» берёт случайную из верхней доли списка, «сильный» — из верхних STRONG_PICK_SHARE (не меньше STRONG_PICK_MIN),
+   * «особо сильный» — лучшую. Возвращает клетку или null (охвата нет нигде).
+   */
+  const controlSpot = (view, type) => {
+    const scored = view.free
+      .map((c) => ({ c, v: world.controlScore(type, c) }))
+      .filter((x) => x.v > 0)
+      .sort((a, b) => b.v - a.v || a.c.idx - b.c.idx);
+    if (!scored.length) return null;
+    if (profile === 'average') return pick(scored.slice(0, Math.max(3, Math.ceil(scored.length * AVERAGE_TOP_SHARE)))).c;
+    if (profile === 'strong') return pick(scored.slice(0, Math.max(STRONG_PICK_MIN, Math.ceil(scored.length * STRONG_PICK_SHARE)))).c;
+    return scored[0].c;
+  };
+  /** --lamps: пора ли покупать Лампы вне очереди. 1 — с LAMP_PREP_WAVE-й волны; veteran — за LAMP_LEAD_WAVES волн до выхода скрытных; first — когда первая скрытная уже вышла (плашка нового типа). */
+  const lampTime = (view) => {
+    if (LAMP_MODE === 'veteran') return STEALTH_WAVE !== null && view.s.wave >= STEALTH_WAVE - LAMP_LEAD_WAVES;
+    if (LAMP_MODE === 'first') return (view.s.introduced ?? []).includes('stealth');
+    return view.s.wave >= LAMP_PREP_WAVE;
+  };
+  /** Какую новую башню (Ампула, Антибиотик, Лампа, Витамин, Холод, Пластырь) пора докупить поверх круга: null — никакую (башня закрыта на уровне, исключена или ещё рано). */
+  const wantedExtra = (view) => {
+    const pills = unitsOf(view, 'pill');
+    if (pills < 3) return null;
+    // --lamps: перед скрытными (с 15–16-й волны) Лампа идёт первой — иначе очередь стоит на дорогой Ампуле и до Ламп не доходит
+    if (LAMPS && (profile === 'strong' || profile === 'expert') && available('lamp') && !extraGaveUp.has('lamp') && lampTime(view) && unitsOf(view, 'lamp') < Math.min(LAMP_MAX_STEALTH, Math.floor(pills / LAMP_PILLS_PER_STEALTH))) return 'lamp';
+    if (available('ampule') && !extraGaveUp.has('ampule') && unitsOf(view, 'ampule') < Math.floor((pills + 0.5) / AMPULE_PILLS_PER)) return 'ampule';
+    const syrupOk = !available('syrup') || unitsOf(view, 'syrup') >= ANTIBIOTIC_MIN_SYRUPS;
+    if (available('antibiotic') && !extraGaveUp.has('antibiotic') && pills >= ANTIBIOTIC_MIN_PILLS && syrupOk && unitsOf(view, 'antibiotic') < Math.floor(pills / ANTIBIOTIC_PILLS_PER)) return 'antibiotic';
+    if (LAMP_MODE !== 'veteran' && LAMP_MODE !== 'first' && available('lamp') && !extraGaveUp.has('lamp') && pills >= LAMP_PILLS_PER && unitsOf(view, 'lamp') < Math.floor(pills / LAMP_PILLS_PER) && !(LAMPS && unitsOf(view, 'lamp') >= LAMP_MAX_STEALTH)) return 'lamp';
+    if (available('vitamin') && !extraGaveUp.has('vitamin')) {
+      const fighting = view.towers.filter(isFighting).length; // штук, а не «обычных» башен
+      const allowed = fighting >= VITAMIN_MIN_FIGHTING ? 1 + Math.floor((fighting - VITAMIN_MIN_FIGHTING) / VITAMIN_FIGHTING_PER) : 0;
+      if (view.towers.filter((tw) => tw.id === 'vitamin').length < allowed && vitaminSpot(view)) return 'vitamin';
+    }
+    // Холод и Пластырь: урона нет, считаем по стреляющим башням (штуками); клетка есть почти всегда (охват дорожки > 0), иначе башня уходит в extraGaveUp при попытке покупки
+    const fightingCount = view.towers.filter(isFighting).length;
+    const controlAllowed = (min, per) => (fightingCount >= min ? 1 + Math.floor((fightingCount - min) / per) : 0);
+    if (available('frost') && !extraGaveUp.has('frost') && view.towers.filter((tw) => tw.id === 'frost').length < controlAllowed(FROST_MIN_FIGHTING, FROST_FIGHTING_PER)) return 'frost';
+    if (available('patch') && !extraGaveUp.has('patch') && view.towers.filter((tw) => tw.id === 'patch').length < controlAllowed(PATCH_MIN_FIGHTING, PATCH_FIGHTING_PER)) return 'patch';
+    return null;
+  };
 
   if (profile === 'novice') {
     return {
@@ -493,20 +778,31 @@ function makePlayer(profile, { world, rng, buttons }) {
     };
     return {
       decide(view) {
-        const type = skip();
+        const extra = wantedExtra(view); // Ампула / Антибиотик, когда открыты и пора (иначе null) — вне круга
+        const type = extra ?? skip();
         if (!type || view.coins < TABLE[type].price) return null;
+        if (type === 'vitamin') {
+          const spot = vitaminSpot(view); // Витамин — в центре группы башен, а не по охвату дорожки
+          return spot ? { type, cell: spot.cell, extra: true } : null;
+        }
+        if (CONTROL_TOWERS.includes(type)) {
+          const cell = controlSpot(view, type); // Холод и Пластырь — по охвату дорожки (Пластырь — ближе к организму)
+          if (!cell) extraGaveUp.add(type);
+          return cell ? { type, cell, extra: true } : null;
+        }
         const scored = view.free
           .map((c) => ({ c, v: world.cover(type, c) }))
           .sort((a, b) => b.v - a.v || a.c.idx - b.c.idx);
         const top = scored.slice(0, Math.max(3, Math.ceil(scored.length * AVERAGE_TOP_SHARE))).filter((x) => x.v > 0);
         if (!top.length) {
-          ptr++; // для этой башни нет клеток с охватом — пропускает её
+          if (extra) extraGaveUp.add(extra);
+          else ptr++; // для этой башни нет клеток с охватом — пропускает её
           return null;
         }
-        return { type, cell: pick(top).c };
+        return { type, cell: pick(top).c, extra: Boolean(extra) };
       },
-      bought() {
-        ptr++;
+      bought(choice) {
+        if (!choice?.extra) ptr++; // новая башня место в круге не двигает
       },
     };
   }
@@ -519,38 +815,56 @@ function makePlayer(profile, { world, rng, buttons }) {
   const gaveUp = new Set(); // башни, для которых «копить на первую» не вышло (нет подходящих клеток): дальше обычный круг
   let ptr = 0;
   let headSince = 0;
-  let lastPtr = -1;
+  let lastPtr = -1; // голова очереди (номер в круге или «x:вид» для новой башни)
   return {
     decide(view) {
       const now = view.s.elapsed;
-      if (ptr !== lastPtr) {
-        lastPtr = ptr;
+      const extraHead = wantedExtra(view);
+      const headKey = extraHead ? `x:${extraHead}` : ptr;
+      if (headKey !== lastPtr) {
+        lastPtr = headKey;
         headSince = now;
       }
       let order = [];
-      for (let k = 0; k < STRONG_CYCLE.length; k++) {
-        const idx = (ptr + k) % STRONG_CYCLE.length;
-        if (available(STRONG_CYCLE[idx])) order.push({ idx, type: STRONG_CYCLE[idx] });
+      const syrupDone = SOLO && view.towers.some((tw) => tw.id === 'syrup'); // при --solo Сироп один: построен — из круга уходит
+      for (let k = 0; k < cycle.length; k++) {
+        const idx = (ptr + k) % cycle.length;
+        if (available(cycle[idx]) && !(syrupDone && cycle[idx] === 'syrup')) order.push({ idx, type: cycle[idx] });
       }
       // Начало партии: пока башен с уроном мало, главное — урон: берётся самая дешёвая башня с уроном (вне списка по кругу; Сироп без урона ничего не убьёт)
       // Считаем в «обычных башнях»: башня уровня L — это 2^(L−1) обычных (иначе после слияния двух Таблеток «начало партии» включалось снова и бот до конца партии покупал только Таблетки: Сироп не строился)
-      const damageCount = view.towers.filter((tw) => TABLE[tw.id]?.damage > 0).reduce((sum, tw) => sum + 2 ** ((tw.level ?? 1) - 1), 0);
+      const hitsHard = (id) => TABLE[id]?.damage > 0 || (Boolean(SOLO) && TABLE[id]?.dotPerSec > 0); // при --solo яд (Антибиотик, damage 0) тоже считается уроном: иначе «начало партии» не находит башню и ничего не строится
+      const damageCount = view.towers.filter((tw) => hitsHard(tw.id)).reduce((sum, tw) => sum + 2 ** ((tw.level ?? 1) - 1), 0);
       const opening = damageCount < OPENING_DAMAGE_TOWERS;
       if (opening) {
-        const cheapest = KNOWN_TOWERS.filter((id) => available(id) && TABLE[id].damage > 0).sort((a, b) => TABLE[a].price - TABLE[b].price)[0];
-        order = cheapest ? [{ idx: -1, type: cheapest }] : order.filter((o) => TABLE[o.type].damage > 0);
+        const cheapest = KNOWN_TOWERS.filter((id) => available(id) && hitsHard(id)).sort((a, b) => TABLE[a].price - TABLE[b].price)[0];
+        order = cheapest ? [{ idx: -1, type: cheapest }] : order.filter((o) => hitsHard(o.type));
       }
       // «Особо сильный» знает, что с 4-й волны идёт рой, а одними Таблетками он не остановим: до 5-й волны копит монеты на первую Шипучку и ничего другого не покупает (слияния Таблеток при этом идут как обычно)
       // Так же он копит на первый Сироп и первый Шприц (без этого в бою, когда «не спокойно», терпение 0 и он до конца партии покупает только дешёвые Таблетки: Сироп не строился ни разу)
       const firstOf = (id) => available(id) && !gaveUp.has(id) && !view.towers.some((tw) => tw.id === id);
       const needFirst = imperfect || opening ? null : firstOf('fizz') && view.s.wave <= FIZZ_BY_WAVE ? 'fizz' : ['syrup', 'syringe'].find(firstOf) ?? null;
-      if (needFirst) order = [{ idx: STRONG_CYCLE.indexOf(needFirst), type: needFirst }];
+      if (needFirst) order = [{ idx: cycle.indexOf(needFirst), type: needFirst }];
+      else if (LAMPS && extraHead === 'lamp' && !opening) order = [{ idx: -2, type: 'lamp' }]; // --lamps: копит на Лампу и ничего другого не покупает (иначе в бою, когда «не спокойно», терпение 0 и дешёвые Таблетки забирают все монеты: Лампа не строилась ни разу)
+      else if (extraHead && !opening) order.unshift({ idx: -2, type: extraHead }); // Ампула / Антибиотик — во главе очереди (ждёт монет, как на любую дорогую башню); место в круге не двигает
       if (!order.length) return null;
       const calm = view.s.lives >= view.s.maxLives && view.s.bacteria.length <= CALM_MAX_BACTERIA;
       let chosen = null;
       if (view.coins >= TABLE[order[0].type].price) chosen = order[0];
       else if (!opening && !needFirst && now - headSince >= (calm ? patience : 0)) chosen = order.find((o) => view.coins >= TABLE[o.type].price) ?? null;
       if (!chosen) return null;
+      if (chosen.type === 'vitamin') {
+        const spot = vitaminSpot(view); // Витамин — в центре группы башен: охвата дорожки у него нет, оценка клеток и слияние по радиусу не нужны
+        return spot ? { type: 'vitamin', cell: spot.cell, cycleIdx: chosen.idx } : null;
+      }
+      if (CONTROL_TOWERS.includes(chosen.type)) {
+        const cell = controlSpot(view, chosen.type); // Холод и Пластырь — по охвату дорожки; слияние по радиусу не ищем (башен мало)
+        if (!cell) {
+          if (chosen.idx === -2) extraGaveUp.add(chosen.type);
+          return null;
+        }
+        return { type: chosen.type, cell, cycleIdx: chosen.idx };
+      }
       const candidates = [];
       for (const c of view.free) {
         let v = world.strongScore(chosen.type, c, view.covCount, !imperfect);
@@ -560,19 +874,30 @@ function makePlayer(profile, { world, rng, buttons }) {
       }
       candidates.sort((a, b) => b.v - a.v); // сортировка устойчивая: при равных оценках первой остаётся клетка с меньшим номером, как раньше
       let best = candidates[0] ?? null;
+      // Слияние по радиусу: если уже стоит башня того же вида уровня 1 (новая — тоже уровня 1), хорошая клетка в радиусе слияния от неё предпочтительнее
+      const near = MERGE_UP_TO[profile] >= 1 ? nearPartner(view, chosen.type) : null;
+      const share = TABLE[chosen.type].targeting === 'beam' || chosen.type === 'syrup' ? MERGE_NEAR_SHARE_PICKY : MERGE_NEAR_SHARE;
+      const nearPool = near && best ? candidates.filter((x) => x.v >= best.v * share && near(x.c)) : [];
       if (imperfect && best) {
-        const pool = candidates.slice(0, Math.max(STRONG_PICK_MIN, Math.ceil(candidates.length * STRONG_PICK_SHARE)));
-        best = pool[Math.floor(rng() * pool.length)];
+        const pool = nearPool.length
+          ? nearPool.filter((x) => candidates.indexOf(x) < Math.max(STRONG_PICK_MIN, Math.ceil(candidates.length * MERGE_NEAR_STRONG_SHARE)))
+          : [];
+        const usual = candidates.slice(0, Math.max(STRONG_PICK_MIN, Math.ceil(candidates.length * STRONG_PICK_SHARE)));
+        const from = pool.length ? pool : usual;
+        best = from[Math.floor(rng() * from.length)];
+      } else if (nearPool.length) {
+        best = nearPool[0]; // candidates уже по убыванию оценки: лучшая из клеток в радиусе слияния
       }
       if (!best) {
         if (needFirst) gaveUp.add(chosen.type);
         if (chosen.idx >= 0) ptr = chosen.idx + 1; // клеток для этой башни нет — переходит к следующей в списке
+        else if (chosen.idx === -2) extraGaveUp.add(chosen.type);
         return null;
       }
       return { type: chosen.type, cell: best.c, cycleIdx: chosen.idx };
     },
     bought(choice) {
-      if (choice.cycleIdx >= 0) ptr = (choice.cycleIdx + 1) % STRONG_CYCLE.length; // покупка «начала партии» (cycleIdx -1) место в списке не двигает
+      if (choice.cycleIdx >= 0) ptr = (choice.cycleIdx + 1) % cycle.length; // покупка «начала партии» (cycleIdx -1) место в списке не двигает
     },
   };
 }
@@ -657,7 +982,7 @@ async function playGame(browser, baseUrl, profile, run, metaLevels = null, salt 
 
     if (!WORLD) {
       const graph = await page.evaluate(() => window.__pvb.getGraph());
-      WORLD = buildWorld(graph, { orgW: s.map.orgW, tile: s.map.tile, pathWidth: MAP_PATH_WIDTH }, s.map.cols, s.map.rows);
+      WORLD = buildWorld(graph, { orgW: s.map.orgW, tile: s.map.tile, pathWidth: MAP_PATH_WIDTH, pathMarginTile: 0.55 }, s.map.cols, s.map.rows);
     }
     if (!WORLD.reported) {
       WORLD.reported = true;
@@ -676,7 +1001,8 @@ async function playGame(browser, baseUrl, profile, run, metaLevels = null, salt 
     }
 
     // 2) поставить башню: кнопка на панели (если не выбрана), при необходимости сдвинуть карту, тап по клетке; проверка по состоянию
-    const record = { builds: [], failures: [], anomalies: [], spent: 0, merges: 0, picks: 0 };
+    const record = { builds: [], failures: [], anomalies: [], spent: 0, merges: 0, mergeMisses: 0, picks: 0 };
+    const missSeen = new Set(); // группы башен без пары в радиусе, уже посчитанные в mergeMisses
     const ensureVisible = async (col, row) => {
       for (let k = 0; k < 3; k++) {
         const g = c2g(await cellPos(col, row));
@@ -738,45 +1064,74 @@ async function playGame(browser, baseUrl, profile, run, metaLevels = null, salt 
       record.anomalies.push(`мутация в ${tw.col},${tw.row}: кнопка варианта ${index} не сработала`);
       return false;
     };
-    /** Одно слияние: берёт пару одинаковых башен (вид и уровень не выше предела профиля), выбирает первую («Слить»), тапает по второй (у неё остаются мутации). Возвращает true, если слилось. */
+    /**
+     * Одно слияние (правило игры: пара одинаковых башен — вид и уровень — в радиусе mergeRadiusPx друг от друга, мутация у обеих выбрана).
+     * Башни группируются по виду и уровню (не выше предела профиля); в группе ищется пара в радиусе. Результат стоит в клетке второй башни (target),
+     * поэтому target — та, у которой охват дорожки больше (при равенстве — первая); source — другая: выбирается («Слить»), затем тап по target.
+     * Нет пары в радиусе — не сливает; группа ≥ 2 башен без пары считается в mergeMisses (один раз, пока состав группы не изменился).
+     * Возвращает true, если слилось.
+     */
     const mergeOnce = async (s0) => {
       const limit = MERGE_UP_TO[profile];
       if (limit < 1) return false;
+      const radius = s0.mergeRadiusPx;
       const groups = new Map();
       for (const tw of s0.towers) {
-        if (tw.level > limit || tw.level >= s0.maxTowerLevel) continue;
+        if (tw.level > limit || tw.level >= s0.maxTowerLevel || tw.pending !== null) continue;
         const key = `${tw.id}|${tw.level}`;
         if (!groups.has(key)) groups.set(key, []);
         groups.get(key).push(tw);
       }
+      let found = null;
       for (const list of groups.values()) {
         if (list.length < 2) continue;
-        list.sort((a, b) => b.picks.length - a.picks.length);
-        const [target, source] = [list[0], list[1]];
-        let st = await selectTower(source);
-        if (!st || !st.ui.card.merge.enabled) return false;
-        await clickCard(st.ui.card.merge);
-        st = await pollUntil(page, (x) => x.mergeMode || x.state !== 'playing', 800);
-        if (!st.mergeMode) {
-          record.anomalies.push(`слияние не включилось (${source.id} ${source.col},${source.row})`);
-          return false;
+        let pair = null;
+        for (let i = 0; i < list.length && !pair; i++) {
+          for (let j = i + 1; j < list.length; j++) {
+            if (Math.hypot(list[i].x - list[j].x, list[i].y - list[j].y) <= radius) {
+              pair = [list[i], list[j]];
+              break;
+            }
+          }
         }
-        const before = st.merges;
-        if (!(await ensureVisible(target.col, target.row))) {
-          await clickCard(st.ui.card.merge); // отмена: вторая башня не видна на экране
-          return false;
+        if (pair) {
+          found ??= pair;
+        } else {
+          const sig = list.map((tw) => `${tw.id}${tw.level}@${tw.col},${tw.row}`).sort().join(' ');
+          if (!missSeen.has(sig)) {
+            missSeen.add(sig);
+            record.mergeMisses++;
+          }
         }
-        await input.tap(await cellPos(target.col, target.row));
-        st = await pollUntil(page, (x) => x.merges > before || x.state !== 'playing', 1200);
-        if (st.merges > before) {
-          record.merges++;
-          const tw = st.towers.find((x) => x.col === target.col && x.row === target.row);
-          if (tw && tw.pending !== null) await pickMutation(tw);
-          return true;
-        }
-        record.anomalies.push(`слияние не удалось: ${source.id} ${source.col},${source.row} → ${target.col},${target.row}`);
+      }
+      if (!found) return false;
+      const coverOf = (tw) => {
+        const cell = WORLD.byKey.get(`${tw.col},${tw.row}`);
+        return cell ? WORLD.cover(tw.id, cell) : 0;
+      };
+      const [target, source] = coverOf(found[1]) > coverOf(found[0]) ? [found[1], found[0]] : [found[0], found[1]];
+      let st = await selectTower(source);
+      if (!st || !st.ui.card.merge.enabled) return false;
+      await clickCard(st.ui.card.merge);
+      st = await pollUntil(page, (x) => x.mergeMode || x.state !== 'playing', 800);
+      if (!st.mergeMode) {
+        record.anomalies.push(`слияние не включилось (${source.id} ${source.col},${source.row})`);
         return false;
       }
+      const before = st.merges;
+      if (!(await ensureVisible(target.col, target.row))) {
+        await clickCard(st.ui.card.merge); // отмена: вторая башня не видна на экране
+        return false;
+      }
+      await input.tap(await cellPos(target.col, target.row));
+      st = await pollUntil(page, (x) => x.merges > before || x.state !== 'playing', 1200);
+      if (st.merges > before) {
+        record.merges++;
+        const tw = st.towers.find((x) => x.col === target.col && x.row === target.row);
+        if (tw && tw.pending !== null) await pickMutation(tw);
+        return true;
+      }
+      record.anomalies.push(`слияние не удалось: ${source.id} ${source.col},${source.row} → ${target.col},${target.row}`);
       return false;
     };
     const buy = async (choice) => {
@@ -822,6 +1177,8 @@ async function playGame(browser, baseUrl, profile, run, metaLevels = null, salt 
     const waveSeen = { wave: 0 };
     const timeline = [];
     const lifeLossWaves = [];
+    const lifeLossKinds = []; // вид бактерии, ближайшей к организму в последнем опросе до потери жизни (кто пробивает оборону)
+    let frontKind = null;
     let lastLives = s.lives;
     let minLives = s.lives;
     let maxOnMap = 0;
@@ -876,9 +1233,13 @@ async function playGame(browser, baseUrl, profile, run, metaLevels = null, salt 
         timeline.push({ wave: s.wave, t: Math.round(s.elapsed), coins: s.coins, towers: s.towers.length, lives: s.lives });
       }
       if (s.lives < lastLives) {
-        for (let k = 0; k < lastLives - s.lives; k++) lifeLossWaves.push(s.wave);
+        for (let k = 0; k < lastLives - s.lives; k++) {
+          lifeLossWaves.push(s.wave);
+          lifeLossKinds.push(frontKind ?? '?');
+        }
         lastLives = s.lives;
       }
+      if (s.bacteria.length) frontKind = s.bacteria.reduce((a, b) => (b.remaining < a.remaining ? b : a)).kind;
       minLives = Math.min(minLives, s.lives);
       maxOnMap = Math.max(maxOnMap, s.bacteria.length);
 
@@ -929,6 +1290,10 @@ async function playGame(browser, baseUrl, profile, run, metaLevels = null, salt 
       fs.mkdirSync(dir, { recursive: true });
       await page.screenshot({ path: path.join(dir, `${profile}-${run}-${result}.png`) });
     }
+    // Жизни по видам бактерий, дошедших до организма (журнал игры: событие leak; погашенные «Щитом у линии» не считаются) — для критерия «жизней от скрытных» (docs/lamp-plan.md)
+    const leakEvents = (await page.evaluate(() => window.__pvb?.getEvents(0) ?? []).catch(() => [])).filter((e) => e.type === 'leak' && !e.absorbed);
+    const leakLives = {};
+    for (const e of leakEvents) leakLives[e.kind] = Math.round(((leakLives[e.kind] ?? 0) + e.damage) * 100) / 100;
     const counts = {};
     for (const id of KNOWN_TOWERS) counts[id] = last.towers.filter((tw) => tw.id === id).length;
     const startCoins = (cfgGet('economy.startCoins') ?? readConfigNumber('economy', 'startCoins')) + (metaLevels ? metaLevels.coins * META.upgrades.coins.perLevel : 0);
@@ -943,6 +1308,9 @@ async function playGame(browser, baseUrl, profile, run, metaLevels = null, salt 
       shieldAbsorbed: last.shieldAbsorbed ?? 0,
       minLives,
       lifeLossWaves,
+      lifeLossKinds,
+      leakLives,
+      stealthLives: leakLives.stealth ?? 0,
       kills: last.kills,
       leaked: last.leaked,
       spawned: last.spawned,
@@ -956,6 +1324,7 @@ async function playGame(browser, baseUrl, profile, run, metaLevels = null, salt 
       realSec: Math.round((Date.now() - realStart) / 100) / 10,
       timeline,
       merges: record.merges,
+      mergeMisses: record.mergeMisses,
       picks: record.picks,
       levels: last.towers.reduce((acc, tw) => ((acc[tw.level] = (acc[tw.level] ?? 0) + 1), acc), {}),
       builds: record.builds,
@@ -979,10 +1348,18 @@ function gameLine(g, runs) {
   const head = `[${PROFILE_TITLES[g.profile]} ${g.run}/${runs}]`;
   if (g.result === 'error') return `${head} ОШИБКА: ${g.error}`;
   const towers = KNOWN_TOWERS.map((id) => `${SHORT[id] ?? id} ${g.towers[id]}`).join(' ');
-  const merged = g.merges ? ` · слияний ${g.merges}, мутаций ${g.picks}` : '';
+  const merged = g.merges || g.mergeMisses || g.picks ? ` · слияний ${g.merges} (мимо ${g.mergeMisses ?? 0}), мутаций ${g.picks}` : '';
   return `${head} ${RESULT_RU[g.result]} · волна ${g.wave}/${g.waveTotal} · жизни ${g.lives}/${g.maxLives} · убито ${g.kills}, дошло ${g.leaked} · монеты ${g.coins} · башни ${towers}${merged} · игра ${f1(g.gameSec)} с · реал. ${f1(g.realSec)} с`;
 }
 
+/** До какой волны дошла партия: победа — все волны уровня, иначе номер волны на момент конца (проигрыш, timeout). */
+const waveReached = (g) => (g.result === 'won' ? g.waveTotal ?? g.wave : g.wave);
+function median(values) {
+  const a = values.filter(Number.isFinite).sort((x, y) => x - y);
+  if (!a.length) return NaN;
+  const mid = Math.floor(a.length / 2);
+  return a.length % 2 ? a[mid] : (a[mid - 1] + a[mid]) / 2;
+}
 function summarize(games) {
   const out = {};
   for (const profile of PROFILES) {
@@ -997,6 +1374,7 @@ function summarize(games) {
       winRate: own.filter((g) => g.result === 'won').length / own.length,
       avgLivesLost: mean(own.map((g) => g.maxLives - g.lives)),
       avgLossWave: mean(losses.map((g) => g.wave)),
+      medianWave: median(own.map(waveReached)),
       avgTowers: Object.fromEntries(KNOWN_TOWERS.map((id) => [id, mean(own.map((g) => g.towers[id]))])),
       avgTowerTotal: mean(own.map((g) => g.towerTotal)),
       avgCoinsEnd: mean(own.map((g) => g.coins)),
@@ -1005,21 +1383,25 @@ function summarize(games) {
       avgGameSec: mean(own.map((g) => g.gameSec)),
       avgKills: mean(own.map((g) => g.kills)),
       avgLeaked: mean(own.map((g) => g.leaked)),
+      avgMerges: mean(own.map((g) => g.merges ?? 0)),
+      avgMergeMisses: mean(own.map((g) => g.mergeMisses ?? 0)),
     };
   }
   return out;
 }
 
 function printSummary(summary) {
-  const cols = ['Профиль', 'Партий', 'Побед', 'Потеряно жизней', 'Волна гибели', `Башни (${KNOWN_TOWERS.map((id) => SHORT[id] ?? id).join('/')})`, 'Монеты в конце', 'Реал. время партии'];
+  const cols = ['Профиль', 'Партий', 'Побед', 'Потеряно жизней', 'Волна гибели', 'Медиана волны (победа = все волны)', `Башни (${KNOWN_TOWERS.map((id) => SHORT[id] ?? id).join('/')})`, 'Монеты в конце', 'Слияний (мимо)', 'Реал. время партии'];
   const rows = Object.entries(summary).map(([profile, x]) => [
     PROFILE_TITLES[profile],
     `${x.games}${x.timeout ? ` (timeout ${x.timeout})` : ''}`,
     `${x.won}/${x.games} (${pct(x.winRate)})`,
     f1(x.avgLivesLost),
     x.lost ? f1(x.avgLossWave) : '—',
+    f1(x.medianWave),
     KNOWN_TOWERS.map((id) => f1(x.avgTowers[id])).join(' / '),
     f1(x.avgCoinsEnd),
+    `${f1(x.avgMerges)} (${f1(x.avgMergeMisses)})`,
     `${f1(x.avgRealSec)} с (игра ${f1(x.avgGameSec)} с)`,
   ]);
   const widths = cols.map((c, i) => Math.max(c.length, ...rows.map((r) => r[i].length)));
@@ -1051,7 +1433,7 @@ const saveResults = () => {
   const payload = {
     tag: TAG,
     startedAt: startedAt.toISOString(),
-    args: { profiles: PROFILES, runs: RUNS, speed: SPEED, level: LEVEL, exclude: [...EXCLUDE], cfg: CFG_STRING, seed: SEED, maxGameSec: MAX_GAME_SEC, campaign: CAMPAIGN, meta: META_FIXED },
+    args: { profiles: PROFILES, runs: RUNS, speed: SPEED, level: LEVEL, exclude: [...EXCLUDE], solo: SOLO, lamps: LAMP_MODE, cfg: CFG_STRING, seed: SEED, maxGameSec: MAX_GAME_SEC, campaign: CAMPAIGN, meta: META_FIXED },
     campaign: CAMPAIGN ? { n: CAMPAIGN, series, metaTable: META } : undefined,
     ladder: LADDER ? { k: LADDER, from: LADDER_FROM, to: LADDER_TO, lanes: ladderLanes, metaTable: META } : undefined,
     towerTable: TABLE,
@@ -1072,6 +1454,7 @@ process.on('SIGINT', () => {
 console.log(`Бот-замерщик: профили ${PROFILES.map((p) => PROFILE_TITLES[p]).join(', ')}; партий на профиль ${RUNS}; speed ${SPEED}; потолок ${MAX_GAME_SEC} игровых с; seed ${SEED}`);
 console.log(`  башни из config.ts${CFG_STRING ? ' с подменой --cfg' : ''}: ${KNOWN_TOWERS.map((id) => `${NAMES[id] ?? id} ${TABLE[id].price}₽/${TABLE[id].targeting === 'beam' ? 'луч' : `${TABLE[id].range}px`}`).join(', ')}`);
 console.log(`  уровень ${LEVEL}: открыты башни ${KNOWN_TOWERS.filter((id) => (TOWER_UNLOCK[id] ?? 1) <= LEVEL).map((id) => NAMES[id] ?? id).join(', ')}`);
+if (SOLO) console.log(`  --solo=${SOLO}: строят только ${[...SOLO_ALLOWED].map((id) => NAMES[id] ?? id).join(', ')} (Сироп — не больше одного)`);
 if (EXCLUDE.size) console.log(`  не строят: ${[...EXCLUDE].map((id) => NAMES[id] ?? id).join(', ')}`);
 if (CFG_STRING) console.log(`  подмена чисел (--cfg): ${CFG_STRING}`);
 if (SPEED > 2) console.log(`  ⚠ speed ${SPEED} выше 2: замеры грубее (кадры крупнее, бот тратит больше игрового времени на тап). Для итоговых чисел баланса используйте speed 2.`);
@@ -1138,7 +1521,7 @@ async function ladderLane(profile, run) {
       rec.results.push(game.result);
       rec.bought.push(buy.bought);
       rec.dnaGained.push(gained);
-      console.log(`[${tag}, уровень ${level}, партия ${n}] ${RESULT_RU[game.result]} · волна ${game.wave}/${game.waveTotal} · жизни ${game.lives}/${game.maxLives}${stars ? ` · звёзд ${stars}` : ''} · очков ДНК +${gained} (остаток ${lane.dna}) · куплено ${buy.bought.length ? buy.bought.join(', ') : '—'} · игра ${game.gameSec} с, реал. ${game.realSec} с`);
+      console.log(`[${tag}, уровень ${level}, партия ${n}] ${RESULT_RU[game.result]} · волна ${game.wave}/${game.waveTotal} · жизни ${game.lives}/${game.maxLives}${stars ? ` · звёзд ${stars}` : ''} · очков ДНК +${gained} (остаток ${lane.dna}) · куплено ${buy.bought.length ? buy.bought.join(', ') : '—'} · слияний ${game.merges} (мимо ${game.mergeMisses}) · игра ${game.gameSec} с, реал. ${game.realSec} с`);
       for (const a of game.anomalies ?? []) console.log(`      ⚠ ${a}`);
       saveResults();
       if (game.result === 'won') {
@@ -1208,7 +1591,7 @@ try {
           levels = buy.levels;
           dna = buy.dna;
           entry.bought.push(buy.bought);
-          console.log(`[${PROFILE_TITLES[profile]} серия ${run}, партия ${n}] ${RESULT_RU[game.result]} · волна ${game.wave}/${game.waveTotal} · очков ДНК +${gained} (остаток ${dna}) · куплено ${buy.bought.length ? buy.bought.join(', ') : '—'} · уровни ${Object.entries(levels).map(([id, v]) => `${id} ${v}`).join(', ')} · игра ${game.gameSec} с, реал. ${game.realSec} с`);
+          console.log(`[${PROFILE_TITLES[profile]} серия ${run}, партия ${n}] ${RESULT_RU[game.result]} · волна ${game.wave}/${game.waveTotal} · очков ДНК +${gained} (остаток ${dna}) · куплено ${buy.bought.length ? buy.bought.join(', ') : '—'} · уровни ${Object.entries(levels).map(([id, v]) => `${id} ${v}`).join(', ')} · слияний ${game.merges} (мимо ${game.mergeMisses}) · игра ${game.gameSec} с, реал. ${game.realSec} с`);
           for (const a of game.anomalies ?? []) console.log(`      ⚠ ${a}`);
           if (game.result === 'won') {
             entry.firstWin = n;

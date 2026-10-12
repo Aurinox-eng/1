@@ -1,10 +1,14 @@
 {
-  "note": "Пробный прогон инфраструктуры: числа круга 14 (88a7881) воспроизведены подменой, чтобы сравнить с замером из чатов",
-  "profiles": "novice,average,strong,expert",
-  "runs": 2,
-  "shards": 2,
+  "note": "Таблетка одна (база), уровень 5, expert и strong, улучшения: ветка Таблетки первой",
+  "profiles": "expert,strong",
+  "runs": 6,
+  "shards": 6,
   "excludes": "-",
-  "cfg": "economy.rewardMul:0.3,economy.rewardCurve.0.1:1,economy.rewardCurve.1.1:1,economy.rewardCurve.2.1:1,economy.rewardCurve.3.1:1,waves.hpGrowthPerWave:0.03",
-  "level": 1,
-  "speed": 2
+  "solos": "pill",
+  "cfg": "-",
+  "level": 5,
+  "speed": 2,
+  "meta": "damage:3,pillPower:6,pillRate:8,pillRange:6,pillCheap:5",
+  "max_game_sec": 3000,
+  "max_real_sec": 7200
 }

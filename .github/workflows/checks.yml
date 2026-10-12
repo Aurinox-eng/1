@@ -44,15 +44,23 @@ jobs:
           - group: 'Бактерии и бой (combat, dash, split, spore, armored, intro, danger, rotate)'
             key: bacteria
             scenarios: 'combat dash split spore armored intro danger rotate'
-          - group: 'Башни (towers)'
-            key: towers
+          - group: 'Башни: панель, цены, Сироп, Шипучка, Шприц, Таблетка, Ампула, Антибиотик (towers, часть 1)'
+            key: towers-a
             scenarios: 'towers'
-          - group: 'Карточка, слияние, мутации (card, merge, mutations, sell, special, strip)'
+            towers_only: 'texts,panel,controls,prices,syrup,fizz,syringe,pill,ampule,antibiotic'
+          - group: 'Башни и бактерии: Лампа, Витамин, все вместе, виды бактерий, Холод, Пластырь (towers, часть 2)'
+            key: towers-b
+            scenarios: 'towers'
+            towers_only: 'lamp,vitamin,mixed,swarm,runner,healer,regen,commander,brood,giant,leaper,phago,stealth,toxin,frost,patch,mutant,parasite'
+          - group: 'Карточка, слияние, мутации (card, merge, mutations, sell, special, strip, sell-gap)'
             key: card
-            scenarios: 'card merge mutations sell special strip'
-          - group: 'Конец уровня, плашки, экономика, игровая сборка (lose, win, restart-button, deflation, camera-fit, colors, locked, plaques, production)'
+            scenarios: 'card merge mutations sell special strip sell-gap'
+          - group: 'Альманах и числа урона (almanac, almanac-pause, damage-numbers)'
+            key: almanac
+            scenarios: 'almanac almanac-pause damage-numbers'
+          - group: 'Конец уровня, экономика, игровая сборка (lose, win, restart-button, deflation, camera-fit, colors, locked, production)'
             key: end
-            scenarios: 'lose-ru lose-en win-ru win-en restart-button deflation camera-fit colors locked plaques production'
+            scenarios: 'lose-ru lose-en win-ru win-en restart-button deflation camera-fit colors locked production'
           - group: 'Очки ДНК, улучшения, уровни (meta-save, meta-dna, meta-shop, meta-effects, tree-effects, tree-shop, level-waves, progress-save, stars, menu-flow, levels-lock)'
             key: meta
             scenarios: 'meta-save meta-dna meta-shop meta-effects tree-effects tree-shop level-waves progress-save stars menu-flow levels-lock'
@@ -82,6 +90,7 @@ jobs:
         env:
           SCENARIOS: ${{ matrix.scenarios }}
           KEY: ${{ matrix.key }}
+          QA_TOWERS_ONLY: ${{ matrix.towers_only }}
         run: |
           failed=0
           {

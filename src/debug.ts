@@ -9,10 +9,11 @@
  *   http://localhost:5173/?qa&cfg=bacteria.baseSpeed:60,towers.pill.cooldownMs:300,economy.startCoins:500
  *                                        — временно подменяет числа из config.ts (для подбора баланса)
  *   http://localhost:5173/?qa&canvas     — рисовать через canvas вместо WebGL (быстрее на слабой машине без видеокарты; для бота баланса)
- *   http://localhost:5173/?qa&noplaque   — не показывать плашки с описанием бактерий и башен (игра не встаёт на паузу сама; для проверок, которым плашки мешают)
  *   http://localhost:5173/?qa&menu       — открыть игру на главном меню (в режиме проверки без этого параметра игра открывается сразу на партии; в игровой сборке меню открывается, если в адресе нет ?level=N)
  *   http://localhost:5173/?qa&levelwaves — в режиме проверки волны и награды берутся из таблицы уровня (`levels.specs`); без параметра все уровни идут с волнами уровня 1 (так работают прежние проверки и бот)
  *   http://localhost:5173/?qa&stress&fps — стресс-сценарий для замера скорости (40 башен, ≈200 бактерий, ×3) со счётчиком кадров
+ *   http://localhost:5173/?qa&stress=fizz&fps — второй стресс-сценарий: 12 Шипучек 4-го уровня («Цепная» + «Кислота»), ≈200 бактерий, ×3 (взрывы)
+ *   http://localhost:5173/?qa&entrance=<номер ребра> — все бактерии волн выходят по одному входу (номер ребра берётся из `getGraph().entrances`): без этого вход случайный, и проверка «башня у входа» зависит от жребия
  *   http://localhost:5173/?fps          — счётчик кадров в углу; работает и в игровой сборке (только показывает число)
  *   http://localhost:5173/?level=5       — номер уровня (какие башни открыты); работает и в игровой сборке, пока нет меню уровней (этап 5)
  *   http://localhost:5173/?qa&meta=lives:1,coins:2,damage:3,reward:0,dna:50 — подменяет уровни улучшений вне партии и очки ДНК (в сохранение ничего не пишется)
@@ -28,7 +29,6 @@ const params = new URLSearchParams(window.location.search);
 export const QA_MODE: boolean = QA_ENABLED && params.has('qa');
 
 /** Не показывать плашки с описанием (только вместе с ?qa): нужно проверкам, которые проверяют не плашки, а бой и интерфейс. */
-export const NO_PLAQUES: boolean = QA_MODE && params.has('noplaque');
 
 /** Волны, рост прочности и награды берутся из таблицы уровней (`levels.specs`). В игровой сборке — всегда; в режиме проверки — только с `&levelwaves`: у проверок и бота волны уровня 1 на любом уровне. */
 export const LEVEL_WAVES: boolean = !QA_MODE || params.has('levelwaves');
@@ -36,12 +36,36 @@ export const LEVEL_WAVES: boolean = !QA_MODE || params.has('levelwaves');
 /** Стресс-сценарий для замера скорости (только вместе с ?qa): 40 башен разных уровней, ≈200 бактерий всех типов, скорость ×3, без волн и без поражения. */
 export const STRESS: boolean = QA_MODE && params.has('stress');
 
+/** Второй стресс-сценарий (`?qa&stress=fizz`): 12 Шипучек 4-го уровня с мутациями «Цепная» и «Кислота» и ≈200 бактерий — нагрузка на взрывы (круг и кольцо на каждый взрыв). Включает и `STRESS`. */
+export const STRESS_FIZZ: boolean = STRESS && params.get('stress') === 'fizz';
+/** Вход (номер ребра), по которому выходят ВСЕ бактерии волн (только вместе с ?qa&entrance=N); null — вход случайный, как в игре. */
+export const QA_ENTRANCE: number | null = QA_MODE && params.has('entrance') && Number.isFinite(Number(params.get('entrance'))) ? Number(params.get('entrance')) : null;
+
 /** Множитель игрового времени (1 = обычная скорость). Работает только вместе с ?qa. */
 export const TIME_SCALE: number = QA_MODE ? Math.min(10, Math.max(0.1, Number(params.get('speed')) || 1)) : 1;
 
+/**
+ * Событие журнала игры (только режим проверки). `t` — игровое время (`elapsed`) в момент события, остальные поля зависят от типа:
+ *  spawn   — бактерия вышла: id, kind, edge (ребро входа);
+ *  kill    — бактерия убита: id, kind, gain (монет за неё), coins (монет после);
+ *  blast   — взрыв Шипучки: x, y, radius, hits (сколько задето), kills (сколько убито), chain (второй взрыв «Цепной»);
+ *  beam    — удар очереди луча Шприца: col, row (башня), index (номер удара с нуля), hits (сколько на линии), kills;
+ *  latch   — паразит присосался: id, col, row (башня), dist (расстояние до неё в этот момент);
+ *  chip    — подсказка «◀ Организм» сменила состояние: visible, danger, nearest (до организма от ближайшей бактерии, px; null — бактерий нет);
+ *  leak    — бактерия дошла до организма: id, kind, wave (номер волны), damage (сколько жизней она отнимает), absorbed (true — погашена «Щитом у линии», жизни не отняты).
+ * Журнал пишет сама игра в тот кадр, когда событие случилось, поэтому проверкам не нужно «ловить» его опросом состояния, а реальное время (и скорость сервера) на него не влияет.
+ */
+export interface QaEvent {
+  type: 'spawn' | 'kill' | 'blast' | 'beam' | 'latch' | 'chip' | 'leak';
+  t: number;
+  [key: string]: unknown;
+}
+
+/** Сколько событий журнал хранит (дальше новые не пишутся: в обычной проверке их тысячи, а не сотни тысяч). */
+export const QA_EVENTS_MAX = 100000;
+
 export interface DebugSnapshot {
-  /** 'info' — на экране плашка с описанием новой бактерии или башни (игра на паузе до тапа). */
-  state: 'playing' | 'paused' | 'info' | 'won' | 'lost';
+  state: 'playing' | 'paused' | 'won' | 'lost';
   coins: number;
   lives: number;
   maxLives: number;
@@ -70,11 +94,28 @@ export interface DebugSnapshot {
   splits: number;
   disables: number;
   slows: number;
+  /** Сколько раз Антибиотик отравил бактерию, сколько ударов поглотил фагоцит, сколько прыжков сделали прыгуны (за партию). */
+  poisons: number;
+  absorbs: number;
+  leaps: number;
+  /** Сколько облаков оставили токсины за партию. */
+  cloudsMade: number;
+  /** Сколько раз Холод замораживал, сколько ловушек положил Пластырь и сколько раз паразит присосался к башне (за партию). */
+  freezes: number;
+  trapsMade: number;
+  latches: number;
   /** Сколько выстрелов сделано башнями. */
   shots: number;
   /** Скорость игры, выбранная игроком кнопкой (1, 2, 3). */
   speed: number;
   elapsed: number;
+  /** Часы игры: сколько кадров посчитано (пока идёт партия) и сумма «базовых» шагов времени (шаг кадра, не больше MAX_FRAME_MS, × ?speed=, БЕЗ кнопки скорости).
+   *  За любой отрезок при одной и той же кнопке скорости `Δelapsed = speed × ΔbaseSec`, а `ΔbaseSec / Δframes` не больше MAX_FRAME_MS / 1000 × ?speed=: проверки скорости опираются на это, а не на секунды реального времени. */
+  clock: { frames: number; baseSec: number };
+  /** Подсказка «◀ Организм»: видна ли, тревога ли (красная), прозрачность сейчас (в тревоге мигает 0,3…1) и цвет заливки (число 0xRRGGBB). */
+  chip: { visible: boolean; danger: boolean; alpha: number; fill: number };
+  /** Сколько событий в журнале игры (`getEvents`). */
+  events: number;
   lang: string;
   renderer: 'webgl' | 'canvas';
   /** Размер экрана игры и ширина окна карты (без правой панели), пикселей. */
@@ -88,7 +129,6 @@ export interface DebugSnapshot {
   /** Номер текущего уровня (адрес `?level=N`, по умолчанию 1). */
   level: number;
   /** Плашка с описанием: видна ли, что на ней (bacterium/tower и тип) и сколько плашек ещё ждёт в очереди после текущей. */
-  info: { visible: boolean; kind: 'bacterium' | 'tower' | null; id: string | null; queue: number };
   /** Кнопка «Заново» на экране конца уровня (центр и размер на экране игры) или null, пока уровень идёт. */
   endButton: { x: number; y: number; w: number; h: number } | null;
   /** Кнопка «Улучшения» на экране конца уровня (или null) и сколько очков ДНК начислено за партию (0, пока партия идёт). */
@@ -97,6 +137,7 @@ export interface DebugSnapshot {
   nextButton: { x: number; y: number; w: number; h: number } | null;
   menuButton: { x: number; y: number; w: number; h: number } | null;
   pauseMenuButton: { x: number; y: number; w: number; h: number } | null;
+  pauseAlmanacButton: { x: number; y: number; w: number; h: number } | null;
   dnaGained: number;
   /** Звёзды, заработанные в этой партии (0 — партия не выиграна или ещё идёт), и очки ДНК за впервые полученные звёзды (в `dnaGained` не входят). */
   stars: number;
@@ -119,18 +160,29 @@ export interface DebugSnapshot {
     level: number;
     picks: string[];
     pending: number | null;
-    stats: { damage: number; cooldownMs: number; range: number; beamPulses: number; blastRadius: number; puddleRadius: number; puddleSec: number; slowFactor: number; beamHalfWidthPx: number };
+    /** Стоит ли башня в облаке токсина (не стреляет) и множитель паузы от ауры Витамина рядом (1 — нет). */
+    suppressed: boolean;
+    auraMul: number;
+    /** Множитель паузы от присосавшегося паразита (1 — нет). */
+    latchMul: number;
+    stats: { damage: number; cooldownMs: number; range: number; beamPulses: number; blastRadius: number; blastFullTargets: number; blastRestMul: number; puddleRadius: number; puddleSec: number; slowFactor: number; beamHalfWidthPx: number; dotPerSec: number; dotSec: number; coneDeg: number; auraMul: number; freezeSec: number; trapSec: number; trapDps: number };
   }[];
   /** Выбранная на карте башня (клетка), идёт ли режим выбора пары для слияния, сколько слияний, продаж и выборов мутаций было за партию. */
   selectedTower: { col: number; row: number } | null;
   mergeMode: boolean;
   /** Самый высокий уровень башни. */
   maxTowerLevel: number;
+  /** Радиус слияния башен, пикселей между центрами (`mergeRadiusPx`). */
+  mergeRadiusPx: number;
   merges: number;
   sells: number;
   mutationsPicked: number;
   /** Лужи сиропа на дорожках: центр, радиус и сколько секунд ещё живёт. */
   puddles: { x: number; y: number; r: number; left: number }[];
+  /** Облака токсина: центр, радиус и сколько секунд ещё живут. */
+  clouds: { x: number; y: number; r: number; left: number }[];
+  /** Ловушки Пластыря: где приклеена бактерия и сколько секунд ещё держит. */
+  traps: { x: number; y: number; left: number }[];
   /** Накопленный, но ещё не списанный урон по жизням от «дробных» бактерий (рой: 0,25 за штуку); при 1 списывается целая жизнь. */
   lifePool: number;
   /** Бактерии: центр в пикселях мира, радиус, номер ребра дорожки и пройденный по нему путь, идёт ли рывок, замедлена ли («Сироп»),
@@ -147,7 +199,19 @@ export interface DebugSnapshot {
     s: number;
     dashing: boolean;
     slowed: boolean;
+    /** Подсвечена ли скрытная бактерия Лампой (башни видят её на полном радиусе). */
+    lit: boolean;
     remaining: number;
+    /** Яд: сколько секунд ещё идёт (0 — не отравлена); фагоцит: ударов было и поглощено; прыгун: прыжков сделано. */
+    poisonLeft: number;
+    hits: number;
+    absorbed: number;
+    leaps: number;
+    /** Сколько секунд ещё заморожена (0 — нет), сколько секунд ещё приклеена, мутант: вид башни, ударившей последней; паразит: клетка башни, к которой присосался. */
+    freezeLeft: number;
+    trapLeft: number;
+    memory: string | null;
+    latchedTo: { col: number; row: number } | null;
   }[];
   /** Снаряды, капли сиропа и очереди луча в полёте. */
   projectiles: number;
@@ -176,7 +240,7 @@ export interface DebugSnapshot {
   /** Сколько обработчиков нажатия навешено на сцену (при перезапуске не должно расти — иначе утечка). */
   pointerListeners: number;
   /** Сколько раз сработали вспышка, частицы, «+монеты», кольцо постановки, красная вспышка потери жизни, кольцо глушения башни, взрыв шипучки, удар луча шприца и всплеск лужи. */
-  effects: { flashes: number; bursts: number; popups: number; placements: number; lifeLosses: number; zaps: number; blasts: number; beams: number; splats: number };
+  effects: { flashes: number; bursts: number; popups: number; damageNumbers: number; placements: number; lifeLosses: number; zaps: number; blasts: number; beams: number; splats: number; frosts: number };
   /** Звук: состояние аудио («running» — играет) и сколько звуков сыграно с загрузки страницы. */
   sound: { state: string; played: number };
 }
@@ -200,10 +264,10 @@ export interface DebugApi {
   gameToClient: (gx: number, gy: number) => { x: number; y: number };
   /** Центр клетки → координаты на странице. */
   cellToClient: (col: number, row: number) => { x: number; y: number };
-  /** Показать плашку с описанием бактерии (kind 'bacterium', id — тип) или башни (kind 'tower', id — башня) сейчас, в любой момент игры (для снимков и проверок вида). */
-  showPlaque: (kind: 'bacterium' | 'tower', id: string) => void;
   /** Замер скорости с последнего сброса (reset — начать заново) и сколько объектов сейчас рисуется. */
-  getPerf: (reset?: boolean) => PerfReport & { objects: number; bacteria: number; towers: number; renderer: 'webgl' | 'canvas' };
+  /** Журнал событий игры (с номера `from`): см. QaEvent. Сбрасывается при перезапуске уровня. */
+  getEvents: (from?: number) => QaEvent[];
+  getPerf: (reset?: boolean) => PerfReport & { objects: number; bacteria: number; towers: number; renderer: 'webgl' | 'canvas'; scenario?: 'stress' | 'fizz' };
 }
 
 declare global {

@@ -1,57 +1,887 @@
 import Phaser from 'phaser';
 import { CONFIG } from '../config';
 import { aimAngle, AIM_STEPS, bestBeamDirection, remainingNear, WORLD } from '../level';
-import { artImage, bakeArt, ringImage, setArt, squareBox, type ArtBox } from '../art';
-import { COLORS } from '../theme';
+import {
+  artImage, bakeArt, glowCircle, glowRing, glowRR, ringImage, setArt, shArc, shBox, shCirc, shEll, shLine, shPath, shPoly, shQuad, shRot, shRR, shStar, squareBox,
+  type ArtBox, type Pt,
+} from '../art';
+import { COLORS, TOWER_ART } from '../theme';
 import { computeStats, mutationOptions, unlockedTiers, type TowerKey, type TowerStats } from '../towerStats';
 import type { Bacterium } from './Bacterium';
 
 export type TowerId = TowerKey;
 
 /** Как далеко от центра башни вылетает снаряд (длина ствола), пикселей. */
-const MUZZLE: Record<TowerId, number> = { pill: 40, syrup: 36, fizz: 34, syringe: 56 };
+const MUZZLE: Record<TowerId, number> = { pill: 40, syrup: 36, fizz: 34, syringe: 56, ampule: 54, antibiotic: 44, lamp: 40, vitamin: 0, frost: 0, patch: 0 };
+/** На сколько пикселей дальше дуло с каждым следующим уровнем (стволы 2–4 уровней длиннее: снаряд вылетает из конца ствола). */
+const MUZZLE_PER_LEVEL: Record<TowerId, number> = { pill: 7, syrup: 8, fizz: 6, syringe: 9, ampule: 8, antibiotic: 6, lamp: 6, vitamin: 0, frost: 0, patch: 0 };
 
-/** Рамка рисунка ствола (ствол смотрит вправо; центр башни — 0,0). */
-const BARREL_BOX: ArtBox = { x: -26, y: -24, w: 84, h: 48 };
-/** Рамка основания и верхней части (втулка, кольцо и точки уровня под башней). */
-const BASE_BOX = squareBox(38);
-const TOP_BOX: ArtBox = { x: -46, y: -46, w: 92, h: 100 };
+/** Рамка рисунка ствола (ствол смотрит вправо; центр башни — 0,0): вмещает самые длинные и широкие стволы уровней 2–4 со свечением. */
+const BARREL_BOX: ArtBox = { x: -50, y: -50, w: 148, h: 100 };
+/** Рамка основания (с шипами и лужами уровня 4). */
+const BASE_BOX = squareBox(50);
+/** Рамка верхней части (втулка, кольцо со свечением и точки уровня под башней). */
+const TOP_BOX: ArtBox = { x: -54, y: -54, w: 108, h: 118 };
 /** Рамка стрелок поворота луча. */
 const TURN_BOX = squareBox(58);
 /** Пунктир направления луча рисуется картинкой обычной плотности: он длинный (до края карты), а точки в нём простые. */
 const AIM_DENSITY = 1;
 
-/** Ствол башни (он повернут вправо; потом поворачивается на цель) — готовая картинка. */
-function barrelImage(scene: Phaser.Scene, id: TowerId): Phaser.GameObjects.Image {
-  return artImage(scene, bakeArt(scene, `tower-barrel-${id}`, BARREL_BOX, (g) => drawBarrel(g, id)), BARREL_BOX);
+const A = TOWER_ART;
+
+/** Ограничение уровня рисунка: у башни 4 вида рисунков (уровни слияния 1–4). */
+function artLevel(level: number): 1 | 2 | 3 | 4 {
+  return Math.max(1, Math.min(4, Math.round(level))) as 1 | 2 | 3 | 4;
+}
+
+/** Ствол башни уровня level (он повернут вправо; потом поворачивается на цель) — готовая картинка. */
+function barrelImage(scene: Phaser.Scene, id: TowerId, level: number): Phaser.GameObjects.Image {
+  return artImage(scene, barrelTexture(scene, id, level), BARREL_BOX);
+}
+
+function barrelTexture(scene: Phaser.Scene, id: TowerId, level: number): string {
+  const lv = artLevel(level);
+  return bakeArt(scene, `tower-barrel-${id}-${lv}`, BARREL_BOX, (g) => drawBarrel(g, id, lv));
 }
 
 /** Рисует ствол башни командами Graphics (один раз, в картинку). */
-function drawBarrel(g: Phaser.GameObjects.Graphics, id: TowerId): void {
-  if (id === 'pill') {
+function drawBarrel(g: Phaser.GameObjects.Graphics, id: TowerId, lv: number): void {
+  if (id === 'pill') drawPill(g, lv);
+  else if (id === 'syrup') drawSyrup(g, lv);
+  else if (id === 'fizz') drawFizz(g, lv);
+  else if (id === 'ampule') drawAmpule(g, lv);
+  else if (id === 'antibiotic') drawAntibiotic(g, lv);
+  else if (id === 'lamp') drawLamp(g, lv);
+  else if (id === 'vitamin') drawVitamin(g, lv);
+  else if (id === 'frost') drawFrost(g, lv);
+  else if (id === 'patch') drawPatch(g, lv);
+  else drawSyringe(g, lv);
+}
+
+type Gfx = Phaser.GameObjects.Graphics;
+
+/** Капсула таблетки: белая, с цветной половиной от позиции split и бликом. */
+function capsule(g: Gfx, x: number, y: number, w: number, h: number, split: number, blue: number = COLORS.pillBlue, edge: number = COLORS.pillEdge): void {
+  shRR(g, x, y, w, h, h / 2, COLORS.pill);
+  g.fillStyle(blue, 1).fillRoundedRect(split, y, x + w - split, h, { tl: 0, bl: 0, tr: h / 2, br: h / 2 });
+  shRR(g, x, y, w, h, h / 2, null, edge, 2);
+  shRR(g, x + h * 0.4, y + 3, Math.max(6, split - x - h * 0.8), 3.5, 2, 0xffffff, null, 0, 0.6);
+}
+
+function drawPill(g: Gfx, lv: number): void {
+  if (lv <= 1) {
     // Таблетка: белая капсула с голубой половиной
     g.fillStyle(COLORS.pill, 1).fillRoundedRect(-6, -13, 46, 26, 13);
     g.lineStyle(2, COLORS.pillEdge, 1).strokeRoundedRect(-6, -13, 46, 26, 13);
     g.fillStyle(COLORS.pillBlue, 1).fillRoundedRect(17, -13, 23, 26, { tl: 0, bl: 0, tr: 13, br: 13 });
-  } else if (id === 'syrup') {
+    return;
+  }
+  if (lv === 2) {
+    // спаренные стволы на скобе
+    shRR(g, -17, -21, 14, 42, 5, A.bracket, COLORS.towerEdge, 2);
+    capsule(g, -4, -21, 46, 18, 20);
+    capsule(g, -4, 3, 46, 18, 20);
+    shRR(g, 8, -24, 8, 48, 3, COLORS.pillEdge, A.rivet, 1.5);
+    return;
+  }
+  if (lv === 3) {
+    // три ствола, стабилизаторы, пояса
+    for (const s of [-1, 1]) shPoly(g, [[-2, s * 20], [-22, s * 31], [-12, s * 12]], COLORS.pillBlue, A.pillSeam, 2);
+    shRR(g, -19, -25, 14, 50, 5, A.bracket, COLORS.towerEdge, 2);
+    capsule(g, -4, -9, 56, 18, 26);
+    capsule(g, -2, -25, 42, 14, 18);
+    capsule(g, -2, 11, 42, 14, 18);
+    for (const x of [8, 22]) shRR(g, x, -27, 6, 54, 2, COLORS.pillEdge, A.rivet, 1.5);
+    shRR(g, 44, -9, 4, 18, 2, A.skyBlue);
+    return;
+  }
+  // уровень 4: бронепластины, три ствола, светящееся ядро и вспышка
+  for (const s of [-1, 1]) shPoly(g, [[-2, s * 20], [-24, s * 36], [-20, s * 24], [-34, s * 30], [-12, s * 12]], A.plate, COLORS.goldEdge, 2);
+  shRR(g, -21, -28, 16, 56, 6, A.steelDark, COLORS.gold, 2);
+  capsule(g, -2, -29, 46, 15, 20, COLORS.pillBlue, COLORS.goldEdge);
+  capsule(g, -2, 14, 46, 15, 20, COLORS.pillBlue, COLORS.goldEdge);
+  glowRR(g, -8, -12, 66, 24, 12, COLORS.needle, 10, 0.4);
+  capsule(g, -8, -12, 66, 24, 32, COLORS.pillBlue, COLORS.goldEdge);
+  glowRR(g, 34, -5, 20, 10, 5, COLORS.needle, 12, 0.5);
+  shRR(g, 34, -5, 20, 10, 5, COLORS.needle);
+  for (const x of [4, 17, 30]) {
+    shRR(g, x, -15, 7, 30, 3, A.plateLight, COLORS.goldEdge, 2);
+    shRR(g, x + 2, -11, 3, 22, 1, COLORS.gold);
+  }
+  // дульная вспышка
+  shCirc(g, 64, 0, 17, COLORS.needle, null, 0, 0.12);
+  shCirc(g, 64, 0, 14, COLORS.needle, null, 0, 0.2);
+  shCirc(g, 64, 0, 10, COLORS.needle, null, 0, 0.3);
+  shCirc(g, 64, 0, 6, 0xffffff, null, 0, 0.7);
+  shStar(g, 64, 0, 11, 0xffffff);
+  for (const s of [-1, 1]) shCirc(g, 43, s * 21.5, 4, COLORS.needle);
+}
+
+/** Капля по точке p0 с «пузом» к c1 и обратно (контур, а не заливка по формуле). */
+function dropPts(p0: Pt, c1: Pt, p1: Pt, c2: Pt): Pt[] {
+  return [p0, ...shQuad(p0, c1, p1), ...shQuad(p1, c2, p0)];
+}
+
+function drawSyrup(g: Gfx, lv: number): void {
+  const dark = COLORS.syrupDark;
+  const brown = A.syrupBrown;
+  if (lv <= 1) {
     // Сироп: оранжевая бутылочка с тёмной горловиной
     g.fillStyle(COLORS.syrupDark, 1).fillRoundedRect(24, -9, 16, 18, 4);
     g.fillStyle(COLORS.syrup, 1).fillRoundedRect(-10, -16, 38, 32, 11);
     g.lineStyle(2, COLORS.syrupDark, 1).strokeRoundedRect(-10, -16, 38, 32, 11);
     g.fillStyle(0xffffff, 0.55).fillRoundedRect(-2, -10, 18, 5, 2);
-  } else if (id === 'fizz') {
+    return;
+  }
+  if (lv === 2) {
+    // шире, этикетка, воронка и капля
+    shPoly(g, [[30, -9], [44, -9], [52, -16], [52, 16], [44, 9], [30, 9]], dark, brown, 1.5);
+    shRR(g, 49, -17, 5, 34, 2, A.syrupLight, dark, 1.5);
+    shRR(g, -13, -19, 44, 38, 13, COLORS.syrup);
+    g.fillStyle(A.label, 1).fillRect(4, -19, 14, 38);
+    shRR(g, -13, -19, 44, 38, 13, null, dark, 2);
+    shPoly(g, dropPts([11, -8], [17, 0], [11, 5], [5, 0]), COLORS.syrup, dark, 1.2);
+    shRR(g, -8, -13, 10, 3.5, 2, 0xffffff, null, 0, 0.6);
+    shPoly(g, dropPts([58, 2], [64, 12], [58, 15], [52, 12]), COLORS.syrup, dark, 1.5);
+    return;
+  }
+  if (lv === 3) {
+    // бак с манометром, ремни, брызги веером
+    shRR(g, -30, -24, 22, 48, 7, dark, brown, 2);
+    for (const y of [-12, 0, 12]) shLine(g, -30, y, -8, y, A.syrupLight, 2.5);
+    shCirc(g, -19, 0, 6.5, A.label, brown, 1.5);
+    shLine(g, -19, 0, -15, -3.5, A.gaugeRed, 1.8);
+    shRR(g, -10, -4, 14, 8, 2, dark, brown, 1.5);
+    shPoly(g, [[34, -10], [46, -10], [56, -17], [56, 17], [46, 10], [34, 10]], dark, brown, 1.5);
+    shRR(g, -6, -18, 40, 36, 12, COLORS.syrup, dark, 2);
+    for (const x of [10, 22]) shRR(g, x, -19.5, 5, 39, 2, dark);
+    shRR(g, -1, -9, 8, 18, 3, A.label, dark, 1.2);
+    shRR(g, 0, -13, 8, 3.5, 2, 0xffffff, null, 0, 0.6);
+    shRR(g, 52, -18, 5, 36, 2, A.syrupLight, dark, 1.5);
+    for (const [x, y, r] of [[63, -10, 3], [66, 0, 3.4], [63, 10, 3]]) shCirc(g, x, y, r, COLORS.syrup, dark, 1.2);
+    return;
+  }
+  // уровень 4: круглая колба с пузырями, золотые баки, три сопла
+  for (const s of [-1, 1]) {
+    const y = s > 0 ? 4 : -28;
+    glowRR(g, -34, y, 26, 24, 7, A.glowOrange, 12, 0.45);
+    shRR(g, -34, y, 26, 24, 7, A.tankGold, COLORS.gold, 2);
+    shLine(g, -34, y + 8, -8, y + 8, COLORS.gold, 2);
+    shLine(g, -34, y + 16, -8, y + 16, COLORS.gold, 2);
+  }
+  shRR(g, -8, -4, 14, 8, 2, dark, COLORS.gold, 1.5);
+  // три сопла веером
+  for (const deg of [-30, 0, 30]) {
+    const a = (deg * Math.PI) / 180;
+    shPoly(g, shRot(shBox(0, -4.5, 24, 9), 26, 0, a), dark, brown, 1.5);
+    shPoly(g, shRot(shBox(20, -6, 6, 12), 26, 0, a), COLORS.gold, COLORS.goldEdge, 1.5);
+    const [cx, cy] = shRot([[33, 0]], 26, 0, a)[0];
+    shCirc(g, cx, cy, 3, A.syrupSoft, dark, 1);
+  }
+  glowCircle(g, 6, 0, 22, A.glowOrange, 12, 0.5);
+  shCirc(g, 6, 0, 22, COLORS.syrup, dark, 3);
+  // жидкость с волной (полосками, обрезанными по кругу колбы)
+  const wave = (x: number): number => {
+    const t = x < 6 ? (x + 20) / 26 : (x - 6) / 24;
+    const u = 1 - t;
+    return x < 6 ? 2 * u * u - 12 * t * u + 2 * t * t : 2 * u * u + 20 * t * u + 2 * t * t;
+  };
+  g.fillStyle(A.syrupSoft, 1);
+  for (let x = -14; x < 26; x += 1) {
+    const dy = Math.sqrt(Math.max(0, 20 * 20 - (x + 0.5 - 6) ** 2));
+    const top = Math.max(wave(x), -dy);
+    if (top < dy) g.fillRect(x, top, 1.3, dy - top);
+  }
+  for (const [x, y, r] of [[-4, 9, 3], [8, 12, 2.4], [14, 6, 3.2], [2, 15, 1.8]]) shCirc(g, x, y, r, 0xffffff, null, 0, 0.75);
+  shArc(g, 6, 0, 22, Math.PI * 1.08, Math.PI * 1.55, 0xffffff, 3.5, 0.7);
+  shArc(g, 6, 0, 22, -0.5, 0.5, COLORS.gold, 3);
+  // пробка и пар сзади-сверху
+  shRR(g, -4, -28, 14, 7, 3, COLORS.gold, COLORS.goldEdge, 1.5);
+  for (const [x, y, r] of [[-8, -34, 3.5], [2, -38, 2.6]]) shCirc(g, x, y, r, 0xffffff, null, 0, 0.45);
+}
+
+function drawFizz(g: Gfx, lv: number): void {
+  const pink = COLORS.fizz;
+  const dk = COLORS.fizzDark;
+  const bubbles = (list: readonly (readonly [number, number, number])[]): void => {
+    for (const [x, y, r] of list) shCirc(g, x, y, r, 0xffffff, null, 0, 0.88);
+  };
+  if (lv <= 1) {
     // Шипучка: розовая круглая таблетка с пузырьками и тёмным жерлом
     g.fillStyle(COLORS.fizz, 1).fillCircle(10, 0, 20);
     g.lineStyle(3, COLORS.fizzDark, 1).strokeCircle(10, 0, 20);
     g.fillStyle(COLORS.fizzDark, 1).fillCircle(27, 0, 8);
     g.fillStyle(0xffffff, 0.85).fillCircle(4, -9, 4).fillCircle(10, 7, 3).fillCircle(-3, 3, 2.5);
-  } else {
+    return;
+  }
+  if (lv === 2) {
+    // раструб и бороздка
+    shPoly(g, [[20, -10], [40, -18], [40, 18], [20, 10]], dk, A.fizzBrown, 1.5);
+    shCirc(g, 4, 0, 21, pink, dk, 3);
+    shLine(g, 4, -21, 4, 21, dk, 2.5, 0.8);
+    shRR(g, 38, -20, 7, 40, 3, A.fizzLight, dk, 2);
+    shEll(g, 43, 0, 2.5, 14, A.fizzHole);
+    bubbles([[-4, -10, 4.2], [12, 8, 3.2], [-2, 10, 2.6], [10, -12, 2.4]]);
+    shCirc(g, 53, -9, 3.2, 0xffffff, null, 0, 0.8);
+    shCirc(g, 56, 6, 2.4, 0xffffff, null, 0, 0.8);
+    return;
+  }
+  if (lv === 3) {
+    // две таблетки, болты, горящий раструб, запал
+    shPath(g, [[-14, -14], ...shQuad([-14, -14], [-18, -28], [-26, -24], 5), ...shQuad([-26, -24], [-30, -22], [-26, -30], 5)], 0xe8f1ff, 2.5);
+    glowCircle(g, -26, -31, 7, A.glowOrange, 6, 0.35);
+    shStar(g, -26, -31, 7, COLORS.hit);
+    shCirc(g, -8, 0, 17, pink, dk, 3);
+    shRR(g, 4, -24, 7, 48, 3, A.bolt, A.rivet, 1.5);
+    for (const y of [-18, 18]) shCirc(g, 7.5, y, 2, A.rivet);
+    shPoly(g, [[30, -11], [46, -22], [46, 22], [30, 11]], dk, A.fizzBrown, 1.5);
+    shCirc(g, 14, 0, 21, pink, dk, 3);
+    shRR(g, 8, -29, 8, 7, 2, A.clamp, dk, 1.5);
+    shRR(g, 8, 22, 8, 7, 2, A.clamp, dk, 1.5);
+    shRR(g, 44, -23, 7, 46, 3, A.fizzLight, dk, 2);
+    shEll(g, 48, 0, 3, 16, A.fizzHole);
+    glowRR(g, 45, -14, 6, 28, 3, 0xff9f43, 12, 0.5);
+    shEll(g, 48, 0, 3, 14, A.fire);
+    shEll(g, 48, 0, 2.4, 10, 0xff9f43);
+    shEll(g, 48, 0, 1.6, 5, COLORS.hit);
+    bubbles([[8, -9, 4], [18, 8, 3], [6, 7, 2.4]]);
+    shCirc(g, -10, -5, 3.4, 0xffffff, null, 0, 0.88);
+    return;
+  }
+  // уровень 4: бомба с шипами, светящиеся трещины, кислотная пена
+  for (const s of [-1, 1]) {
+    for (const k of [1, 2]) shPoly(g, shRot([[16, -7], [34, 0], [16, 7]], 6, 0, s * k * 0.62), dk, A.fizzLight, 1.5);
+  }
+  glowRR(g, 28, -16, 9, 32, 4, COLORS.acid, 12, 0.45);
+  shRR(g, 28, -16, 9, 32, 4, dk, A.fizzLight, 2);
+  // шар с «объёмом»: светлее вверху слева
+  shCirc(g, 6, 0, 24, A.fizzShade, dk, 3.5);
+  shCirc(g, 6, 0, 21, pink);
+  shCirc(g, 1, -6, 15, A.fizzBright, null, 0, 0.55);
+  // светящиеся трещины
+  const cracks: Pt[][] = [
+    [[-14, -12], [-6, -4], [-10, 4], [0, 10], [-2, 22]],
+    [[-6, -4], [4, -12], [8, -24]],
+    [[0, 10], [12, 8], [20, 16]],
+  ];
+  for (const c of cracks) shPath(g, c, COLORS.acid, 7, 0.14);
+  for (const c of cracks) shPath(g, c, COLORS.acid, 2.4);
+  for (const [x, y] of [[-8, -16], [-10, 14], [14, -18]]) shCirc(g, x, y, 2.2, A.bolt, A.rivet, 1);
+  // кислотное жерло и пена
+  shCirc(g, 36, 0, 22, COLORS.acid, null, 0, 0.1);
+  shCirc(g, 36, 0, 17, COLORS.acid, null, 0, 0.2);
+  shCirc(g, 36, 0, 12, COLORS.acid, null, 0, 0.3);
+  shCirc(g, 36, 0, 7, A.acidLight, null, 0, 0.7);
+  shCirc(g, 33, 0, 8, A.acidDark, COLORS.acid, 2);
+  for (const [x, y, r] of [[46, -10, 5.5], [52, 4, 4.5], [47, 12, 3.4], [56, -4, 3]]) {
+    shCirc(g, x, y, r, 0xffffff, COLORS.acid, 1.5, 0.9);
+  }
+  shStar(g, -16, -22, 8, COLORS.hit);
+}
+
+function drawSyringe(g: Gfx, lv: number): void {
+  const E = COLORS.syringeEdge;
+  const W = COLORS.syringe;
+  const N = COLORS.needle;
+  const needle = (x0: number, x1: number, w: number): void => shPoly(g, [[x0, -w], [x1, 0], [x0, w]], W, E, 1.5);
+  const ticks = (x0: number, n: number, step: number, y0: number, y1: number): void => {
+    for (let i = 0; i < n; i++) shLine(g, x0 + i * step, y0, x0 + i * step, y1, A.rivet, i % 2 ? 1.2 : 1.8);
+  };
+  if (lv <= 1) {
     // Шприц: светлый корпус с бирюзовой жидкостью, поршень сзади, игла спереди
     g.fillStyle(COLORS.syringe, 1).fillRoundedRect(-10, -9, 52, 18, 6);
     g.lineStyle(2, COLORS.syringeEdge, 1).strokeRoundedRect(-10, -9, 52, 18, 6);
     g.fillStyle(COLORS.needle, 1).fillRoundedRect(2, -5, 26, 10, 3);
     g.fillStyle(COLORS.syringeEdge, 1).fillRect(-18, -3, 9, 6).fillRoundedRect(-23, -11, 5, 22, 2);
     g.fillStyle(COLORS.syringe, 1).fillRect(42, -1.5, 10, 3);
+    return;
+  }
+  if (lv === 2) {
+    // длиннее, шкала, упор для пальцев
+    shRR(g, -28, -9, 5, 18, 2, E);
+    g.fillStyle(E, 1).fillRect(-23, -3, 12, 6);
+    shRR(g, -14, -16, 5, 32, 2, E, A.rivet, 1);
+    shRR(g, -10, -10, 54, 20, 6, W, E, 2);
+    shRR(g, 0, -6, 36, 12, 3, N);
+    ticks(2, 6, 7, -10, -5.5);
+    shRR(g, 42, -5, 8, 10, 2, A.syringeMetal, E, 1);
+    needle(50, 62, 2);
+    return;
+  }
+  if (lv === 3) {
+    // катушки, прицел, стабилизаторы, тормоз на конце
+    for (const s of [-1, 1]) shPoly(g, [[-10, s * 10], [-26, s * 26], [-4, s * 12]], E, A.rivet, 2);
+    shRR(g, -30, -10, 5, 20, 2, E);
+    g.fillStyle(E, 1).fillRect(-25, -3, 14, 6);
+    shRR(g, -14, -17, 5, 34, 2, E, A.rivet, 1);
+    shRR(g, 4, -23, 24, 8, 3, A.scope, E, 1.5);
+    shCirc(g, 29, -19, 4.5, N, 0xffffff, 1.2);
+    shLine(g, 14, -15, 14, -11, E, 2);
+    shRR(g, -10, -12, 54, 24, 7, W, E, 2);
+    shRR(g, 0, -7, 38, 14, 4, N);
+    ticks(2, 6, 7, -12, -8);
+    for (const x of [8, 20, 32]) {
+      glowRR(g, x, -15, 4, 30, 2, N, 8, 0.4);
+      shRR(g, x, -15, 4, 30, 2, A.syringeWhite, N, 1.8);
+    }
+    shRR(g, 42, -6, 8, 12, 2, A.syringeMetal, E, 1);
+    shRR(g, 49, -8, 7, 16, 2, E, A.rivet, 1.5);
+    needle(56, 66, 2.4);
+    return;
+  }
+  // уровень 4: рельсотрон — светящееся ядро, три катушки, боковые иглы, кристалл на острие
+  for (const s of [-1, 1]) shPoly(g, [[-8, s * 11], [-18, s * 30], [-34, s * 30], [-22, s * 16], [-4, s * 13]], A.syringeWhite, N, 2);
+  glowRing(g, -32, 0, 8, 3.5, N, 8, 0.45);
+  shCirc(g, -32, 0, 8, null, N, 3.5);
+  shRR(g, -26, -6, 14, 3, 1, E);
+  shRR(g, -26, 3, 14, 3, 1, E);
+  shRR(g, -14, -19, 5, 38, 2, E, A.rivet, 1);
+  shRR(g, 2, -26, 28, 9, 3, A.scope, E, 1.5);
+  glowCircle(g, 32, -21.5, 5.5, N, 8, 0.5);
+  shCirc(g, 32, -21.5, 5.5, N, 0xffffff, 1.5);
+  // корпус-стекло и светящаяся жидкость
+  shRR(g, -10, -14, 56, 28, 8, W, E, 2);
+  glowRR(g, -4, -7, 46, 14, 7, N, 12, 0.5);
+  shRR(g, -4, -7, 46, 14, 7, N);
+  shRR(g, -3, -6.5, 44, 6, 3, A.liquidLight, null, 0, 0.7);
+  shRR(g, -3, 2, 44, 5, 2.5, A.liquidDark, null, 0, 0.55);
+  // катушки
+  for (const x of [4, 16, 28]) {
+    glowRR(g, x, -19, 6, 38, 3, N, 8, 0.3);
+    shRR(g, x, -19, 6, 38, 3, A.syringeWhite, N, 2);
+    shRR(g, x + 1.5, -15, 3, 30, 1, COLORS.gold);
+  }
+  // боковые иглы
+  for (const s of [-1, 1]) {
+    shRR(g, 36, s * 17 - 2, 20, 4, 2, W, E, 1.2);
+    shPoly(g, [[56, s * 17 - 2], [66, s * 17], [56, s * 17 + 2]], W, E, 1);
+  }
+  shRR(g, 44, -7, 10, 14, 3, A.syringeMetal, E, 1);
+  needle(54, 70, 2.6);
+  // кристалл на острие
+  glowCircle(g, 75, 0, 9, N, 14, 0.55);
+  shPoly(g, [[66, 0], [74, -6], [84, 0], [74, 6]], N, 0xffffff, 1.5);
+  shPoly(g, [[70, 0], [74, -3], [78, 0], [74, 3]], 0xffffff, null, 0, 0.8);
+}
+
+/** Одна ампула, лежащая горизонтально: тело со стеклом и жидкостью, узкое горлышко и запаянный кончик. x — левый край тела, y — середина; bodyW, bodyH — тело, neck — длина горлышка. */
+function ampoule(g: Gfx, x: number, y: number, bodyW: number, bodyH: number, neck: number, liquid: number = A.ampuleLiquid, edge: number = COLORS.ampuleEdge): void {
+  const nh = Math.max(5, bodyH * 0.34);
+  shRR(g, x + bodyW - 6, y - nh / 2, neck + 6, nh, nh / 2.5, COLORS.ampule, edge, 2);
+  shPoly(g, [[x + bodyW + neck - 2, y - nh / 2], [x + bodyW + neck + nh * 1.1, y], [x + bodyW + neck - 2, y + nh / 2]], COLORS.ampule, edge, 1.5);
+  shRR(g, x, y - bodyH / 2, bodyW, bodyH, bodyH / 2.2, COLORS.ampule, edge, 2);
+  shRR(g, x + 4, y - bodyH / 2 + 4, bodyW - 8, bodyH - 8, Math.max(2, bodyH / 3), liquid);
+  shRR(g, x + 4, y - bodyH / 2 + 4, bodyW - 8, Math.max(2, (bodyH - 8) * 0.38), 2, A.ampuleLiquidLight, null, 0, 0.55);
+  shRR(g, x + bodyW * 0.18, y - bodyH / 2 + 2.5, bodyW * 0.4, 2.5, 1.2, 0xffffff, null, 0, 0.8);
+}
+
+function drawAmpule(g: Gfx, lv: number): void {
+  if (lv <= 1) {
+    // Ампула: голубая стеклянная колба с узким горлышком
+    ampoule(g, -12, 0, 38, 26, 20);
+    return;
+  }
+  if (lv === 2) {
+    // две ампулы на скобе
+    shRR(g, -16, -22, 9, 44, 4, A.bracket, COLORS.towerEdge, 2);
+    ampoule(g, -10, -11, 36, 18, 22);
+    ampoule(g, -10, 11, 36, 18, 22);
+    shRR(g, 8, -24, 6, 48, 2, A.steel, A.rivet, 1.5);
+    return;
+  }
+  if (lv === 3) {
+    // три ампулы в обойме: большая посередине, две малые по бокам; хвост-стабилизатор
+    for (const s of [-1, 1]) shPoly(g, [[-4, s * 18], [-24, s * 30], [-12, s * 12]], A.steelDark, A.rivet, 2);
+    shRR(g, -20, -27, 12, 54, 5, A.bracket, COLORS.towerEdge, 2);
+    ampoule(g, -10, 0, 46, 22, 28);
+    ampoule(g, -6, -19, 36, 14, 22, A.ampuleLiquid);
+    ampoule(g, -6, 19, 36, 14, 22, A.ampuleLiquid);
+    for (const x of [6, 22]) shRR(g, x, -29, 5, 58, 2, A.steel, A.rivet, 1.5);
+    shRR(g, 4, -11, 30, 5, 2, A.ampuleGold, COLORS.goldEdge, 1.2);
+    return;
+  }
+  // уровень 4: золочёный снайперский ствол с оптикой и светящейся ампулой-патронником
+  glowRR(g, -26, -14, 36, 28, 12, A.ampuleLiquid, 12, 0.4);
+  ampoule(g, -26, 0, 36, 26, 8, A.ampuleLiquid, COLORS.goldEdge);
+  shRR(g, -2, -9, 80, 18, 5, COLORS.gold, COLORS.goldEdge, 2);
+  shRR(g, 6, -6, 66, 4, 2, 0xfff0b0, null, 0, 0.8);
+  for (const x of [14, 34, 54]) shRR(g, x, -11, 5, 22, 2, A.ampuleGold, COLORS.goldEdge, 1.5);
+  // дульный тормоз
+  shRR(g, 74, -13, 14, 26, 4, A.steelDark, COLORS.gold, 2);
+  for (const x of [77, 82]) shLine(g, x, -11, x, 11, COLORS.gold, 2);
+  // оптика
+  shRR(g, 4, -28, 36, 11, 5, A.scope, COLORS.gold, 2);
+  shLine(g, 14, -18, 14, -9, COLORS.goldEdge, 3);
+  shLine(g, 30, -18, 30, -9, COLORS.goldEdge, 3);
+  glowCircle(g, 40, -22.5, 7, A.ampuleLens, 10, 0.55);
+  shCirc(g, 40, -22.5, 7, A.ampuleLens, 0xffffff, 1.8);
+  shCirc(g, 38, -24.5, 2.2, 0xffffff, null, 0, 0.85);
+  // вспышка у дула
+  shCirc(g, 90, 0, 8, A.ampuleLens, null, 0, 0.2);
+  shCirc(g, 90, 0, 5, 0xffffff, null, 0, 0.5);
+  shStar(g, 90, 0, 7, 0xffffff);
+}
+
+/** Горизонтальная зелёная капсула: x — левый край, y — середина; делится пополам, посередине белый крест (cross — размер креста, 0 — без креста). */
+function greenCapsule(g: Gfx, x: number, y: number, w: number, h: number, cross: number): void {
+  shRR(g, x, y - h / 2, w, h, h / 2, COLORS.antibiotic, COLORS.antibioticEdge, 2);
+  g.fillStyle(A.capsuleDark, 1).fillRoundedRect(x + w / 2, y - h / 2, w / 2, h, { tl: 0, bl: 0, tr: h / 2, br: h / 2 });
+  shRR(g, x, y - h / 2, w, h, h / 2, null, COLORS.antibioticEdge, 2);
+  shRR(g, x + h * 0.4, y - h / 2 + 3, Math.max(6, w / 2 - h * 0.7), 3, 1.5, 0xffffff, null, 0, 0.6);
+  if (cross > 0) {
+    const cx = x + w / 2;
+    shRR(g, cx - cross * 0.2, y - cross / 2, cross * 0.4, cross, 1, 0xffffff);
+    shRR(g, cx - cross / 2, y - cross * 0.2, cross, cross * 0.4, 1, 0xffffff);
+  }
+}
+
+function drawAntibiotic(g: Gfx, lv: number): void {
+  const L = A.capsuleLight;
+  const D = A.capsuleDark;
+  if (lv <= 1) {
+    // Антибиотик: зелёная капсула с белым крестом
+    greenCapsule(g, -8, 0, 48, 26, 16);
+    return;
+  }
+  if (lv === 2) {
+    // двойная капсула на скобе
+    shRR(g, -16, -21, 12, 42, 5, A.bracket, COLORS.towerEdge, 2);
+    greenCapsule(g, -4, -11, 46, 18, 11);
+    greenCapsule(g, -4, 11, 46, 18, 11);
+    shRR(g, 8, -24, 6, 48, 2, D, A.rivet, 1.5);
+    return;
+  }
+  if (lv === 3) {
+    // капельница: пузырь с раствором сзади, трубки, капсула и капельница на конце
+    shRR(g, -34, -25, 20, 22, 7, A.label, D, 2);
+    shRR(g, -32, -14, 16, 9, 4, COLORS.antibiotic);
+    shPath(g, [[-24, -3], ...shQuad([-24, -3], [-20, 12], [-6, 8], 6)], D, 2.5);
+    shPath(g, [[-24, 3], ...shQuad([-24, 3], [-22, 20], [-4, 14], 6)], D, 2.5);
+    greenCapsule(g, -6, 0, 52, 26, 15);
+    shRR(g, 8, -16, 6, 32, 2, A.steel, A.rivet, 1.5);
+    shRR(g, 36, -16, 6, 32, 2, A.steel, A.rivet, 1.5);
+    // капельница
+    shRR(g, 44, -6, 10, 12, 3, A.syringeWhite, D, 1.5);
+    shPoly(g, [[54, -3], [64, 0], [54, 3]], A.syringeWhite, D, 1.2);
+    shPoly(g, dropPts([68, 0], [72, 6], [68, 9], [64, 6]), COLORS.antibiotic, D, 1.2);
+    return;
+  }
+  // уровень 4: светящиеся двойная капсула и капельница, зелёные пузыри
+  glowRR(g, -4, -26, 56, 52, 12, COLORS.antibiotic, 14, 0.4);
+  shRR(g, -34, -27, 22, 24, 8, A.label, D, 2);
+  shRR(g, -32, -15, 18, 10, 4, L);
+  glowRR(g, -32, -15, 18, 10, 4, L, 6, 0.4);
+  shPath(g, [[-24, -3], ...shQuad([-24, -3], [-20, 12], [-6, 10], 6)], D, 3);
+  shPath(g, [[-24, 4], ...shQuad([-24, 4], [-22, 22], [-4, 18], 6)], D, 3);
+  shRR(g, -16, -27, 12, 54, 5, A.steelDark, COLORS.gold, 2);
+  greenCapsule(g, -2, -14, 54, 20, 12);
+  greenCapsule(g, -2, 14, 54, 20, 12);
+  glowRR(g, -6, -10, 66, 20, 10, L, 10, 0.4);
+  greenCapsule(g, -6, 0, 66, 20, 13);
+  for (const x of [8, 22, 36]) shRR(g, x, -26, 5, 52, 2, A.syringeWhite, COLORS.gold, 1.5);
+  shRR(g, 58, -6, 10, 12, 3, A.syringeWhite, COLORS.gold, 1.5);
+  shPoly(g, [[68, -3], [80, 0], [68, 3]], A.syringeWhite, COLORS.gold, 1.2);
+  glowCircle(g, 85, 0, 7, L, 10, 0.55);
+  shPoly(g, dropPts([84, 0], [90, 6], [84, 10], [78, 6]), L, 0xffffff, 1.2);
+  for (const [x, y, r] of [[-14, 24, 4], [6, 30, 3], [40, -30, 3.4], [26, 29, 2.4], [52, 24, 3]]) shCirc(g, x, y, r, A.capsuleBubble, COLORS.antibiotic, 1.2, 0.9);
+}
+
+/** Лампа: отражатель-«рупор», расширяющийся вперёд, с линзой и светящейся лампочкой; уровни добавляют рёбра, боковые лампы и золото. Смотрит вправо, поворачивается на цель. */
+function drawLamp(g: Gfx, lv: number): void {
+  const Y = COLORS.lamp;
+  const YE = COLORS.lampEdge;
+  const YL = COLORS.lampLight;
+  const B = A.lampBody;
+  const BD = A.lampBodyDark;
+  // отражатель: x0 — задняя кромка, x1 — передняя, h0/h1 — полувысота сзади/спереди, oy — сдвиг по вертикали
+  const reflector = (x0: number, x1: number, h0: number, h1: number, oy: number, fill: number, edge: number): void =>
+    shPoly(g, [[x0, oy - h0], [x1, oy - h1], [x1, oy + h1], [x0, oy + h0]], fill, edge, 2);
+  const lens = (x: number, oy: number, ry: number, glow: number): void => {
+    glowCircle(g, x, oy, ry * 0.9, A.lampGlow, 10, glow);
+    shEll(g, x, oy, 4, ry, YL, YE, 2);
+  };
+  if (lv <= 1) {
+    // Лампа: стальной рупор с линзой и лампочкой, сзади колпачок
+    shRR(g, -16, -7, 11, 14, 3, BD, A.rivet, 1.5);
+    reflector(-6, 28, 9, 18, 0, B, BD);
+    shCirc(g, 14, 0, 6, Y, YE, 1.5);
+    lens(28, 0, 18, 0.35);
+    return;
+  }
+  if (lv === 2) {
+    // шире, рёбра жёсткости, скоба сзади, ручка
+    shRR(g, -24, -14, 12, 28, 5, A.bracket, COLORS.towerEdge, 2);
+    shRR(g, -14, -5, 8, 10, 2, BD, A.rivet, 1.5);
+    reflector(-8, 36, 11, 22, 0, B, BD);
+    for (const x of [4, 16, 28]) shLine(g, x, -11 - (x + 8) * 0.25, x, 11 + (x + 8) * 0.25, A.rivet, 2.2);
+    shCirc(g, 16, 0, 7, Y, YE, 1.5);
+    lens(36, 0, 22, 0.4);
+    return;
+  }
+  if (lv === 3) {
+    // три лампы: большая посередине и две малые по бокам; охлаждающие рёбра сзади
+    for (const x of [-30, -24, -18]) shRR(g, x, -17, 4, 34, 2, A.steel, A.rivet, 1.2);
+    shRR(g, -14, -20, 10, 40, 4, A.bracket, COLORS.towerEdge, 2);
+    for (const s of [-1, 1]) {
+      reflector(-4, 26, 6, 12, s * 28, B, BD);
+      shCirc(g, 12, s * 28, 4, Y, YE, 1.2);
+      lens(26, s * 28, 12, 0.3);
+      shLine(g, -4, s * 22, -4, s * 14, A.rivet, 2.5);
+    }
+    reflector(-8, 40, 12, 24, 0, B, BD);
+    for (const x of [6, 20]) shLine(g, x, -12 - (x + 8) * 0.25, x, 12 + (x + 8) * 0.25, A.rivet, 2.2);
+    shCirc(g, 18, 0, 8, Y, YE, 1.5);
+    lens(40, 0, 24, 0.45);
+    return;
+  }
+  // уровень 4: золочёный прожектор — лучи света впереди, светящаяся линза и звезда
+  for (const s of [-1, 1]) {
+    reflector(-4, 28, 6, 13, s * 30, A.steelDark, COLORS.gold);
+    lens(28, s * 30, 13, 0.4);
+  }
+  for (const x of [-30, -24, -18]) shRR(g, x, -19, 4, 38, 2, A.steelDark, COLORS.gold, 1.2);
+  shRR(g, -14, -22, 10, 44, 4, A.steelDark, COLORS.gold, 2);
+  glowRR(g, -8, -18, 50, 36, 10, A.lampGlow, 14, 0.35);
+  reflector(-8, 42, 13, 26, 0, COLORS.gold, COLORS.goldEdge);
+  for (const x of [6, 20, 32]) shRR(g, x - 1.5, -14 - (x + 8) * 0.25, 3, 28 + (x + 8) * 0.5, 1, A.steelDark, COLORS.goldEdge, 1);
+  shCirc(g, 20, 0, 9, YL, COLORS.goldEdge, 1.5);
+  glowCircle(g, 20, 0, 9, A.lampGlow, 10, 0.6);
+  lens(42, 0, 26, 0.6);
+  // лучи света веером перед линзой
+  shPoly(g, [[46, 0], [96, -30], [96, 30]], Y, null, 0, 0.1);
+  shPoly(g, [[46, 0], [92, -18], [92, 18]], Y, null, 0, 0.14);
+  shPoly(g, [[46, 0], [86, -8], [86, 8]], YL, null, 0, 0.2);
+  shCirc(g, 50, 0, 9, YL, null, 0, 0.35);
+  shStar(g, 48, 0, 12, 0xffffff);
+}
+
+/** Одна витаминная таблетка (круглая, оранжевая): блик и белый крест; arm — длина луча креста. */
+function vitaminTablet(g: Gfx, cx: number, cy: number, r: number, edge: number = COLORS.vitaminEdge): void {
+  shCirc(g, cx, cy, r, COLORS.vitamin, edge, 2.5);
+  shCirc(g, cx, cy, r * 0.62, A.vitaminLight, null, 0, 0.5);
+  // крест с длинными лучами: центр закрыт втулкой башни, поэтому лучи должны выходить за неё
+  const arm = r * 0.84;
+  shRR(g, cx - arm * 0.17, cy - arm, arm * 0.34, arm * 2, 2, 0xffffff);
+  shRR(g, cx - arm, cy - arm * 0.17, arm * 2, arm * 0.34, 2, 0xffffff);
+  shCirc(g, cx - r * 0.4, cy - r * 0.46, r * 0.16, 0xffffff, null, 0, 0.7);
+}
+
+/** Витамин: оранжевая таблетка с крестом (усилитель — симметричный значок, не поворачивается); уровни добавляют листики, скрещённые капсулы, золото и искры. */
+function drawVitamin(g: Gfx, lv: number): void {
+  const capsule = (angle: number, fill: number, edge: number): void =>
+    shPoly(g, shRot([[-31, -4], [-25, -10], [25, -10], [31, -4], [31, 4], [25, 10], [-25, 10], [-31, 4]], 0, 0, angle), fill, edge, 2);
+  if (lv <= 1) {
+    vitaminTablet(g, 0, 0, 21);
+    return;
+  }
+  if (lv === 2) {
+    // четыре зелёных листика по сторонам
+    for (let i = 0; i < 4; i++) {
+      const a = (i * Math.PI) / 2 + Math.PI / 4;
+      shPoly(g, shRot([[24, 0], [33, -6], [42, 0], [33, 6]], 0, 0, a), A.vitaminGreen, A.capsuleDark, 1.5);
+    }
+    vitaminTablet(g, 0, 0, 22);
+    return;
+  }
+  if (lv === 3) {
+    // две скрещённые капсулы под таблеткой и пузырьки
+    capsule(Math.PI / 4, COLORS.vitamin, COLORS.vitaminEdge);
+    capsule(-Math.PI / 4, A.vitaminLight, COLORS.vitaminEdge);
+    for (const [x, y, r] of [[-34, 0, 4], [34, 0, 4], [0, -36, 3.4], [0, 36, 3.4]]) shCirc(g, x, y, r, A.vitaminGreen, A.capsuleDark, 1.2);
+    vitaminTablet(g, 0, 0, 20);
+    return;
+  }
+  // уровень 4: золотые капсулы, светящееся кольцо и восемь искр
+  glowRing(g, 0, 0, 30, 3, A.lampGlow, 12, 0.5);
+  capsule(Math.PI / 4, COLORS.gold, COLORS.goldEdge);
+  capsule(-Math.PI / 4, A.vitaminLight, COLORS.goldEdge);
+  shCirc(g, 0, 0, 30, null, COLORS.gold, 2.5);
+  for (let i = 0; i < 8; i++) {
+    const a = (i * Math.PI) / 4;
+    shStar(g, Math.cos(a) * 40, Math.sin(a) * 40, i % 2 === 0 ? 7 : 5, 0xffffff);
+  }
+  glowCircle(g, 0, 0, 22, COLORS.vitamin, 12, 0.5);
+  vitaminTablet(g, 0, 0, 22, COLORS.goldEdge);
+}
+
+/** Снежинка: три диаметра длиной 2R под углами 0°, 60°, 120° (от rot) с боковыми «ёлочками»; edge — тёмная обводка под линиями (null — без неё). */
+function snowflake(g: Gfx, R: number, lw: number, color: number, edge: number | null, rot = 0): void {
+  const draw = (width: number, c: number): void => {
+    for (let k = 0; k < 6; k++) {
+      const a = rot + (k * Math.PI) / 3;
+      const ux = Math.cos(a);
+      const uy = Math.sin(a);
+      shLine(g, 0, 0, ux * R, uy * R, c, width);
+      for (const side of [-1, 1]) {
+        const b = a + side * 0.85;
+        shLine(g, ux * R * 0.62, uy * R * 0.62, ux * R * 0.62 + Math.cos(b) * R * 0.3, uy * R * 0.62 + Math.sin(b) * R * 0.3, c, width * 0.8);
+      }
+    }
+  };
+  if (edge !== null) draw(lw + 2.5, edge);
+  draw(lw, color);
+}
+
+/** Правильный шестиугольник радиуса r (вершина смотрит вправо), повёрнутый на rot. */
+function hexagon(r: number, rot = 0): Pt[] {
+  return Array.from({ length: 6 }, (_, i) => [Math.cos(rot + (i * Math.PI) / 3) * r, Math.sin(rot + (i * Math.PI) / 3) * r] as Pt);
+}
+
+/** Холод: ледяной кристалл-снежинка (симметричный, на цель поворачивается без вреда); уровни добавляют осколки льда, вторую снежинку, золото и искры. */
+function drawFrost(g: Gfx, lv: number): void {
+  const F = COLORS.frost;
+  const FE = COLORS.frostEdge;
+  const FL = COLORS.frostLight;
+  const shards = (inner: number, outer: number, wid: number, fill: number, edge: number, rot = Math.PI / 6): void => {
+    for (let i = 0; i < 6; i++) {
+      const a = rot + (i * Math.PI) / 3;
+      shPoly(g, shRot([[inner, -wid], [outer, 0], [inner, wid]], 0, 0, a), fill, edge, 1.5);
+    }
+  };
+  if (lv <= 1) {
+    // Холод: голубой шестигранный кристалл со снежинкой
+    glowCircle(g, 0, 0, 16, F, 8, 0.35);
+    shPoly(g, hexagon(17), F, FE, 2.5);
+    snowflake(g, 24, 3, FL, FE);
+    shCirc(g, 0, 0, 5.5, 0xffffff, FE, 1.5);
+    return;
+  }
+  if (lv === 2) {
+    // шесть осколков льда вокруг и большая снежинка
+    shards(22, 38, 6, A.frostShard, FE);
+    shPoly(g, hexagon(19), F, FE, 2.5);
+    snowflake(g, 28, 3.2, FL, FE);
+    shCirc(g, 0, 0, 6, 0xffffff, FE, 1.5);
+    for (let i = 0; i < 6; i++) shCirc(g, Math.cos(i * Math.PI / 3) * 30, Math.sin(i * Math.PI / 3) * 30, 2.4, 0xffffff);
+    return;
+  }
+  if (lv === 3) {
+    // две снежинки (одна повёрнута), длинные осколки, снежинки-точки
+    glowCircle(g, 0, 0, 24, F, 10, 0.3);
+    shards(24, 46, 7, A.frostShard, FE);
+    shards(22, 34, 5, F, FE, 0);
+    shPoly(g, hexagon(21), F, A.frostDeep, 2.5);
+    snowflake(g, 34, 3.4, FL, FE);
+    snowflake(g, 22, 2.6, 0xffffff, null, Math.PI / 6);
+    shCirc(g, 0, 0, 7, 0xffffff, FE, 2);
+    for (let i = 0; i < 6; i++) shCirc(g, Math.cos(i * Math.PI / 3 + 0.5) * 42, Math.sin(i * Math.PI / 3 + 0.5) * 42, 2.6, 0xffffff, FE, 1);
+    return;
+  }
+  // уровень 4: золочёный ледяной цветок — светящееся кольцо, золотые и ледяные шипы, большая снежинка, искры
+  glowRing(g, 0, 0, 36, 3, F, 14, 0.55);
+  shards(26, 56, 7.5, A.frostShard, COLORS.gold);
+  shards(24, 44, 6, COLORS.gold, COLORS.goldEdge, 0);
+  glowCircle(g, 0, 0, 24, F, 12, 0.4);
+  shPoly(g, hexagon(23), A.frostMid, COLORS.gold, 3);
+  shPoly(g, hexagon(15, Math.PI / 6), F, null, 0, 0.6);
+  snowflake(g, 40, 3.6, 0xffffff, A.frostDeep);
+  snowflake(g, 24, 2.6, FL, A.frostDeep, Math.PI / 6);
+  glowCircle(g, 0, 0, 7, 0xffffff, 6, 0.5);
+  shCirc(g, 0, 0, 8, 0xffffff, COLORS.gold, 2);
+  for (let i = 0; i < 6; i++) shStar(g, Math.cos(i * Math.PI / 3 + Math.PI / 6) * 52, Math.sin(i * Math.PI / 3 + Math.PI / 6) * 52, i % 2 === 0 ? 7 : 5, 0xffffff);
+}
+
+/** Полоса пластыря длиной len и толщиной th, повёрнутая на angle вокруг (cx, cy): телесная липучка с дырочками. */
+function plasterStrip(g: Gfx, cx: number, cy: number, len: number, th: number, angle: number, fill: number = COLORS.patch, edge: number = COLORS.patchEdge): void {
+  shPoly(g, shRot(shBox(-len / 2, -th / 2, len, th), cx, cy, angle), fill, edge, 2);
+  for (const sx of [-1, 1]) {
+    for (const dy of [-0.26, 0.26]) {
+      const [[x, y]] = shRot([[sx * len * 0.37, dy * th]], cx, cy, angle);
+      shCirc(g, x, y, Math.max(1.4, th * 0.07), A.patchHole);
+    }
+  }
+}
+
+/** Марлевая прокладка (светлый квадрат) с красным крестиком, повёрнутая на angle вокруг (cx, cy). */
+function gauzePad(g: Gfx, cx: number, cy: number, size: number, angle: number, edge: number = COLORS.patchEdge, cross: number = A.patchRed): void {
+  shPoly(g, shRot(shBox(-size / 2, -size / 2, size, size), cx, cy, angle), COLORS.patchPad, edge, 1.8);
+  for (const [dx, dy] of [[1, 0], [0, 1]]) {
+    const [[x0, y0], [x1, y1]] = shRot([[-dx * size * 0.24, -dy * size * 0.24], [dx * size * 0.24, dy * size * 0.24]], cx, cy, angle);
+    shLine(g, x0, y0, x1, y1, cross, Math.max(2, size * 0.1));
+  }
+}
+
+/** Пластырь: телесная липучка с марлевой прокладкой; уровни добавляют вторую и третью полосы, рулон бинта, золото и красное свечение. Смотрит на цель, как остальные. */
+function drawPatch(g: Gfx, lv: number): void {
+  const E = COLORS.patchEdge;
+  if (lv <= 1) {
+    // Пластырь: одна полоса и прокладка
+    plasterStrip(g, 14, 0, 60, 26, 0);
+    gauzePad(g, 14, 0, 20, 0);
+    return;
+  }
+  if (lv === 2) {
+    // две полосы крест-накрест
+    plasterStrip(g, 14, 0, 62, 24, -0.42);
+    plasterStrip(g, 14, 0, 62, 24, 0.42);
+    gauzePad(g, 14, 0, 22, 0);
+    return;
+  }
+  if (lv === 3) {
+    // три полосы веером и рулон бинта сзади
+    shCirc(g, -26, 0, 15, COLORS.patchPad, E, 2.5);
+    shCirc(g, -26, 0, 9, null, E, 1.6);
+    shCirc(g, -26, 0, 4, E);
+    plasterStrip(g, 20, 0, 66, 22, -0.62);
+    plasterStrip(g, 20, 0, 66, 22, 0.62);
+    plasterStrip(g, 20, 0, 70, 24, 0);
+    gauzePad(g, 20, 0, 24, 0);
+    return;
+  }
+  // уровень 4: золочёные полосы, золотой рулон, светящаяся красная метка и искры
+  glowCircle(g, 18, 0, 34, A.patchRed, 14, 0.25);
+  shCirc(g, -28, 0, 17, COLORS.gold, COLORS.goldEdge, 2.5);
+  shCirc(g, -28, 0, 11, COLORS.patchPad, COLORS.goldEdge, 1.8);
+  shCirc(g, -28, 0, 5, COLORS.goldEdge);
+  for (const ang of [-0.78, 0.78, -0.3, 0.3]) plasterStrip(g, 22, 0, 74, 22, ang, A.patchStrip, COLORS.goldEdge);
+  plasterStrip(g, 22, 0, 80, 26, 0, COLORS.patch, COLORS.gold);
+  gauzePad(g, 22, 0, 28, 0, COLORS.gold);
+  glowCircle(g, 22, 0, 8, A.patchRed, 8, 0.45);
+  for (const [x, y, r] of [[58, -22, 7], [60, 20, 5], [-4, -32, 5]]) shStar(g, x, y, r, 0xffffff);
+}
+
+/** Основание башни (неподвижное, не вращается): диск, у уровней 2–4 — свои пояса, болты, шкалы; у 4-го — шипы и лужи по краю. */
+function drawBase(g: Gfx, id: TowerId, lv: number): void {
+  if (id === 'syrup' && lv === 4) {
+    // лужи-«капли» по краю
+    for (let i = 0; i < 10; i++) {
+      const a = (i / 10) * Math.PI * 2 + 0.2;
+      glowCircle(g, Math.cos(a) * 34, Math.sin(a) * 34, 6.5, A.glowOrange, 8, 0.3);
+    }
+    for (let i = 0; i < 10; i++) {
+      const a = (i / 10) * Math.PI * 2 + 0.2;
+      shCirc(g, Math.cos(a) * 34, Math.sin(a) * 34, 6.5, COLORS.syrup, COLORS.syrupDark, 1.5);
+    }
+  }
+  if (id === 'fizz' && lv === 4) {
+    // шипы мины
+    for (let i = 0; i < 8; i++) {
+      const a = ((22.5 + 45 * i) * Math.PI) / 180;
+      if (Math.abs(Math.sin(a)) > 0.9 && Math.sin(a) > 0) continue;
+      shPoly(g, shRot([[30, -7], [45, 0], [30, 7]], 0, 0, a), COLORS.fizzDark, A.fizzLight, 1.5);
+    }
+  }
+  shCirc(g, 0, 0, 36, COLORS.tower, COLORS.towerEdge, 3);
+  const at = (i: number, n: number, off: number, r: number): Pt => [Math.cos((i * Math.PI * 2) / n + off) * r, Math.sin((i * Math.PI * 2) / n + off) * r];
+  if (id === 'pill') {
+    if (lv === 2) shCirc(g, 0, 0, 29, null, A.steel, 3);
+    if (lv === 3) {
+      shCirc(g, 0, 0, 29, null, A.steel, 3);
+      shCirc(g, 0, 0, 22, null, A.steelDark, 2);
+      for (let i = 0; i < 6; i++) {
+        const [x, y] = at(i, 6, 0.5, 29);
+        shCirc(g, x, y, 2.4, COLORS.pillBlue);
+      }
+    }
+    if (lv === 4) {
+      for (let i = 0; i < 8; i++) {
+        const a0 = (i * Math.PI) / 4 + 0.08;
+        shArc(g, 0, 0, 27, a0, a0 + 0.62, 0x9fd0ff, 12, 0.15);
+        shArc(g, 0, 0, 27, a0, a0 + 0.62, A.plate, 8);
+        shArc(g, 0, 0, 31.2, a0, a0 + 0.62, COLORS.gold, 1.5);
+      }
+    }
+  } else if (id === 'syrup') {
+    if (lv >= 2) shCirc(g, 0, 0, 29, null, lv >= 4 ? A.glowOrange : COLORS.syrupDark, 3);
+    if (lv === 3) {
+      for (let i = 0; i < 6; i++) {
+        const [x, y] = at(i, 6, 0.3, 29);
+        shCirc(g, x, y, 3.6, COLORS.syrup, COLORS.syrupDark, 1.2);
+      }
+    }
+    if (lv === 4) {
+      shCirc(g, 0, 0, 22, null, COLORS.gold, 2);
+      for (let i = 0; i < 8; i++) {
+        const [x, y] = at(i, 8, 0, 22);
+        shCirc(g, x, y, 2.4, COLORS.gold);
+      }
+    }
+  } else if (id === 'fizz') {
+    if (lv === 2) {
+      shCirc(g, 0, 0, 29, null, A.steel, 3);
+      shCirc(g, -20, 20, 3.4, COLORS.fizz, null, 0, 0.8);
+      shCirc(g, 18, -22, 2.6, COLORS.fizz, null, 0, 0.8);
+      shCirc(g, -26, -10, 2.2, COLORS.fizz, null, 0, 0.8);
+    }
+    if (lv >= 3) {
+      shCirc(g, 0, 0, 29, null, A.steel, 3);
+      for (let i = 0; i < 8; i++) {
+        const [x, y] = at(i, 8, 0.2, 29);
+        shCirc(g, x, y, 2.6, lv === 4 ? COLORS.acid : A.bolt, A.boltEdge, 1);
+      }
+    }
+  } else if (id === 'ampule') {
+    // ампула: тонкие кольца; выше — капли жидкости, на 4-м — золото и голубое свечение
+    if (lv >= 2) shCirc(g, 0, 0, 29, null, lv >= 4 ? COLORS.gold : A.steel, 3);
+    if (lv === 3) {
+      for (let i = 0; i < 6; i++) {
+        const [x, y] = at(i, 6, 0.4, 29);
+        shCirc(g, x, y, 3, A.ampuleLiquid, COLORS.ampuleEdge, 1.2);
+      }
+    }
+    if (lv === 4) {
+      glowRing(g, 0, 0, 23, 3, A.ampuleLiquid, 10, 0.5);
+      shCirc(g, 0, 0, 23, null, A.ampuleLiquid, 3);
+      for (let i = 0; i < 8; i++) {
+        const [x, y] = at(i, 8, 0, 29);
+        shCirc(g, x, y, 2.4, COLORS.gold, COLORS.goldEdge, 1);
+      }
+    }
+  } else if (id === 'antibiotic') {
+    // антибиотик: зелёные кольца и пузырьки; на 4-м — светящееся кольцо с крестиками
+    if (lv >= 2) shCirc(g, 0, 0, 29, null, lv >= 4 ? A.capsuleLight : A.capsuleDark, 3);
+    if (lv === 3) {
+      for (let i = 0; i < 6; i++) {
+        const [x, y] = at(i, 6, 0.3, 29);
+        shCirc(g, x, y, 3.4, A.capsuleBubble, COLORS.antibiotic, 1.2);
+      }
+    }
+    if (lv === 4) {
+      glowRing(g, 0, 0, 23, 3, COLORS.antibiotic, 10, 0.5);
+      shCirc(g, 0, 0, 23, null, COLORS.antibiotic, 3);
+      for (let i = 0; i < 4; i++) {
+        const [x, y] = at(i, 4, Math.PI / 4, 23);
+        shRR(g, x - 1.5, y - 5, 3, 10, 1, 0xffffff);
+        shRR(g, x - 5, y - 1.5, 10, 3, 1, 0xffffff);
+      }
+    }
+  } else if (id === 'lamp' || id === 'vitamin' || id === 'frost' || id === 'patch') {
+    // лампа, витамин, холод и пластырь: кольцо цвета башни; выше — точки, на 4-м — светящееся кольцо и золотые точки
+    const main = { lamp: COLORS.lamp, vitamin: COLORS.vitamin, frost: COLORS.frost, patch: COLORS.patch }[id];
+    const dark = { lamp: COLORS.lampEdge, vitamin: COLORS.vitaminEdge, frost: COLORS.frostEdge, patch: COLORS.patchEdge }[id];
+    if (lv >= 2) shCirc(g, 0, 0, 29, null, lv >= 4 ? COLORS.gold : dark, 3);
+    if (lv === 3) {
+      for (let i = 0; i < 6; i++) {
+        const [x, y] = at(i, 6, 0.35, 29);
+        shCirc(g, x, y, 3, main, dark, 1.2);
+      }
+    }
+    if (lv === 4) {
+      glowRing(g, 0, 0, 23, 3, main, 10, 0.5);
+      shCirc(g, 0, 0, 23, null, main, 3);
+      for (let i = 0; i < 8; i++) {
+        const [x, y] = at(i, 8, 0, 29);
+        shCirc(g, x, y, 2.4, COLORS.gold, COLORS.goldEdge, 1);
+      }
+    }
+  } else {
+    // шприц: шкала по кругу
+    if (lv >= 2) {
+      for (let i = 0; i < 24; i++) {
+        const a = (i * Math.PI) / 12;
+        const l = i % 6 === 0 ? 7 : 4;
+        shLine(g, Math.cos(a) * (32 - l), Math.sin(a) * (32 - l), Math.cos(a) * 32, Math.sin(a) * 32, A.rivet, 1.6);
+      }
+    }
+    if (lv === 3) g.lineStyle(2.5, COLORS.needle, 0.55).strokeCircle(0, 0, 25);
+    if (lv === 4) {
+      glowRing(g, 0, 0, 25, 3, COLORS.needle, 10, 0.5);
+      shCirc(g, 0, 0, 25, null, COLORS.needle, 3);
+      for (let i = 0; i < 4; i++) {
+        const [x, y] = at(i, 4, Math.PI / 4, 25);
+        shStar(g, x, y, 5, 0xffffff);
+      }
+    }
   }
 }
 
@@ -127,39 +957,97 @@ function drawTurnArrows(g: Phaser.GameObjects.Graphics): void {
 /** Цвет кольца башни по уровню: 1 — обычное, дальше серебро, золото, фиолетовый. */
 const LEVEL_COLORS = [COLORS.towerEdge, 0xdfe6f5, 0xffd84d, 0xc78bff];
 
-/** Верхняя неподвижная часть башни уровня level — одна картинка: втулка над стволом и (с уровня 2) кольцо и точки уровня под башней. */
-function topTexture(scene: Phaser.Scene, level: number): string {
-  return bakeArt(scene, `tower-top-${level}`, TOP_BOX, (g) => {
-    g.fillStyle(COLORS.background, 1).fillCircle(0, 0, 9);
-    g.lineStyle(2, COLORS.towerEdge, 1).strokeCircle(0, 0, 9);
-    if (level <= 1) return;
-    const color = LEVEL_COLORS[Math.min(level, LEVEL_COLORS.length) - 1];
+/** Верхняя неподвижная часть башни id уровня level — одна картинка: втулка над стволом, ядро 4-го уровня, кольцо и точки уровня под башней. */
+function topTexture(scene: Phaser.Scene, id: TowerId, level: number): string {
+  const lv = artLevel(level);
+  return bakeArt(scene, `tower-top-${id}-${lv}`, TOP_BOX, (g) => {
+    shCirc(g, 0, 0, 9, COLORS.background, COLORS.towerEdge, 2);
+    if (lv === 4) {
+      const core = { pill: COLORS.gold, syrup: COLORS.gold, fizz: COLORS.acid, syringe: COLORS.needle, ampule: A.ampuleLiquid, antibiotic: COLORS.antibiotic, lamp: COLORS.lamp, vitamin: COLORS.vitamin, frost: COLORS.frost, patch: COLORS.patch }[id];
+      if (id === 'pill') {
+        // золотая корона вокруг втулки
+        for (let i = 0; i < 8; i++) shPoly(g, shRot([[9, -4], [20, 0], [9, 4]], 0, 0, (i * Math.PI) / 4), COLORS.gold, COLORS.goldEdge, 1.2);
+      }
+      glowCircle(g, 0, 0, 5, core, 10, 0.5);
+      shCirc(g, 0, 0, 5, core, 0xffffff, 1.5);
+    } else if (lv >= 2) {
+      shCirc(g, 0, 0, 4, LEVEL_COLORS[lv - 1]);
+    }
+    if (lv <= 1) return;
+    const color = LEVEL_COLORS[lv - 1];
+    if (lv === 4) glowRing(g, 0, 0, 40, 4, color, 8, 0.5);
     g.lineStyle(4, color, 0.95).strokeCircle(0, 0, 40);
-    for (let i = 0; i < level; i++) {
-      const dx = (i - (level - 1) / 2) * 13;
+    for (let i = 0; i < lv; i++) {
+      const dx = (i - (lv - 1) / 2) * 13;
       g.fillStyle(color, 1).fillCircle(dx, 46, 5);
       g.lineStyle(1.5, 0x0b1020, 1).strokeCircle(dx, 46, 5);
     }
   });
 }
 
-/** Основание, ствол и верхняя часть башни в контейнере; ствол (контейнер) поворачивается на цель, верхнюю часть Tower меняет по уровню. */
-function buildTowerArt(scene: Phaser.Scene, parent: Phaser.GameObjects.Container, id: TowerId): { barrel: Phaser.GameObjects.Container; top: Phaser.GameObjects.Image } {
-  const baseKey = bakeArt(scene, 'tower-base', BASE_BOX, (g) => {
-    g.fillStyle(COLORS.tower, 1).fillCircle(0, 0, 36);
-    g.lineStyle(3, COLORS.towerEdge, 1).strokeCircle(0, 0, 36);
-  });
-  const base = artImage(scene, baseKey, BASE_BOX);
-  const barrel = scene.add.container(0, 0, [barrelImage(scene, id)]);
-  const top = artImage(scene, topTexture(scene, 1), TOP_BOX);
-  parent.add([base, barrel, top]);
-  return { barrel, top };
+function baseTexture(scene: Phaser.Scene, id: TowerId, level: number): string {
+  const lv = artLevel(level);
+  return bakeArt(scene, `tower-base-${id}-${lv}`, BASE_BOX, (g) => drawBase(g, id, lv));
 }
 
-/** Рисует башню (основание и ствол) в контейнере; возвращает ствол — он поворачивается на цель. */
-export function createTowerArt(scene: Phaser.Scene, parent: Phaser.GameObjects.Container, id: TowerId = 'pill'): Phaser.GameObjects.Container {
-  return buildTowerArt(scene, parent, id).barrel;
+/** Картинки башни: основание, ствол (в контейнере — он поворачивается на цель) и верхняя часть; уровень 1–4 — свой рисунок каждой части. */
+interface TowerArt {
+  base: Phaser.GameObjects.Image;
+  barrel: Phaser.GameObjects.Container;
+  barrelImg: Phaser.GameObjects.Image;
+  top: Phaser.GameObjects.Image;
 }
+
+/** Основание, ствол и верхняя часть башни в контейнере. */
+function buildTowerArt(scene: Phaser.Scene, parent: Phaser.GameObjects.Container, id: TowerId, level = 1): TowerArt {
+  const base = artImage(scene, baseTexture(scene, id, level), BASE_BOX);
+  const barrelImg = barrelImage(scene, id, level);
+  const barrel = scene.add.container(0, 0, [barrelImg]);
+  const top = artImage(scene, topTexture(scene, id, level), TOP_BOX);
+  parent.add([base, barrel, top]);
+  return { base, barrel, barrelImg, top };
+}
+
+/** Меняет все картинки башни на рисунки уровня level. */
+function setTowerArtLevel(scene: Phaser.Scene, art: TowerArt, id: TowerId, level: number): void {
+  setArt(art.base, baseTexture(scene, id, level), BASE_BOX);
+  setArt(art.barrelImg, barrelTexture(scene, id, level), BARREL_BOX);
+  setArt(art.top, topTexture(scene, id, level), TOP_BOX);
+}
+
+/** Рисует башню (основание и ствол) в контейнере; возвращает ствол — он поворачивается на цель. level (1–4) — уровень слияния, по умолчанию 1. */
+export function createTowerArt(scene: Phaser.Scene, parent: Phaser.GameObjects.Container, id: TowerId = 'pill', level = 1): Phaser.GameObjects.Container {
+  return buildTowerArt(scene, parent, id, level).barrel;
+}
+
+/** Конус света Лампы: готовая картинка (одна на длину и угол); вершина — в центре башни, смотрит вправо. */
+function coneArt(scene: Phaser.Scene, range: number, deg: number): { key: string; box: ArtBox } {
+  const len = Math.max(10, Math.round(range));
+  const d = Math.max(4, Math.round(deg));
+  const half = (d * Math.PI) / 360;
+  const ymax = Math.ceil(len * Math.sin(Math.min(half, Math.PI / 2))) + 3;
+  const box: ArtBox = { x: -3, y: -ymax, w: len + 6, h: ymax * 2 };
+  const key = bakeArt(scene, `cone-${len}-${d}`, box, (g) => {
+    // слои света: ближе к лампе ярче (вложенные сектора)
+    for (const [share, alpha] of [[1, 0.12], [0.78, 0.1], [0.56, 0.1], [0.34, 0.1]] as const) {
+      const pts: { x: number; y: number }[] = [{ x: 0, y: 0 }];
+      for (let i = 0; i <= 14; i++) {
+        const a = -half + (2 * half * i) / 14;
+        pts.push({ x: Math.cos(a) * len * share, y: Math.sin(a) * len * share });
+      }
+      g.fillStyle(COLORS.lampLight, alpha).fillPoints(pts, true);
+    }
+    g.lineStyle(2, COLORS.lampLight, 0.5);
+    for (const s of [-1, 1]) g.lineBetween(0, 0, Math.cos(half) * len, s * Math.sin(half) * len);
+    g.lineStyle(2.5, COLORS.lampLight, 0.3).beginPath();
+    g.arc(0, 0, len, -half, half);
+    g.strokePath();
+  });
+  return { key, box };
+}
+
+/** Сколько тиков конуса башня делает за один кадр, самое большее (защита от лавины при очень длинном кадре). */
+const MAX_CONE_TICKS = 8;
 
 /**
  * Башня: стоит в клетке и сама стреляет. Способ стрельбы задан в таблице `towers` (config.ts): `targeting` — как бьёт
@@ -176,9 +1064,11 @@ export class Tower {
   readonly cfg: (typeof CONFIG.towers)[TowerId];
   /** Итоговые числа башни с учётом уровня и мутаций. */
   stats: TowerStats;
-  /** Уровень башни (1…MAX_TOWER_LEVEL) и выбранные мутации по порядку порогов. */
+  /** Уровень башни (1…MAX_TOWER_LEVEL) и все её мутации: свои и принесённые слиянием (одна и та же может повторяться — см. `mutationStack`). */
   level = 1;
   picks: string[] = [];
+  /** Сколько порогов мутаций эта башня уже прошла выбором (свой выбор на уровнях 2 и 4; мутации, пришедшие со слиянием, порогов не закрывают). */
+  private tiersDone = 0;
   /** Расстояние от башни до организма по дорожкам (по ближайшей к ней точке сети), пикселей: по нему считается «вперёд/назад». */
   readonly remaining: number;
   /** Пауза до следующего выстрела, секунды игрового времени. */
@@ -187,13 +1077,27 @@ export class Tower {
   private disabledFor = 0;
   /** Куда смотрит луч: номер направления 0…AIM_STEPS-1 (только у башен с лучом). */
   aim = 0;
+  /** Множитель паузы от ауры Витамина рядом (1 — нет; меньше — быстрее): сцена выставляет его каждый кадр. */
+  auraMul = 1;
+  /** Множитель паузы от паразита, присосавшегося к башне (1 — нет; 1,5 — пауза в полтора раза длиннее): сцена выставляет его каждый кадр. */
+  latchMul = 1;
+  /** Куда смотрит башня на цель, радианы (по нему считается попадание в конус Лампы). */
+  lookAngle = 0;
+  /** Сколько тиков конуса надо применить за этот кадр (читает сцена, когда башня «выстрелила») и только что ли включился конус (сцена играет звук). */
+  coneTicks = 0;
+  coneFresh = false;
+  /** Башня в облаке токсина: не стреляет (сцена выставляет каждый кадр). */
+  private suppressed = false;
+  private coneClock = 0;
+  private coneOn = false;
+  private cone: Phaser.GameObjects.Image | null = null;
   private readonly ring: Phaser.GameObjects.Image;
   private readonly barrel: Phaser.GameObjects.Container;
   private readonly container: Phaser.GameObjects.Container;
   private aimLine: Phaser.GameObjects.Image | null = null;
   private aimLine2: Phaser.GameObjects.Image | null = null;
-  /** Втулка, кольцо и точки уровня — одна картинка на уровень. */
-  private readonly top: Phaser.GameObjects.Image;
+  /** Картинки башни (основание, ствол, верх) — свои на каждый уровень слияния. */
+  private readonly art: TowerArt;
   private readonly mergeTween: Phaser.Tweens.Tween;
   private readonly badgeTween: Phaser.Tweens.Tween;
   private readonly selectRing: Phaser.GameObjects.Graphics;
@@ -225,7 +1129,13 @@ export class Tower {
     this.container.add(this.selectRing);
     const art = buildTowerArt(scene, this.container, id);
     this.barrel = art.barrel;
-    this.top = art.top;
+    this.art = art;
+    if (this.isCone) {
+      // Конус света лежит в контейнере ствола (поворачивается вместе с ним) под рисунком лампы; виден, только пока есть цель
+      const { key, box } = coneArt(scene, this.stats.range, this.stats.coneDeg);
+      this.cone = artImage(scene, key, box).setVisible(false);
+      this.barrel.addAt(this.cone, 0);
+    }
     // Красное кольцо — башня заглушена
     this.ring = ringImage(scene, 0, 0, 44, 5, COLORS.loseLine).setVisible(false);
     this.container.add(this.ring);
@@ -258,6 +1168,16 @@ export class Tower {
     return this.cfg.targeting === 'beam';
   }
 
+  /** Бьёт ли башня конусом света (Лампа). */
+  get isCone(): boolean {
+    return this.cfg.targeting === 'cone';
+  }
+
+  /** Усиливает ли башня соседей аурой (Витамин): сама не стреляет. */
+  get isAura(): boolean {
+    return this.cfg.targeting === 'aura';
+  }
+
   /** Угол луча, радианы. */
   get aimRad(): number {
     return aimAngle(this.aim);
@@ -265,12 +1185,13 @@ export class Tower {
 
   /** Какой порог мутации ждёт выбора (0 — первый, 1 — второй) или null, если выбирать нечего. */
   get pendingTier(): number | null {
-    return this.picks.length < unlockedTiers(this.level) ? this.picks.length : null;
+    return this.tiersDone < unlockedTiers(this.level) ? this.tiersDone : null;
   }
 
-  /** Слияние: башня становится уровнем выше (мутации остаются), пауза до выстрела не сбрасывается. */
-  upgrade(): void {
+  /** Слияние: башня становится уровнем выше и получает мутации сливаемой башни `extraPicks` (свои остаются; решение владельца 8 октября 2026), пауза до выстрела не сбрасывается. */
+  upgrade(extraPicks: readonly string[] = []): void {
     this.level++;
+    this.picks.push(...extraPicks);
     this.recompute();
     this.scene.tweens.add({ targets: this.container, scale: { from: 1.35, to: 1 }, duration: 260, ease: 'Back.easeOut' });
   }
@@ -282,6 +1203,7 @@ export class Tower {
     const spec = mutationOptions(this.id, tier)[index];
     if (!spec) return false;
     this.picks.push(spec.id);
+    this.tiersDone++;
     this.recompute();
     this.scene.tweens.add({ targets: this.container, scale: { from: 1.2, to: 1 }, duration: 220, ease: 'Quad.easeOut' });
     return true;
@@ -290,12 +1212,16 @@ export class Tower {
   private recompute(): void {
     this.stats = computeStats(this.id, this.level, this.picks);
     this.refreshVisuals();
+    if (this.cone) {
+      const { key, box } = coneArt(this.scene, this.stats.range, this.stats.coneDeg);
+      setArt(this.cone, key, box);
+    }
     if (this.isBeam) this.applyAim();
   }
 
   /** Метки на башне: кольцо цвета уровня, точки уровня под башней, «!» при невыбранной мутации. */
   private refreshVisuals(): void {
-    setArt(this.top, topTexture(this.scene, this.level), TOP_BOX);
+    setTowerArtLevel(this.scene, this.art, this.id, this.level);
     const badge = this.pendingTier !== null;
     this.badge.setVisible(badge);
     if (badge) this.badgeTween.resume();
@@ -388,8 +1314,57 @@ export class Tower {
   /** Заглушить башню на seconds секунд (если уже заглушена дольше — не сокращаем). */
   disable(seconds: number): void {
     this.disabledFor = Math.max(this.disabledFor, seconds);
-    this.container.setAlpha(0.4);
+    this.applyAlpha();
     this.ring.setVisible(true);
+  }
+
+  /** Башня в облаке токсина (или вышла из него): стрелять нельзя; на картинке бледнеет. */
+  setSuppressed(on: boolean): void {
+    if (this.suppressed === on) return;
+    this.suppressed = on;
+    this.applyAlpha();
+  }
+
+  get isSuppressed(): boolean {
+    return this.suppressed;
+  }
+
+  /** Работает ли башня: не заглушена спорой и не в облаке (Витамин в таком состоянии не усиливает). */
+  get isWorking(): boolean {
+    return this.disabledFor <= 0 && !this.suppressed;
+  }
+
+  /** Прозрачность картинки башни: заглушена спорой — сильнее, в облаке — слабее. */
+  private applyAlpha(): void {
+    this.container.setAlpha(this.disabledFor > 0 ? 0.4 : this.suppressed ? 0.6 : 1);
+  }
+
+  private setConeOn(on: boolean): void {
+    if (this.coneOn === on) return;
+    this.coneOn = on;
+    this.cone?.setVisible(on);
+    if (on) this.coneFresh = true;
+  }
+
+  /** Кого сейчас задевает конус: бактерии не дальше длины конуса (плюс радиус бактерии) и в пределах угла (с поправкой на размер бактерии). */
+  coneHits(bacteria: readonly Bacterium[]): Bacterium[] {
+    const { range, coneDeg } = this.stats;
+    const half = (coneDeg * Math.PI) / 360;
+    const hits: Bacterium[] = [];
+    for (const b of bacteria) {
+      if (b.hp <= 0) continue;
+      const dx = b.x - this.x;
+      const dy = b.y - this.y;
+      const dist = Math.hypot(dx, dy);
+      if (dist > range + b.radius * 0.5) continue;
+      if (dist > b.radius * 0.7) {
+        let diff = Math.atan2(dy, dx) - this.lookAngle;
+        diff = Math.abs(Math.atan2(Math.sin(diff), Math.cos(diff)));
+        if (diff > half + Math.asin(Math.min(1, (b.radius * 0.7) / dist))) continue;
+      }
+      hits.push(b);
+    }
+    return hits;
   }
 
   /**
@@ -398,17 +1373,30 @@ export class Tower {
    * С мутацией «Двойной выстрел» башня бьёт ещё `extraTargets` целей за тот же выстрел.
    */
   update(dt: number, bacteria: readonly Bacterium[], fire: (target: Bacterium, muzzleX: number, muzzleY: number) => boolean): void {
-    this.cooldown = Math.max(0, this.cooldown - dt);
+    // Аура Витамина рядом: пауза короче в auraMul раз (время идёт быстрее); присосавшийся паразит: длиннее в latchMul раз
+    this.cooldown = Math.max(0, this.cooldown - dt / (this.auraMul * this.latchMul));
     if (this.disabledFor > 0) {
       this.disabledFor -= dt;
+      this.setConeOn(false);
       if (this.disabledFor <= 0) {
         this.disabledFor = 0;
-        this.container.setAlpha(1);
+        this.applyAlpha();
         this.ring.setVisible(false);
       }
       return;
     }
-    const muzzle = MUZZLE[this.id];
+    // В облаке токсина башня не стреляет (Витамин не усиливает, Лампа гасит конус)
+    if (this.suppressed) {
+      this.setConeOn(false);
+      this.coneClock = 0;
+      return;
+    }
+    if (this.isAura) return;
+    const muzzle = MUZZLE[this.id] + (this.level - 1) * MUZZLE_PER_LEVEL[this.id];
+    if (this.isCone) {
+      this.updateCone(dt, bacteria, fire, muzzle);
+      return;
+    }
     if (this.isBeam) {
       // Луч: цель — любой на линии; башня смотрит туда, куда повернул игрок
       if (this.cooldown > 0) return;
@@ -421,6 +1409,7 @@ export class Tower {
     const targets = this.pickTargets(bacteria);
     if (targets.length === 0) return;
     const angle = Math.atan2(targets[0].y - this.y, targets[0].x - this.x);
+    this.lookAngle = angle;
     this.barrel.setRotation(angle);
     if (this.cooldown > 0) return;
     const shoot = (target: Bacterium): boolean => {
@@ -432,20 +1421,62 @@ export class Tower {
     for (let i = 1; i < targets.length; i++) shoot(targets[i]);
   }
 
-  /** Бактерии, до которых можно достать (центр не дальше радиуса стрельбы плюс радиус самой бактерии, нужная сторона от башни), по приоритету; не больше 1 + extraTargets. */
-  private pickTargets(bacteria: readonly Bacterium[]): Bacterium[] {
-    const { range, side, toughest, extraTargets } = this.stats;
+  /** Лампа: смотрит на ближайшую к организму бактерию в радиусе, включает конус и по таймеру отдаёт сцене тики (каждый тик — урон всем в конусе). */
+  private updateCone(dt: number, bacteria: readonly Bacterium[], fire: (target: Bacterium, muzzleX: number, muzzleY: number) => boolean, muzzle: number): void {
+    const target = this.pickTargets(bacteria)[0];
+    if (!target) {
+      this.setConeOn(false);
+      this.coneClock = 0;
+      return;
+    }
+    this.lookAngle = Math.atan2(target.y - this.y, target.x - this.x);
+    this.barrel.setRotation(this.lookAngle);
+    this.setConeOn(true);
+    const period = Math.max(0.02, this.stats.cooldownMs / 1000);
+    this.coneClock += dt / (this.auraMul * this.latchMul);
+    const ticks = Math.min(MAX_CONE_TICKS, Math.floor(this.coneClock / period));
+    if (ticks <= 0) return;
+    this.coneClock = Math.min(this.coneClock - ticks * period, period);
+    this.coneTicks = ticks;
+    fire(target, this.x + Math.cos(this.lookAngle) * muzzle, this.y + Math.sin(this.lookAngle) * muzzle);
+  }
+
+  /** Бактерии в радиусе башни (центр не дальше радиуса стрельбы плюс радиус самой бактерии, нужная сторона от башни; скрытную башня видит только на доле радиуса), по приоритету.
+   *  `affectable` — только те, на кого выстрел подействует (Холод не берёт замёрзших и тех, кто не замерзает; Пластырь — приклеенных и тех, кто не липнет). */
+  private candidates(bacteria: readonly Bacterium[], affectable: boolean): Bacterium[] {
+    const { range, side, toughest, targeting } = this.stats;
     const found: Bacterium[] = [];
     for (const b of bacteria) {
       if (b.hp <= 0) continue;
-      if (Math.hypot(b.x - this.x, b.y - this.y) > range + b.radius) continue;
+      // Скрытную башня видит только на доле радиуса (b.stealth); конус Лампы видит полностью; подсвеченную Лампой (b.lit) видят на полном радиусе
+      const reach = b.stealth > 0 && targeting !== 'cone' && !b.lit ? range * b.stealth : range;
+      if (Math.hypot(b.x - this.x, b.y - this.y) > reach + b.radius) continue;
       if (side === 'forward' && !(b.remaining > this.remaining)) continue;
       if (side === 'back' && !(b.remaining < this.remaining)) continue;
+      if (affectable && !this.canAffect(b)) continue;
       found.push(b);
     }
-    // ближайшая к организму первой; «Охотник» — сначала самая прочная
-    found.sort((a, b) => (toughest ? b.maxHp - a.maxHp || a.remaining - b.remaining : a.remaining - b.remaining));
-    return found.slice(0, 1 + extraTargets);
+    // ближайшая к организму первой; «Охотник» — сначала самая прочная (по полному HP); «снайпер» (Ампула) — самая прочная по текущему HP
+    if (targeting === 'snipe') found.sort((a, b) => b.hp - a.hp || a.remaining - b.remaining);
+    else found.sort((a, b) => (toughest ? b.maxHp - a.maxHp || a.remaining - b.remaining : a.remaining - b.remaining));
+    return found;
+  }
+
+  /** Подействует ли выстрел на бактерию: Холод — если она может замёрзнуть и ещё не заморожена; Пластырь — если может прилипнуть и ещё не приклеена; остальные башни бьют всех. */
+  private canAffect(b: Bacterium): boolean {
+    if (this.cfg.targeting === 'freeze') return !b.frozen && CONFIG.types[b.kind].freezeImmune === 0;
+    if (this.cfg.targeting === 'trap') return !b.trapped && CONFIG.types[b.kind].trapImmune === 0;
+    return true;
+  }
+
+  /** Бактерии, до которых можно достать, по приоритету; не больше 1 + extraTargets. */
+  private pickTargets(bacteria: readonly Bacterium[]): Bacterium[] {
+    return this.candidates(bacteria, true).slice(0, 1 + this.stats.extraTargets);
+  }
+
+  /** Все бактерии в радиусе башни (для заморозки Холода: замерзают все, а не одна цель). */
+  inRange(bacteria: readonly Bacterium[]): Bacterium[] {
+    return this.candidates(bacteria, false);
   }
 
   destroy(): void {

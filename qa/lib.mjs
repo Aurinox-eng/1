@@ -142,7 +142,11 @@ export function readI18n(key) {
   return found;
 }
 
-/** Уровень из src/level.ts: размер карты в клетках и центр камеры при старте (сеть дорожек — из игры, через window.__pvb.getGraph()). */
+/**
+ * Уровень из src/level.ts: размер карты в клетках под башню (`map.tile`) и центр камеры при старте (сеть дорожек — из игры, через window.__pvb.getGraph()).
+ * ВНИМАНИЕ: `startCenter` записан в единицах `map.pathUnit` (103 px), как узлы сети, а не в клетках под башню (77,25 px): в пиксели его переводит
+ * `geo.unitCenter(u, v)`, а не `geo.center(col, row)`.
+ */
 export function readLevel() {
   const src = readSource('src/level.ts');
   return {
@@ -175,7 +179,7 @@ export function readWaveList() {
   });
 }
 
-/** С какого уровня открыта каждая башня: `levels.towerUnlock` из src/config.ts, например { pill: 1, syrup: 1, fizz: 5, syringe: 10 }. */
+/** С какого уровня открыта каждая башня: `levels.towerUnlock` из src/config.ts, например { pill: 1, syrup: 1, fizz: 5, syringe: 10, ampule: 3, antibiotic: 6, lamp: 5, vitamin: 7, frost: 8, patch: 9 }. */
 export function readTowerUnlock() {
   const src = readSource('src/config.ts');
   const found = /towerUnlock:\s*\{([^}]*)\}/.exec(src);
@@ -187,7 +191,8 @@ export function readTowerUnlock() {
 
 /**
  * Таблица башен из src/config.ts (раздел `towers`): { id: { price, range, damage, cooldownMs, projectileSpeed, blastRadius,
- * slowFactor, slowSec, targeting, side } } в порядке строк. Читает числа и строки в одинарных кавычках из каждой строки таблицы
+ * slowFactor, slowSec, targeting, side, dotPerSec, dotSec, coneDeg, auraMul, auraStep, … } } в порядке строк (с 9 октября 2026 десять башен: pill, syrup, fizz, syringe, ampule, antibiotic, lamp, vitamin, frost, patch;
+ * у Витамина, Холода и Пластыря `damage` равен 0 (у Витамина и `cooldownMs` 0): они сами не наносят урон — на них нельзя делить; поля freezeSec, trapSec, trapDps — у остальных 0). Читает числа и строки в одинарных кавычках из каждой строки таблицы
  * (комментарии пропускает). Бот баланса берёт отсюда цены и радиусы (подмену `?cfg=towers.<id>.<ключ>:<число>` он накладывает сам).
  */
 export function readTowerTable() {
@@ -220,15 +225,40 @@ export function readTowerTable() {
 }
 
 /**
+ * Мутации башен из src/config.ts (`mutations`): { id башни: [[id варианта 1, id варианта 2] для порога 1, … для порога 2] }. Бот выбирает мутации по номерам вариантов
+ * и сверяет номера с названиями (чтобы перестановка строк в config.ts не подменила выбор молча).
+ */
+export function readMutationIds() {
+  const src = readSource('src/config.ts');
+  const from = src.indexOf('mutations: {', src.indexOf('mutationLevels'));
+  const to = src.indexOf('} as Record<string, MutationSpec[][]>', from);
+  if (from < 0 || to < 0) throw new Error('В config.ts нет таблицы mutations');
+  const block = src.slice(from + 'mutations: {'.length, to);
+  const out = {};
+  for (const m of block.matchAll(/(\w+):\s*\[\s*\n([\s\S]*?)\n\s{4}\],/g)) {
+    out[m[1]] = m[2]
+      .split('\n')
+      .filter((line) => line.trim().startsWith('['))
+      .map((line) => [...line.matchAll(/id:\s*'(\w+)'/g)].map((x) => x[1]));
+  }
+  if (!Object.keys(out).length) throw new Error('В таблице mutations config.ts не нашёл ни одной башни');
+  return out;
+}
+
+/**
  * Геометрия карты по сети дорожек, которую отдала игра (getGraph): рёбра-кривые, клетки дорожки (центр клетки ближе
- * pathWidth/2 + 0.45·tile к любой точке любого ребра), расстояние до ребра, вероятности ребер, покрытие башней.
- * Правила описаны в задании, код игры не используется.
+ * pathWidth/2 + 0.55·tile к любой точке любого ребра), расстояние до ребра, вероятности ребер, покрытие башней.
+ * Правила описаны в задании, код игры не используется. `map` — { orgW, tile, pathWidth, pathUnit }: orgW, tile (а также cols и rows) надо брать из состояния игры
+ * (`getState().map`), pathWidth и pathUnit — из config.ts (в состояние игры они не входят).
+ * Два перевода в пиксели: `center(col, row)` — центр КЛЕТКИ под башню (шаг `map.tile`), `unitCenter(u, v)` — точка сети дорожек (шаг `map.pathUnit`, так записаны узлы
+ * и старт камеры в src/level.ts).
  */
 export function makeGraphGeometry(graph, map, cols, rows) {
   const center = (col, row) => ({ x: map.orgW + map.tile * (col + 0.5), y: map.tile * (row + 0.5) });
+  const unitCenter = (u, v) => ({ x: map.orgW + (map.pathUnit ?? map.tile) * (u + 0.5), y: (map.pathUnit ?? map.tile) * (v + 0.5) });
   const edges = graph.edges;
   const byId = new Map(edges.map((e) => [e.id, e]));
-  const limit = map.pathWidth / 2 + 0.45 * map.tile; // 89,35 px при tile 103 (запас, чтобы основание башни не заходило на полосу дорожки)
+  const limit = map.pathWidth / 2 + (map.pathMarginTile ?? 0.55) * map.tile; // запас 0,55 клетки (≈ 42,5 px при tile 77,25), как PATH_TILES в src/level.ts: основание башни не заходит на полосу дорожки
   const distToSegment = (p, a, b) => {
     const dx = b[0] - a[0];
     const dy = b[1] - a[1];
@@ -275,9 +305,17 @@ export function makeGraphGeometry(graph, map, cols, rows) {
     for (const n of next) visit(n, p / next.length);
   };
   for (const id of graph.entrances) visit(id, 1 / graph.entrances.length);
+  // самый длинный отрезок между соседними точками рёбер: кривая между точками может пройти ближе к центру клетки, чем сами точки, не более чем на maxSeg² / (8·limit)
+  let maxSegmentPx = 0;
+  for (const e of edges) for (let i = 0; i < e.pts.length - 1; i++) maxSegmentPx = Math.max(maxSegmentPx, Math.hypot(e.pts[i + 1][0] - e.pts[i][0], e.pts[i + 1][1] - e.pts[i][1]));
   return {
     center,
+    unitCenter,
     limit,
+    maxSegmentPx,
+    /** Наибольшая разница расстояния «до точки ребра» и «до кривой» для центра, прошедшего правило по точкам (дискретизация кривой). */
+    sagPx: (maxSegmentPx * maxSegmentPx) / (8 * limit) + 0.05,
+    isBlocked: (col, row) => blockedCells.has(`${col},${row}`),
     edges,
     byId,
     outOf,
@@ -467,8 +505,8 @@ export function readMetaTable() {
   const upStart = body.indexOf('upgrades:');
   if (upStart < 0) throw new Error('В разделе «meta» config.ts нет «upgrades»');
   const upgrades = {};
-  for (const m of body.slice(upStart).matchAll(/(\w+):\s*\{\s*branch:\s*'(\w+)',\s*effect:\s*'(\w+)',\s*perLevel:\s*(-?[\d.]+),\s*prices:\s*\[([^\]]*)\]\s*\}/g)) {
-    upgrades[m[1]] = { branch: m[2], effect: m[3], perLevel: Number(m[4]), prices: m[5].split(',').map((x) => Number(x.trim())).filter((x) => Number.isFinite(x)) };
+  for (const m of body.slice(upStart).matchAll(/(\w+):\s*\{\s*branch:\s*'(\w+)',\s*effect:\s*'(\w+)',\s*perLevel:\s*(-?[\d.]+),\s*prices:\s*\[([^\]]*)\](?:,\s*requires:\s*\['(\w+)',\s*(\d+)\])?\s*\}/g)) {
+    upgrades[m[1]] = { branch: m[2], effect: m[3], perLevel: Number(m[4]), prices: m[5].split(',').map((x) => Number(x.trim())).filter((x) => Number.isFinite(x)), requires: m[6] ? { id: m[6], level: Number(m[7]) } : null };
   }
   if (!Object.keys(upgrades).length) throw new Error('В разделе «meta» config.ts не нашлось улучшений');
   return { dna: { perWave: num('perWave'), winBonus: num('winBonus') }, upgrades };
@@ -485,7 +523,7 @@ export function buyGreedy({ upgrades, order, unlock, level, levels, dna }) {
   const bought = [];
   let left = dna;
   for (;;) {
-    const id = order.find((x) => upgrades[x] && (unlock[upgrades[x].branch] ?? 1) <= level && upgrades[x].prices[next[x] ?? 0] !== undefined && upgrades[x].prices[next[x] ?? 0] <= left);
+    const id = order.find((x) => upgrades[x] && (unlock[upgrades[x].branch] ?? 1) <= level && upgrades[x].prices[next[x] ?? 0] !== undefined && upgrades[x].prices[next[x] ?? 0] <= left && (!upgrades[x].requires || (next[upgrades[x].requires.id] ?? 0) >= upgrades[x].requires.level));
     if (!id) break;
     left -= upgrades[id].prices[next[id] ?? 0];
     next[id] = (next[id] ?? 0) + 1;
@@ -498,4 +536,13 @@ export function buyGreedy({ upgrades, order, unlock, level, levels, dna }) {
 export function buyOrder(upgrades) {
   const first = ['damage', 'coins', 'lives', 'reward'];
   return [...first, ...Object.keys(upgrades).filter((id) => !first.includes(id))];
+}
+
+/**
+ * Порядок покупок для замера «одна башня» (docs/fizz-solo-plan.md): сначала улучшения ветки этой башни (в порядке таблицы; недоступные по уровню или без очков
+ * пропускаются жадным выбором), затем обычный порядок. Игрок, который играет одной башней, качает именно её.
+ */
+export function buyOrderSolo(upgrades, tower) {
+  const own = Object.keys(upgrades).filter((id) => upgrades[id].branch === tower);
+  return [...own, ...buyOrder(upgrades).filter((id) => !own.includes(id))];
 }

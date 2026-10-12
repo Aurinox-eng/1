@@ -96,9 +96,11 @@ export interface PerfReport {
   frameMs: number;
   frameP95: number;
   frameP99: number;
-  /** Работа кадра (расчёт + рисование): средняя и 95-й процентиль, мс. */
+  /** Работа кадра (расчёт + рисование — то, что игра считала и рисовала сама, без ожидания следующего кадра): средняя, 95-й процентиль и самый медленный кадр, мс.
+   *  Цель для 60 кадров в секунду: 95-й процентиль ≤ 16,7 мс. */
   workMs: number;
   workP95: number;
+  workMax: number;
   /** Из работы кадра: расчёт и рисование в среднем, мс. */
   updateMs: number;
   renderMs: number;
@@ -121,6 +123,7 @@ export function frameReport(reset = false): PerfReport {
     frameP99: round1(percentile(intervals, 0.99)),
     workMs: works.length ? round1(workSum / works.length) : 0,
     workP95: round1(percentile(works, 0.95)),
+    workMax: round1(works.length ? Math.max(...works) : 0),
     updateMs: updates.length ? round1(updates.reduce((a, b) => a + b, 0) / updates.length) : 0,
     renderMs: renders.length ? round1(renders.reduce((a, b) => a + b, 0) / renders.length) : 0,
     drawCalls: drawCalls.length ? Math.round(drawCalls.reduce((a, b) => a + b, 0) / drawCalls.length) : 0,

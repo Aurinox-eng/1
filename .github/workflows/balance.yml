@@ -34,6 +34,14 @@ on:
         description: 'Наборы исключённых башен (--exclude), через «;»: «-;syrup» — без исключений и без Сиропа; «fizz,syringe» — без двух башен; «-» — не исключать'
         type: string
         default: '-'
+      lamps:
+        description: 'Лампы против скрытных (--lamps): 1 — прежний вариант, veteran — «опытный» (Лампа за 3 волны до выхода скрытных), first — «первая встреча» (Лампа по плашке скрытной); несколько через «;», «-» — без Ламп; только профили strong и expert; не сочетается с «solos» (пусто — как раньше)'
+        type: string
+        default: ''
+      solos:
+        description: 'Варианты «одна башня» (--solo) через «;»: «-;fizz» — обычная игра и только Шипучка + 1 Сироп; башни: pill, fizz, syringe, ampule, antibiotic, lamp, vitamin, frost, patch; только профили strong и expert (пусто или «-» — без ограничения)'
+        type: string
+        default: '-'
       cfg:
         description: 'Подмена чисел (--cfg), например economy.rewardMul:0.85 или waves.hpGrowthPerWave:0.06 (пусто — нет)'
         type: string
@@ -91,6 +99,8 @@ jobs:
           RUNS: ${{ inputs.runs }}
           SHARDS: ${{ inputs.shards }}
           EXCLUDES: ${{ inputs.excludes }}
+          SOLOS: ${{ inputs.solos }}
+          LAMPS: ${{ inputs.lamps }}
           CFG: ${{ inputs.cfg }}
           LEVEL: ${{ inputs.level }}
           SPEED: ${{ inputs.speed }}
@@ -134,6 +144,8 @@ jobs:
           PROFILE: ${{ matrix.profile }}
           RUNS: ${{ matrix.runs }}
           EXCLUDE: ${{ matrix.exclude }}
+          SOLO: ${{ matrix.solo }}
+          LAMPS: ${{ matrix.lamps }}
           CFG: ${{ matrix.cfg }}
           LEVEL: ${{ matrix.level }}
           SPEED: ${{ matrix.speed }}
@@ -145,6 +157,8 @@ jobs:
         run: |
           args=(--profile="$PROFILE" --runs="$RUNS" --speed="$SPEED" --canvas --level="$LEVEL" --tag="$TAG")
           if [ -n "$EXCLUDE" ]; then args+=(--exclude="$EXCLUDE"); fi
+          if [ -n "$SOLO" ]; then args+=(--solo="$SOLO"); fi
+          if [ "$LAMPS" = "1" ]; then args+=(--lamps); elif [ -n "$LAMPS" ]; then args+=(--lamps="$LAMPS"); fi
           if [ -n "$CFG" ]; then args+=(--cfg="$CFG"); fi
           if [ -n "$CAMPAIGN" ] && [ "$CAMPAIGN" != "0" ]; then args+=(--campaign="$CAMPAIGN"); fi
           if [ -n "$META" ]; then args+=(--meta="$META"); fi
