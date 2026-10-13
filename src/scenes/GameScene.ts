@@ -4,7 +4,7 @@ import { CONFIG } from '../config';
 import { exposeDebug, QA_ENTRANCE, QA_EVENTS_MAX, QA_MODE, STRESS, STRESS_FIZZ, TIME_SCALE, type DebugSnapshot, type QaEvent } from '../debug';
 import { Effects } from '../effects';
 import { drawStar, setScreenInfo } from '../screens';
-import { awardDna, coinsBonus, exposeMetaDebug, HIDDEN_SCREEN, livesBonus, markSeen, metaDna, metaSeen, recordResult, refundBonus, rewardMul, shieldCharges, starsForLoss, waveCoinsBonus } from '../meta';
+import { awardDna, coinsBonus, exposeMetaDebug, HIDDEN_SCREEN, isLevelBeaten, livesBonus, markSeen, metaDna, metaSeen, recordResult, refundBonus, rewardMul, shieldCharges, starsForLoss, waveCoinsBonus } from '../meta';
 import { num, t, type TextKey } from '../i18n';
 import { aimAngle, BLOCKED_TILES, EDGES, ENTRANCE_EDGES, LEVEL, PATH_TILES, WORLD, cellKey, worldToCell } from '../level';
 import { isPortraitPhone } from '../orientation';
@@ -213,6 +213,8 @@ export class GameScene extends Phaser.Scene {
   private pauseAlmanacButton: { x: number; y: number; w: number; h: number } | null = null;
   private dnaGained = 0;
   private dnaAwarded = false;
+  /** Уровень уже был пройден до этой партии: очки за волны — доля `meta.dna.replayFactor`. */
+  private dnaReplay = false;
   /** Звёзды, заработанные в этой партии (0 при проигрыше), и очки ДНК за впервые полученные звёзды. */
   private stars = 0;
   private starDna = 0;
@@ -300,6 +302,7 @@ export class GameScene extends Phaser.Scene {
     this.stars = 0;
     this.starDna = 0;
     this.dnaAwarded = false;
+    this.dnaReplay = false;
     this.bacteria = [];
     this.towers = [];
     this.projectiles = [];
@@ -1568,7 +1571,7 @@ export class GameScene extends Phaser.Scene {
     if (!this.dnaAwarded) {
       this.dnaAwarded = true;
       const cleared = Math.max(0, this.waveIdx - 1);
-      awardDna(cleared, false);
+      awardDna(cleared, false, isLevelBeaten(currentLevel()));
       recordResult(currentLevel(), cleared, 0);
     }
     this.scene.start('Menu');
@@ -1720,12 +1723,13 @@ export class GameScene extends Phaser.Scene {
     if (!this.dnaAwarded) {
       this.dnaAwarded = true;
       const cleared = won ? this.waveTotal() : Math.max(0, this.waveIdx - 1);
-      this.dnaGained = awardDna(cleared, won);
+      this.dnaReplay = isLevelBeaten(currentLevel());
+      this.dnaGained = awardDna(cleared, won, this.dnaReplay);
       // Звёзды по потерянным жизням (docs/stage-5-plan.md, раздел 4) и лучшая волна уровня; за новые звёзды — очки ДНК
       this.stars = won ? starsForLoss(Math.max(0, this.maxLives() - this.lives) + this.shieldAbsorbed) : 0;
       this.starDna = recordResult(currentLevel(), cleared, this.stars).starDna;
     }
-    this.showOverlay(won ? t('victory') : t('gameOver'), TEXT_COLORS.accent, t('killed', { n: this.kills }), t('dnaGained', { n: this.dnaGained + this.starDna, total: metaDna() }));
+    this.showOverlay(won ? t('victory') : t('gameOver'), TEXT_COLORS.accent, t('killed', { n: this.kills }), t('dnaGained', { n: this.dnaGained + this.starDna, total: metaDna() }) + (this.dnaReplay ? ` · ${t('dnaReplayNote', { k: Math.round(CONFIG.meta.dna.replayFactor * 100) })}` : ''));
     if (won) this.drawStars(this.stars);
     this.addEndButtons(won);
   }

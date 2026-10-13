@@ -6658,6 +6658,23 @@ async function runLocked(browser, baseUrl) {
       await ctx.close();
     }
   }
+
+  // ---- башня, открытая однажды, доступна на всех уровнях (решение владельца 13 октября): пройдены уровни 1–4 (`&stars=1,1,1,1`), значит открыт уровень 5 — на уровне 1 открыты башни до 5-го уровня
+  {
+    const q = `${p} [открытая однажды, компьютер, ru, уровень 1 при пройденных 1–4]`;
+    const ctx = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
+    const game = await openGame(ctx, baseUrl, q, { cfg: 'waves.firstDelaySec:9999,economy.startCoins:3000', query: '&stars=1,1,1,1' });
+    const s = await game.state();
+    const want = lockedAt(5);
+    const got = s.ui.towerButtons.filter((b) => b.locked).map((b) => b.id);
+    check(`${q} на уровне 1 закрыты только башни, которые открываются после уровня 5: ${want.join(', ')}`, s.level === 1 && got.join() === want.join(), `закрыты ${got.join(', ') || 'никто'}`);
+    const early = TOWER_ORDER.filter((id) => unlockOf(id) > 1 && unlockOf(id) <= 5)[0];
+    if (early) {
+      const st = await placeSure(game, early, FREE.a).catch((e) => ({ error: e.message }));
+      check(`${q} открытую однажды «${early}» (уровень открытия ${unlockOf(early)}) на уровне 1 можно поставить`, !st.error && towerIn(st, FREE.a)?.id === early, st.error ?? '');
+    }
+    await ctx.close();
+  }
 }
 
 /** Прямоугольник кнопки (центр и размер) → края. */
@@ -7263,6 +7280,28 @@ async function runMetaDna(browser, baseUrl) {
   s = await waitFor(win.page, (x) => x.state === 'playing' && x.elapsed < 2, 5000, 'перезапуск после победы');
   m = await metaOf(win.page);
   check(`${p} перезапуск очков не начисляет и не сбрасывает: на счёте по-прежнему ${wantLose + 9}`, m.dna === wantLose + 9 && s.dnaGained === 0, `на счёте ${m.dna}, начислено ${s.dnaGained}`);
+
+  // ---- повтор пройденного уровня (&stars=1): за волны только replayFactor от награды, бонуса за победу нет (правило В, решение владельца 13 октября)
+  const replayCfg = 'meta.dna.perWave:20,meta.dna.winBonus:7,meta.dna.replayFactor:0.1';
+  const again = await openGame(context, baseUrl, p, {
+    speed: 4,
+    query: '&stars=1',
+    cfg: `${wavesOnlyCfg({ coccus: 1 })},waves.firstDelaySec:1,towers.pill.range:900,towers.pill.damage:50,economy.startCoins:500,lives.start:3,${replayCfg}`,
+  });
+  for (const cell of [FREE.a, FREE.b]) await placeSure(again, 'pill', cell);
+  s = await waitFor(again.page, (x) => x.state === 'won', WAIT_MS, 'победа на пройденном уровне');
+  check(`${p} победа на пройденном уровне за 1 волну: floor(1 × 20 × 0,1) = 2 очка, бонуса за победу нет (начислено ${s.dnaGained})`, s.dnaGained === 2, `начислено ${s.dnaGained}`);
+  await again.page.close();
+  // новая вкладка-контекст: в прежнем уровень 1 уже записан как пройденный (первая победа выше)
+  const fresh = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
+  const firstTime = await openGame(fresh, baseUrl, p, {
+    speed: 4,
+    cfg: `${wavesOnlyCfg({ coccus: 1 })},waves.firstDelaySec:1,towers.pill.range:900,towers.pill.damage:50,economy.startCoins:500,lives.start:3,${replayCfg}`,
+  });
+  for (const cell of [FREE.a, FREE.b]) await placeSure(firstTime, 'pill', cell);
+  s = await waitFor(firstTime.page, (x) => x.state === 'won', WAIT_MS, 'первая победа');
+  check(`${p} первая победа на непройденном уровне: 1 × 20 + 7 = 27 очков полностью (начислено ${s.dnaGained})`, s.dnaGained === 27, `начислено ${s.dnaGained}`);
+  await fresh.close();
   await context.close();
 }
 

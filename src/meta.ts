@@ -9,7 +9,7 @@
 import { CONFIG, type UpgradeBranch, type UpgradeEffect } from './config';
 import { QA_MODE } from './debug';
 import { emptyMeta, loadMeta, maxLevel, saveMeta, UPGRADE_IDS, type MetaSave, type UpgradeId } from './save';
-import { unlockLevel } from './progress';
+import { setLevelReachedCheck, unlockLevel } from './progress';
 
 function readOverride(): MetaSave | null {
   if (!QA_MODE) return null;
@@ -94,14 +94,17 @@ export function buyUpgrade(id: UpgradeId): boolean {
 }
 
 /** Сколько очков ДНК даёт партия: за каждую пройденную волну и добавка за победу. */
-export function dnaForGame(wavesCleared: number, won: boolean): number {
-  const { perWave, winBonus } = CONFIG.meta.dna;
-  return Math.max(0, Math.floor(wavesCleared)) * perWave + (won ? winBonus : 0);
+export function dnaForGame(wavesCleared: number, won: boolean, replay = false): number {
+  const { perWave, winBonus, replayFactor } = CONFIG.meta.dna;
+  const waves = Math.max(0, Math.floor(wavesCleared));
+  // Повтор пройденного уровня: только replayFactor от награды за волны, бонуса за победу нет
+  if (replay) return Math.floor(waves * perWave * replayFactor);
+  return waves * perWave + (won ? winBonus : 0);
 }
 
-/** Начисляет очки ДНК за партию на счёт и возвращает, сколько начислено. */
-export function awardDna(wavesCleared: number, won: boolean): number {
-  const gained = dnaForGame(wavesCleared, won);
+/** Начисляет очки ДНК за партию на счёт и возвращает, сколько начислено. `replay` — уровень уже пройден (`isLevelBeaten`, проверять до `recordResult`). */
+export function awardDna(wavesCleared: number, won: boolean, replay = false): number {
+  const gained = dnaForGame(wavesCleared, won, replay);
   state = { ...state, dna: state.dna + gained };
   persist();
   return gained;
@@ -119,10 +122,17 @@ export function levelBest(level: number): number {
   return state.progress.best[level - 1] ?? 0;
 }
 
+/** Пройден ли уровень: есть хотя бы одна звезда (победа). */
+export function isLevelBeaten(level: number): boolean {
+  return levelStars(level) >= 1;
+}
+
 /** Открыт ли уровень: первый — всегда, остальные — когда предыдущий пройден (хотя бы одна звезда). */
 export function isLevelOpen(level: number): boolean {
   return level <= 1 || levelStars(level - 1) >= 1;
 }
+
+setLevelReachedCheck(isLevelOpen);
 
 /** Сколько звёзд даёт победа при потере `lost` жизней (`CONFIG.levels.stars`). */
 export function starsForLoss(lost: number): number {

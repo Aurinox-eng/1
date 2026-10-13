@@ -10,7 +10,7 @@ import fs from 'node:fs';
 const env = { ...process.env };
 if (env.EVENT_NAME === 'push') {
   const request = JSON.parse(fs.readFileSync('.github/ladder-request.json', 'utf8'));
-  for (const name of ['PROFILE', 'LANES', 'K', 'TO_LEVEL', 'SPEED', 'CFG']) {
+  for (const name of ['PROFILE', 'LANES', 'K', 'TO_LEVEL', 'SPEED', 'CFG', 'FARM']) {
     const value = request[name.toLowerCase()];
     if (value !== undefined && value !== null) env[name] = String(value);
   }
@@ -36,9 +36,10 @@ const speed = (env.SPEED ?? '').trim() || '2';
 if (!/^\d+(\.\d+)?$/.test(speed) || Number(speed) <= 0 || Number(speed) > 4) fail(`SPEED=«${speed}»: нужно число от 0 до 4`);
 const cfg = (env.CFG ?? '').trim();
 if (cfg && !/^[\w.\-]+:-?[\d.]+(,[\w.\-]+:-?[\d.]+)*$/.test(cfg)) fail(`CFG=«${cfg}»: нужно «путь:число,путь:число», например waves.hpGrowthPerWave:0.06`);
+const farm = ['1', 'true', 'yes'].includes((env.FARM ?? '').trim().toLowerCase()) ? '1' : '0';
 const laneList = Array.from({ length: lanes }, (_, i) => i + 1);
-const out = { profile, lanes: JSON.stringify(laneList), k: String(k), to_level: String(toLevel), speed, cfg };
-console.log(`Лестница: профиль ${profile}, дорожек ${lanes}, до ${k} партий на уровне, уровни 1–${toLevel}, speed ${speed}${cfg ? `, cfg ${cfg}` : ''}`);
+const out = { profile, lanes: JSON.stringify(laneList), k: String(k), to_level: String(toLevel), speed, cfg, farm };
+console.log(`Лестница: профиль ${profile}, дорожек ${lanes}, до ${k} партий на уровне, уровни 1–${toLevel}, speed ${speed}${cfg ? `, cfg ${cfg}` : ''}${farm === '1' ? ', контроль фарма' : ''}`);
 const lines = Object.entries(out).map(([key, value]) => `${key}=${value}`);
 if (process.env.GITHUB_OUTPUT) fs.appendFileSync(process.env.GITHUB_OUTPUT, `${lines.join('\n')}\n`);
 else console.log(lines.join('\n'));
