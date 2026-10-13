@@ -270,6 +270,20 @@ if (ladderResults.length) {
     );
   }
   lines.push('');
+  // волна гибели в каждой попытке и запас древа: на каждом уровне — по дорожкам; «на входе» — очки древа, ещё не потраченные к первой партии уровня
+  lines.push('**Волна гибели по попыткам (победа — «В30»), номер попытки с первой победой и очки древа, не купленные на входе в уровень** (всё древо / только открытые ветки башен; всего в древе — по таблице `meta.upgrades`)');
+  lines.push('');
+  lines.push('| Уровень | Профиль, дорожка | Волны по попыткам | Первая победа | Не куплено на входе (всё / открытые) | Очков на входе |');
+  lines.push('|---|---|---|---|---|---|');
+  for (let level = 1; level <= 10; level++) {
+    for (const l of [...lanes.values()].sort((a, b) => a.profile.localeCompare(b.profile) || a.run - b.run)) {
+      const x = l.levels.get(level);
+      if (!x) continue;
+      const waves = x.waves.map((w, i) => (x.results?.[i] === 'won' ? `В${w}` : String(w))).join(' → ');
+      lines.push(`| ${level} | ${PROFILE_TITLES[l.profile] ?? l.profile} ${l.run} | ${waves || '—'} | ${x.firstWin ?? `нет (${x.games})`} | ${x.treeLeftIn ? `${x.treeLeftIn.all} / ${x.treeLeftIn.open}` : '—'} | ${x.dnaIn ?? '—'} |`);
+    }
+  }
+  lines.push('');
   lines.push('<details><summary>По дорожкам: партии до победы на каждом уровне, на каком уровне застряла, покупки</summary>');
   lines.push('');
   lines.push('```');

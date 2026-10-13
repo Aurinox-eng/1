@@ -389,6 +389,18 @@ function dnaForGame(game) {
   return cleared * META.dna.perWave + (game.result === 'won' ? META.dna.winBonus : 0);
 }
 
+/** Сколько очков ДНК ещё не потрачено в древе улучшений при уровнях `levels`: { all — всё древо (все ветки), open — только ветки башен, открытых на уровне `level` }. */
+function treeLeft(levels, level) {
+  let all = 0;
+  let open = 0;
+  for (const [id, u] of Object.entries(META.upgrades)) {
+    const rest = u.prices.slice(levels[id] ?? 0).reduce((a, b) => a + b, 0);
+    all += rest;
+    if ((TOWER_UNLOCK[u.branch] ?? 1) <= level) open += rest;
+  }
+  return { all, open };
+}
+
 /** Жадная покупка очков ДНК между партиями (`buyGreedy`): первое по порядку BUY_ORDER улучшение, на следующий уровень которого хватает очков; ветка башни — если башня открыта на уровне партии. */
 function buyUpgrades(levels, dna, level = LEVEL) {
   return buyGreedy({ upgrades: META.upgrades, order: BUY_ORDER, unlock: TOWER_UNLOCK, level, levels, dna });
@@ -1481,7 +1493,7 @@ async function ladderLane(profile, run) {
   }
   if (lane.nextLevel < LADDER_FROM) die(`Состояние дорожки ${key}: следующий уровень ${lane.nextLevel}, а --from-level=${LADDER_FROM}: пропущены уровни.`);
   for (let level = Math.max(LADDER_FROM, lane.nextLevel); level <= LADDER_TO; level++) {
-    const rec = { level, games: 0, firstWin: null, waves: [], results: [], stars: 0, dnaIn: lane.dna, levelsIn: { ...lane.levels }, bought: [], dnaGained: [] };
+    const rec = { level, games: 0, firstWin: null, waves: [], results: [], stars: 0, dnaIn: lane.dna, levelsIn: { ...lane.levels }, bought: [], dnaGained: [], treeLeftIn: treeLeft(lane.levels, level), treeLeftAfter: [] };
     lane.perLevel.push(rec);
     for (let n = 1; n <= LADDER; n++) {
       if (stopRequested) return true;
@@ -1520,8 +1532,9 @@ async function ladderLane(profile, run) {
       rec.waves.push(game.result === 'won' ? game.waveTotal : game.wave);
       rec.results.push(game.result);
       rec.bought.push(buy.bought);
+      rec.treeLeftAfter.push(treeLeft(lane.levels, level));
       rec.dnaGained.push(gained);
-      console.log(`[${tag}, уровень ${level}, партия ${n}] ${RESULT_RU[game.result]} · волна ${game.wave}/${game.waveTotal} · жизни ${game.lives}/${game.maxLives}${stars ? ` · звёзд ${stars}` : ''} · очков ДНК +${gained} (остаток ${lane.dna}) · куплено ${buy.bought.length ? buy.bought.join(', ') : '—'} · слияний ${game.merges} (мимо ${game.mergeMisses}) · игра ${game.gameSec} с, реал. ${game.realSec} с`);
+      console.log(`[${tag}, уровень ${level}, партия ${n}] ${RESULT_RU[game.result]} · волна ${game.wave}/${game.waveTotal} · жизни ${game.lives}/${game.maxLives}${stars ? ` · звёзд ${stars}` : ''} · очков ДНК +${gained} (остаток ${lane.dna}) · куплено ${buy.bought.length ? buy.bought.join(', ') : '—'} · древа не куплено ${rec.treeLeftAfter.at(-1).all} (в открытых ветках ${rec.treeLeftAfter.at(-1).open}) · слияний ${game.merges} (мимо ${game.mergeMisses}) · игра ${game.gameSec} с, реал. ${game.realSec} с`);
       for (const a of game.anomalies ?? []) console.log(`      ⚠ ${a}`);
       saveResults();
       if (game.result === 'won') {
@@ -1642,7 +1655,7 @@ if (fatal) {
 if (LADDER) {
   console.log('\nИТОГ ЛЕСТНИЦЫ (партий до первой победы по уровням)');
   for (const lane of ladderLanes) {
-    const parts = lane.perLevel.map((r) => `${r.level}: ${r.firstWin ? r.firstWin : `—(${r.games})`}`);
+    const parts = lane.perLevel.map((r) => `${r.level}: ${r.firstWin ? r.firstWin : `—(${r.games})`} [волны ${r.waves.join(' ')}; древа на входе ${r.treeLeftIn?.all ?? '?'}]`);
     console.log(`  ${PROFILE_TITLES[lane.profile]} ${lane.run}: ${parts.join(' · ')}${lane.stuckAt ? ` · застряла на уровне ${lane.stuckAt}` : ''} · очков ${lane.dna}`);
   }
 } else if (CAMPAIGN) {
