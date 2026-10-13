@@ -32,6 +32,9 @@ on:
       farm:
         type: string
         default: '0'
+      max_real_sec:
+        type: string
+        default: '7200'
 
 permissions:
   contents: read
@@ -76,8 +79,9 @@ jobs:
           SPEED: ${{ inputs.speed }}
           CFG: ${{ inputs.cfg }}
           FARM: ${{ inputs.farm }}
+          MAX_REAL: ${{ inputs.max_real_sec }}
         run: |
-          args=(--profile="$PROFILE" --runs=1 --run-offset=$((LANE - 1)) --speed="$SPEED" --canvas --ladder="$K" --from-level="$LEVEL" --to-level="$LEVEL" --state-out=state-out.json --tag="ladder-L${LEVEL}-lane${LANE}")
+          args=(--profile="$PROFILE" --runs=1 --run-offset=$((LANE - 1)) --speed="$SPEED" --canvas --ladder="$K" --from-level="$LEVEL" --to-level="$LEVEL" --state-out=state-out.json --max-real-sec="$MAX_REAL" --tag="ladder-L${LEVEL}-lane${LANE}")
           if [ "$LEVEL" -gt 1 ]; then args+=(--state-in=state-in/state-out.json); fi
           if [ -n "$CFG" ]; then args+=(--cfg="$CFG"); fi
           if [ "$FARM" = "1" ]; then args+=(--farm); fi
