@@ -7067,7 +7067,9 @@ async function runStars(browser, baseUrl) {
   check(`${p} победа без потерь при обычных порогах: три звезды; за новую третью +10`, r.s.stars === 3 && r.s.starDna === 10 && r.m.progress.stars[0] === 3, `звёзд ${r.s.stars}, очков за звёзды ${r.s.starDna}`);
   const dnaAfter = r.m.dna;
   r = await playWin('', 'повторные три звезды');
-  check(`${p} повторная победа на три звезды новых звёзд не даёт: очки за звёзды 0, на счёте прибавилось только за волну и победу (5 + 15)`, r.s.stars === 3 && r.s.starDna === 0 && r.m.dna === dnaAfter + 20, `очков за звёзды ${r.s.starDna}, счёт ${dnaAfter} → ${r.m.dna}`);
+  // уровень уже пройден: за волны только replayFactor от награды, бонуса за победу нет (решение владельца 13 октября, правило В)
+  const replayGain = Math.floor(1 * readMetaTable().dna.perWave * readMetaTable().dna.replayFactor);
+  check(`${p} повторная победа на три звезды новых звёзд не даёт: очки за звёзды 0, на счёте прибавилось только за волну по доле replayFactor (${replayGain}), бонуса за победу нет`, r.s.stars === 3 && r.s.starDna === 0 && r.m.dna === dnaAfter + replayGain, `очков за звёзды ${r.s.starDna}, счёт ${dnaAfter} → ${r.m.dna}`);
   r = await playWin('levels.stars.maxLostFor3:-1,levels.stars.maxLostFor2:-1', 'худший результат');
   check(`${p} худший результат (одна звезда) звёзды уровня не снижает: в сохранении по-прежнему 3, очков за звёзды 0`, r.s.stars === 1 && r.s.starDna === 0 && r.m.progress.stars[0] === 3, `за партию ${r.s.stars}, в сохранении ${r.m.progress.stars[0]}`);
 
