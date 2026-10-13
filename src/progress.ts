@@ -38,9 +38,17 @@ export function unlockLevel(id: string): number {
   return CONFIG.levels.towerUnlock[id] ?? 1;
 }
 
-/** Открыта ли башня на текущем уровне. */
+let levelReached: (level: number) => boolean = () => false;
+
+/** `meta.ts` подставляет проверку «уровень уже открыт у игрока» (напрямую импортировать её сюда нельзя: `meta.ts` сам импортирует этот файл). */
+export function setLevelReachedCheck(check: (level: number) => boolean): void {
+  levelReached = check;
+}
+
+/** Открыта ли башня: уровень её открытия не больше текущего (вход по `?level=N`, проверки) или уже открыт у игрока — открытая однажды башня доступна на всех уровнях,
+ *  в том числе пройденных (решение владельца 13 октября 2026). */
 export function isTowerOpen(id: string): boolean {
-  return unlockLevel(id) <= current;
+  return unlockLevel(id) <= current || levelReached(unlockLevel(id));
 }
 
 /** Башни, которые открылись именно на этом уровне (для них в начале уровня показывается плашка), в порядке таблицы башен. */

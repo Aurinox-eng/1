@@ -118,10 +118,11 @@ export interface DebugSnapshot {
   events: number;
   lang: string;
   renderer: 'webgl' | 'canvas';
-  /** Размер экрана игры и ширина окна карты (без правой панели), пикселей. */
+  /** Размер экрана игры, ширина окна карты и само окно (между верхней и нижней полосами), пикселей. */
   width: number;
   height: number;
   viewW: number;
+  view: { x: number; y: number; w: number; h: number };
   /** Карта: размер в клетках, сторона клетки, ширина зоны организма, размер мира в пикселях. */
   map: { cols: number; rows: number; tile: number; orgW: number; worldW: number; worldH: number };
   /** Камера: приближение, центр (в пикселях мира) и допустимые пределы приближения. */
@@ -218,9 +219,10 @@ export interface DebugSnapshot {
   /** Где на экране игры кнопки панели (центры) и сколько жизней нарисовано: towerButton — первая башня (Таблетка), towerButtons — все. */
   ui: {
     towerButton: { x: number; y: number; w: number; h: number };
-    towerButtons: { id: string; x: number; y: number; w: number; h: number; locked: boolean }[];
-    /** Компактные кнопки открытых башен над карточкой (видны, только пока открыта карточка). */
-    towerStrip: { visible: boolean; buttons: { id: string; x: number; y: number; w: number; h: number }[] };
+    /** Карточки башен в нижней панели по порядку таблицы; visible — центр карточки в окне списка (иначе список нужно сдвинуть: `revealTower`). */
+    towerButtons: { id: string; x: number; y: number; w: number; h: number; locked: boolean; visible: boolean }[];
+    /** Окно списка башен и его сдвиг (pixels) и наибольший сдвиг. */
+    towerList: { x: number; y: number; w: number; h: number; scroll: number; maxScroll: number };
     pauseButton: { x: number; y: number };
     /** Кнопка скорости (×1/×2/×3) и кнопка «Начать волну» (visible — видна ли сейчас, bonus — сколько монет даст досрочный вызов). */
     speedButton: { x: number; y: number };
@@ -264,6 +266,8 @@ export interface DebugApi {
   gameToClient: (gx: number, gy: number) => { x: number; y: number };
   /** Центр клетки → координаты на странице. */
   cellToClient: (col: number, row: number) => { x: number; y: number };
+  /** Сдвинуть список башен в нижней панели так, чтобы карточка этой башни была видна (проверки и бот нажимают на карточки по координатам). */
+  revealTower: (id: string) => void;
   /** Замер скорости с последнего сброса (reset — начать заново) и сколько объектов сейчас рисуется. */
   /** Журнал событий игры (с номера `from`): см. QaEvent. Сбрасывается при перезапуске уровня. */
   getEvents: (from?: number) => QaEvent[];

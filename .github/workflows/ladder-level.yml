@@ -29,6 +29,9 @@ on:
       cfg:
         type: string
         default: ''
+      farm:
+        type: string
+        default: '0'
 
 permissions:
   contents: read
@@ -72,10 +75,12 @@ jobs:
           K: ${{ inputs.k }}
           SPEED: ${{ inputs.speed }}
           CFG: ${{ inputs.cfg }}
+          FARM: ${{ inputs.farm }}
         run: |
           args=(--profile="$PROFILE" --runs=1 --run-offset=$((LANE - 1)) --speed="$SPEED" --canvas --ladder="$K" --from-level="$LEVEL" --to-level="$LEVEL" --state-out=state-out.json --tag="ladder-L${LEVEL}-lane${LANE}")
           if [ "$LEVEL" -gt 1 ]; then args+=(--state-in=state-in/state-out.json); fi
           if [ -n "$CFG" ]; then args+=(--cfg="$CFG"); fi
+          if [ "$FARM" = "1" ]; then args+=(--farm); fi
           node qa/bot.mjs "${args[@]}" 2>&1 | tee bot.log
       - name: Сохранить состояние дорожки
         if: always()

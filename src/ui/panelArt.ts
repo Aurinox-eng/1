@@ -143,21 +143,21 @@ export function roundButton(scene: Phaser.Scene, r: number): string {
   });
 }
 
-/** Широкая зелёная кнопка «Начать волну». */
-export function waveButton(scene: Phaser.Scene, w: number, h: number): string {
-  return make(scene, 'ui-wave-btn', w + GLOW * 2, h + GLOW * 2, (ctx) => {
+/** Зелёная кнопка «Начать волну»: скругление r (по умолчанию — «таблетка» на всю высоту). */
+export function waveButton(scene: Phaser.Scene, w: number, h: number, r: number = h / 2): string {
+  return make(scene, `ui-wave-btn-${w}x${h}-${r}`, w + GLOW * 2, h + GLOW * 2, (ctx) => {
     ctx.save();
     ctx.shadowColor = 'rgba(0,0,0,0.5)';
     ctx.shadowBlur = 8;
     ctx.shadowOffsetY = 3;
-    roundRect(ctx, GLOW, GLOW, w, h, h / 2);
+    roundRect(ctx, GLOW, GLOW, w, h, r);
     const g = ctx.createLinearGradient(0, GLOW, 0, GLOW + h);
     g.addColorStop(0, '#3fae5a');
     g.addColorStop(1, '#26803f');
     ctx.fillStyle = g;
     ctx.fill();
     ctx.restore();
-    roundRect(ctx, GLOW, GLOW, w, h, h / 2);
+    roundRect(ctx, GLOW, GLOW, w, h, r);
     ctx.lineWidth = 2.5;
     ctx.strokeStyle = '#8be5a0';
     ctx.stroke();

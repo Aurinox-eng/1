@@ -1,54 +1,42 @@
 import Phaser from 'phaser';
 import { CONFIG } from '../config';
-import { t, type TextKey } from '../i18n';
+import { t } from '../i18n';
 import { createTowerArt, type TowerId } from '../objects/Tower';
 import { isTowerOpen, unlockLevel } from '../progress';
 import { towerPrice } from '../towerStats';
 import { COLORS, FONT, TEXT_COLORS } from '../theme';
-import { card, drawPlate, panelBackground, roundButton, slot as slotTexture, waveButton as waveButtonTexture } from './panelArt';
+import { drawPlate, roundButton, waveButton as waveButtonTexture } from './panelArt';
 import { TowerCard, type CardGeometry, type CardModel } from './TowerCard';
 
 const { width: W, height: H } = CONFIG.screen;
-const PANEL_W = CONFIG.map.panelW;
-/** Левый край панели = ширина окна карты. */
-export const VIEW_W = W - PANEL_W;
-const PX = VIEW_W;
-const CX = PX + PANEL_W / 2;
-/** Слои интерфейса: панель ниже всплывающих подсказок, а те — ниже экранов паузы и конца уровня (глубина 200). */
+/** Высота верхней полосы (волна, монеты, жизни) и нижней панели (список башен, «Начать волну», скорость, пауза), пикселей экрана игры. */
+export const TOP_H = CONFIG.map.topH;
+export const BOTTOM_H = CONFIG.map.bottomH;
+const BOTTOM_Y = H - BOTTOM_H;
+/** Окно карты: между верхней и нижней полосами, на всю ширину экрана. */
+export const VIEW = { x: 0, y: TOP_H, w: W, h: H - TOP_H - BOTTOM_H };
+/** Слои интерфейса: полосы ниже всплывающих подсказок, а те — ниже экранов паузы и конца уровня (глубина 200). */
 const D = { panel: 100, item: 101, chip: 96, toast: 105 };
 
-/** Все башни по порядку таблицы `towers`; у каждой — название на кнопке (подпись способа стрельбы с кнопки убрана: она есть в карточке, подсказке и альманахе). */
+/** Все башни по порядку таблицы `towers`. */
 const TOWER_IDS = Object.keys(CONFIG.towers) as TowerId[];
-const TOWER_TEXT: Record<TowerId, TextKey> = {
-  pill: 'towerPill',
-  syrup: 'towerSyrup',
-  fizz: 'towerFizz',
-  syringe: 'towerSyringe',
-  ampule: 'towerAmpule',
-  antibiotic: 'towerAntibiotic',
-  lamp: 'towerLamp',
-  vitamin: 'towerVitamin',
-  frost: 'towerFrost',
-  patch: 'towerPatch',
-};
 
-// Раскладка панели сверху вниз, пикселей экрана игры
-const CARD_X = PX + 12;
-const CARD_W = PANEL_W - 24;
-const WAVE_CARD = { y: 10, h: 78 };
-const RES_CARD = { y: 96, h: 84 };
-/** Кнопки башен: десять штук должны уместиться между карточкой монет (до y = 180) и кнопкой «Начать волну» (с y = 614): 10 × 38 + 9 × 2 = 398 px (при восьми башнях было 8 × 48 + 7 × 3 = 405,
- *  при шести — 6 × 64 + 5 × 4 = 404, при четырёх — 96 + 8). Общая высота почти не менялась, поэтому карточка выбранной башни осталась прежней. Кнопка — одна строка: значок, название, справа цена. */
-const SLOT = { x: PX + 12, y0: 190, w: PANEL_W - 24, h: 38, gap: 2 };
-const WAVE_BTN = { y: 614, w: PANEL_W - 24, h: 38 };
-const CTRL = { y: 686, r: 22, dx: 38 };
-/** Полоса компактных кнопок башен над карточкой (видна, только пока открыта карточка): высота и промежуток до карточки, пикселей. */
-const STRIP = { h: 38, gap: 6, between: 4 };
-/** Когда открыто больше стольких башен, полоса идёт в две строки (в одну десять значков с ценой не помещаются в 176 px): высота строки и промежуток между строками. */
-const STRIP_ONE_ROW_MAX = 8;
-const STRIP_TWO = { rowH: 24, rowGap: 2 };
-/** Карточка при открытой полосе растягивается вниз на столько пикселей (до кнопки «Начать волну» остаётся запас), чтобы в неё помещался выбор мутации. */
-const CARD_EXTRA = 14;
+// Раскладка нижней панели, пикселей экрана игры (макет docs/mockups/bottom-bar.html)
+/** Список башен слева: окно прокрутки и карточка башни (значок и цена). */
+const LIST = { x: 10, y: BOTTOM_Y, w: 896, h: BOTTOM_H };
+const CARD = { w: 108, h: 92, gap: 8, top: BOTTOM_Y + 8 };
+/** Правая часть: «Начать волну» (всегда на месте), скорость и пауза — круглые по 80 px, чтобы попадать большим пальцем. */
+const WAVE_BTN = { x: 916, w: 170, h: 98 };
+const CTRL_Y = BOTTOM_Y + 56;
+const SPEED_BTN = { x: 1134, r: 40 };
+const PAUSE_BTN = { x: 1222, r: 40 };
+/** Карточка выбранной башни лежит над нижней панелью, на карте; список башен остаётся доступным. */
+const CARD_AREA = { x: 10, y: BOTTOM_Y - 108, w: W - 20, h: 104 };
+/** Сколько пикселей нужно сдвинуть палец, чтобы касание списка стало прокруткой, а не нажатием на башню. */
+const DRAG_PX = 10;
+/** Цвет подложки полос (как у нижней панели в макете). */
+const BAR_FILL = 0x12203a;
+const BAR_EDGE = 0x33578f;
 
 /** Сердце по точкам классической кривой; центр — (cx, cy), k — размер. */
 function heartPoints(cx: number, cy: number, k: number): Phaser.Types.Math.Vector2Like[] {
@@ -63,7 +51,7 @@ function heartPoints(cx: number, cy: number, k: number): Phaser.Types.Math.Vecto
 }
 
 export interface PanelCallbacks {
-  /** Тап по кнопке башни. */
+  /** Нажатие на карточку башни в списке. */
   onTower: (id: TowerId) => void;
   /** Тап по кнопке паузы. */
   onPause: () => void;
@@ -79,9 +67,22 @@ export interface PanelCallbacks {
   onCardClose: () => void;
 }
 
+/** Карточка башни в списке: контейнер со всем, что на ней нарисовано, и её состояние. */
+interface ListCard {
+  id: TowerId;
+  open: boolean;
+  box: Phaser.GameObjects.Container;
+  bg: Phaser.GameObjects.Graphics;
+  need: Phaser.GameObjects.Graphics;
+  price: Phaser.GameObjects.Text | null;
+  /** Состояние, с которым карточка нарисована в последний раз (перерисовка — только при изменении). */
+  key: string;
+}
+
 /**
- * Правая панель: волна, монеты, жизни, кнопки башен (все башни таблицы `towers`), скорость, пауза, «Начать волну».
- * Лежит поверх карты и не двигается. Тут же — подсказка «◀ Организм» у левого края и всплывающие сообщения.
+ * Интерфейс игры вокруг карты: верхняя полоса (волна, монеты, жизни — только вывод), нижняя панель (список башен с прокруткой вбок,
+ * «Начать волну», скорость, пауза) и карточка выбранной стоящей башни над нижней панелью. Лежит поверх карты и не двигается.
+ * Тут же — подсказка «◀ Организм» у левого края и всплывающие сообщения.
  */
 export class Panel {
   private readonly waveText: Phaser.GameObjects.Text;
@@ -89,18 +90,14 @@ export class Panel {
   private readonly bar: Phaser.GameObjects.Graphics;
   private readonly coinsText: Phaser.GameObjects.Text;
   private readonly hearts: Phaser.GameObjects.Graphics;
-  private readonly slotOff = new Map<TowerId, Phaser.GameObjects.Image>();
-  private readonly slotOn = new Map<TowerId, Phaser.GameObjects.Image>();
-  private readonly priceTexts = new Map<TowerId, Phaser.GameObjects.Text>();
-  /** Всё, что нарисовано на больших кнопках башен: прячется, пока открыта карточка (над ней — компактная полоса). */
-  private readonly slotItems: { setVisible(v: boolean): unknown }[] = [];
-  /** Компактные кнопки башен над карточкой: подложка, цена и положение (только открытые башни). */
-  private readonly stripPrices = new Map<TowerId, Phaser.GameObjects.Text>();
-  private readonly stripRects: { id: TowerId; x: number; y: number; w: number; h: number }[] = [];
-  private readonly stripItems: { setVisible(v: boolean): unknown }[] = [];
-  private readonly stripZones: Phaser.GameObjects.Zone[] = [];
-  /** Высота полосы компактных кнопок (одна или две строки), пикселей. */
-  private stripHeight = STRIP.h;
+  private readonly topGfx: Phaser.GameObjects.Graphics;
+  private readonly cards: ListCard[] = [];
+  /** Порядок карточек в списке: открытые башни (в порядке таблицы), потом закрытые. */
+  private readonly order: TowerId[];
+  private readonly listFade: Phaser.GameObjects.Graphics;
+  private readonly listCover: Phaser.GameObjects.Graphics;
+  private readonly listArrows: [Phaser.GameObjects.Text, Phaser.GameObjects.Text];
+  private readonly listTrack: Phaser.GameObjects.Graphics;
   private readonly speedText: Phaser.GameObjects.Text;
   private readonly waveBtnItems: { setVisible(v: boolean): unknown }[] = [];
   private readonly waveBtnBonus: Phaser.GameObjects.Text;
@@ -114,127 +111,105 @@ export class Panel {
   private readonly card: TowerCard;
   private toastTween: Phaser.Tweens.Tween | null = null;
   private selected: TowerId | null = null;
+  private coins = 0;
   private lives = 0;
   private maxLives: number = CONFIG.lives.start;
   private chipDanger: boolean | null = null;
   private chipFill = 0;
   private waveBtnVisible = false;
   private waveBtnBonusValue = 0;
+  private hintMessage: string | null = null;
+  /** Сдвиг списка башен влево, пикселей (0 — первая карточка у левого края). */
+  private scroll = 0;
+  private drag: { id: number; startX: number; startY: number; scroll0: number; moved: boolean } | null = null;
 
   constructor(
     private readonly scene: Phaser.Scene,
-    callbacks: PanelCallbacks,
+    private readonly callbacks: PanelCallbacks,
   ) {
-    // Фон панели и карточки
-    scene.add.image(PX + PANEL_W / 2, H / 2, panelBackground(scene, PANEL_W, H)).setDepth(D.panel);
-    scene.add.image(CX, WAVE_CARD.y + WAVE_CARD.h / 2, card(scene, 'ui-card-wave', CARD_W, WAVE_CARD.h)).setDepth(D.panel);
-    scene.add.image(CX, RES_CARD.y + RES_CARD.h / 2, card(scene, 'ui-card-res', CARD_W, RES_CARD.h)).setDepth(D.panel);
+    const open = TOWER_IDS.filter((id) => isTowerOpen(id));
+    this.order = [...open, ...TOWER_IDS.filter((id) => !open.includes(id))];
 
-    // Волна и полоска прогресса
-    this.waveText = this.text(CX, WAVE_CARD.y + 24, '', 24);
+    // ---- верхняя полоса: только вывод
+    const top = scene.add.graphics().setDepth(D.panel);
+    top.fillStyle(BAR_FILL, 1).fillRect(0, 0, W, TOP_H);
+    top.lineStyle(2, BAR_EDGE, 1).lineBetween(0, TOP_H - 1, W, TOP_H - 1);
+    this.topGfx = scene.add.graphics().setDepth(D.panel + 0.5);
+    this.chipPlate(12, 470);
+    this.chipPlate(494, 130);
+    this.waveText = this.text(28, TOP_H / 2, '', 20, TEXT_COLORS.main, 0);
     this.bar = scene.add.graphics().setDepth(D.item);
-    this.nextWaveText = this.text(CX, WAVE_CARD.y + 63, '', 16, TEXT_COLORS.soft).setFontStyle('normal');
-
-    // Монеты и жизни
-    this.coin(PX + 42, RES_CARD.y + 28, 16);
-    this.coinsText = this.text(PX + 70, RES_CARD.y + 28, '0', 34, TEXT_COLORS.accent, 0, 0.5);
+    this.nextWaveText = this.text(344, TOP_H / 2, '', 14, TEXT_COLORS.soft, 0).setFontStyle('normal');
+    this.coin(512, TOP_H / 2, 9);
+    this.coinsText = this.text(530, TOP_H / 2, '0', 20, TEXT_COLORS.accent, 0, 0.5);
     this.hearts = scene.add.graphics().setDepth(D.item);
 
-    // Кнопки башен: значок, название, цена; закрытая башня — серая, с замком и надписью «Уровень N»
-    TOWER_IDS.forEach((id, i) => {
-      const r = this.slotRect(i);
-      const cy = r.y + r.h / 2;
-      const open = isTowerOpen(id);
-      const track = <T extends { setVisible(v: boolean): unknown }>(item: T): T => {
-        this.slotItems.push(item);
-        return item;
-      };
-      this.slotOff.set(id, scene.add.image(CX, cy, slotTexture(scene, false, r.w, r.h)).setDepth(D.item));
-      this.slotOn.set(id, scene.add.image(CX, cy, slotTexture(scene, true, r.w, r.h)).setDepth(D.item).setVisible(false));
-      track(scene.add.circle(r.x + 21, cy, 16, 0x0e1b38, 1).setStrokeStyle(2, 0x3a5f9c, 1).setDepth(D.item + 1));
-      const icon = track(scene.add.container(r.x + 21, cy).setDepth(D.item + 1).setScale(0.32));
-      createTowerArt(scene, icon, id);
-      const nameX = r.x + 42;
-      if (open) {
-        // Одна строка: название слева, справа цена и монета; длинное название («Антибиотик») сжимается до места между значком и ценой
-        track(this.coin(r.x + r.w - 14, cy, 6.5));
-        const price = track(this.text(r.x + r.w - 24, cy, String(towerPrice(id)), 18, TEXT_COLORS.accent, 1, 0.5));
-        this.priceTexts.set(id, price);
-        const nameText = track(this.text(nameX, cy, t(TOWER_TEXT[id]), 15, TEXT_COLORS.main, 0, 0.5));
-        const room = price.x - price.width - 6 - nameX;
-        if (nameText.width > room) nameText.setScale(room / nameText.width);
-      } else {
-        // Закрытая башня: название и под ним «Уровень N» (две строки — в одну они не помещаются), серая «шторка» поверх кнопки, замок на значке
-        const nameText = track(this.text(nameX, r.y + 12, t(TOWER_TEXT[id]), 15, TEXT_COLORS.main, 0, 0.5));
-        if (nameText.width > r.w - 50) nameText.setScale((r.w - 50) / nameText.width);
-        const veil = scene.add.graphics().setDepth(D.item + 2);
-        veil.fillStyle(0x070d1c, 0.68).fillRoundedRect(r.x, r.y, r.w, r.h, 14);
-        track(veil);
-        track(this.lockIcon(r.x + 21, cy - 3));
-        const lock = track(this.text(nameX, r.y + 28, t('lockedLevel', { n: unlockLevel(id) }), 13, TEXT_COLORS.soft, 0, 0.5).setDepth(D.item + 3));
-        if (lock.width > r.w - 50) lock.setScale((r.w - 50) / lock.width);
-      }
-      scene.add
-        .zone(r.x + r.w / 2, cy, r.w, r.h)
-        .setDepth(D.item + 2)
-        .setInteractive({ useHandCursor: true })
-        .on('pointerdown', (pointer: Phaser.Input.Pointer) => {
-          // Карточка выбранной башни лежит поверх кнопок башен: нажатие, попавшее сюда сквозь неё, — это нажатие по карточке
-          if (this.card.visible) this.card.pressAt(pointer.x, pointer.y);
-          else callbacks.onTower(id);
-        });
+    // ---- нижняя панель: подложка
+    const bottom = scene.add.graphics().setDepth(D.panel);
+    bottom.fillStyle(BAR_FILL, 1).fillRect(0, BOTTOM_Y, W, BOTTOM_H);
+    bottom.lineStyle(2, BAR_EDGE, 1).lineBetween(0, BOTTOM_Y + 1, W, BOTTOM_Y + 1);
+
+    // ---- список башен: карточки (значок и цена), затухание у правого края, стрелки и ползунок положения
+    this.order.forEach((id) => this.cards.push(this.buildCard(id)));
+    // подложка правой части панели и левого поля закрывает карточки, уехавшие за край окна списка (ниже кнопок правой части, выше карточек)
+    this.listCover = scene.add.graphics().setDepth(D.item + 0.5);
+    this.listFade = scene.add.graphics().setDepth(D.item + 0.6);
+    this.listArrows = [
+      this.text(LIST.x + LIST.w - 10, BOTTOM_Y + 52, '›', 38, TEXT_COLORS.accent).setDepth(D.item + 3),
+      this.text(LIST.x + 4, BOTTOM_Y + 52, '‹', 38, TEXT_COLORS.accent).setDepth(D.item + 3),
+    ];
+    this.listTrack = scene.add.graphics().setDepth(D.item + 3);
+    this.bindList();
+    this.layoutCards();
+
+    // ---- карточка выбранной башни — над нижней панелью
+    this.card = new TowerCard(scene, CARD_AREA, D.item + 3, {
+      onMerge: callbacks.onMerge,
+      onSell: callbacks.onSell,
+      onPick: callbacks.onPick,
+      onRotate: callbacks.onRotate,
+      onClose: callbacks.onCardClose,
     });
 
-    // Компактные кнопки открытых башен — над карточкой (скрыты, пока карточка не открыта)
-    this.buildStrip(callbacks);
-
-    // Карточка выбранной башни — поверх кнопок башен (скрыта, пока башня не выбрана)
-    this.card = new TowerCard(
-      scene,
-      { x: SLOT.x, y: SLOT.y0, w: SLOT.w, h: this.slotsHeight() },
-      D.item + 3,
-      { onMerge: callbacks.onMerge, onSell: callbacks.onSell, onPick: callbacks.onPick, onRotate: callbacks.onRotate, onClose: callbacks.onCardClose },
-    );
-
-    // «Начать волну» (видна, пока идёт отсчёт до волны)
-    const wy = WAVE_BTN.y + WAVE_BTN.h / 2;
-    this.waveBtnItems.push(scene.add.image(CX, wy, waveButtonTexture(scene, WAVE_BTN.w, WAVE_BTN.h)).setDepth(D.item));
-    this.waveBtnLabel = this.text(CX, wy, t('startWave'), 17);
-    this.waveBtnBonus = this.text(PX + PANEL_W - 28, wy, '', 17, TEXT_COLORS.accent, 1, 0.5);
+    // ---- «Начать волну» (видна, пока идёт отсчёт до волны), скорость и пауза — правая часть панели, на месте всегда
+    const wy = CTRL_Y;
+    this.waveBtnItems.push(scene.add.image(WAVE_BTN.x + WAVE_BTN.w / 2, wy, waveButtonTexture(scene, WAVE_BTN.w, WAVE_BTN.h, 20)).setDepth(D.item + 1));
+    this.waveBtnLabel = this.text(WAVE_BTN.x + WAVE_BTN.w / 2, wy - 12, t('startWave'), 19, '#06220f');
+    this.waveBtnLabel.setStroke('#000000', 0);
+    this.waveBtnBonus = this.text(WAVE_BTN.x + WAVE_BTN.w / 2, wy + 16, '', 17, '#06220f');
+    this.waveBtnBonus.setStroke('#000000', 0);
     this.waveBtnItems.push(this.waveBtnLabel, this.waveBtnBonus);
     this.waveBtnItems.push(
       scene.add
-        .zone(CX, wy, WAVE_BTN.w, WAVE_BTN.h)
-        .setDepth(D.item + 2)
+        .zone(WAVE_BTN.x + WAVE_BTN.w / 2, wy, WAVE_BTN.w, WAVE_BTN.h)
+        .setDepth(D.item + 4)
         .setInteractive({ useHandCursor: true })
         .on('pointerdown', () => {
           if (this.waveBtnVisible) callbacks.onWave();
         }),
     );
     this.setWaveButton(false, 0);
+    scene.add.image(SPEED_BTN.x, CTRL_Y, roundButton(scene, SPEED_BTN.r)).setDepth(D.item + 1);
+    this.speedText = this.text(SPEED_BTN.x, CTRL_Y, '×1', 28);
+    scene.add.zone(SPEED_BTN.x, CTRL_Y, SPEED_BTN.r * 2, SPEED_BTN.r * 2).setDepth(D.item + 4).setInteractive({ useHandCursor: true }).on('pointerdown', callbacks.onSpeed);
+    scene.add.image(PAUSE_BTN.x, CTRL_Y, roundButton(scene, PAUSE_BTN.r)).setDepth(D.item + 1);
+    scene.add.rectangle(PAUSE_BTN.x - 9, CTRL_Y, 8, 30, 0xffffff).setDepth(D.item + 2);
+    scene.add.rectangle(PAUSE_BTN.x + 9, CTRL_Y, 8, 30, 0xffffff).setDepth(D.item + 2);
+    scene.add.zone(PAUSE_BTN.x, CTRL_Y, PAUSE_BTN.r * 2, PAUSE_BTN.r * 2).setDepth(D.item + 4).setInteractive({ useHandCursor: true }).on('pointerdown', callbacks.onPause);
 
-    // Скорость и пауза
-    scene.add.image(CX - CTRL.dx, CTRL.y, roundButton(scene, CTRL.r)).setDepth(D.item);
-    this.speedText = this.text(CX - CTRL.dx, CTRL.y, '×1', 19);
-    scene.add.zone(CX - CTRL.dx, CTRL.y, 64, 64).setDepth(D.item + 2).setInteractive({ useHandCursor: true }).on('pointerdown', callbacks.onSpeed);
-    scene.add.image(CX + CTRL.dx, CTRL.y, roundButton(scene, CTRL.r)).setDepth(D.item);
-    scene.add.rectangle(CX + CTRL.dx - 5.5, CTRL.y, 5, 20, 0xffffff).setDepth(D.item + 1);
-    scene.add.rectangle(CX + CTRL.dx + 5.5, CTRL.y, 5, 20, 0xffffff).setDepth(D.item + 1);
-    scene.add.zone(CX + CTRL.dx, CTRL.y, 64, 64).setDepth(D.item + 2).setInteractive({ useHandCursor: true }).on('pointerdown', callbacks.onPause);
-
-    // Подсказка «◀ Организм» у левого края
+    // ---- подсказка «◀ Организм» у левого края окна карты
     this.chipBg = scene.add.graphics();
     const chipText = scene.add
       .text(14, 17, `◀ ${t('organism')}`, { fontFamily: FONT, fontSize: '17px', fontStyle: 'bold', color: TEXT_COLORS.main, resolution: 2 })
       .setOrigin(0, 0.5);
-    this.chip = scene.add.container(0, 328, [this.chipBg, chipText]).setDepth(D.chip).setVisible(false);
+    this.chip = scene.add.container(0, VIEW.y + VIEW.h / 2 - 17, [this.chipBg, chipText]).setDepth(D.chip).setVisible(false);
     this.drawChip(false);
 
-    // Всплывающее сообщение сверху и постоянная подсказка снизу (на тёмных плашках)
+    // ---- всплывающее сообщение сверху окна карты и постоянная подсказка снизу (на тёмных плашках)
     this.toastPlate = scene.add.graphics().setDepth(D.toast - 1).setAlpha(0);
-    this.toastText = this.text(VIEW_W / 2, 46, '', 26, TEXT_COLORS.accent).setDepth(D.toast).setAlpha(0);
+    this.toastText = this.text(VIEW.x + VIEW.w / 2, TOP_H + 30, '', 26, TEXT_COLORS.accent).setDepth(D.toast).setAlpha(0);
     this.hintPlate = scene.add.graphics().setDepth(D.toast - 1).setVisible(false);
-    this.hintText = this.text(VIEW_W / 2, H - 38, '', 24, TEXT_COLORS.main).setDepth(D.toast).setVisible(false);
+    this.hintText = this.text(VIEW.x + VIEW.w / 2, this.hintY(), '', 24, TEXT_COLORS.main).setDepth(D.toast).setVisible(false);
   }
 
   // ---------------------------------------------------------------- что показывать
@@ -242,25 +217,23 @@ export class Panel {
   setWave(n: number, total: number, progress: number, nextInSec: number | null): void {
     this.waveText.setText(t('wave', { n, total }));
     this.nextWaveText.setText(nextInSec === null ? '' : t('nextWave', { n: Math.ceil(nextInSec) }));
-    const bx = CARD_X + 14;
-    const bw = CARD_W - 28;
-    const by = WAVE_CARD.y + 42;
+    const bx = 200;
+    const bw = 130;
+    const by = TOP_H / 2 - 4;
     this.bar.clear();
-    this.bar.fillStyle(0x0a1530, 1).fillRoundedRect(bx, by, bw, 11, 5.5);
-    this.bar.lineStyle(1.5, 0x3a5f9c, 1).strokeRoundedRect(bx, by, bw, 11, 5.5);
+    this.bar.fillStyle(0x0a1530, 1).fillRoundedRect(bx, by, bw, 8, 4);
+    this.bar.lineStyle(1.5, 0x3a5f9c, 1).strokeRoundedRect(bx, by, bw, 8, 4);
     if (progress > 0) {
-      const fw = Math.max(11, bw * Math.min(1, progress));
-      this.bar.fillStyle(COLORS.pillBlue, 1).fillRoundedRect(bx, by, fw, 11, 5.5);
-      this.bar.fillStyle(0xffffff, 0.3).fillRoundedRect(bx + 3, by + 2, Math.max(0, fw - 6), 3, 1.5);
+      const fw = Math.max(8, bw * Math.min(1, progress));
+      this.bar.fillStyle(COLORS.pillBlue, 1).fillRoundedRect(bx, by, fw, 8, 4);
     }
   }
 
-  /** Число монет; цена башни красная, если на неё не хватает. */
+  /** Число монет; цена башни красная, а карточка тусклая с полоской «сколько уже есть», если монет не хватает. */
   setCoins(n: number): void {
+    this.coins = n;
     this.coinsText.setText(String(n));
-    for (const texts of [this.priceTexts, this.stripPrices]) {
-      for (const [id, text] of texts) text.setColor(n >= towerPrice(id) ? TEXT_COLORS.accent : TEXT_COLORS.bad);
-    }
+    for (const c of this.cards) this.drawCard(c);
   }
 
   /** Красным мигает число монет, если на башню не хватило. */
@@ -269,54 +242,63 @@ export class Panel {
     this.scene.time.delayedCall(350, () => this.coinsText.setColor(TEXT_COLORS.accent));
   }
 
-  /** Сердца жизней: max — сколько их всего (с улучшениями вне партии бывает больше трёх); при многих сердцах шаг уменьшается, чтобы они помещались в панель. */
+  /** Сердца жизней: max — сколько их всего (с улучшениями вне партии бывает больше трёх); при многих сердцах шаг уменьшается. */
   setLives(lives: number, max: number = this.maxLives): void {
     this.lives = lives;
     this.maxLives = max;
-    this.hearts.clear();
     const n = max;
-    const step = n > 1 ? Math.min(50, 130 / (n - 1)) : 50;
-    const scale = Math.min(1.2, (1.2 * step) / 46); // шаг 50 — сердца обычного размера; теснее — уменьшаются, чтобы не слипаться
+    const step = Math.min(26, 150 / Math.max(1, n));
+    const k = (0.62 * step) / 26;
+    const chipW = n * step + 24;
+    this.chipPlate(636, chipW, true);
+    this.hearts.clear();
     for (let i = 0; i < n; i++) {
-      const x = CX + (i - (n - 1) / 2) * step;
-      this.hearts.fillStyle(0x000000, 0.35).fillPoints(heartPoints(x + 1.5, RES_CARD.y + 66, scale), true);
+      const x = 636 + 12 + step / 2 + i * step;
       this.hearts.fillStyle(i < lives ? COLORS.heart : COLORS.heartLost, 1);
-      this.hearts.fillPoints(heartPoints(x, RES_CARD.y + 64, scale), true);
+      this.hearts.fillPoints(heartPoints(x, TOP_H / 2 + 1, k), true);
     }
   }
 
-  /** Какая кнопка башни выбрана (золотая рамка со свечением); null — никакая. */
+  /** Какая карточка башни выбрана для постройки (золотая рамка, приподнята); null — никакая. */
   setSelected(id: TowerId | null): void {
     this.selected = id;
-    for (const tid of TOWER_IDS) {
-      const on = this.selected === tid;
-      this.slotOn.get(tid)?.setVisible(on);
-      this.slotOff.get(tid)?.setVisible(!on);
-    }
+    for (const c of this.cards) this.drawCard(c);
+    if (id) this.revealTower(id);
   }
 
-  /** Показать карточку выбранной башни (или обновить её): большие кнопки башен прячутся, над карточкой — компактная полоса кнопок. */
+  /** Показать карточку выбранной стоящей башни (или обновить её) над нижней панелью. */
   showCard(model: CardModel): void {
-    const top = SLOT.y0 + (this.stripRects.length > 0 ? this.stripHeight + STRIP.between : 0);
-    this.card.setArea({ x: SLOT.x, y: top, w: SLOT.w, h: SLOT.y0 + this.slotsHeight() + CARD_EXTRA - top });
     this.card.show(model);
-    for (const item of this.slotItems) item.setVisible(false);
-    for (const tid of TOWER_IDS) {
-      this.slotOn.get(tid)?.setVisible(false);
-      this.slotOff.get(tid)?.setVisible(false);
-    }
-    this.setStrip(true);
+    this.refitHint();
   }
 
   hideCard(): void {
     this.card.hide();
-    this.setStrip(false);
-    for (const item of this.slotItems) item.setVisible(true);
-    this.setSelected(this.selected);
+    this.refitHint();
   }
 
   get cardVisible(): boolean {
     return this.card.visible;
+  }
+
+  /** Верхний край карточки башни на экране (когда она открыта): выше него камера держит выбранную башню. */
+  cardTop(): number {
+    return CARD_AREA.y;
+  }
+
+  /** Точка (x, y) экрана попала на кнопку карточки выбранной башни: касание принадлежит ей, а не карте (мимо кнопок касания проходят к карте под карточкой). */
+  coversPoint(x: number, y: number): boolean {
+    return this.card.coversButton(x, y);
+  }
+
+  /** Сдвинуть список башен так, чтобы карточка башни была видна целиком. */
+  revealTower(id: TowerId): void {
+    const i = this.order.indexOf(id);
+    if (i < 0) return;
+    const left = i * (CARD.w + CARD.gap);
+    const right = left + CARD.w;
+    if (left < this.scroll) this.setScroll(left);
+    else if (right > this.scroll + LIST.w - 40) this.setScroll(right - (LIST.w - 40));
   }
 
   /** Скорость игры на кнопке: «×2»; ускорение подсвечено золотым. */
@@ -330,8 +312,8 @@ export class Panel {
     this.waveBtnBonusValue = bonus;
     for (const item of this.waveBtnItems) item.setVisible(visible);
     const showBonus = visible && bonus > 0;
-    this.waveBtnBonus.setVisible(showBonus).setText(showBonus ? `+${bonus}` : '');
-    this.waveBtnLabel.setOrigin(showBonus ? 0 : 0.5, 0.5).setX(showBonus ? PX + 28 : CX);
+    this.waveBtnBonus.setVisible(showBonus).setText(showBonus ? t('waveBonus', { n: bonus }) : '');
+    this.waveBtnLabel.setY(showBonus ? CTRL_Y - 12 : CTRL_Y);
   }
 
   /** Подсказка «◀ Организм»: показывать, когда организм за краем экрана; danger — бактерия близко (мигает). */
@@ -347,18 +329,18 @@ export class Panel {
     return { visible: this.chip.visible, danger: this.chipDanger === true, alpha: this.chip.alpha, fill: this.chipFill };
   }
 
-  /** Кладёт текст в плашку и, если он не помещается в окно карты, уменьшает его (до 0,5): так длинные сообщения не уходят за край и под панель. */
+  /** Кладёт текст в плашку и, если он не помещается в окно карты, уменьшает его (до 0,5): так длинные сообщения не уходят за край. */
   private fitPlate(text: Phaser.GameObjects.Text, plate: Phaser.GameObjects.Graphics, y: number): void {
-    const scale = Math.min(1, (VIEW_W - 40) / (text.width + 48));
+    const scale = Math.min(1, (VIEW.w - 40) / (text.width + 48));
     text.setScale(scale);
-    drawPlate(plate, VIEW_W / 2, y, text.width * scale + 48, text.height * scale + 18);
+    drawPlate(plate, VIEW.x + VIEW.w / 2, y, text.width * scale + 48, text.height * scale + 18);
   }
 
-  /** Всплывающее сообщение сверху экрана. */
+  /** Всплывающее сообщение сверху окна карты. */
   toast(message: string, ms: number = CONFIG.ui.toastMs): void {
     this.toastTween?.stop();
     this.toastText.setText(message).setAlpha(1);
-    this.fitPlate(this.toastText, this.toastPlate, 46);
+    this.fitPlate(this.toastText, this.toastPlate, TOP_H + 30);
     this.toastPlate.setAlpha(1);
     this.toastTween = this.scene.tweens.add({
       targets: [this.toastText, this.toastPlate],
@@ -368,48 +350,207 @@ export class Panel {
     });
   }
 
-  /** Постоянная подсказка снизу (null — убрать). */
+  /** Постоянная подсказка снизу окна карты (над карточкой башни, если она открыта); null — убрать. */
   setHint(message: string | null): void {
+    this.hintMessage = message;
     this.hintText.setVisible(message !== null);
     this.hintPlate.setVisible(message !== null);
     if (message !== null) {
       this.hintText.setText(message);
-      this.fitPlate(this.hintText, this.hintPlate, H - 38);
+      this.refitHint();
     }
   }
 
-  /** Где кнопки на экране игры — для проверок: towerButton — первая башня (Таблетка), towerButtons — все по порядку таблицы. */
+  /** Где кнопки на экране игры — для проверок: towerButton — первая башня (Таблетка), towerButtons — все по порядку таблицы (visible — центр карточки в окне списка). */
   geometry(): {
     towerButton: { x: number; y: number; w: number; h: number };
-    towerButtons: { id: string; x: number; y: number; w: number; h: number; locked: boolean }[];
-    towerStrip: { visible: boolean; buttons: { id: string; x: number; y: number; w: number; h: number }[] };
+    towerButtons: { id: string; x: number; y: number; w: number; h: number; locked: boolean; visible: boolean }[];
+    towerList: { x: number; y: number; w: number; h: number; scroll: number; maxScroll: number };
     pauseButton: { x: number; y: number };
     speedButton: { x: number; y: number };
     waveButton: { x: number; y: number; w: number; h: number; visible: boolean; bonus: number };
     card: CardGeometry;
     lives: number;
   } {
-    const towerButtons = TOWER_IDS.map((id, i) => {
-      const r = this.slotRect(i);
-      return { id, x: r.x + r.w / 2, y: r.y + r.h / 2, w: r.w, h: r.h, locked: !isTowerOpen(id) };
+    const towerButtons = TOWER_IDS.map((id) => {
+      const x = this.cardX(this.order.indexOf(id)) + CARD.w / 2;
+      return { id, x, y: CARD.top + CARD.h / 2, w: CARD.w, h: CARD.h, locked: !isTowerOpen(id), visible: x >= LIST.x + 10 && x <= LIST.x + LIST.w - 10 };
     });
     const first = towerButtons[0];
     return {
       towerButton: { x: first.x, y: first.y, w: first.w, h: first.h },
       towerButtons,
-      towerStrip: { visible: this.card.visible && this.stripRects.length > 0, buttons: this.stripRects.map((r) => ({ ...r })) },
-      pauseButton: { x: CX + CTRL.dx, y: CTRL.y },
-      speedButton: { x: CX - CTRL.dx, y: CTRL.y },
-      waveButton: { x: CX, y: WAVE_BTN.y + WAVE_BTN.h / 2, w: WAVE_BTN.w, h: WAVE_BTN.h, visible: this.waveBtnVisible, bonus: this.waveBtnBonusValue },
+      towerList: { x: LIST.x, y: LIST.y, w: LIST.w, h: LIST.h, scroll: this.scroll, maxScroll: this.maxScroll() },
+      pauseButton: { x: PAUSE_BTN.x, y: CTRL_Y },
+      speedButton: { x: SPEED_BTN.x, y: CTRL_Y },
+      waveButton: { x: WAVE_BTN.x + WAVE_BTN.w / 2, y: CTRL_Y, w: WAVE_BTN.w, h: WAVE_BTN.h, visible: this.waveBtnVisible, bonus: this.waveBtnBonusValue },
       card: this.card.geometry(),
       lives: this.lives,
     };
   }
 
+  // ---------------------------------------------------------------- список башен
+
+  private cardX(index: number): number {
+    return LIST.x + index * (CARD.w + CARD.gap) - this.scroll;
+  }
+
+  private maxScroll(): number {
+    const content = this.order.length * CARD.w + (this.order.length - 1) * CARD.gap;
+    return Math.max(0, content - LIST.w + 40);
+  }
+
+  private setScroll(value: number): void {
+    const next = Math.max(0, Math.min(this.maxScroll(), value));
+    if (next === this.scroll) return;
+    this.scroll = next;
+    this.layoutCards();
+  }
+
+  /** Раскладка карточек по текущему сдвигу, затухание у правого края, стрелки и ползунок. */
+  private layoutCards(): void {
+    this.cards.forEach((c, i) => c.box.setPosition(this.cardX(i), CARD.top));
+    const max = this.maxScroll();
+    this.listFade.clear();
+    this.listCover.clear();
+    // левый край окна списка (10 px от края экрана) закрыт подложкой, правый — подложкой правой части панели и полосой затухания
+    this.listCover.fillStyle(BAR_FILL, 1).fillRect(0, BOTTOM_Y + 2, LIST.x, BOTTOM_H - 2);
+    this.listCover.fillStyle(BAR_FILL, 1).fillRect(LIST.x + LIST.w, BOTTOM_Y + 2, W - LIST.x - LIST.w, BOTTOM_H - 2);
+    if (max > 0) {
+      const strips = 8;
+      for (let k = 0; k < strips; k++) {
+        const w = 56 / strips;
+        this.listFade.fillStyle(BAR_FILL, (k + 1) / strips).fillRect(LIST.x + LIST.w - 56 + k * w, BOTTOM_Y + 2, w + 0.5, BOTTOM_H - 2);
+      }
+    }
+    this.listArrows[0].setVisible(this.scroll < max - 1);
+    this.listArrows[1].setVisible(this.scroll > 1);
+    this.listTrack.clear();
+    if (max > 0) {
+      const trackW = LIST.w;
+      const thumb = Math.max(40, (trackW * LIST.w) / (LIST.w + max));
+      this.listTrack.fillStyle(0x1a2a48, 1).fillRoundedRect(LIST.x, H - 6, trackW, 4, 2);
+      this.listTrack.fillStyle(0x4a76b8, 1).fillRoundedRect(LIST.x + ((trackW - thumb) * this.scroll) / max, H - 6, thumb, 4, 2);
+    }
+  }
+
+  private buildCard(id: TowerId): ListCard {
+    const scene = this.scene;
+    const open = isTowerOpen(id);
+    const box = scene.add.container(0, CARD.top).setDepth(D.item);
+    const bg = scene.add.graphics();
+    const need = scene.add.graphics();
+    box.add(bg);
+    const icon = scene.add.container(CARD.w / 2, 33).setScale(0.5);
+    createTowerArt(scene, icon, id);
+    box.add(icon);
+    let price: Phaser.GameObjects.Text | null = null;
+    if (open) {
+      price = this.text(CARD.w / 2, 73, String(towerPrice(id)), 22, TEXT_COLORS.accent).setDepth(0);
+      box.add(price);
+      box.add(need);
+    } else {
+      // Закрытая башня: серая «шторка», замок и «Ур. N»
+      const veil = scene.add.graphics();
+      veil.fillStyle(0x070d1c, 0.7).fillRoundedRect(0, 0, CARD.w, CARD.h, 12);
+      box.add(veil);
+      box.add(this.lockIcon(CARD.w / 2, 30));
+      const lock = this.text(CARD.w / 2, 71, t('lockedLevel', { n: unlockLevel(id) }), 17, TEXT_COLORS.soft).setDepth(0);
+      if (lock.width > CARD.w - 10) lock.setScale((CARD.w - 10) / lock.width);
+      box.add(lock);
+    }
+    const c: ListCard = { id, open, box, bg, need, price, key: '' };
+    this.drawCard(c);
+    return c;
+  }
+
+  /** Перерисовать карточку башни по состоянию: выбрана (золотая рамка, приподнята), не хватает монет (тусклая, красная цена, полоска), закрыта. */
+  private drawCard(c: ListCard): void {
+    const armed = this.selected === c.id;
+    const poor = c.open && this.coins < towerPrice(c.id);
+    const share = poor ? Math.max(0, Math.min(1, this.coins / towerPrice(c.id))) : 1;
+    const key = `${armed}|${poor}|${Math.round(share * 40)}`;
+    if (key === c.key) return;
+    c.key = key;
+    c.bg.clear();
+    if (c.open) {
+      c.bg.fillStyle(armed ? 0x27497f : 0x1d3760, 1).fillRoundedRect(0, 0, CARD.w, CARD.h, 12);
+      c.bg.lineStyle(armed ? 4 : 2, armed ? COLORS.gold : 0x33578f, 1).strokeRoundedRect(armed ? 2 : 1, armed ? 2 : 1, CARD.w - (armed ? 4 : 2), CARD.h - (armed ? 4 : 2), 12);
+    } else {
+      c.bg.fillStyle(0x17243f, 1).fillRoundedRect(0, 0, CARD.w, CARD.h, 12);
+      c.bg.lineStyle(2, 0x2a3a5c, 1).strokeRoundedRect(1, 1, CARD.w - 2, CARD.h - 2, 12);
+    }
+    c.box.setY(CARD.top + (armed ? -8 : 0)).setAlpha(poor && !armed ? 0.62 : 1);
+    c.price?.setColor(poor ? TEXT_COLORS.bad : TEXT_COLORS.accent);
+    c.need.clear();
+    if (poor) {
+      c.need.fillStyle(0x26385e, 1).fillRoundedRect(10, CARD.h - 9, CARD.w - 20, 4, 2);
+      c.need.fillStyle(0xff6b6b, 1).fillRoundedRect(10, CARD.h - 9, Math.max(4, (CARD.w - 20) * share), 4, 2);
+    }
+  }
+
+  /** Касания списка: смахивание — прокрутка, короткое касание — нажатие на карточку башни; колесо мыши — прокрутка. */
+  private bindList(): void {
+    const scene = this.scene;
+    scene.add
+      .zone(LIST.x + LIST.w / 2, LIST.y + LIST.h / 2, LIST.w, LIST.h)
+      .setDepth(D.item + 4)
+      .setInteractive({ useHandCursor: true })
+      .on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+        this.drag = { id: pointer.id, startX: pointer.x, startY: pointer.y, scroll0: this.scroll, moved: false };
+      });
+    scene.input.on('pointermove', (pointer: Phaser.Input.Pointer) => {
+      const d = this.drag;
+      if (!d || d.id !== pointer.id) return;
+      const dx = pointer.x - d.startX;
+      if (!d.moved && Math.abs(dx) > DRAG_PX) d.moved = true;
+      if (d.moved) this.setScroll(d.scroll0 - dx);
+    });
+    scene.input.on('pointerup', (pointer: Phaser.Input.Pointer) => {
+      const d = this.drag;
+      if (!d || d.id !== pointer.id) return;
+      this.drag = null;
+      if (!d.moved && Math.hypot(pointer.x - d.startX, pointer.y - d.startY) <= DRAG_PX) this.tapList(pointer.x);
+    });
+    scene.input.on('pointerupoutside', () => {
+      this.drag = null;
+    });
+    scene.input.on('wheel', (pointer: Phaser.Input.Pointer, _over: unknown, dx: number, dy: number) => {
+      if (pointer.x < LIST.x || pointer.x > LIST.x + LIST.w || pointer.y < LIST.y) return;
+      this.setScroll(this.scroll + (Math.abs(dx) > Math.abs(dy) ? dx : dy));
+    });
+  }
+
+  /** Нажатие на карточку башни в списке по координате x. */
+  private tapList(x: number): void {
+    if (x < LIST.x || x > LIST.x + LIST.w) return;
+    const slot = (x - LIST.x + this.scroll) / (CARD.w + CARD.gap);
+    const index = Math.floor(slot);
+    if (slot - index > CARD.w / (CARD.w + CARD.gap) || index < 0 || index >= this.order.length) return;
+    this.callbacks.onTower(this.order[index]);
+  }
+
   // ---------------------------------------------------------------- рисование
 
-  private slotRect(i: number): { x: number; y: number; w: number; h: number } {
-    return { x: SLOT.x, y: SLOT.y0 + i * (SLOT.h + SLOT.gap), w: SLOT.w, h: SLOT.h };
+  private hintY(): number {
+    return (this.card?.visible ? CARD_AREA.y : BOTTOM_Y) - 34;
+  }
+
+  private refitHint(): void {
+    if (this.hintMessage === null) return;
+    this.hintText.setY(this.hintY());
+    this.fitPlate(this.hintText, this.hintPlate, this.hintY());
+  }
+
+  /** Тёмная скруглённая «таблетка» под выводом в верхней полосе (`redraw` — перерисовать только плашку жизней: она меняет ширину). */
+  private chipPlate(x: number, w: number, redraw = false): void {
+    if (redraw) this.topGfx.clear();
+    this.topGfx.fillStyle(0x0d162b, 1).fillRoundedRect(x, 5, w, TOP_H - 10, (TOP_H - 10) / 2);
+    this.topGfx.lineStyle(1, BAR_EDGE, 1).strokeRoundedRect(x, 5, w, TOP_H - 10, (TOP_H - 10) / 2);
+    if (redraw) {
+      this.chipPlate(12, 470);
+      this.chipPlate(494, 130);
+    }
   }
 
   private drawChip(danger: boolean): void {
@@ -437,7 +578,7 @@ export class Panel {
 
   /** Замок закрытой башни: корпус и дужка (рисуется кодом). */
   private lockIcon(x: number, y: number): Phaser.GameObjects.Graphics {
-    const g = this.scene.add.graphics().setDepth(D.item + 3);
+    const g = this.scene.add.graphics();
     g.lineStyle(3, 0xc9d6f2, 1);
     g.beginPath();
     g.arc(x, y - 3, 6, Math.PI, 0, false);
@@ -445,65 +586,6 @@ export class Panel {
     g.fillStyle(0xc9d6f2, 1).fillRoundedRect(x - 9, y - 3, 18, 14, 3);
     g.fillStyle(0x14264b, 1).fillCircle(x, y + 4, 2.4);
     return g;
-  }
-
-  /** Высота блока больших кнопок башен (все башни таблицы, открытые и закрытые). */
-  private slotsHeight(): number {
-    return TOWER_IDS.length * SLOT.h + (TOWER_IDS.length - 1) * SLOT.gap;
-  }
-
-  /**
-   * Компактные кнопки открытых башен над карточкой: подложка, значок, цена. Нужны, чтобы купить башню, не закрывая карточку.
-   * Видны только пока открыта карточка (`setStrip`); закрытые башни в полосе не показываются.
-   */
-  private buildStrip(callbacks: PanelCallbacks): void {
-    const ids = TOWER_IDS.filter((id) => isTowerOpen(id));
-    if (ids.length === 0) return;
-    const n = ids.length;
-    // До восьми открытых башен — одна строка (значок над ценой), девять и десять — две строки по пять (значок слева, цена справа)
-    const rows = n > STRIP_ONE_ROW_MAX ? 2 : 1;
-    const perRow = Math.ceil(n / rows);
-    const gap = rows === 2 ? 3 : n > 6 ? 2 : n > 4 ? 3 : STRIP.gap;
-    const w = (SLOT.w - gap * (perRow - 1)) / perRow;
-    const h = rows === 2 ? STRIP_TWO.rowH : STRIP.h;
-    this.stripHeight = rows === 2 ? 2 * STRIP_TWO.rowH + STRIP_TWO.rowGap : STRIP.h;
-    ids.forEach((id, i) => {
-      const row = Math.floor(i / perRow);
-      const col = i % perRow;
-      // неполная последняя строка стоит по центру
-      const inRow = row === rows - 1 ? n - perRow * (rows - 1) : perRow;
-      const x = SLOT.x + (SLOT.w - (inRow * w + (inRow - 1) * gap)) / 2 + col * (w + gap);
-      const y = SLOT.y0 + row * (h + STRIP_TWO.rowGap);
-      const cx = x + w / 2;
-      const plate = this.scene.add.graphics().setDepth(D.item + 8);
-      plate.fillStyle(0x1d366a, 1).fillRoundedRect(x, y, w, h, rows === 2 ? 8 : 12);
-      plate.lineStyle(2, 0x3a5f9c, 1).strokeRoundedRect(x, y, w, h, rows === 2 ? 8 : 12);
-      let icon: Phaser.GameObjects.Container;
-      let price: Phaser.GameObjects.Text;
-      if (rows === 2) {
-        icon = this.scene.add.container(x + 7.5, y + h / 2).setDepth(D.item + 9).setScale(0.125);
-        price = this.text(x + w - 1.5, y + h / 2, String(towerPrice(id)), 10, TEXT_COLORS.accent, 1, 0.5).setDepth(D.item + 9);
-      } else {
-        icon = this.scene.add.container(cx, y + 15).setDepth(D.item + 9).setScale(Math.min(0.3, w / 88));
-        price = this.text(cx, y + h - 9, String(towerPrice(id)), w < 22 ? 10 : w < 34 ? 11 : 14, TEXT_COLORS.accent).setDepth(D.item + 9);
-      }
-      createTowerArt(this.scene, icon, id);
-      const zone = this.scene.add
-        .zone(cx, y + h / 2, w, h)
-        .setDepth(D.item + 10)
-        .setInteractive({ useHandCursor: true })
-        .on('pointerdown', () => callbacks.onTower(id));
-      this.stripItems.push(plate, icon, price);
-      this.stripZones.push(zone);
-      this.stripPrices.set(id, price);
-      this.stripRects.push({ id, x: cx, y: y + h / 2, w, h });
-    });
-    this.setStrip(false);
-  }
-
-  private setStrip(on: boolean): void {
-    for (const item of this.stripItems) item.setVisible(on);
-    for (const zone of this.stripZones) if (zone.input) zone.input.enabled = on;
   }
 
   /** Первичная отрисовка (после создания всех объектов). */

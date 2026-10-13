@@ -1,15 +1,18 @@
 import Phaser from 'phaser';
+import { createTowerArt, type TowerId } from '../objects/Tower';
 import { t } from '../i18n';
 import { COLORS, FONT, TEXT_COLORS } from '../theme';
 
 /** Что показывает карточка выбранной башни (тексты уже на нужном языке; считает сцена). */
 export interface CardModel {
+  /** Какая башня (для значка). */
+  id: TowerId;
   name: string;
   level: number;
   maxLevel: number;
   /** До трёх строк чисел башни. */
   stats: string[];
-  /** Короткое пояснение под всем остальным (Шипучка: сколько целей взрыва получают полный урон); рисуется, только если под него осталось место, иначе пропускается. */
+  /** Короткое пояснение под числами (Шипучка: сколько целей взрыва получают полный урон); рисуется, только если для него осталось место. */
   note: string | null;
   /** Два варианта мутации на выбор (если выбор ждёт) или null. */
   pending: { name: string; desc: string }[] | null;
@@ -47,37 +50,38 @@ export interface CardGeometry {
   close: Rect;
 }
 
-const BTN_H = 34;
-const PICK_H = 58;
-/** Тесная раскладка (когда над карточкой стоит полоса кнопок башен в две строки — при 9–10 открытых башнях — и карточка ниже этого числа пикселей): строки чисел чаще, кнопки мутаций ниже. */
-const DENSE_BELOW = 364;
-const DENSE = { statStep: 16, pickH: 54, pickGap: 3, headerStep: 18 };
-/** Зазор между кнопками «Слить» и «Продать», пикселей: чтобы на телефоне не нажать «Продать» вместо «Слить» (решение владельца 8 октября 2026: без подтверждений, зазор больше). */
-const SELL_GAP = 22;
+/** Высота кнопок «Слить», «Продать» и выбора мутации; ширина «Слить» и «Продать». Между «Слить» и «Продать» — зазор SELL_GAP (решение владельца 8 и 13 октября 2026: без подтверждений, зазор больше). */
+const BTN_H = 84;
+const BTN_W = 180;
+const SELL_GAP = 40;
+const PICK_W = 240;
 const PAD = 12;
-/** Сторона кнопок поворота луча (Шприц), пикселей: они стоят справа от первых двух строк чисел и не должны их закрывать. */
-const ROT = 36;
+/** Сторона кнопок поворота луча (Шприц), пикселей. */
+const ROT = 40;
+const CLOSE = 44;
 
 /**
- * Карточка выбранной башни: лежит на месте кнопок башен в правой панели. Название и уровень, числа, выбор мутации (две кнопки),
- * поворот луча (Шприц), «Слить» и «Продать». Кнопки-зоны созданы один раз и только переносятся (внутри нажатия ничего не уничтожается).
+ * Карточка выбранной стоящей башни: полоса над нижней панелью, на карте. Слева «✕», значок, название и уровень; дальше числа башни (или две кнопки выбора мутации);
+ * справа поворот луча (Шприц), «Слить» и «Продать» (между ними зазор). Кнопки-зоны созданы один раз и только переносятся (внутри нажатия ничего не уничтожается).
  */
 export class TowerCard {
   private readonly bg: Phaser.GameObjects.Graphics;
   private readonly btns: Phaser.GameObjects.Graphics;
   private readonly all: Phaser.GameObjects.GameObject[] = [];
+  private readonly icon: Phaser.GameObjects.Container;
+  private iconId: TowerId | null = null;
   private readonly nameText: Phaser.GameObjects.Text;
   private readonly levelText: Phaser.GameObjects.Text;
   private readonly statTexts: Phaser.GameObjects.Text[];
-  private readonly headerText: Phaser.GameObjects.Text;
   private readonly pickNames: Phaser.GameObjects.Text[];
   private readonly pickDescs: Phaser.GameObjects.Text[];
   private readonly listText: Phaser.GameObjects.Text;
   private readonly noteText: Phaser.GameObjects.Text;
   private readonly mergeText: Phaser.GameObjects.Text;
+  private readonly mergeSub: Phaser.GameObjects.Text;
   private readonly sellText: Phaser.GameObjects.Text;
+  private readonly sellSub: Phaser.GameObjects.Text;
   private readonly closeText: Phaser.GameObjects.Text;
-  private readonly blocker: Phaser.GameObjects.Zone;
   private readonly zones: Record<'close' | 'merge' | 'sell' | 'pick0' | 'pick1' | 'rotL' | 'rotR', Phaser.GameObjects.Zone>;
   private readonly rects: Record<string, Rect> = {};
   private shown = false;
@@ -88,46 +92,41 @@ export class TowerCard {
 
   constructor(
     private readonly scene: Phaser.Scene,
-    private area: Rect,
+    private readonly area: Rect,
     private readonly depth: number,
     private readonly callbacks: CardCallbacks,
   ) {
     const d = depth;
     this.bg = scene.add.graphics().setDepth(d);
     this.btns = scene.add.graphics().setDepth(d + 1);
-    this.all.push(this.bg, this.btns);
-    this.nameText = this.text(0, 0, '', 21, TEXT_COLORS.main, 0);
-    this.levelText = this.text(0, 0, '', 16, TEXT_COLORS.accent, 0);
-    this.statTexts = [0, 1, 2].map(() => this.text(0, 0, '', 14, TEXT_COLORS.soft, 0).setFontStyle('normal'));
-    this.headerText = this.text(0, 0, '', 14, TEXT_COLORS.accent, 0);
+    this.icon = scene.add.container(0, 0).setDepth(d + 2).setScale(0.6);
+    this.all.push(this.bg, this.btns, this.icon);
+    this.nameText = this.text(0, 0, '', 22, TEXT_COLORS.main, 0);
+    this.levelText = this.text(0, 0, '', 17, TEXT_COLORS.accent, 0);
+    this.statTexts = [0, 1, 2].map(() => this.text(0, 0, '', 15, TEXT_COLORS.soft, 0).setFontStyle('normal'));
     this.pickNames = [0, 1].map(() => this.text(0, 0, '', 17, TEXT_COLORS.main, 0));
-    this.pickDescs = [0, 1].map(() => this.text(0, 0, '', 13, TEXT_COLORS.soft, 0).setFontStyle('normal').setWordWrapWidth(area.w - 2 * PAD - 12));
-    this.listText = this.text(0, 0, '', 15, TEXT_COLORS.main, 0).setWordWrapWidth(area.w - 2 * PAD);
-    this.noteText = this.text(0, 0, '', 12, TEXT_COLORS.soft, 0).setFontStyle('normal').setWordWrapWidth(area.w - 2 * PAD);
-    this.mergeText = this.text(0, 0, '', 18, TEXT_COLORS.main);
-    this.sellText = this.text(0, 0, '', 18, TEXT_COLORS.main);
+    this.pickDescs = [0, 1].map(() => this.text(0, 0, '', 13, TEXT_COLORS.soft, 0).setFontStyle('normal').setWordWrapWidth(PICK_W - 20));
+    this.listText = this.text(0, 0, '', 13, TEXT_COLORS.main, 0).setFontStyle('normal').setWordWrapWidth(330);
+    this.noteText = this.text(0, 0, '', 12, TEXT_COLORS.soft, 0).setFontStyle('normal').setWordWrapWidth(330);
+    this.mergeText = this.text(0, 0, '', 24, TEXT_COLORS.main);
+    this.mergeSub = this.text(0, 0, '', 14, TEXT_COLORS.main).setFontStyle('normal');
+    this.sellText = this.text(0, 0, '', 24, TEXT_COLORS.main);
+    this.sellSub = this.text(0, 0, '', 14, TEXT_COLORS.main).setFontStyle('normal');
     this.closeText = this.text(0, 0, '✕', 22, TEXT_COLORS.soft);
-    // Подложка ловит нажатия мимо кнопок (иначе они дошли бы до кнопок башен под карточкой) и на всякий случай передаёт их карточке
-    this.blocker = scene.add
-      .zone(area.x + area.w / 2, area.y + area.h / 2, area.w, area.h)
-      .setDepth(d + 1)
-      .setInteractive()
-      .on('pointerdown', (pointer: Phaser.Input.Pointer) => this.pressAt(pointer.x, pointer.y));
-    this.all.push(this.blocker);
+    // Карточка лежит на карте: нажатия мимо её кнопок проходят к карте под ней (иначе клетки в нижней полосе окна нельзя было бы тапнуть, например при выборе пары для слияния)
     const zone = (w: number, h: number, handler: () => void): Phaser.GameObjects.Zone => {
       const z = scene.add.zone(0, 0, w, h).setDepth(d + 3).setInteractive({ useHandCursor: true }).on('pointerdown', handler);
       this.all.push(z);
       return z;
     };
-    const bw = area.w - 2 * PAD;
     this.zones = {
-      close: zone(44, 44, callbacks.onClose),
-      merge: zone(bw, BTN_H, () => {
+      close: zone(CLOSE, CLOSE, callbacks.onClose),
+      merge: zone(BTN_W, BTN_H, () => {
         if (this.mergeEnabled) callbacks.onMerge();
       }),
-      sell: zone(bw, BTN_H, callbacks.onSell),
-      pick0: zone(bw, PICK_H, () => callbacks.onPick(0)),
-      pick1: zone(bw, PICK_H, () => callbacks.onPick(1)),
+      sell: zone(BTN_W, BTN_H, callbacks.onSell),
+      pick0: zone(PICK_W, BTN_H, () => callbacks.onPick(0)),
+      pick1: zone(PICK_W, BTN_H, () => callbacks.onPick(1)),
       rotL: zone(ROT, ROT, () => callbacks.onRotate(-1)),
       rotR: zone(ROT, ROT, () => callbacks.onRotate(1)),
     };
@@ -136,12 +135,6 @@ export class TowerCard {
 
   get visible(): boolean {
     return this.shown;
-  }
-
-  /** Перенести и растянуть карточку (над ней может появляться полоса кнопок башен); применяется при следующем `show`. */
-  setArea(area: Rect): void {
-    this.area = area;
-    this.blocker.setPosition(area.x + area.w / 2, area.y + area.h / 2).setSize(area.w, area.h);
   }
 
   hide(): void {
@@ -153,119 +146,122 @@ export class TowerCard {
     const { x, y, w, h } = this.area;
     this.setShown(true);
     this.bg.clear();
-    this.bg.fillStyle(0x14264b, 1).fillRoundedRect(x, y, w, h, 14);
-    this.bg.lineStyle(2, 0x3a5f9c, 1).strokeRoundedRect(x, y, w, h, 14);
+    this.bg.fillStyle(0x0e1a32, 0.9).fillRoundedRect(x, y, w, h, 14);
+    this.bg.lineStyle(2, 0x33578f, 1).strokeRoundedRect(x, y, w, h, 14);
     this.btns.clear();
+    const cy = y + h / 2;
 
-    const left = x + PAD;
-    let cy = y + 12;
-    this.nameText.setText(m.name).setPosition(left, cy);
-    this.closeText.setPosition(x + w - 22, cy + 11);
-    this.zones.close.setPosition(x + w - 22, cy + 11);
-    this.rects.close = { x: x + w - 22, y: cy + 11, w: 44, h: 44 };
-    cy += 28;
-    this.levelText.setText(t('cardLevel', { n: m.level, max: m.maxLevel })).setPosition(left, cy);
-    cy += 24;
-    this.statTexts.forEach((text, i) => {
-      text.setVisible(i < m.stats.length).setText(m.stats[i] ?? '');
-    });
-    const dense = h < DENSE_BELOW;
-    const statStep = dense ? DENSE.statStep : 18;
-    const pickH = dense ? DENSE.pickH : PICK_H;
-    this.statTexts.forEach((text, i) => text.setPosition(left, cy + i * statStep));
-    cy += 3 * statStep + (dense ? 4 : 6);
+    // Слева: «✕», значок, название и уровень слияния
+    const closeX = x + PAD + CLOSE / 2;
+    this.closeText.setPosition(closeX, cy);
+    this.zones.close.setPosition(closeX, cy);
+    this.btns.fillStyle(0x1d3760, 1).fillCircle(closeX, cy, CLOSE / 2);
+    this.btns.lineStyle(2, 0x33578f, 1).strokeCircle(closeX, cy, CLOSE / 2);
+    this.rects.close = { x: closeX, y: cy, w: CLOSE, h: CLOSE };
+    if (this.iconId !== m.id) {
+      this.icon.removeAll(true);
+      createTowerArt(this.scene, this.icon, m.id);
+      this.iconId = m.id;
+    }
+    const iconX = closeX + CLOSE / 2 + 12 + 30;
+    this.icon.setPosition(iconX, cy);
+    const nameX = iconX + 40;
+    this.nameText.setText(m.name).setPosition(nameX, cy - 26);
+    this.levelText.setText(t('cardLevel', { n: m.level, max: m.maxLevel })).setPosition(nameX, cy + 2);
 
-    const bw = w - 2 * PAD;
-    // Поворот луча (Шприц): две кнопки справа от строк чисел
+    // Справа: «Продать» и левее неё «Слить» с зазором; левее — поворот луча (Шприц)
+    const sellX = x + w - PAD - BTN_W / 2;
+    const mergeX = sellX - BTN_W - SELL_GAP;
+    const rightEdge = mergeX - BTN_W / 2 - 14;
     this.rotVisible = m.beam;
     if (m.beam) {
-      const ry = y + 12 + 28 + 24 + 14;
       const half = ROT / 2;
-      const xr = x + w - 12 - half;
+      const xr = rightEdge - half;
       const xl = xr - ROT - 6;
       for (const [dir, zone, cx] of [[-1, this.zones.rotL, xl], [1, this.zones.rotR, xr]] as const) {
-        zone.setPosition(cx, ry);
-        this.btns.fillStyle(0x1d366a, 1).fillRoundedRect(cx - half, ry - half, ROT, ROT, 10);
-        this.btns.lineStyle(2, COLORS.needle, 1).strokeRoundedRect(cx - half, ry - half, ROT, ROT, 10);
-        this.btns.fillStyle(COLORS.needle, 1).fillTriangle(cx + dir * 9, ry, cx - dir * 6, ry - 9, cx - dir * 6, ry + 9);
+        zone.setPosition(cx, cy);
+        this.btns.fillStyle(0x1d366a, 1).fillRoundedRect(cx - half, cy - half, ROT, ROT, 10);
+        this.btns.lineStyle(2, COLORS.needle, 1).strokeRoundedRect(cx - half, cy - half, ROT, ROT, 10);
+        this.btns.fillStyle(COLORS.needle, 1).fillTriangle(cx + dir * 10, cy, cx - dir * 7, cy - 10, cx - dir * 7, cy + 10);
       }
-      this.rects.rotL = { x: xl, y: ry, w: ROT, h: ROT };
-      this.rects.rotR = { x: xr, y: ry, w: ROT, h: ROT };
+      this.rects.rotL = { x: xl, y: cy, w: ROT, h: ROT };
+      this.rects.rotR = { x: xr, y: cy, w: ROT, h: ROT };
     }
 
-    // Мутации: выбор (две кнопки) или список выбранных
+    // Середина: выбор мутации (две кнопки) или числа башни и выбранные мутации
+    const midX = nameX + 190;
     this.pickVisible = [false, false];
     this.listText.setVisible(false);
-    this.headerText.setVisible(false);
     for (let i = 0; i < 2; i++) {
       this.pickNames[i].setVisible(false);
       this.pickDescs[i].setVisible(false);
     }
+    this.statTexts.forEach((text) => text.setVisible(false));
+    this.noteText.setVisible(false);
     if (m.pending) {
-      this.headerText.setVisible(true).setText(t('cardPick')).setPosition(left, cy);
-      cy += dense ? DENSE.headerStep : 20;
       m.pending.slice(0, 2).forEach((opt, i) => {
-        const by = cy + i * (pickH + (dense ? DENSE.pickGap : 4));
-        this.btns.fillStyle(0x2a4d8e, 1).fillRoundedRect(left, by, bw, pickH, 12);
-        this.btns.lineStyle(3, COLORS.gold, 1).strokeRoundedRect(left, by, bw, pickH, 12);
-        this.pickNames[i].setVisible(true).setText(opt.name).setPosition(left + 8, by + (dense ? 6 : 8));
-        this.pickDescs[i].setVisible(true).setText(opt.desc).setPosition(left + 8, by + (dense ? 29 : 32));
+        const bx = midX + i * (PICK_W + 8);
+        this.btns.fillStyle(0x2a4d8e, 1).fillRoundedRect(bx, cy - BTN_H / 2, PICK_W, BTN_H, 12);
+        this.btns.lineStyle(3, COLORS.gold, 1).strokeRoundedRect(bx, cy - BTN_H / 2, PICK_W, BTN_H, 12);
+        this.pickNames[i].setVisible(true).setText(opt.name).setPosition(bx + 10, cy - BTN_H / 2 + 8);
+        this.pickDescs[i].setVisible(true).setText(opt.desc).setPosition(bx + 10, cy - BTN_H / 2 + 31);
         const zone = i === 0 ? this.zones.pick0 : this.zones.pick1;
-        zone.setPosition(left + bw / 2, by + pickH / 2);
+        zone.setPosition(bx + PICK_W / 2, cy);
         this.pickVisible[i] = true;
-        this.rects[`pick${i}`] = { x: left + bw / 2, y: by + pickH / 2, w: bw, h: pickH };
+        this.rects[`pick${i}`] = { x: bx + PICK_W / 2, y: cy, w: PICK_W, h: BTN_H };
       });
-    } else if (m.picked.length > 0) {
-      this.headerText.setVisible(true).setText(t('cardMutations')).setPosition(left, cy);
-      cy += dense ? DENSE.headerStep : 20;
-      this.listText.setVisible(true).setText(m.picked.map((p) => `• ${p.name} — ${p.desc}`).join('\n')).setPosition(left, cy);
+    } else {
+      this.statTexts.forEach((text, i) => {
+        text.setVisible(i < m.stats.length).setText(m.stats[i] ?? '').setPosition(midX, y + 9 + i * 18);
+      });
+      let ty = y + 9 + Math.max(1, m.stats.length) * 18 + 2;
+      if (m.picked.length > 0) {
+        this.listText.setVisible(true).setText(`${t('cardMutations')} ${m.picked.map((p) => p.name).join(', ')}`).setPosition(midX, ty);
+        ty += this.listText.height + 2;
+      }
+      if (m.note) {
+        this.noteText.setText(m.note);
+        // пояснение рисуется, только если для него остаётся место в карточке
+        if (ty + this.noteText.height <= y + h - 4) this.noteText.setVisible(true).setPosition(midX, ty);
+      }
     }
     this.applyEnabled();
 
-    // Нижние кнопки: «Слить» и «Продать»
-    const sellY = y + h - PAD - BTN_H;
-    const mergeY = sellY - SELL_GAP - BTN_H;
-
-    // Пояснение (Шипучка): под выбором мутации или списком выбранных; не помещается над кнопкой «Слить» — не рисуется (выбор мутации и кнопки важнее)
-    let noteShown = false;
-    if (m.note) {
-      let endY = cy;
-      if (m.pending) endY += 2 * pickH + (dense ? DENSE.pickGap : 4);
-      else if (m.picked.length > 0) endY += this.listText.height;
-      this.noteText.setText(m.note);
-      if (endY + 4 + this.noteText.height <= mergeY - 4) {
-        this.noteText.setPosition(left, endY + 4);
-        noteShown = true;
-      }
-    }
-    this.noteText.setVisible(noteShown);
-    // В режиме слияния «Продать» скрыта: выбор пары по карте не должен заканчиваться случайной продажей
-    this.sellVisible = m.merge !== 'active';
+    // «Слить» и «Продать»
+    this.sellVisible = m.merge !== 'active'; // в режиме слияния «Продать» скрыта: выбор пары по карте не должен заканчиваться случайной продажей
     this.mergeEnabled = m.merge === 'ready' || m.merge === 'active';
-    const mergeColor = m.merge === 'active' ? 0x9a5a1c : this.mergeEnabled ? 0x2a8a4a : 0x2a3552;
-    const mergeEdge = m.merge === 'active' ? 0xffb347 : this.mergeEnabled ? COLORS.merge : 0x4a5c82;
-    this.btns.fillStyle(mergeColor, 1).fillRoundedRect(left, mergeY, bw, BTN_H, 12);
-    this.btns.lineStyle(3, mergeEdge, 1).strokeRoundedRect(left, mergeY, bw, BTN_H, 12);
+    const mergeColor = m.merge === 'active' ? 0x9a5a1c : this.mergeEnabled ? 0x1f7a46 : 0x25324d;
+    const mergeEdge = m.merge === 'active' ? 0xffb347 : this.mergeEnabled ? COLORS.merge : 0x3a4a6b;
+    this.btns.fillStyle(mergeColor, 1).fillRoundedRect(mergeX - BTN_W / 2, cy - BTN_H / 2, BTN_W, BTN_H, 14);
+    this.btns.lineStyle(3, mergeEdge, 1).strokeRoundedRect(mergeX - BTN_W / 2, cy - BTN_H / 2, BTN_W, BTN_H, 14);
     const mergeLabel = { ready: t('cardMerge'), active: t('cardMergeCancel'), none: t('cardNoPair'), max: t('cardMaxLevel') }[m.merge];
-    this.mergeText.setText(mergeLabel).setColor(this.mergeEnabled ? TEXT_COLORS.main : TEXT_COLORS.dim).setPosition(left + bw / 2, mergeY + BTN_H / 2);
-    this.zones.merge.setPosition(left + bw / 2, mergeY + BTN_H / 2);
-    this.rects.merge = { x: left + bw / 2, y: mergeY + BTN_H / 2, w: bw, h: BTN_H };
+    this.mergeText.setText(mergeLabel).setColor(this.mergeEnabled ? TEXT_COLORS.main : TEXT_COLORS.dim);
+    const longLabel = this.mergeText.width > BTN_W - 16;
+    if (longLabel) this.mergeText.setScale((BTN_W - 16) / this.mergeText.width);
+    else this.mergeText.setScale(1);
+    this.mergeText.setPosition(mergeX, cy);
+    this.mergeSub.setVisible(false);
+    this.zones.merge.setPosition(mergeX, cy);
+    this.rects.merge = { x: mergeX, y: cy, w: BTN_W, h: BTN_H };
     if (this.sellVisible) {
-      this.btns.fillStyle(0x7a2a3a, 1).fillRoundedRect(left, sellY, bw, BTN_H, 12);
-      this.btns.lineStyle(3, 0xff6b7a, 1).strokeRoundedRect(left, sellY, bw, BTN_H, 12);
-      this.sellText.setText(t('cardSell', { n: m.sell })).setPosition(left + bw / 2, sellY + BTN_H / 2);
-      this.zones.sell.setPosition(left + bw / 2, sellY + BTN_H / 2);
-      this.rects.sell = { x: left + bw / 2, y: sellY + BTN_H / 2, w: bw, h: BTN_H };
+      this.btns.fillStyle(0x8a2f45, 1).fillRoundedRect(sellX - BTN_W / 2, cy - BTN_H / 2, BTN_W, BTN_H, 14);
+      this.btns.lineStyle(3, 0xff8aa0, 1).strokeRoundedRect(sellX - BTN_W / 2, cy - BTN_H / 2, BTN_W, BTN_H, 14);
+      this.sellText.setText(t('cardSell', { n: m.sell })).setPosition(sellX, cy);
+      if (this.sellText.width > BTN_W - 16) this.sellText.setScale((BTN_W - 16) / this.sellText.width);
+      else this.sellText.setScale(1);
+      this.zones.sell.setPosition(sellX, cy);
+      this.rects.sell = { x: sellX, y: cy, w: BTN_W, h: BTN_H };
     } else {
       this.rects.sell = { x: 0, y: 0, w: 0, h: 0 };
     }
     this.sellText.setVisible(this.sellVisible);
+    this.sellSub.setVisible(false);
     this.applyEnabled();
   }
 
   /**
    * Нажатие в точке (x, y) экрана игры: если там кнопка карточки — выполняет её. Нужно, потому что нажатие, которое Phaser отдал не кнопке карточки,
-   * а лежащей под ней кнопке башни (только что показанная карточка иногда не успевает стать «верхней»), иначе пропало бы.
+   * а подложке (только что показанная карточка иногда не успевает стать «верхней»), иначе пропало бы.
    */
   pressAt(x: number, y: number): boolean {
     if (!this.shown) return false;
@@ -285,6 +281,20 @@ export class TowerCard {
     return true;
   }
 
+  /** Точка (x, y) экрана игры попадает на кнопку карточки (с запасом 4 px): такое нажатие принадлежит карточке, а не карте. */
+  coversButton(x: number, y: number): boolean {
+    if (!this.shown) return false;
+    const keys = ['close', 'merge'];
+    if (this.sellVisible) keys.push('sell');
+    if (this.pickVisible[0]) keys.push('pick0');
+    if (this.pickVisible[1]) keys.push('pick1');
+    if (this.rotVisible) keys.push('rotL', 'rotR');
+    return keys.some((key) => {
+      const r = this.rects[key];
+      return Boolean(r) && Math.abs(x - r.x) <= r.w / 2 + 4 && Math.abs(y - r.y) <= r.h / 2 + 4;
+    });
+  }
+
   /** Где кнопки карточки на экране игры (для проверок и бота); когда карточка скрыта, visible = false. */
   geometry(): CardGeometry {
     const r = (key: string): Rect => this.rects[key] ?? { x: 0, y: 0, w: 0, h: 0 };
@@ -302,10 +312,9 @@ export class TowerCard {
   private setShown(on: boolean): void {
     this.shown = on;
     for (const item of this.all) (item as unknown as { setVisible(v: boolean): unknown }).setVisible(on);
-    for (const text of [this.nameText, this.levelText, ...this.statTexts, this.headerText, ...this.pickNames, ...this.pickDescs, this.listText, this.noteText, this.mergeText, this.sellText, this.closeText]) {
+    for (const text of [this.nameText, this.levelText, ...this.statTexts, ...this.pickNames, ...this.pickDescs, this.listText, this.noteText, this.mergeText, this.mergeSub, this.sellText, this.sellSub, this.closeText]) {
       text.setVisible(on);
     }
-    this.blocker.input!.enabled = on;
     this.applyEnabled();
   }
 

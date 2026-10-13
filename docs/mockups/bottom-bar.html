@@ -1,0 +1,194 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Нижняя панель башен (макет)</title>
+<style>
+  :root { color-scheme: dark; --bg:#0b1020; --panel:#12203a; --card:#1d3760; --edge:#33578f; --gold:#ffd84d; --soft:#9fb3d9; --red:#ff6b6b; --green:#3ec26d; --text:#e8f1ff; }
+  body { margin:0; background:var(--bg); color:var(--text); font:16px/1.4 Arial,"Segoe UI",Roboto,sans-serif; }
+  .page { width:1320px; margin:0 auto; padding:24px 20px 40px; box-sizing:border-box; }
+  h1 { margin:0 0 4px; font-size:26px; }
+  h2 { font-size:19px; margin:30px 0 8px; color:var(--gold); }
+  .sub { color:var(--soft); margin:0 0 14px; font-size:15px; }
+  .frame { position:relative; width:1280px; height:720px; background:#0a1428; overflow:hidden; border:1px solid var(--edge); }
+  .map { position:absolute; left:0; top:40px; width:1280px; height:568px; background:#10223f; overflow:hidden; }
+  .map svg.path { position:absolute; inset:0; }
+  .toast { position:absolute; left:50%; top:52px; transform:translateX(-50%); background:rgba(10,20,40,.88); border:2px solid var(--edge); border-radius:22px; padding:6px 26px; font-size:24px; color:var(--gold); font-weight:700; z-index:3; white-space:nowrap; }
+  .cell { position:absolute; width:96px; height:96px; border-radius:12px; border:2px solid rgba(143,176,230,.35); background:rgba(28,52,92,.55); color:#7ea2d8; font-size:34px; display:flex; align-items:center; justify-content:center; }
+  .cell.ok { border-color:var(--gold); background:rgba(255,216,77,.16); color:var(--gold); }
+  .tw { position:absolute; width:96px; height:96px; display:flex; align-items:center; justify-content:center; }
+  .tw .ring { position:absolute; inset:6px; border-radius:50%; border:3px solid #8fb0e6; background:#2c4a7c; }
+  .tw.sel .ring { border-color:var(--gold); box-shadow:0 0 0 6px rgba(255,216,77,.35); }
+  .tw svg { position:relative; width:60px; height:60px; }
+  .range { position:absolute; border-radius:50%; border:2px solid rgba(160,205,255,.8); background:rgba(120,180,255,.07); }
+  /* верхняя полоса: только волна, монеты, жизни */
+  .top { position:absolute; left:0; top:0; width:1280px; height:40px; background:var(--panel); border-bottom:2px solid var(--edge); display:flex; align-items:center; gap:16px; padding:0 14px; box-sizing:border-box; z-index:5; }
+  .chip { height:30px; border-radius:15px; background:#0d162b; border:1px solid var(--edge); display:flex; align-items:center; padding:0 12px; gap:10px; font-weight:700; font-size:20px; }
+  .chip small { font-size:14px; color:var(--soft); font-weight:400; }
+  .bar { width:130px; height:8px; background:#26385e; border-radius:4px; overflow:hidden; } .bar i { display:block; height:100%; background:var(--green); }
+  .coin { width:20px; height:20px; border-radius:50%; background:#ffcc33; border:3px solid #c9971c; box-sizing:border-box; }
+  .heart { color:#ff5a7a; font-size:22px; letter-spacing:2px; }
+  /* нижняя панель: список башен слева, управление справа (всегда на месте) */
+  .bottom { position:absolute; left:0; top:608px; width:1280px; height:112px; background:var(--panel); border-top:2px solid var(--edge); box-sizing:border-box; z-index:5; }
+  .list { position:absolute; left:10px; top:0; width:896px; height:110px; overflow:hidden; }
+  .list::after { content:""; position:absolute; right:0; top:0; width:56px; height:100%; background:linear-gradient(90deg,transparent,var(--panel) 85%); pointer-events:none; }
+  .list .more { position:absolute; right:6px; top:38px; z-index:2; font-size:34px; color:var(--gold); }
+  .scroll { position:absolute; left:0; bottom:3px; width:896px; height:4px; background:#1a2a48; border-radius:2px; } .scroll i { position:absolute; left:0; top:0; width:560px; height:4px; background:#4a76b8; border-radius:2px; }
+  .cards { position:absolute; left:0; top:8px; display:flex; gap:8px; }
+  .tcard { position:relative; width:108px; height:92px; border-radius:12px; background:var(--card); border:2px solid var(--edge); box-sizing:border-box; display:flex; flex-direction:column; align-items:center; padding-top:6px; flex:none; }
+  .tcard svg { width:52px; height:52px; }
+  .tcard .price { margin-top:2px; font-size:22px; font-weight:700; color:var(--gold); }
+  .tcard.poor { opacity:.62; } .tcard.poor .price { color:var(--red); }
+  .tcard .need { position:absolute; left:10px; right:10px; bottom:5px; height:4px; background:#26385e; border-radius:2px; } .tcard .need i { display:block; height:100%; background:var(--red); border-radius:2px; }
+  .tcard.armed { border-color:var(--gold); border-width:4px; transform:translateY(-8px); box-shadow:0 0 18px rgba(255,216,77,.55); background:#27497f; }
+  .tcard.locked { background:#17243f; border-color:#2a3a5c; } .tcard.locked svg { filter:grayscale(1); opacity:.35; } .tcard.locked .price { color:var(--soft); font-size:18px; }
+  .tcard .lock { position:absolute; top:12px; font-size:30px; }
+  .ctrl { position:absolute; left:916px; top:6px; width:354px; height:98px; display:flex; gap:8px; align-items:center; }
+  .wave { width:170px; height:98px; border-radius:14px; background:linear-gradient(#3ec26d,#2c9a53); border:3px solid #7de3a0; box-sizing:border-box; display:flex; flex-direction:column; align-items:center; justify-content:center; font-weight:700; font-size:19px; color:#06220f; line-height:1.2; flex:none; }
+  .wave small { font-size:17px; }
+  .round { width:80px; height:80px; border-radius:50%; background:#1d3760; border:3px solid #4a76b8; display:flex; align-items:center; justify-content:center; font-weight:700; font-size:28px; flex:none; box-sizing:border-box; }
+  .round.pause { font-size:26px; letter-spacing:-2px; }
+  /* карточка выбранной башни: выезжает над нижней панелью, список башен остаётся на месте */
+  .sel-card { position:absolute; left:10px; top:500px; width:1260px; height:104px; display:flex; align-items:center; gap:12px; padding:0 12px; box-sizing:border-box; background:rgba(14,26,50,.96); border:2px solid var(--edge); border-radius:14px; z-index:4; box-shadow:0 -6px 18px rgba(0,0,0,.4); }
+  .sel-card .x { width:44px; height:44px; border-radius:50%; background:#1d3760; border:2px solid var(--edge); display:flex; align-items:center; justify-content:center; font-size:22px; flex:none; }
+  .sel-card .who { display:flex; align-items:center; gap:10px; width:200px; flex:none; }
+  .sel-card .who svg { width:60px; height:60px; flex:none; }
+  .sel-card .who b { display:block; font-size:22px; } .sel-card .who span { color:var(--gold); font-size:17px; }
+  .stats { width:210px; flex:none; font-size:17px; color:var(--soft); line-height:1.3; }
+  .pick { width:250px; height:84px; flex:none; border-radius:12px; background:#2a2147; border:3px solid #a58cff; box-sizing:border-box; padding:6px 10px; font-size:15px; line-height:1.2; color:var(--text); }
+  .pick b { display:block; font-size:18px; color:#d7caff; margin-bottom:2px; }
+  .gap { flex:1; }
+  .act { height:84px; border-radius:14px; display:flex; flex-direction:column; align-items:center; justify-content:center; font-weight:700; font-size:26px; border:3px solid; box-sizing:border-box; flex:none; line-height:1.15; }
+  .act small { font-size:16px; font-weight:400; opacity:.9; }
+  .merge { width:180px; background:#1f7a46; border-color:#7de3a0; } .merge.off { background:#25324d; border-color:#3a4a6b; color:#7d8fb3; }
+  .sell { width:180px; background:#8a2f45; border-color:#ff8aa0; }
+  .gap40 { width:40px; flex:none; }
+  .notes { margin:10px 0 0; padding:0; list-style:none; } .notes li { margin:6px 0; padding:8px 12px; background:#0d162b; border-left:4px solid var(--edge); border-radius:6px; font-size:15px; }
+  table { border-collapse:collapse; margin:8px 0; font-size:15px; } td, th { border:1px solid #26385e; padding:5px 10px; text-align:left; } th { background:#0d162b; color:var(--soft); }
+  .phone { width:844px; height:390px; background:#000; border:1px solid var(--edge); position:relative; overflow:hidden; }
+  .phone .scaled { position:absolute; left:76px; top:0; transform:scale(.5417); transform-origin:0 0; }
+</style>
+</head>
+<body>
+<div class="page">
+  <h1>Нижняя панель башен: раскладка всего экрана, версия 2 (макет для согласования)</h1>
+  <p class="sub">Кадр 1280 × 720, как в игре. Карта условная. Вариант А с поправками: верхняя полоса 40 px (только волна, монеты, жизни); нижняя панель 112 px — слева список башен с прокруткой, справа «Начать волну», скорость и пауза крупно (80 px); карточка выбранной башни выезжает над нижней панелью, список башен остаётся активным.</p>
+
+  <h2>1. Строим: выбрана Таблетка (монет 130: Ампула, Шипучка и Лампа не по карману)</h2>
+  <div class="frame" id="f1"></div>
+
+  <h2>2. Башня стоит на карте и выбрана: карточка над панелью, «Слить» и «Продать» крупно; тап по любой башне в списке закроет карточку и выберет новую</h2>
+  <div class="frame" id="f2"></div>
+
+  <h2>3. То же, когда ждёт выбор мутации</h2>
+  <div class="frame" id="f3"></div>
+
+  <h2>4. Как это выглядит на телефоне 844 × 390 (кадр 2, масштаб ≈ 0,54)</h2>
+  <div class="phone"><div class="scaled" id="f4"></div></div>
+
+  <h2>Размеры</h2>
+  <table>
+    <tr><th>Элемент</th><th>Игровые пиксели</th><th>На телефоне 844 × 390, ≈ CSS-пикселей</th></tr>
+    <tr><td>Пауза, скорость (круглые)</td><td>80</td><td>43 (было 44 игровых → 24)</td></tr>
+    <tr><td>«Начать волну»</td><td>170 × 98</td><td>92 × 53</td></tr>
+    <tr><td>Карточка башни в списке</td><td>108 × 92</td><td>58 × 50</td></tr>
+    <tr><td>«Слить», «Продать»</td><td>180 × 84</td><td>97 × 45</td></tr>
+    <tr><td>Выбор мутации</td><td>250 × 84</td><td>135 × 45</td></tr>
+    <tr><td>Верхняя полоса</td><td>40 (была 48)</td><td>22 (только вывод, нажатий нет)</td></tr>
+  </table>
+  <table>
+    <tr><th>Верхняя полоса</th><th>Карта по высоте</th><th>Площадь карты</th><th>К прежней (1080 × 720 = 777 600)</th></tr>
+    <tr><td>48 px (первый макет)</td><td>560</td><td>716 800</td><td>−7,8 %</td></tr>
+    <tr><td><b>40 px (этот макет)</b></td><td><b>568</b></td><td><b>727 040</b></td><td><b>−6,5 %</b></td></tr>
+    <tr><td>36 px (шрифт 18)</td><td>572</td><td>732 160</td><td>−5,8 %</td></tr>
+  </table>
+  <ul class="notes" id="notes"></ul>
+</div>
+
+<script>
+const ICON = {
+  pill: '<rect x="8" y="22" width="48" height="20" rx="10" fill="#fff"/><rect x="32" y="22" width="24" height="20" rx="10" fill="#74b8ff"/><rect x="32" y="22" width="12" height="20" fill="#74b8ff"/>',
+  syrup: '<rect x="20" y="20" width="24" height="34" rx="6" fill="#ff9f43"/><rect x="25" y="10" width="14" height="12" rx="3" fill="#c96a12"/><rect x="24" y="30" width="16" height="10" rx="3" fill="#ffd9a6"/>',
+  fizz: '<circle cx="32" cy="34" r="20" fill="#5fd38a"/><circle cx="26" cy="30" r="5" fill="#d8ffe6"/><circle cx="38" cy="38" r="4" fill="#d8ffe6"/><circle cx="35" cy="24" r="3" fill="#d8ffe6"/>',
+  syringe: '<rect x="14" y="26" width="30" height="12" rx="3" fill="#bfe6ff" transform="rotate(-35 32 32)"/><rect x="40" y="14" width="14" height="4" fill="#fff" transform="rotate(-35 32 32)"/><rect x="6" y="30" width="10" height="3" fill="#fff" transform="rotate(-35 32 32)"/>',
+  ampule: '<path d="M26 12h12v10c8 4 10 10 10 18a16 16 0 0 1-32 0c0-8 2-14 10-18z" fill="#c8a2ff"/><rect x="26" y="10" width="12" height="6" fill="#fff"/>',
+  antibiotic: '<rect x="10" y="22" width="44" height="20" rx="10" fill="#f6c453"/><rect x="10" y="22" width="22" height="20" rx="10" fill="#e8873a"/>',
+  lamp: '<circle cx="32" cy="28" r="14" fill="#ffe066"/><rect x="26" y="40" width="12" height="10" rx="2" fill="#9aa7bd"/><path d="M32 8v6M14 20l5 3M50 20l-5 3" stroke="#ffe066" stroke-width="3"/>',
+  vitamin: '<circle cx="32" cy="32" r="18" fill="#ff9ec7"/><path d="M32 20v24M20 32h24" stroke="#fff" stroke-width="6"/>',
+  frost: '<path d="M32 8v48M10 20l44 24M10 44l44-24" stroke="#8fe3ff" stroke-width="5" stroke-linecap="round"/><circle cx="32" cy="32" r="6" fill="#d9f6ff"/>',
+  patch: '<rect x="10" y="22" width="44" height="20" rx="6" fill="#f0c9a0" transform="rotate(-20 32 32)"/><rect x="26" y="26" width="12" height="12" fill="#f7e2cb" transform="rotate(-20 32 32)"/>',
+};
+const NAME = { pill:'Таблетка', syrup:'Сироп', fizz:'Шипучка', syringe:'Шприц', ampule:'Ампула', antibiotic:'Антибиотик', lamp:'Лампа', vitamin:'Витамин', frost:'Холод', patch:'Пластырь' };
+const PRICE = { pill:70, syrup:100, fizz:140, syringe:200, ampule:260, antibiotic:120, lamp:200, vitamin:150, frost:180, patch:140 };
+const ORDER = ['pill','syrup','ampule','fizz','lamp','antibiotic','vitamin','frost','patch','syringe'];
+const UNLOCK = { pill:1, syrup:1, ampule:3, fizz:5, lamp:5, antibiotic:6, vitamin:7, frost:8, patch:9, syringe:10 };
+const svg = (id) => `<svg viewBox="0 0 64 64">${ICON[id]}</svg>`;
+
+function topBar(waveNum, coins) {
+  return `<div class="top">
+    <div class="chip">Волна ${waveNum} / 30 <div class="bar"><i style="width:${waveNum/30*100}%"></i></div><small>через 12 с</small></div>
+    <div class="chip"><span class="coin"></span>${coins}</div>
+    <div class="chip"><span class="heart">♥♥♥</span></div></div>`;
+}
+const cellHtml = (x, y, ok) => `<div class="cell ${ok ? 'ok' : ''}" style="left:${x}px;top:${y}px">+</div>`;
+function mapBase(extra) {
+  let s = '<div class="map"><svg class="path" width="1280" height="568" viewBox="0 0 1280 568"><path d="M1280 120 C1000 100 900 260 700 250 S420 380 0 400" stroke="#0a1428" stroke-width="74" fill="none"/><path d="M1280 440 C1050 430 950 330 760 340 S470 500 0 470" stroke="#0a1428" stroke-width="74" fill="none"/></svg>';
+  for (const [x, y] of [[160,40],[260,40],[360,40],[460,40],[160,140],[260,140],[360,140],[460,140],[160,240],[260,240],[360,240],[460,240],[560,240],[160,340],[260,340],[360,340],[460,340],[760,40],[860,40],[960,40],[760,440],[860,440],[960,440]]) s += cellHtml(x, y, false);
+  return s + extra + '</div>';
+}
+function bottom(selectedId, coins) {
+  const unlockedUpTo = 6;
+  const open = ORDER.filter((id) => UNLOCK[id] <= unlockedUpTo);
+  const shut = ORDER.filter((id) => UNLOCK[id] > unlockedUpTo);
+  let h = '<div class="bottom"><div class="list"><div class="cards">';
+  for (const id of open) {
+    const poor = coins < PRICE[id];
+    const armed = id === selectedId;
+    h += `<div class="tcard ${poor ? 'poor' : ''} ${armed ? 'armed' : ''}">${svg(id)}<div class="price">${PRICE[id]}</div>${poor ? `<div class="need"><i style="width:${Math.round(coins / PRICE[id] * 100)}%"></i></div>` : ''}</div>`;
+  }
+  for (const id of shut) h += `<div class="tcard locked">${svg(id)}<span class="lock">🔒</span><div class="price">Ур. ${UNLOCK[id]}</div></div>`;
+  h += '</div><div class="more">›</div><div class="scroll"><i></i></div></div>';
+  h += `<div class="ctrl"><div class="wave">▶ Начать волну<small>+600 монет</small></div><div class="round">×1</div><div class="round pause">❚❚</div></div></div>`;
+  return h;
+}
+function selCard(id, level, pending, mergeState) {
+  const stats = id === 'pill' ? 'Урон 1 · Пауза 1 с<br>Радиус 200<br>Продажа +49' : 'Урон 2<br>Пауза 1 с<br>Продажа +120';
+  const mergeBtn = mergeState === 'ready'
+    ? '<div class="act merge">Слить<small>с Таблеткой ур. 2</small></div>'
+    : '<div class="act merge off">Нет пары<small>нужна такая же ур. 2</small></div>';
+  const picks = pending
+    ? `<div class="pick"><b>Двойной выстрел</b>Каждый второй выстрел бьёт сразу двух</div><div class="pick"><b>Липкая капля</b>Попавшие бактерии замедлены на 1 с</div>`
+    : `<div class="stats">${stats}</div>`;
+  return `<div class="sel-card"><div class="x">✕</div>
+    <div class="who">${svg(id)}<div><b>${NAME[id]}</b><span>Уровень ${level} из 4</span></div></div>
+    ${picks}<div class="gap"></div>
+    ${mergeBtn}<div class="gap40"></div><div class="act sell">Продать<small>+${id === 'pill' ? 49 : 120} монет</small></div></div>`;
+}
+const tower = (x, y, id, sel) => `<div class="tw ${sel ? 'sel' : ''}" style="left:${x}px;top:${y}px"><div class="ring"></div>${svg(id)}</div>`;
+
+const f1 = topBar(7, 130) + '<div class="toast">Таблетка · 70 · тапните свободную клетку</div>'
+  + mapBase(cellHtml(260, 40, true) + tower(160, 140, 'pill', false) + tower(260, 240, 'syrup', false)) + bottom('pill', 130);
+const f2 = topBar(7, 640)
+  + mapBase('<div class="range" style="left:112px;top:92px;width:192px;height:192px"></div>' + tower(160, 140, 'pill', true) + tower(260, 140, 'pill', false) + tower(260, 240, 'syrup', false))
+  + selCard('pill', 1, false, 'ready') + bottom(null, 640);
+const f3 = topBar(7, 640)
+  + mapBase('<div class="range" style="left:212px;top:92px;width:192px;height:192px"></div>' + tower(160, 140, 'pill', false) + tower(260, 140, 'pill', true) + tower(260, 240, 'syrup', false))
+  + selCard('pill', 2, true, 'none') + bottom(null, 640);
+document.getElementById('f1').innerHTML = f1;
+document.getElementById('f2').innerHTML = f2;
+document.getElementById('f3').innerHTML = f3;
+document.getElementById('f4').innerHTML = `<div class="frame">${f2}</div>`;
+
+document.getElementById('notes').innerHTML = [
+  '<b>Поправка а.</b> Пауза и скорость переехали в нижнюю панель, справа от «Начать волну»: круглые, по 80 px игры (≈ 43 CSS-px на телефоне, в первом макете было 40 → 22). Эта правая часть панели не прокручивается и видна всегда, в том числе при открытой карточке башни.',
+  '<b>Поправка б.</b> Верхняя полоса — только вывод (волна с полоской, монеты, жизни), 40 px вместо 48. Карта выросла с 560 до 568 px по высоте; к прежней карте 1080 × 720 по площади −6,5 % (при 36 px было бы −5,8 %, но шрифт 18 px на телефоне ≈ 10 CSS-px, не рекомендую).',
+  '<b>Поправка в.</b> Карточка выбранной башни больше не заменяет нижнюю панель: она лежит над ней (выезжает на карту, 104 px), список башен остаётся на месте. Тап по карточке башни в списке закрывает карточку и сразу выбирает новую башню для постройки: одно касание вместо двух. Тап по карте мимо клетки и «✕» только закрывают карточку.',
+  '<b>Карточка закрывает часть карты</b> (нижние ≈ 108 px). Чтобы выбранная башня не оказалась под карточкой, камера при выборе сама сдвигается вверх, если башня ниже верхнего края карточки.',
+  '<b>Список башен</b> теперь показывает ≈ 7,5 карточек (область 896 px, десять карточек занимают ≈ 1 000 px), поэтому прокрутка (смахивание и колесо, затухание и «›» справа, ползунок внизу) работает по делу. Закрытые башни — в конце, серые с замком и «Ур. N»; открытая однажды башня остаётся в основной части (решение «ок» по пункту 1).',
+  '<b>Состояния карточки башни:</b> хватает монет — цена золотая; не хватает — карточка тусклая, цена красная, полоска «монет уже N % цены»; выбрана — золотая рамка и приподнятость, подсказка сверху «тапните свободную клетку»; повторный тап снимает выбор.',
+  '<b>«Слить»</b> зелёная; нет пары — серая с пояснением; идёт выбор пары — «Отмена». <b>«Продать»</b> красная с суммой. Зазор между ними 40 px (было 22).',
+].map((x) => `<li>${x}</li>`).join('');
+</script>
+</body>
+</html>

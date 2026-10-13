@@ -91,7 +91,7 @@ import {
 // ------------------------------------------------------------------ параметры бота
 
 const POLL_MS = 120; // опрос состояния, мс реального времени
-const VIEW_W = 1080; // окно карты (без правой панели), px экрана игры
+const VIEW = { x: 0, y: 40, w: 1280, h: 568 }; // окно карты между верхней (40 px) и нижней (112 px) полосами, px экрана игры (src/config.ts: map.topH, map.bottomH)
 const PATIENCE_SEC = 30; // «особо сильный»: столько секунд игрового времени ждёт монет на дорогую приоритетную башню, потом берёт доступное
 const STRONG_PATIENCE_SEC = 8; // «сильный»: ждёт монет на дорогую башню всего столько секунд (нетерпеливый: берёт доступное — больше дешёвых Таблеток)
 const STRONG_PICK_SHARE = 0.15; // «сильный»: клетку берёт наугад из лучших 15 % клеток по оценке (но не меньше четырёх) — всегда «в хорошем месте»,
@@ -221,7 +221,7 @@ if (args.help || args.h) {
   console.log(HELP);
   process.exit(0);
 }
-const KNOWN = new Set(['profile', 'runs', 'speed', 'exclude', 'cfg', 'tag', 'seed', 'max-game-sec', 'max-real-sec', 'verbose', 'shots', 'canvas', 'level', 'meta', 'campaign', 'ladder', 'from-level', 'to-level', 'state-in', 'state-out', 'run-offset', 'solo', 'lamps', 'help']);
+const KNOWN = new Set(['profile', 'runs', 'speed', 'exclude', 'cfg', 'tag', 'seed', 'max-game-sec', 'max-real-sec', 'verbose', 'shots', 'canvas', 'level', 'meta', 'campaign', 'ladder', 'from-level', 'to-level', 'state-in', 'state-out', 'run-offset', 'solo', 'lamps', 'farm', 'help']);
 for (const key of Object.keys(args)) if (!KNOWN.has(key)) die(`Неизвестный параметр --${key}. Справка: node qa/bot.mjs --help`);
 
 function numArg(name, fallback, { min = -Infinity, max = Infinity, int = false } = {}) {
@@ -245,6 +245,9 @@ const LEVEL = numArg('level', 1, { min: 1, max: 10, int: true });
 const CAMPAIGN = numArg('campaign', 0, { min: 0, max: 40, int: true }); // 0 — обычный замер одной партии; N — серия до N партий с улучшениями
 // «Лестница» (docs/stage-5b-plan.md, Фаза Б): игрок идёт по уровням подряд; на каждом играет до LADDER партий до первой победы, между партиями получает очки ДНК и докупает улучшения
 const LADDER = numArg('ladder', 0, { min: 0, max: 20, int: true });
+// --farm: контроль «фарма» очков ДНК (решение владельца 13 октября, docs/tester-feedback-plan.md): после первой победы на уровне L дорожка играет одну повторную партию на
+// пройденном уровне (L − 1, у первого уровня — он же) со всеми башнями, открытыми к уровню L; очки за неё и время только записываются, на дорожку не переходят.
+const FARM = args.farm !== undefined && args.farm !== '0' && args.farm !== false;
 const LADDER_FROM = numArg('from-level', 1, { min: 1, max: 10, int: true });
 const LADDER_TO = numArg('to-level', 10, { min: 1, max: 10, int: true });
 const RUN_OFFSET = numArg('run-offset', 0, { min: 0, max: 1000, int: true }); // номер дорожки лестницы = номер партии в --runs + это число (дорожки разных задач получают разные номера)
@@ -252,6 +255,7 @@ const STATE_IN = args['state-in'] === undefined || args['state-in'] === true ? n
 const STATE_OUT = args['state-out'] === undefined || args['state-out'] === true ? null : String(args['state-out']);
 if (LADDER && (CAMPAIGN || args.meta !== undefined || args.level !== undefined)) die('--ladder не сочетается с --campaign, --meta и --level: уровни и улучшения ведёт сам бот (участок уровней — --from-level, --to-level).');
 if (!LADDER && (args['from-level'] !== undefined || args['to-level'] !== undefined || args['run-offset'] !== undefined || STATE_IN || STATE_OUT)) die('--from-level, --to-level, --run-offset, --state-in, --state-out работают только вместе с --ladder=K.');
+if (FARM && !LADDER) die('--farm работает только вместе с --ladder=K.');
 if (LADDER_FROM > LADDER_TO) die('--from-level не может быть больше --to-level.');
 // --lamps: true / «1» — прежний вариант (prep8), «veteran», «first»
 const LAMP_MODE = args.lamps === undefined || args.lamps === '0' ? null : args.lamps === true || args.lamps === '1' ? 'prep8' : String(args.lamps);
@@ -384,9 +388,23 @@ function starsOf(game) {
 const emptyLevels = () => Object.fromEntries(Object.keys(META.upgrades).map((id) => [id, 0]));
 
 /** Очки ДНК за партию: за каждую пройденную волну (при проигрыше — без текущей) и добавка за победу — как в GameScene.endGame. */
-function dnaForGame(game) {
+function dnaForGame(game, replay = false) {
   const cleared = game.result === 'won' ? game.waveTotal : Math.max(0, game.wave - 1);
+  // повтор пройденного уровня: только replayFactor от награды за волны, бонуса за победу нет (как `dnaForGame` в src/meta.ts)
+  if (replay) return Math.floor(cleared * META.dna.perWave * META.dna.replayFactor);
   return cleared * META.dna.perWave + (game.result === 'won' ? META.dna.winBonus : 0);
+}
+
+/** Сколько очков ДНК ещё не потрачено в древе улучшений при уровнях `levels`: { all — всё древо (все ветки), open — только ветки башен, открытых на уровне `level` }. */
+function treeLeft(levels, level) {
+  let all = 0;
+  let open = 0;
+  for (const [id, u] of Object.entries(META.upgrades)) {
+    const rest = u.prices.slice(levels[id] ?? 0).reduce((a, b) => a + b, 0);
+    all += rest;
+    if ((TOWER_UNLOCK[u.branch] ?? 1) <= level) open += rest;
+  }
+  return { all, open };
 }
 
 /** Жадная покупка очков ДНК между партиями (`buyGreedy`): первое по порядку BUY_ORDER улучшение, на следующий уровень которого хватает очков; ветка башни — если башня открыта на уровне партии. */
@@ -922,7 +940,7 @@ async function pollUntil(page, predicate, timeoutMs, pollMs = 35) {
 let WORLD = null; // строится один раз по сети дорожек из первой партии
 
 /** Играет одну партию. Возвращает запись о партии. Бросает FatalConsole (ошибка консоли / «cfg:»), остальные ошибки — наверх. */
-async function playGame(browser, baseUrl, profile, run, metaLevels = null, salt = '', level = LEVEL) {
+async function playGame(browser, baseUrl, profile, run, metaLevels = null, salt = '', level = LEVEL, extraQuery = '') {
   applyMetaToTable(metaLevels);
   const rng = makeRng(`${SEED}:${profile}:${run}${salt}`);
   const context = await browser.newContext({ viewport: { width: W, height: H }, deviceScaleFactor: 1, locale: 'ru-RU' });
@@ -952,7 +970,7 @@ async function playGame(browser, baseUrl, profile, run, metaLevels = null, salt 
 
   const realStart = Date.now();
   try {
-    await page.goto(`${baseUrl}?qa&speed=${SPEED}${args.canvas ? '&canvas' : ''}${CFG_STRING ? `&cfg=${CFG_STRING}` : ''}&level=${level}${level > 1 ? '&levelwaves' : ''}${metaLevels ? `&meta=${Object.entries(metaLevels).map(([id, n]) => `${id}:${n}`).join(',')}` : ''}`, { waitUntil: 'load' });
+    await page.goto(`${baseUrl}?qa&speed=${SPEED}${args.canvas ? '&canvas' : ''}${CFG_STRING ? `&cfg=${CFG_STRING}` : ''}&level=${level}${level > 1 ? '&levelwaves' : ''}${metaLevels ? `&meta=${Object.entries(metaLevels).map(([id, n]) => `${id}:${n}`).join(',')}` : ''}${extraQuery}`, { waitUntil: 'load' });
     // В начале уровня игра сама встаёт на паузу и показывает плашки (башни уровня и бактерии 1-й волны): state 'info'. Бот закрывает их тапом (раньше 0,4 с после показа плашка тап не принимает)
     let s = await pollUntil(page, (x) => x && (x.state === 'playing' || x.state === 'info'), 20000, 100);
     checkConsole();
@@ -995,7 +1013,7 @@ async function playGame(browser, baseUrl, profile, run, metaLevels = null, salt 
 
     // 1) один раз отдаляем камеру до минимума колесом мыши (карта целиком в окне)
     for (let k = 0; k < 6 && s.camera.zoom > s.camera.zoomMin + 0.001; k++) {
-      await input.wheel(g2c(VIEW_W / 2, H / 2), 500);
+      await input.wheel(g2c(VIEW.x + VIEW.w / 2, VIEW.y + VIEW.h / 2), 500);
       await sleep(80);
       s = await getState(page);
     }
@@ -1006,10 +1024,12 @@ async function playGame(browser, baseUrl, profile, run, metaLevels = null, salt 
     const ensureVisible = async (col, row) => {
       for (let k = 0; k < 3; k++) {
         const g = c2g(await cellPos(col, row));
-        if (g.x >= 12 && g.x <= VIEW_W - 12 && g.y >= 12 && g.y <= H - 12) return true;
-        const dx = Math.max(-420, Math.min(420, VIEW_W / 2 - g.x));
-        const dy = Math.max(-300, Math.min(300, H / 2 - g.y));
-        await input.drag(g2c(VIEW_W / 2 - dx / 2, H / 2 - dy / 2), g2c(VIEW_W / 2 + dx / 2, H / 2 + dy / 2), { steps: 6, stepMs: 12 });
+        if (g.x >= VIEW.x + 12 && g.x <= VIEW.x + VIEW.w - 12 && g.y >= VIEW.y + 12 && g.y <= VIEW.y + VIEW.h - 12) return true;
+        const cx = VIEW.x + VIEW.w / 2;
+        const cy = VIEW.y + VIEW.h / 2;
+        const dx = Math.max(-420, Math.min(420, cx - g.x));
+        const dy = Math.max(-300, Math.min(300, cy - g.y));
+        await input.drag(g2c(cx - dx / 2, cy - dy / 2), g2c(cx + dx / 2, cy + dy / 2), { steps: 6, stepMs: 12 });
         await sleep(120);
       }
       return false;
@@ -1148,6 +1168,8 @@ async function playGame(browser, baseUrl, profile, run, metaLevels = null, salt 
       const before = st.towers.length;
       const coinsBefore = st.coins;
       if (st.selected !== type) {
+        await page.evaluate((towerId) => window.__pvb.revealTower(towerId), type); // карточка башни может быть за краем списка
+        st = await getState(page);
         const b = st.ui.towerButtons.find((x) => x.id === type);
         if (!b) return { ok: false, reason: 'нет кнопки башни' };
         await input.tap(g2c(b.x, b.y));
@@ -1303,6 +1325,7 @@ async function playGame(browser, baseUrl, profile, run, metaLevels = null, salt 
       result,
       wave: last.wave,
       waveTotal: last.waveTotal,
+      dnaGained: last.dnaGained ?? null,
       lives: last.lives,
       maxLives: last.maxLives,
       shieldAbsorbed: last.shieldAbsorbed ?? 0,
@@ -1481,7 +1504,7 @@ async function ladderLane(profile, run) {
   }
   if (lane.nextLevel < LADDER_FROM) die(`Состояние дорожки ${key}: следующий уровень ${lane.nextLevel}, а --from-level=${LADDER_FROM}: пропущены уровни.`);
   for (let level = Math.max(LADDER_FROM, lane.nextLevel); level <= LADDER_TO; level++) {
-    const rec = { level, games: 0, firstWin: null, waves: [], results: [], stars: 0, dnaIn: lane.dna, levelsIn: { ...lane.levels }, bought: [], dnaGained: [] };
+    const rec = { level, games: 0, firstWin: null, waves: [], results: [], stars: 0, dnaIn: lane.dna, levelsIn: { ...lane.levels }, bought: [], dnaGained: [], treeLeftIn: treeLeft(lane.levels, level), treeLeftAfter: [] };
     lane.perLevel.push(rec);
     for (let n = 1; n <= LADDER; n++) {
       if (stopRequested) return true;
@@ -1520,13 +1543,33 @@ async function ladderLane(profile, run) {
       rec.waves.push(game.result === 'won' ? game.waveTotal : game.wave);
       rec.results.push(game.result);
       rec.bought.push(buy.bought);
+      rec.treeLeftAfter.push(treeLeft(lane.levels, level));
       rec.dnaGained.push(gained);
-      console.log(`[${tag}, уровень ${level}, партия ${n}] ${RESULT_RU[game.result]} · волна ${game.wave}/${game.waveTotal} · жизни ${game.lives}/${game.maxLives}${stars ? ` · звёзд ${stars}` : ''} · очков ДНК +${gained} (остаток ${lane.dna}) · куплено ${buy.bought.length ? buy.bought.join(', ') : '—'} · слияний ${game.merges} (мимо ${game.mergeMisses}) · игра ${game.gameSec} с, реал. ${game.realSec} с`);
+      console.log(`[${tag}, уровень ${level}, партия ${n}] ${RESULT_RU[game.result]} · волна ${game.wave}/${game.waveTotal} · жизни ${game.lives}/${game.maxLives}${stars ? ` · звёзд ${stars}` : ''} · очков ДНК +${gained} (остаток ${lane.dna}) · куплено ${buy.bought.length ? buy.bought.join(', ') : '—'} · древа не куплено ${rec.treeLeftAfter.at(-1).all} (в открытых ветках ${rec.treeLeftAfter.at(-1).open}) · слияний ${game.merges} (мимо ${game.mergeMisses}) · игра ${game.gameSec} с, реал. ${game.realSec} с`);
       for (const a of game.anomalies ?? []) console.log(`      ⚠ ${a}`);
       saveResults();
       if (game.result === 'won') {
         rec.firstWin = n;
         rec.stars = lane.stars[level - 1];
+        if (FARM) {
+          // Одна повторная партия на пройденном уровне (L − 1; у первого уровня — он же): звёзды всех уровней до L заданы адресом (`&stars=`), улучшения — как после покупок;
+          // башни открыты по прогрессу игрока (открытая однажды башня доступна на пройденных уровнях). Очки и время только записываются.
+          const replayLevel = Math.max(1, level - 1);
+          const stars = Array(level).fill(1).join(',');
+          try {
+            const rg = await playGame(browser, server.url, profile, run, lane.levels, `:L${level}:farm`, replayLevel, `&stars=${stars}`);
+            games.push(Object.assign(rg, { ladderLevel: level, ladderGame: n + 1, farmReplay: true, metaLevels: { ...lane.levels }, dnaBefore: lane.dna }));
+            const modelDna = rg.result === 'error' ? null : dnaForGame(rg, true);
+            rec.farm = { level: replayLevel, result: rg.result, wave: rg.wave, dnaModel: modelDna, dnaGame: rg.dnaGained ?? null, gameSec: rg.gameSec, realSec: rg.realSec, attemptDna: rec.dnaGained.at(-1) };
+            console.log(`[${tag}, уровень ${level}] контроль фарма: повтор уровня ${replayLevel}: ${RESULT_RU[rg.result]} · волна ${rg.wave}/${rg.waveTotal} · очков ДНК ${rg.dnaGained ?? '?'} (по модели ${modelDna ?? '?'}) против ${rec.dnaGained.at(-1)} за победную попытку · игра ${rg.gameSec} с, реал. ${rg.realSec} с`);
+          } catch (error) {
+            if (error instanceof FatalConsole) {
+              fatal = `Остановлено: дорожка «${tag}», контроль фарма на уровне ${level}, консоль игры сообщила о проблеме.\n   ${error.message}`;
+              return false;
+            }
+            console.log(`   ⚠ [${tag}, уровень ${level}] контроль фарма не удался: ${error.message.split('\n')[0]}`);
+          }
+        }
         break;
       }
     }
@@ -1642,7 +1685,7 @@ if (fatal) {
 if (LADDER) {
   console.log('\nИТОГ ЛЕСТНИЦЫ (партий до первой победы по уровням)');
   for (const lane of ladderLanes) {
-    const parts = lane.perLevel.map((r) => `${r.level}: ${r.firstWin ? r.firstWin : `—(${r.games})`}`);
+    const parts = lane.perLevel.map((r) => `${r.level}: ${r.firstWin ? r.firstWin : `—(${r.games})`} [волны ${r.waves.join(' ')}; древа на входе ${r.treeLeftIn?.all ?? '?'}]`);
     console.log(`  ${PROFILE_TITLES[lane.profile]} ${lane.run}: ${parts.join(' · ')}${lane.stuckAt ? ` · застряла на уровне ${lane.stuckAt}` : ''} · очков ${lane.dna}`);
   }
 } else if (CAMPAIGN) {

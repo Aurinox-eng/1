@@ -4,7 +4,7 @@ import { CONFIG } from '../config';
 import { exposeDebug, QA_ENTRANCE, QA_EVENTS_MAX, QA_MODE, STRESS, STRESS_FIZZ, TIME_SCALE, type DebugSnapshot, type QaEvent } from '../debug';
 import { Effects } from '../effects';
 import { drawStar, setScreenInfo } from '../screens';
-import { awardDna, coinsBonus, exposeMetaDebug, HIDDEN_SCREEN, livesBonus, markSeen, metaDna, metaSeen, recordResult, refundBonus, rewardMul, shieldCharges, starsForLoss, waveCoinsBonus } from '../meta';
+import { awardDna, coinsBonus, exposeMetaDebug, HIDDEN_SCREEN, isLevelBeaten, livesBonus, markSeen, metaDna, metaSeen, recordResult, refundBonus, rewardMul, shieldCharges, starsForLoss, waveCoinsBonus } from '../meta';
 import { num, t, type TextKey } from '../i18n';
 import { aimAngle, BLOCKED_TILES, EDGES, ENTRANCE_EDGES, LEVEL, PATH_TILES, WORLD, cellKey, worldToCell } from '../level';
 import { isPortraitPhone } from '../orientation';
@@ -24,11 +24,11 @@ import { sfx } from '../sound';
 import { computeStats, MAX_TOWER_LEVEL, mutationOptions, towerPrice, type TowerStats } from '../towerStats';
 import { COLORS, FONT, TEXT_COLORS } from '../theme';
 import { FPS_ENABLED, FpsMeter, frameReport, installFrameStats } from '../perf';
-import { Panel, VIEW_W } from '../ui/Panel';
+import { Panel, VIEW } from '../ui/Panel';
 
 const { width: W, height: H } = CONFIG.screen;
 /** Самое сильное отдаление камеры: карта помещается целиком и по ширине, и по высоте (≈ 0,499). */
-const ZOOM_MIN = Math.min(VIEW_W / WORLD.w, H / WORLD.h);
+const ZOOM_MIN = Math.min(VIEW.w / WORLD.w, VIEW.h / WORLD.h);
 /** Цвет числа урона по способу стрельбы башни: Таблетка — белый, Шипучка — розовый, Шприц — бирюзовый, лужа (ядовитая мутация Сиропа) — оранжевый, Ампула — светло-голубой;
  *  яд Антибиотика чисел не показывает (цвет нужен для полноты таблицы); Лампа — жёлтый, Витамин не бьёт (цвет для полноты); Холод и Пластырь прямым ударом не бьют (цвета для полноты). */
 const DAMAGE_COLORS: Record<TowerStats['targeting'], number> = { radius: 0xffffff, area: COLORS.fizz, beam: COLORS.needle, puddle: COLORS.puddle, snipe: 0x9fe4ff, poison: COLORS.poison, cone: COLORS.lamp, aura: 0xffffff, freeze: COLORS.frost, trap: COLORS.patch };
@@ -213,6 +213,8 @@ export class GameScene extends Phaser.Scene {
   private pauseAlmanacButton: { x: number; y: number; w: number; h: number } | null = null;
   private dnaGained = 0;
   private dnaAwarded = false;
+  /** Уровень уже был пройден до этой партии: очки за волны — доля `meta.dna.replayFactor`. */
+  private dnaReplay = false;
   /** Звёзды, заработанные в этой партии (0 при проигрыше), и очки ДНК за впервые полученные звёзды. */
   private stars = 0;
   private starDna = 0;
@@ -300,6 +302,7 @@ export class GameScene extends Phaser.Scene {
     this.stars = 0;
     this.starDna = 0;
     this.dnaAwarded = false;
+    this.dnaReplay = false;
     this.bacteria = [];
     this.towers = [];
     this.projectiles = [];
@@ -355,7 +358,7 @@ export class GameScene extends Phaser.Scene {
     this.world.add([mapLayer, this.puddleLayer, this.ghostLayer, this.towerLayer, this.bacteriaLayer, this.projectileLayer, this.fxLayer]);
     addMap(this, mapLayer);
 
-    this.rig = new CameraRig(this.world, { w: VIEW_W, h: H }, WORLD, { min: ZOOM_MIN, max: CONFIG.camera.zoomMax });
+    this.rig = new CameraRig(this.world, VIEW, WORLD, { min: ZOOM_MIN, max: CONFIG.camera.zoomMax });
     const start = unitCenter(LEVEL.startCenter[0], LEVEL.startCenter[1]);
     this.rig.set(CONFIG.camera.zoomStart, start.x, start.y);
 
@@ -383,11 +386,12 @@ export class GameScene extends Phaser.Scene {
     this.updateHint();
     this.refreshPanel();
 
-    new MapGestures(this, this.rig, VIEW_W, {
+    new MapGestures(this, this.rig, VIEW, {
       isActive: () => this.state === 'playing' && !isPortraitPhone(),
       onTap: (sx, sy) => this.onTap(sx, sy),
       onHover: (sx, sy) => this.onHover(sx, sy),
       onHoverEnd: () => this.ghost.setVisible(false),
+      isCovered: (sx, sy) => this.panel.coversPoint(sx, sy),
     });
     this.input.on('pointerdown', this.onScreenTap, this);
     if (STRESS) this.setupStress();
@@ -437,6 +441,7 @@ export class GameScene extends Phaser.Scene {
         const s = this.rig.worldToScreen(p.x, p.y);
         return this.gameToClient(s.x, s.y);
       },
+      revealTower: (id) => this.panel.revealTower(id as TowerId),
     });
   }
 
@@ -1246,6 +1251,10 @@ export class GameScene extends Phaser.Scene {
     sfx.select();
     this.refreshCard();
     this.updateHint();
+    // Карточка лежит на карте внизу: если башня оказалась под ней или вплотную, камера сдвигается вверх, чтобы башня осталась на виду
+    const onScreen = this.rig.worldToScreen(tower.x, tower.y);
+    const limit = this.panel.cardTop() - 46;
+    if (onScreen.y > limit) this.rig.panBy(0, limit - onScreen.y);
   }
 
   private deselectTower(): void {
@@ -1410,6 +1419,7 @@ export class GameScene extends Phaser.Scene {
     const tier = tower.pendingTier;
     const merge = tower.level >= MAX_TOWER_LEVEL ? 'max' : this.mergeMode ? 'active' : this.mergeCandidates(tower).length > 0 ? 'ready' : 'none';
     this.panel.showCard({
+      id: tower.id,
       name: t(`tower${tower.id.charAt(0).toUpperCase()}${tower.id.slice(1)}` as TextKey),
       level: tower.level,
       maxLevel: MAX_TOWER_LEVEL,
@@ -1568,7 +1578,7 @@ export class GameScene extends Phaser.Scene {
     if (!this.dnaAwarded) {
       this.dnaAwarded = true;
       const cleared = Math.max(0, this.waveIdx - 1);
-      awardDna(cleared, false);
+      awardDna(cleared, false, isLevelBeaten(currentLevel()));
       recordResult(currentLevel(), cleared, 0);
     }
     this.scene.start('Menu');
@@ -1720,12 +1730,13 @@ export class GameScene extends Phaser.Scene {
     if (!this.dnaAwarded) {
       this.dnaAwarded = true;
       const cleared = won ? this.waveTotal() : Math.max(0, this.waveIdx - 1);
-      this.dnaGained = awardDna(cleared, won);
+      this.dnaReplay = isLevelBeaten(currentLevel());
+      this.dnaGained = awardDna(cleared, won, this.dnaReplay);
       // Звёзды по потерянным жизням (docs/stage-5-plan.md, раздел 4) и лучшая волна уровня; за новые звёзды — очки ДНК
       this.stars = won ? starsForLoss(Math.max(0, this.maxLives() - this.lives) + this.shieldAbsorbed) : 0;
       this.starDna = recordResult(currentLevel(), cleared, this.stars).starDna;
     }
-    this.showOverlay(won ? t('victory') : t('gameOver'), TEXT_COLORS.accent, t('killed', { n: this.kills }), t('dnaGained', { n: this.dnaGained + this.starDna, total: metaDna() }));
+    this.showOverlay(won ? t('victory') : t('gameOver'), TEXT_COLORS.accent, t('killed', { n: this.kills }), t('dnaGained', { n: this.dnaGained + this.starDna, total: metaDna() }) + (this.dnaReplay ? ` · ${t('dnaReplayNote', { k: Math.round(CONFIG.meta.dna.replayFactor * 100) })}` : ''));
     if (won) this.drawStars(this.stars);
     this.addEndButtons(won);
   }
@@ -1812,7 +1823,7 @@ export class GameScene extends Phaser.Scene {
 
   /** Подсказка «◀ Организм»: показываем, когда организм за краем экрана; мигает, если бактерия близко к нему. */
   private updateChip(timeSec: number): void {
-    const leftEdge = this.rig.cx - VIEW_W / 2 / this.rig.zoom;
+    const leftEdge = this.rig.cx - VIEW.w / 2 / this.rig.zoom;
     const visible = leftEdge > CONFIG.map.orgW;
     const danger = visible && this.bacteria.some((b) => b.x - CONFIG.map.orgW < CONFIG.ui.dangerDistancePx);
     this.panel.setChip(visible, danger, timeSec);
@@ -1871,7 +1882,8 @@ export class GameScene extends Phaser.Scene {
       renderer: this.game.renderer.type === Phaser.WEBGL ? 'webgl' : 'canvas',
       width: W,
       height: H,
-      viewW: VIEW_W,
+      viewW: VIEW.w,
+      view: { ...VIEW },
       map: {
         cols: LEVEL.cols,
         rows: LEVEL.rows,
