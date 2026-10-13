@@ -23,11 +23,13 @@ export interface GestureHandlers {
   onHover: (sx: number, sy: number) => void;
   /** Мышь ушла с игры или началось другое действие — «призрак» убрать. */
   onHoverEnd: () => void;
+  /** Точка закрыта карточкой выбранной башни (она лежит на карте): касание принадлежит карточке, а не карте. */
+  isCovered: (sx: number, sy: number) => boolean;
 }
 
 /**
  * Управление картой: один палец (или мышь) — сдвиг, два пальца — приближение и сдвиг, колесо мыши — приближение,
- * короткое касание без сдвига — тап. Касания правой панели сюда не попадают (её кнопки обрабатывает сама панель).
+ * короткое касание без сдвига — тап. Касания вне окна карты (верхняя и нижняя полосы) и по карточке выбранной башни сюда не попадают (их кнопки обрабатывает панель).
  */
 export class MapGestures {
   private readonly fingers = new Map<number, Finger>();
@@ -39,7 +41,7 @@ export class MapGestures {
   constructor(
     scene: Phaser.Scene,
     private readonly rig: CameraRig,
-    private readonly viewW: number,
+    private readonly view: { x: number; y: number; w: number; h: number },
     private readonly handlers: GestureHandlers,
   ) {
     scene.input.on('pointerdown', this.onDown, this);
@@ -51,7 +53,7 @@ export class MapGestures {
   }
 
   private onDown(pointer: Phaser.Input.Pointer): void {
-    if (!this.handlers.isActive() || pointer.x >= this.viewW) return;
+    if (!this.handlers.isActive() || !this.inView(pointer)) return;
     if (!pointer.wasTouch && pointer.button !== 0) return; // только левая кнопка мыши или касание
     this.handlers.onHoverEnd();
     this.fingers.set(pointer.id, { startX: pointer.x, startY: pointer.y, x: pointer.x, y: pointer.y, downAt: performance.now(), moved: false });
@@ -66,7 +68,7 @@ export class MapGestures {
     const finger = this.fingers.get(pointer.id);
     if (!finger) {
       if (!pointer.wasTouch && this.fingers.size === 0 && this.handlers.isActive()) {
-        if (pointer.x < this.viewW) this.handlers.onHover(pointer.x, pointer.y);
+        if (this.inView(pointer)) this.handlers.onHover(pointer.x, pointer.y);
         else this.handlers.onHoverEnd();
       }
       return;
@@ -106,7 +108,7 @@ export class MapGestures {
       !finger.moved &&
       !this.multi &&
       !pointer.wasCanceled &&
-      pointer.x < this.viewW &&
+      this.inView(pointer) &&
       performance.now() - finger.downAt <= CONFIG.camera.tapMaxMs;
     if (this.fingers.size === 0) this.multi = false;
     else if (this.fingers.size === 1) {
@@ -124,12 +126,18 @@ export class MapGestures {
   }
 
   private onWheel(pointer: Phaser.Input.Pointer, _over: unknown, _dx: number, dy: number): void {
-    if (!this.handlers.isActive() || pointer.x >= this.viewW) return;
+    if (!this.handlers.isActive() || !this.inView(pointer)) return;
     // Chrome шлёт пиксели (один щелчок ≈ 100). Firefox и некоторые мыши — строки (≈ 3 за щелчок) или страницы: приводим к пикселям.
     // Phaser отдаёт в событии только числа, само событие колеса лежит в pointer.event.
     const mode = (pointer.event as WheelEvent | undefined)?.deltaMode;
     const unit = mode === 1 ? 33 : mode === 2 ? 300 : 1;
     this.rig.zoomAt(Math.exp(-dy * unit * CONFIG.camera.wheelSpeed), pointer.x, pointer.y);
+  }
+
+  /** Точка внутри окна карты и не под карточкой башни. */
+  private inView(pointer: Phaser.Input.Pointer): boolean {
+    const { x, y, w, h } = this.view;
+    return pointer.x >= x && pointer.x < x + w && pointer.y >= y && pointer.y < y + h && !this.handlers.isCovered(pointer.x, pointer.y);
   }
 
   private onOut(): void {

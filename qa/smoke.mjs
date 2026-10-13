@@ -68,9 +68,8 @@
  *                          печатает заметку о реальном времени (≈ 15–35 минут)
  *   locked                 открытие башен по уровням (levels.towerUnlock; закрытые на уровне — по таблице): на уровне 1 закрыты все башни, кроме открытых с первого уровня (ui.towerButtons[].locked), тап по ним не выбирает
  *                          башню, показывает сообщение «откроется на уровне N» и звук «нельзя», поставить нельзя; ?level=5 и ?level=10 (на компьютере ещё уровни открытия новых башен); открывшиеся башни ставятся (компьютер ru, телефон en)
- *   strip                  полоса компактных кнопок над карточкой (ui.towerStrip, ?level=10): видна только при открытой карточке, кнопки только открытых башен (на
- *                          уровне 1 — две; при 9–10 открытых башнях полоса идёт в две строки по 24 px, при меньшем числе — в одну по 38 px), тап по кнопке полосы закрывает карточку и выбирает башню; карточка Шприца уровня 2 с выбором мутации помещается: второй
- *                          вариант выше «Слить», кнопки не налезают друг на друга, на полосу и «Начать волну» и не выходят за панель (компьютер ru, телефон en)
+ *   strip                  нижняя панель (?level=10): карточка выбранной башни над ней (кнопки не налезают друг на друга и не выходят за экран, между «Слить» и «Продать» зазор ≥ 40 px, выбор мутации левее «Слить»),
+ *                          список башен остаётся доступным: тап по карточке башни закрывает карточку и выбирает башню одним касанием; прокрутка списка смахиванием (сдвиг, предел, тап после сдвига, revealTower); уровень 1 — открытые башни первыми
  *   meta-save              очки ДНК: сохранение в браузере (чтение, повреждённая запись, чужие значения, недоступное хранилище)
  *   meta-dna               очки ДНК: начисление за проигрыш и победу, один раз за партию, накопление, запись в хранилище
  *   meta-shop              экран «Улучшения» — дерево (компьютер ru, телефон en): переход с экрана конца уровня, тап по узлу выбирает его, покупка кнопкой карточки по ценам таблицы, нехватка очков, «Максимум», «Играть», тексты
@@ -86,12 +85,12 @@
  *   levels-lock            открытие уровней по звёздам (`&stars=`), экран конца уровня: «Следующий уровень» после победы (не на последнем уровне), «В меню», тап по «Следующий уровень» открывает уровень 2
  *   restart-button         конец уровня (проигрыш и победа, компьютер ru и телефон en): есть кнопка «Заново» (endButton), тапы мимо неё не перезапускают, тап по ней — перезапускает
  *   deflation              economy.rewardMul: ×0,5 — два кокка номиналом 5 дают 2 + 3 = 5 монет (дробная часть копится); ×0,1 — 0 + 1, «+N» всплывает только при N ≥ 1
- *   camera-fit             самое сильное отдаление (считает игра, ≈ 0,499): высота карты × масштаб ≤ 720,5, ширина влезает, камера по центру и сдвигом не уводится
+ *   camera-fit             самое сильное отдаление (считает игра, (считает игра): высота карты × масштаб ≤ высоты окна карты (568), ширина влезает, камера по центру и сдвигом не уводится
  *   almanac                экран «Альманах» из главного меню (?qa&menu; компьютер ru и телефон ru, en один раз на компьютере): кнопка almanac → сцена 'almanac', вкладка «Башни» — по строке на башню таблицы (10), «Бактерии» — по строке на тип таблицы (19), «Назад» → меню
  *   almanac-pause          «Альманах» с паузы партии (компьютер ru, телефон en): на паузе есть pauseAlmanacButton и pauseMenuButton, тап открывает альманах (сцена 'almanac'), «Назад» возвращает на паузу
  *                          (state 'paused', getState отвечает), тап по экрану возобновляет игру
  *   damage-numbers         числа урона над бактериями: после попаданий башни effects.damageNumbers растёт
- *   sell-gap               карточка башни: между «Слить» и «Продать» зазор ≥ 20 px; в режиме слияния кнопка «Продать» скрыта (sell.w = 0), отмена слияния её возвращает
+ *   sell-gap               карточка башни: между «Слить» и «Продать» по горизонтали зазор ≥ 40 px; в режиме слияния кнопка «Продать» скрыта (sell.w = 0), отмена слияния её возвращает
  *   colors                 снимки для глаз: делящаяся, бегун, лекарь, спора и лужа Сиропа рядом на одном экране (компьютер ru, телефон en; на компьютере ещё крупно)
  * Дополнительно: --only=combat (или любое другое имя из списка) запускает один сценарий; для production нужна свежая
  * `npm run build`, для остальных — `npm run build:qa`.
@@ -204,7 +203,7 @@ const CFG = {
   waves: readConfigNumber('waves', 'total'),
   zoomStart: readConfigNumber('camera', 'zoomStart'),
   // Самое сильное отдаление считается игрой из размеров карты и окна (карта целиком по ширине и по высоте), в config.ts числа нет
-  zoomMin: Math.min((1280 - readConfigNumber('map', 'panelW')) / (MAP.orgW + LEVEL.cols * MAP.tile), 720 / (LEVEL.rows * MAP.tile)),
+  zoomMin: Math.min(1280 / (MAP.orgW + LEVEL.cols * MAP.tile), (720 - readConfigNumber('map', 'topH') - readConfigNumber('map', 'bottomH')) / (LEVEL.rows * MAP.tile)),
   zoomMax: readConfigNumber('camera', 'zoomMax'),
   pillPrice: readConfigNumber('pill', 'price'),
   restartLockMs: readConfigNumber('gameOver', 'restartLockMs'),
@@ -229,7 +228,9 @@ let GEO = null;
 let FREE = {};
 let PATH = [];
 /** Окно старта камеры в координатах экрана игры: клетки дальше от краёв, чтобы сдвиги и приближения их не уводили за экран. */
-const CELL_WINDOW = { x0: 170, x1: 910, y0: 130, y1: 590 };
+const CELL_WINDOW = { x0: 270, x1: 1010, y0: 120, y1: 470 };
+/** Центр окна карты на экране игры при старте камеры (окно — между верхней и нижней полосами, во всю ширину). */
+const VIEW_CENTER = { x: 640, y: (readConfigNumber('map', 'topH') + 720 - readConfigNumber('map', 'bottomH')) / 2 };
 
 /**
  * Клетки и сеть для проверок. `state` — состояние игры при старте (getState()): размеры карты (orgW, tile, cols, rows) и радиус слияния берутся из него, а не из исходников.
@@ -248,17 +249,17 @@ function setupWorld(graph, state) {
   LEVEL.cols = state.map.cols;
   LEVEL.rows = state.map.rows;
   if (state.mergeRadiusPx) MERGE_RADIUS = state.mergeRadiusPx;
-  CFG.zoomMin = Math.min((W - readConfigNumber('map', 'panelW')) / (MAP.orgW + LEVEL.cols * MAP.tile), H / (LEVEL.rows * MAP.tile));
+  CFG.zoomMin = Math.min(W / (MAP.orgW + LEVEL.cols * MAP.tile), (H - readConfigNumber('map', 'topH') - readConfigNumber('map', 'bottomH')) / (LEVEL.rows * MAP.tile));
   GEO = makeGraphGeometry(graph, MAP, LEVEL.cols, LEVEL.rows);
   const sc = GEO.unitCenter(LEVEL.startCenter[0], LEVEL.startCenter[1]);
   const visible = [];
   for (let col = 0; col < LEVEL.cols; col++) {
     for (let row = 0; row < LEVEL.rows; row++) {
       const w = GEO.center(col, row);
-      const sx = (W - 200) / 2 + (w.x - sc.x);
-      const sy = H / 2 + (w.y - sc.y);
+      const sx = VIEW_CENTER.x + (w.x - sc.x);
+      const sy = VIEW_CENTER.y + (w.y - sc.y);
       if (sx < CELL_WINDOW.x0 || sx > CELL_WINDOW.x1 || sy < CELL_WINDOW.y0 || sy > CELL_WINDOW.y1) continue;
-      visible.push({ col, row, sx, sy, path: GEO.isPathCell(col, row), cov: GEO.coverage(col, row, 230), d: Math.hypot(sx - 540, sy - 360) });
+      visible.push({ col, row, sx, sy, path: GEO.isPathCell(col, row), cov: GEO.coverage(col, row, 230), d: Math.hypot(sx - VIEW_CENTER.x, sy - VIEW_CENTER.y) });
     }
   }
   const free = visible.filter((c) => !c.path).sort((a, b) => b.cov - a.cov || a.col - b.col || a.row - b.row);
@@ -456,12 +457,14 @@ async function openGame(context, baseUrl, prefix, { speed = 1, cfg = '', isTouch
     cell: (col, row) => page.evaluate(([c, r]) => window.__pvb.cellToClient(c, r), [col, row]),
     /** Тап по кнопке башни на панели. */
     async towerButton() {
+      await page.evaluate(() => window.__pvb.revealTower('pill'));
       const b = (await getState(page)).ui.towerButton;
       await input.tap(screen.g2c(b.x, b.y));
       await settle();
     },
     /** Тап по кнопке башни по её названию из таблицы (pill, syrup, fizz, syringe); повторный тап снимает выбор. */
     async selectTower(id) {
+      await page.evaluate((towerId) => window.__pvb.revealTower(towerId), id);
       const b = (await getState(page)).ui.towerButtons.find((x) => x.id === id);
       await input.tap(screen.g2c(b.x, b.y));
       await settle();
@@ -504,19 +507,19 @@ const rotateInfo = (page) =>
   });
 
 /** Точка мира под точкой экрана (по состоянию камеры). */
-const worldAt = (s, sx, sy) => ({ x: s.camera.cx + (sx - s.viewW / 2) / s.camera.zoom, y: s.camera.cy + (sy - s.height / 2) / s.camera.zoom });
+const worldAt = (s, sx, sy) => ({ x: s.camera.cx + (sx - s.view.x - s.view.w / 2) / s.camera.zoom, y: s.camera.cy + (sy - s.view.y - s.view.h / 2) / s.camera.zoom });
 /** Карта не выезжает за край: экран всегда внутри мира. */
 // С круга 14 при самом сильном отдалении карта целиком помещается и по высоте, а по ширине она уже окна: тогда камера стоит по центру карты (по этой оси двигать нечего)
 const cameraInBounds = (s, eps = 0.6) => {
-  const hx = s.viewW / 2 / s.camera.zoom;
-  const hy = s.height / 2 / s.camera.zoom;
+  const hx = s.view.w / 2 / s.camera.zoom;
+  const hy = s.view.h / 2 / s.camera.zoom;
   const okX = hx * 2 >= s.map.worldW - eps ? Math.abs(s.camera.cx - s.map.worldW / 2) <= eps : s.camera.cx >= hx - eps && s.camera.cx <= s.map.worldW - hx + eps;
   const okY = hy * 2 >= s.map.worldH - eps ? Math.abs(s.camera.cy - s.map.worldH / 2) <= eps : s.camera.cy >= hy - eps && s.camera.cy <= s.map.worldH - hy + eps;
   return okX && okY;
 };
 const cameraLimits = (s) => {
-  const hx = s.viewW / 2 / s.camera.zoom;
-  const hy = s.height / 2 / s.camera.zoom;
+  const hx = s.view.w / 2 / s.camera.zoom;
+  const hy = s.view.h / 2 / s.camera.zoom;
   const ax = hx * 2 >= s.map.worldW ? [s.map.worldW / 2, s.map.worldW / 2] : [hx, s.map.worldW - hx];
   const ay = hy * 2 >= s.map.worldH ? [s.map.worldH / 2, s.map.worldH / 2] : [hy, s.map.worldH - hy];
   return { minX: ax[0], maxX: ax[1], minY: ay[0], maxY: ay[1] };
@@ -664,7 +667,9 @@ async function profileLoadAndCamera(c) {
   check(`${p} экран помещается в окно, по центру, заполняет его`, layout.fits && layout.centred && layout.fill > 0.98, `fits=${layout.fits} centred=${layout.centred} fill=${layout.fill.toFixed(2)}`);
   check(`${p} страница не прокручивается`, !layout.scrolls);
   check(`${p} отрисовка через WebGL`, s0.renderer === 'webgl', `renderer=${s0.renderer}`);
-  check(`${p} размеры: экран ${W}×${H}, окно карты 1080, карта ${LEVEL.cols}×${LEVEL.rows}`, s0.width === W && s0.height === H && s0.viewW === W - 200 && s0.map.cols === LEVEL.cols && s0.map.rows === LEVEL.rows, `${s0.width}×${s0.height}, viewW=${s0.viewW}, карта ${s0.map.cols}×${s0.map.rows}`);
+  const TOP_H = readConfigNumber('map', 'topH');
+  const BOTTOM_H = readConfigNumber('map', 'bottomH');
+  check(`${p} размеры: экран ${W}×${H}, окно карты ${W}×${H - TOP_H - BOTTOM_H} между верхней (${TOP_H}) и нижней (${BOTTOM_H}) полосами, карта ${LEVEL.cols}×${LEVEL.rows}`, s0.width === W && s0.height === H && s0.viewW === W && s0.view.x === 0 && s0.view.y === TOP_H && s0.view.h === H - TOP_H - BOTTOM_H && s0.map.cols === LEVEL.cols && s0.map.rows === LEVEL.rows, `${s0.width}×${s0.height}, окно ${JSON.stringify(s0.view)}, карта ${s0.map.cols}×${s0.map.rows}`);
   check(`${p} старт: монеты ${CFG.startCoins}, жизни ${CFG.lives} (сердец на панели ${s0.ui.lives})`, s0.coins === CFG.startCoins && s0.lives === CFG.lives && s0.maxLives === CFG.lives && s0.ui.lives === CFG.lives);
   check(`${p} старт: волна 0 из ${CFG.waves}, никого нет, башен нет, башня не выбрана`, s0.wave === 0 && s0.waveTotal === CFG.waves && s0.spawned === 0 && s0.bacteria.length === 0 && s0.towers.length === 0 && s0.selected === null && s0.state === 'playing');
   const startCenter = startCenterPx(); // LEVEL.startCenter — в единицах сети дорожек (pathUnit 103 px), не в клетках под башню
@@ -673,8 +678,8 @@ async function profileLoadAndCamera(c) {
   check(`${p} подсказка «Поверните телефон» в горизонтальном положении (и на компьютере) не показана`, rot0.display === 'none', `display=${rot0.display}, pointer:coarse=${rot0.coarse}`);
   const btn = s0.ui.towerButton;
   check(
-    `${p} панель внутри экрана: кнопка башни и кнопка паузы справа от окна карты`,
-    btn.x - btn.w / 2 >= s0.viewW && btn.x + btn.w / 2 <= W && btn.y - btn.h / 2 >= 0 && btn.y + btn.h / 2 <= H && s0.ui.pauseButton.x > s0.viewW && s0.ui.pauseButton.x < W && s0.ui.pauseButton.y > 0 && s0.ui.pauseButton.y < H,
+    `${p} панель внутри экрана: кнопка башни, «Начать волну», скорость и пауза в нижней панели (y ${H - BOTTOM_H}…${H})`,
+    btn.x - btn.w / 2 >= 0 && btn.x + btn.w / 2 <= W && btn.y - btn.h / 2 >= H - BOTTOM_H && btn.y + btn.h / 2 <= H && [s0.ui.pauseButton, s0.ui.speedButton, s0.ui.waveButton].every((b) => b.x > 0 && b.x < W && b.y > H - BOTTOM_H && b.y < H) && s0.ui.pauseButton.x > btn.x,
     `кнопка башни (${btn.x}; ${btn.y}) ${btn.w}×${btn.h}, пауза (${s0.ui.pauseButton.x}; ${s0.ui.pauseButton.y})`,
   );
   // Карта: клетки под башню (tile) и дорожки считаются независимо. Клетка «задета дорожкой», если её центр ближе pathWidth/2 + 0,55·tile к ТОЧКЕ какого-нибудь ребра
@@ -828,11 +833,11 @@ async function profileLoadAndCamera(c) {
   if (full) {
     // ---- касания панели не двигают карту
     const cb = await cam();
-    await input.drag(g(1180, 450), g(900, 450));
-    if (!isTouch) await input.wheel(g(1180, 450), -300);
+    await input.drag(g(1180, 665), g(900, 665));
+    if (!isTouch) await input.wheel(g(1180, 665), -300);
     await settle();
     const ca = await cam();
-    check(`${p} перетаскивание${isTouch ? '' : ' и колесо'}, начатое на панели, карту не двигает`, Math.abs(ca.cx - cb.cx) < 0.01 && Math.abs(ca.cy - cb.cy) < 0.01 && Math.abs(ca.zoom - cb.zoom) < 1e-6, `Δcx=${f2(ca.cx - cb.cx)}, Δzoom=${f2(ca.zoom - cb.zoom)}`);
+    check(`${p} перетаскивание${isTouch ? '' : ' и колесо'}, начатое на нижней панели, карту не двигает`, Math.abs(ca.cx - cb.cx) < 0.01 && Math.abs(ca.cy - cb.cy) < 0.01 && Math.abs(ca.zoom - cb.zoom) < 1e-6, `Δcx=${f2(ca.cx - cb.cx)}, Δzoom=${f2(ca.zoom - cb.zoom)}`);
   }
   await page.close();
 }
@@ -870,7 +875,7 @@ async function profilePlacement(c) {
     await input.hover(await game.cell(...FREE.d));
     await sleep(300);
     await shot(page, `${name}-06-ghost`);
-    await input.hover(game.g(1180, 500)); // мышь уходит с карты
+    await input.hover(game.g(1180, 665)); // мышь уходит с карты на нижнюю панель
   } else {
     await sleep(200);
     await shot(page, `${name}-06-tower-selected`);
@@ -1169,9 +1174,9 @@ async function runRules(browser, baseUrl) {
   for (let col = 0; col < LEVEL.cols; col++) {
     for (let row = 0; row < LEVEL.rows; row++) {
       const w = GEO.center(col, row);
-      const sx = s.viewW / 2 + (w.x - s.camera.cx) * s.camera.zoom;
-      const sy = s.height / 2 + (w.y - s.camera.cy) * s.camera.zoom;
-      if (sx >= 40 && sx <= s.viewW - 40 && sy >= 40 && sy <= s.height - 40) cells.push({ col, row, sx, sy, path: GEO.isPathCell(col, row) });
+      const sx = s.view.x + s.view.w / 2 + (w.x - s.camera.cx) * s.camera.zoom;
+      const sy = s.view.y + s.view.h / 2 + (w.y - s.camera.cy) * s.camera.zoom;
+      if (sx >= 40 && sx <= s.view.w - 40 && sy >= s.view.y + 40 && sy <= s.view.y + s.view.h - 40) cells.push({ col, row, sx, sy, path: GEO.isPathCell(col, row) });
     }
   }
   await game.towerButton();
@@ -1200,9 +1205,9 @@ async function runRules(browser, baseUrl) {
   for (let col = 0; col < LEVEL.cols; col++) {
     for (let row = 0; row < LEVEL.rows; row++) {
       const w = GEO.center(col, row);
-      const sx = s.viewW / 2 + (w.x - s.camera.cx) * s.camera.zoom;
-      const sy = s.height / 2 + (w.y - s.camera.cy) * s.camera.zoom;
-      if (sx >= 20 && sx <= s.viewW - 20 && sy >= 20 && sy <= s.height - 20) minCells.push({ col, row, sx, sy, path: GEO.isPathCell(col, row) });
+      const sx = s.view.x + s.view.w / 2 + (w.x - s.camera.cx) * s.camera.zoom;
+      const sy = s.view.y + s.view.h / 2 + (w.y - s.camera.cy) * s.camera.zoom;
+      if (sx >= 20 && sx <= s.view.w - 20 && sy >= s.view.y + 20 && sy <= s.view.y + s.view.h - 20) minCells.push({ col, row, sx, sy, path: GEO.isPathCell(col, row) });
     }
   }
   const atMin = Math.abs(s.camera.zoom - CFG.zoomMin) < 0.002;
@@ -1220,11 +1225,11 @@ async function runRules(browser, baseUrl) {
   await shot(game.page, 'rules-02-all-cells-min-zoom');
   await game.page.close();
 
-  // ---- касание, начатое на карте у самой панели и закончившееся на панели (сдвиг в пределах порога тапа)
+  // ---- касание, начатое на карте у самой нижней панели и закончившееся на панели (сдвиг в пределах порога тапа)
   game = await openGame(context, baseUrl, p, { cfg: `economy.startCoins:500,waves.firstDelaySec:60,${FIXED_BALANCE.join(',')}` });
   await game.towerButton();
-  const edge = game.g(1076, 300);
-  const over = game.g(1086, 300);
+  const edge = game.g(640, 604); // карта у нижней панели (окно карты кончается на y = 608)
+  const over = game.g(640, 614); // уже на нижней панели
   await game.page.mouse.move(edge.x, edge.y);
   await game.page.mouse.down();
   await game.page.mouse.move(over.x, over.y);
@@ -1727,12 +1732,12 @@ async function runProduction(browser, prodUrl, qaUrl) {
   });
   const g = (x, y) => ({ x: rect.left + (x * rect.width) / W, y: rect.top + (y * rect.height) / H });
   const towerCell = GEO.center(...FREE.a);
-  const cellG = { x: (W - 200) / 2 + (towerCell.x - startCenterPx().x), y: H / 2 + (towerCell.y - startCenterPx().y) }; // приближение на старте = 1
+  const cellG = { x: VIEW_CENTER.x + (towerCell.x - startCenterPx().x), y: VIEW_CENTER.y + (towerCell.y - startCenterPx().y) }; // приближение на старте = 1
   const ring = [];
   for (let a = 100; a <= 260; a += 20) ring.push(g(cellG.x + 27 * Math.cos((a * Math.PI) / 180), cellG.y + 27 * Math.sin((a * Math.PI) / 180)));
   const near = ([r, gg, b], want, tol) => Math.abs(r - want[0]) <= tol && Math.abs(gg - want[1]) <= tol && Math.abs(b - want[2]) <= tol;
   const beforePx = await samplePixels(play, await play.screenshot(), ring.map((q) => [q.x, q.y]));
-  const btn = g(1180, 210);
+  const btn = g(64, 662); // первая карточка башни (Таблетка) в нижней панели
   await play.touchscreen.tap(btn.x, btn.y);
   await sleep(300);
   const cellPt = g(cellG.x, cellG.y);
@@ -1956,9 +1961,9 @@ async function runDash(browser, baseUrl) {
   while (!got && Date.now() - t0 < 60000) {
     const x = await g2.state();
     const rod = x.bacteria.find((b) => {
-      const sx = x.viewW / 2 + (b.x - x.camera.cx) * x.camera.zoom;
-      const sy = x.height / 2 + (b.y - x.camera.cy) * x.camera.zoom;
-      return b.kind === 'rod' && b.dashing && sx > 120 && sx < 960 && sy > 80 && sy < 640;
+      const sx = x.view.x + x.view.w / 2 + (b.x - x.camera.cx) * x.camera.zoom;
+      const sy = x.view.y + x.view.h / 2 + (b.y - x.camera.cy) * x.camera.zoom;
+      return b.kind === 'rod' && b.dashing && sx > 120 && sx < 1160 && sy > 80 && sy < 560;
     });
     if (rod) {
       await shot(g2.page, 'dash-01-rod-dashing');
@@ -2013,9 +2018,9 @@ async function runSplit(browser, baseUrl) {
       events.push({ parent: parents[0], kids, coinsDelta: s.coins - prev.coins, killsDelta: s.kills - prev.kills, elapsed: s.elapsed });
       const k0 = kids[0];
       if (!shotTaken && k0) {
-        const sx = s.viewW / 2 + (k0.x - s.camera.cx) * s.camera.zoom;
-        const sy = s.height / 2 + (k0.y - s.camera.cy) * s.camera.zoom;
-        if (sx > 100 && sx < 980 && sy > 60 && sy < 660) {
+        const sx = s.view.x + s.view.w / 2 + (k0.x - s.camera.cx) * s.camera.zoom;
+        const sy = s.view.y + s.view.h / 2 + (k0.y - s.camera.cy) * s.camera.zoom;
+        if (sx > 100 && sx < 1180 && sy > 60 && sy < 560) {
           await shot(game.page, 'split-01-after-split');
           shotTaken = true;
         }
@@ -2249,9 +2254,9 @@ async function runArmored(browser, baseUrl) {
     const a = s.bacteria.find((b) => b.kind === 'armored');
     if (a) {
       if (!hps.length || hps[hps.length - 1] !== a.hp) hps.push(a.hp);
-      const sx = s.viewW / 2 + (a.x - s.camera.cx) * s.camera.zoom;
-      const sy = s.height / 2 + (a.y - s.camera.cy) * s.camera.zoom;
-      if (!shotTaken && a.hp <= hp / 2 && sx > 100 && sx < 980 && sy > 60 && sy < 660) {
+      const sx = s.view.x + s.view.w / 2 + (a.x - s.camera.cx) * s.camera.zoom;
+      const sy = s.view.y + s.view.h / 2 + (a.y - s.camera.cy) * s.camera.zoom;
+      if (!shotTaken && a.hp <= hp / 2 && sx > 100 && sx < 1180 && sy > 60 && sy < 560) {
         await shot(game.page, 'armored-01-cracked');
         shotTaken = true;
       }
@@ -2275,8 +2280,8 @@ async function runArmored(browser, baseUrl) {
 async function toastPixels(game, png) {
   const points = [];
   const coords = [];
-  for (let gy = 30; gy <= 62; gy += 2) {
-    for (let gx = 0; gx <= 1100; gx += 3) {
+  for (let gy = 54; gy <= 90; gy += 2) {
+    for (let gx = 0; gx <= 1278; gx += 3) {
       const c = game.screen.g2c(gx, gy);
       points.push([c.x, c.y]);
       coords.push(gx);
@@ -2348,7 +2353,7 @@ async function runIntro(browser, baseUrl) {
       return seen.length >= toastKinds.length;
     }, 150000, 25);
     check(`${q} при первом появлении каждого из ${toastKinds.length} новых типов вверху сообщение «Новая бактерия!…» (жёлтые точки текста: ${seen.map((x) => `${x.kind} ${x.t.count}`).join(', ')})`, seen.length === toastKinds.length && seen.every((x) => x.t.count >= 120), seen.map((x) => `${x.kind}: ${x.t.count}`).join(', '));
-    check(`${q} текст каждого сообщения целиком в окне карты (от ${Math.min(...seen.map((x) => x.t.minX))} до ${Math.max(...seen.map((x) => x.t.maxX))} px из 1080)`, seen.length === toastKinds.length && seen.every((x) => x.t.minX >= 10 && x.t.maxX <= 1074), seen.map((x) => `${x.kind}: ${x.t.minX}…${x.t.maxX}`).join('; '));
+    check(`${q} текст каждого сообщения целиком в окне карты (от ${Math.min(...seen.map((x) => x.t.minX))} до ${Math.max(...seen.map((x) => x.t.maxX))} px из 1280)`, seen.length === toastKinds.length && seen.every((x) => x.t.minX >= 10 && x.t.maxX <= 1274), seen.map((x) => `${x.kind}: ${x.t.minX}…${x.t.maxX}`).join('; '));
     check(`${q} при первом появлении нового типа играет звук (аудио запущено, sound.played растёт на каждом появлении)`, seen.length === toastKinds.length && seen.every((x) => x.soundState === 'running' && x.playedDelta >= 1), seen.map((x) => `${x.kind}: +${x.playedDelta}`).join(', '));
     await ctx.close();
   }
@@ -2756,10 +2761,10 @@ function recordFull(traces, s) {
 /** Цвета цен на кнопках: сколько «золотых» и «красных» точек в том месте, где нарисована цена башни (экран игры). */
 async function priceColors(game, png, btn) {
   const points = [];
-  // Кнопка башни — 38 px высотой (десять штук на панели, src/ui/Panel.ts: SLOT), одна строка: значок, название, справа цена (шрифт 18, правый край текста на 24 px левее правого края кнопки; правее — монета,
-  // она тоже золотая, поэтому в окно не берётся). Смотрим на последние цифры цены: от «правый край − 44» до «правый край − 26», по высоте — середина кнопки ± 6
-  for (let gy = btn.y - 6; gy <= btn.y + 6; gy += 1) {
-    for (let gx = btn.x + btn.w / 2 - 44; gx <= btn.x + btn.w / 2 - 26; gx += 1) {
+  // Карточка башни в нижней панели (src/ui/Panel.ts: CARD, 108 × 92): значок сверху, под ним цена по центру (шрифт 22). Смотрим на цифры цены: x ± 22 от центра, y от +17 до +37 от центра карточки.
+  // Карточка с нехваткой монет тусклая (прозрачность 0,62): цена красная, но смешана с фоном — порог красного ниже, чем у золотой.
+  for (let gy = btn.y + 17; gy <= btn.y + 37; gy += 1) {
+    for (let gx = btn.x - 22; gx <= btn.x + 22; gx += 1) {
       const c = game.screen.g2c(gx, gy);
       points.push([c.x, c.y]);
     }
@@ -2769,18 +2774,18 @@ async function priceColors(game, png, btn) {
   let red = 0;
   for (const [r, g, b] of px) {
     if (r >= 225 && g >= 185 && g <= 235 && b <= 115) gold++;
-    else if (r >= 225 && g >= 85 && g <= 135 && b >= 100 && b <= 150) red++;
+    else if (r >= 140 && g <= 125 && r - g >= 50 && b >= 70) red++;
   }
   return { gold, red, kind: gold >= 12 && red < 4 ? 'gold' : red >= 12 && gold < 4 ? 'red' : 'unclear' };
 }
 
 /** Подсказка внизу окна карты: сколько белых точек текста и где он начинается и кончается по горизонтали (экран игры, px). Сканируется только окно карты
- *  (x до 1078): правее начинается панель, и белые цифры кнопки скорости «×1» не должны считаться текстом подсказки. */
+ *  (весь экран по ширине; по высоте — над нижней панелью). */
 async function hintExtent(game, png) {
   const points = [];
   const xs = [];
-  for (let gy = 664; gy <= 702; gy += 2) {
-    for (let gx = 0; gx <= 1078; gx += 3) {
+  for (let gy = 548; gy <= 596; gy += 2) {
+    for (let gx = 0; gx <= 1278; gx += 3) {
       const c = game.screen.g2c(gx, gy);
       points.push([c.x, c.y]);
       xs.push(gx);
@@ -2840,22 +2845,29 @@ async function towersPanel(browser, baseUrl, deviceKey, lang, { full = false } =
   let s = await game.state();
   const btns = s.ui.towerButtons;
   check(`${p} на панели ровно ${TOWER_IDS.length} кнопок башен в порядке таблицы ${TOWER_IDS.join(', ')}`, btns.length === TOWER_IDS.length && btns.map((b) => b.id).join() === TOWER_IDS.join(), btns.map((b) => b.id).join(', '));
-  const inside = btns.every((b) => b.x - b.w / 2 >= s.viewW && b.x + b.w / 2 <= W && b.y - b.h / 2 >= 0 && b.y + b.h / 2 <= H);
-  const ordered = btns.every((b, i) => i === 0 || b.y - b.h / 2 >= btns[i - 1].y + btns[i - 1].h / 2);
-  const lastEnd = btns[btns.length - 1].y + btns[btns.length - 1].h / 2;
-  const abovePause = lastEnd <= s.ui.pauseButton.y - 24;
-  const aboveWave = !s.ui.waveButton.visible || lastEnd <= s.ui.waveButton.y - s.ui.waveButton.h / 2;
-  check(`${p} кнопки целиком на панели справа, не налезают друг на друга, на «Начать волну» и на кнопку паузы (последняя кончается на y=${f1(lastEnd)}, пауза на y=${s.ui.pauseButton.y})`, inside && ordered && abovePause && aboveWave, `inside=${inside} ordered=${ordered} abovePause=${abovePause} aboveWave=${aboveWave}`);
+  const BOTTOM_TOP = H - readConfigNumber('map', 'bottomH');
+  const list = s.ui.towerList;
+  // карточки башен лежат в одну строку внутри нижней панели; в окне списка (слева от «Начать волну») видны не меньше шести, остальные уезжают за правый край (прокрутка)
+  const rowIn = btns.every((b) => b.y - b.h / 2 >= BOTTOM_TOP && b.y + b.h / 2 <= H && b.x - b.w / 2 >= -(list.maxScroll + 1));
+  const byX = [...btns].sort((a, b) => a.x - b.x);
+  const noOverlap = byX.every((b, i) => i === 0 || b.x - b.w / 2 >= byX[i - 1].x + byX[i - 1].w / 2);
+  const visibleCount = btns.filter((b) => b.visible).length;
+  const listEnd = list.x + list.w;
+  const beforeWave = listEnd <= s.ui.waveButton.x - s.ui.waveButton.w / 2 && listEnd <= s.ui.speedButton.x && listEnd <= s.ui.pauseButton.x;
+  const openFirst = byX.map((b) => b.locked).join() === [...byX.map((b) => b.locked)].sort((x, y) => Number(x) - Number(y)).join();
+  check(`${p} карточки целиком в нижней панели (y ${BOTTOM_TOP}…${H}), в одну строку без наложений, видно ${visibleCount} из ${btns.length}, закрытые в конце, список кончается левее «Начать волну» (x=${listEnd} против ${s.ui.waveButton.x - s.ui.waveButton.w / 2}), прокрутка до ${list.maxScroll} px`, rowIn && noOverlap && visibleCount >= 6 && openFirst && beforeWave && list.maxScroll > 0, `rowIn=${rowIn} noOverlap=${noOverlap} visible=${visibleCount} openFirst=${openFirst} beforeWave=${beforeWave} maxScroll=${list.maxScroll}`);
   check(`${p} кнопка «towerButton» (прежняя) — это первая: Таблетка`, s.ui.towerButton.x === btns[0].x && s.ui.towerButton.y === btns[0].y);
   await sleep(300);
   const png0 = await shot(page, `towers-01-panel-${name}`);
 
   if (full) {
     // цвет цены: золотая, если монет хватает, красная, если нет (у каждой башни — по своей цене из config.ts: порядок цен не по возрастанию)
-    const want = TOWER_IDS.map((id) => (TW[id].price <= coins ? 'gold' : 'red'));
+    // видны на снимке только карточки в окне списка (остальные за правым краем, закрытые без цены): смотрим цены открытых видимых
+    const seen = btns.filter((b) => b.visible && !b.locked);
+    const want = seen.map((b) => (TW[b.id].price <= coins ? 'gold' : 'red'));
     const got = [];
-    for (const b of btns) got.push((await priceColors(game, png0, b)).kind);
-    check(`${p} при ${coins} монетах цены на кнопках: ${TOWER_IDS.map((id, i) => `${id} ${TW[id].price} — ${want[i] === 'gold' ? 'золотая' : 'красная'}`).join('; ')}`, got.join() === want.join(), `по снимку: ${got.join(', ')}; ждали: ${want.join(', ')}`);
+    for (const b of seen) got.push((await priceColors(game, png0, b)).kind);
+    check(`${p} при ${coins} монетах цены на карточках (${seen.length} видимых): ${seen.map((b, i) => `${b.id} ${TW[b.id].price} — ${want[i] === 'gold' ? 'золотая' : 'красная'}`).join('; ')}`, seen.length >= 5 && got.join() === want.join(), `по снимку: ${got.join(', ')}; ждали: ${want.join(', ')}`);
   }
 
   // выбор: тап по каждой кнопке выбирает именно её; повторный тап снимает; тап по другой кнопке переключает
@@ -2876,7 +2888,7 @@ async function towersPanel(browser, baseUrl, deviceKey, lang, { full = false } =
     await game.selectTower(id);
     s = await game.state();
     reTap.push(s.selected === null);
-    if (!device.hasTouch) await input.hover(game.g(1180, 620));
+    if (!device.hasTouch) await input.hover(game.g(1180, 665));
   }
   check(`${p} тап по кнопке выбирает именно эту башню (selected: ${TOWER_IDS.join(', ')})`, picked.every(Boolean), picked.join());
   check(`${p} повторный тап по той же кнопке снимает выбор`, reTap.every(Boolean), reTap.join());
@@ -2887,7 +2899,7 @@ async function towersPanel(browser, baseUrl, deviceKey, lang, { full = false } =
   await game.selectTower('fizz');
   // подсказка внизу есть у каждой башни и целиком внутри окна карты (не залезает на панель)
   for (const h of hints) {
-    check(`${p} нижняя подсказка при выборе башни «${h.id}» видна и целиком в окне карты (текст от ${h.minX} до ${h.maxX} px из 1080, точек текста ${h.count})`, h.count >= 100 && h.minX >= 8 && h.maxX <= 1074, `точек ${h.count}, ${h.minX}…${h.maxX}`);
+    check(`${p} нижняя подсказка при выборе башни «${h.id}» видна и целиком в окне карты (текст от ${h.minX} до ${h.maxX} px из 1280, точек текста ${h.count})`, h.count >= 100 && h.minX >= 8 && h.maxX <= 1274, `точек ${h.count}, ${h.minX}…${h.maxX}`);
   }
   // тап по пустой клетке без башни по-прежнему ничего не ставит
   await game.tapCell(...FREE.a);
@@ -2989,9 +3001,9 @@ async function syrupPlay(context, baseUrl, p, { cfg = [], count = 2, interval, w
     if (shotName && !shotDone && st.puddles.length > 0) {
       const slowed = st.bacteria.find((b) => b.slowed);
       if (slowed) {
-        const sx = st.viewW / 2 + (slowed.x - st.camera.cx) * st.camera.zoom;
-        const sy = st.height / 2 + (slowed.y - st.camera.cy) * st.camera.zoom;
-        if (sx > 100 && sx < 980 && sy > 80 && sy < 640) {
+        const sx = st.view.x + st.view.w / 2 + (slowed.x - st.camera.cx) * st.camera.zoom;
+        const sy = st.view.y + st.view.h / 2 + (slowed.y - st.camera.cy) * st.camera.zoom;
+        if (sx > 100 && sx < 1180 && sy > 80 && sy < 560) {
           await shot(game.page, shotName);
           shotDone = true;
         }
@@ -3180,9 +3192,9 @@ function farVisibleCell(state) {
     for (let row = 0; row < LEVEL.rows; row++) {
       if (GEO.isPathCell(col, row)) continue;
       const c = GEO.center(col, row);
-      const sx = state.viewW / 2 + (c.x - state.camera.cx) * state.camera.zoom;
-      const sy = state.height / 2 + (c.y - state.camera.cy) * state.camera.zoom;
-      if (sx < 70 || sx > state.viewW - 70 || sy < 70 || sy > state.height - 70) continue;
+      const sx = state.view.x + state.view.w / 2 + (c.x - state.camera.cx) * state.camera.zoom;
+      const sy = state.view.y + state.view.h / 2 + (c.y - state.camera.cy) * state.camera.zoom;
+      if (sx < 70 || sx > state.view.w - 70 || sy < state.view.y + 70 || sy > state.view.y + state.view.h - 70) continue;
       const dp = Math.min(...GRAPH.edges.map((e) => GEO.distToEdge(c, e.id)));
       if (!best || dp > best.dp) best = { col, row, dp };
     }
@@ -3462,9 +3474,9 @@ function beamSpot(state, mode) {
     for (let row = 0; row < LEVEL.rows; row++) {
       if (GEO.isPathCell(col, row)) continue;
       const c = GEO.center(col, row);
-      const sx = state.viewW / 2 + (c.x - state.camera.cx) * state.camera.zoom;
-      const sy = state.height / 2 + (c.y - state.camera.cy) * state.camera.zoom;
-      if (sx < 70 || sx > state.viewW - 70 || sy < 70 || sy > state.height - 70) continue;
+      const sx = state.view.x + state.view.w / 2 + (c.x - state.camera.cx) * state.camera.zoom;
+      const sy = state.view.y + state.view.h / 2 + (c.y - state.camera.cy) * state.camera.zoom;
+      if (sx < 70 || sx > state.view.w - 70 || sy < state.view.y + 70 || sy > state.view.y + state.view.h - 70) continue;
       const def = defaultAimAt(c.x, c.y);
       const value = beamCoverageAt(c.x, c.y, def.k, beamReachOf(coccusR), { only: entr, minAlong: mode === 'far' ? 450 : 0 });
       let blind = [];
@@ -4404,8 +4416,8 @@ function startWindowCells() {
     for (let row = 0; row < LEVEL.rows; row++) {
       if (GEO.isPathCell(col, row)) continue;
       const w = GEO.center(col, row);
-      const sx = (W - 200) / 2 + (w.x - sc.x);
-      const sy = H / 2 + (w.y - sc.y);
+      const sx = VIEW_CENTER.x + (w.x - sc.x);
+      const sy = VIEW_CENTER.y + (w.y - sc.y);
       if (sx < CELL_WINDOW.x0 || sx > CELL_WINDOW.x1 || sy < CELL_WINDOW.y0 || sy > CELL_WINDOW.y1) continue;
       out.push({ cell: [col, row], sx, sy });
     }
@@ -5517,9 +5529,9 @@ async function typesGiant(browser, baseUrl) {
         steps.push(last - g.hp);
         last = g.hp;
       }
-      const sx = s.viewW / 2 + (g.x - s.camera.cx) * s.camera.zoom;
-      const sy = s.height / 2 + (g.y - s.camera.cy) * s.camera.zoom;
-      if (!shotDone && sx > 150 && sx < 950 && sy > 100 && sy < 620) {
+      const sx = s.view.x + s.view.w / 2 + (g.x - s.camera.cx) * s.camera.zoom;
+      const sy = s.view.y + s.view.h / 2 + (g.y - s.camera.cy) * s.camera.zoom;
+      if (!shotDone && sx > 150 && sx < 1150 && sy > 100 && sy < 560) {
         await shot(game.page, 'towers-10-giant');
         shotDone = true;
       }
@@ -5648,12 +5660,6 @@ const MIN_AURA_MUL = readConfigNumber('meta', 'minAuraMul');
 const FREEZE_LEVEL_POWER = (() => {
   const found = /\bfreezeLevelPower:\s*([\d.]+)/.exec(fs.readFileSync(path.join(ROOT, 'src', 'config.ts'), 'utf8'));
   if (!found) throw new Error('В config.ts нет freezeLevelPower');
-  return Number(found[1]);
-})();
-/** На сколько пикселей карточка выбранной башни выступает вниз за область кнопок башен (src/ui/Panel.ts: CARD_EXTRA; с пачки 3 — 14). */
-const CARD_EXTRA = (() => {
-  const found = /const CARD_EXTRA\s*=\s*(\d+)/.exec(fs.readFileSync(path.join(ROOT, 'src', 'ui', 'Panel.ts'), 'utf8'));
-  if (!found) throw new Error('В src/ui/Panel.ts нет CARD_EXTRA');
   return Number(found[1]);
 })();
 /** Чем числа башни из игры отличаются от ожидаемых по таблицам (пустой список — совпали). */
@@ -5902,25 +5908,22 @@ async function cardBasics(browser, baseUrl, deviceKey) {
   check(`${p} тап по поставленной Таблетке при выбранном на панели Сиропе выбирает именно её (клетка ${ca.join(';')}), снимает выбор на панели (selected = ${s.selected}) и открывает карточку; башня не ставится (башен ${s.towers.length}, монет ${s.coins} из ${coins0}, постановок ${s.effects.placements})`, selectedIs(s, ca) && s.selected === null && s.ui.card.visible && s.towers.length === 3 && s.coins === coins0 && s.effects.placements === placements0, `selectedTower ${JSON.stringify(s.selectedTower)}, selected ${s.selected}, карточка ${s.ui.card.visible}`);
   const c = s.ui.card;
   const btns = s.ui.towerButtons;
-  const top = btns[0].y - btns[0].h / 2;
-  const bottom = btns[btns.length - 1].y + btns[btns.length - 1].h / 2;
-  // карточка растянута вниз на CARD_EXTRA px сверх области кнопок башен (src/ui/Panel.ts): «Продать» стоит у нижнего края карточки
-  const inside = [c.merge, c.sell, c.close].every((r) => inGameBox(r, s)) && c.merge.y - c.merge.h / 2 >= top && c.sell.y + c.sell.h / 2 <= bottom + CARD_EXTRA;
-  check(`${p} кнопки карточки («Слить» y=${f1(c.merge.y)}, «Продать» y=${f1(c.sell.y)}, ✕) лежат в панели справа на месте кнопок башен (они занимают y от ${f1(top)} до ${f1(bottom)})`, inside, `слить ${JSON.stringify(c.merge)}, продать ${JSON.stringify(c.sell)}`);
+  const bottomTop = H - readConfigNumber('map', 'bottomH');
+  // карточка лежит над нижней панелью на карте (src/ui/Panel.ts: CARD_AREA): кнопки целиком на экране и выше нижней панели; между «Слить» и «Продать» зазор не меньше 40 px
+  const inside = [c.merge, c.sell, c.close].every((r) => inGameBox(r, s) && r.y + r.h / 2 <= bottomTop);
+  const gap = c.sell.x - c.sell.w / 2 - (c.merge.x + c.merge.w / 2);
+  check(`${p} кнопки карточки («Слить» y=${f1(c.merge.y)}, «Продать» y=${f1(c.sell.y)}, ✕) лежат над нижней панелью (y до ${bottomTop}), между «Слить» и «Продать» зазор ${f1(gap)} px (не меньше 40)`, inside && gap >= 40, `слить ${JSON.stringify(c.merge)}, продать ${JSON.stringify(c.sell)}`);
   check(`${p} у Таблетки без пары «Слить» недоступна, вариантов мутации и стрелок поворота нет (мутация ждёт уровня ${S4.mutationLevels[0]})`, !c.merge.enabled && c.picks.every((r) => !r.visible) && !c.rotateLeft.visible && !c.rotateRight.visible, JSON.stringify({ merge: c.merge.enabled, picks: c.picks.map((r) => r.visible), rot: [c.rotateLeft.visible, c.rotateRight.visible] }));
   await sleep(250);
   await shot(game.page, `card-01-pill-${deviceKey}`);
 
-  // ---- карточка закрывает кнопки башен: тап в то место, где была кнопка «Таблетка», ничего не выбирает
-  // над карточкой стоит полоса компактных кнопок (она лежит на месте первых кнопок башен); берём кнопку башни ниже полосы и вне кнопок карточки
-  const stripBottom = Math.max(...(s.ui.towerStrip?.buttons ?? []).map((r) => r.y + r.h / 2), 0);
-  const cardRects = [s.ui.card.merge, s.ui.card.sell, s.ui.card.close, ...s.ui.card.picks].filter((r) => r && (r.visible ?? true));
-  const hitsCard = (b) => cardRects.some((r) => Math.abs(b.x - r.x) <= r.w / 2 + 4 && Math.abs(b.y - r.y) <= r.h / 2 + 4);
-  const pb = btns.find((b) => b.y - b.h / 2 > stripBottom + 2 && !hitsCard(b)) ?? btns[btns.length - 1];
-  await game.input.tap(game.g(pb.x, pb.y));
-  await settle();
+  // ---- список башен остаётся доступным при открытой карточке: тап по карточке «Таблетка» в нижней панели закрывает карточку и выбирает башню для постройки одним касанием
+  await game.selectTower('pill');
   s = await game.state();
-  check(`${p} карточка лежит поверх кнопок башен: тап в то место, где была кнопка «Таблетка», не выбирает башню для постройки (selected = ${s.selected}) и не закрывает карточку`, s.selected === null && s.ui.card.visible && selectedIs(s, ca), `selected ${s.selected}, карточка ${s.ui.card.visible}`);
+  check(`${p} при открытой карточке тап по карточке «Таблетка» в списке: карточка закрыта, поставленная башня не выбрана, для постройки выбрана Таблетка (selected = ${s.selected}) — одно касание вместо двух`, s.selected === 'pill' && !s.ui.card.visible && s.selectedTower === null, `selected ${s.selected}, карточка ${s.ui.card.visible}, выбрана ${JSON.stringify(s.selectedTower)}`);
+  await game.tapCell(...ca);
+  s = await game.state();
+  check(`${p} тап по поставленной Таблетке снова открывает карточку и снимает выбор на панели`, s.selected === null && s.ui.card.visible && selectedIs(s, ca), `selected ${s.selected}, карточка ${s.ui.card.visible}`);
 
   // ---- повторный тап по той же башне оставляет её выбранной
   await game.tapCell(...ca);
@@ -6031,9 +6034,9 @@ async function mergeRadiusFlow(context, baseUrl) {
     for (let row = 0; row < LEVEL.rows; row++) {
       if (GEO.isPathCell(col, row) || (col === A[0] && row === A[1])) continue;
       const c = GEO.center(col, row);
-      const sx = s0.viewW / 2 + (c.x - sc.x);
-      const sy = s0.height / 2 + (c.y - sc.y);
-      if (sx < 80 || sx > s0.viewW - 80 || sy < 80 || sy > s0.height - 80) continue;
+      const sx = s0.view.x + s0.view.w / 2 + (c.x - sc.x);
+      const sy = s0.view.y + s0.view.h / 2 + (c.y - sc.y);
+      if (sx < 80 || sx > s0.view.w - 80 || sy < s0.view.y + 80 || sy > s0.view.y + s0.view.h - 80) continue;
       cand.push({ cell: [col, row], d: cellDist(A, [col, row]) });
     }
   }
@@ -6623,9 +6626,10 @@ async function runLocked(browser, baseUrl) {
       await frames(page, 3);
       await shot(page, `locked-${deviceKey}-${lang}-level${level}`);
       // звук включается первым касанием (как у игрока): тап по пустому месту поля
-      await game.input.tap(game.g(300, 650));
+      await game.input.tap(game.g(640, 300));
       await settle();
       for (const id of want) {
+        await page.evaluate((towerId) => window.__pvb.revealTower(towerId), id); // закрытые карточки стоят в конце списка: сдвигаем список к нужной
         const before = await game.state();
         const b = before.ui.towerButtons.find((x) => x.id === id);
         await game.input.tap(game.g(b.x, b.y));
@@ -6641,6 +6645,7 @@ async function runLocked(browser, baseUrl) {
       if (level === 1 && deviceKey === 'desktop') {
         // выбранная открытая башня остаётся выбранной после тапа по закрытой
         await game.selectTower('pill');
+        await page.evaluate((towerId) => window.__pvb.revealTower(towerId), want[0]);
         const b = (await game.state()).ui.towerButtons.find((x) => x.id === want[0]);
         await game.input.tap(game.g(b.x, b.y));
         await settle();
@@ -6686,8 +6691,9 @@ const overlaps = (a, b) => {
 };
 
 async function runStrip(browser, baseUrl) {
-  const p = '[полоса кнопок над карточкой]';
+  const p = '[нижняя панель: карточка башни и список с прокруткой]';
   const open = (level) => TOWER_ORDER.filter((id) => unlockOf(id) <= level);
+  const BOTTOM_TOP = H - readConfigNumber('map', 'bottomH');
   for (const [deviceKey, lang] of [['desktop', 'ru'], ['phone', 'en']]) {
     const device = VIEWPORTS[deviceKey];
     const q = `${p} [${device.label}, ${lang}]`;
@@ -6695,32 +6701,16 @@ async function runStrip(browser, baseUrl) {
     const game = await openGame(ctx, baseUrl, q, { cfg: 'waves.firstDelaySec:9999,economy.startCoins:5000', isTouch: device.hasTouch, query: '&level=10' });
     const { page } = game;
     let s = await placeSure(game, 'pill', FREE.a);
-    check(`${q} без карточки полосы нет`, !s.ui.towerStrip.visible && !s.ui.card.visible, JSON.stringify(s.ui.towerStrip.visible));
+    check(`${q} без карточки над нижней панелью ничего нет`, !s.ui.card.visible, JSON.stringify(s.ui.card.visible));
     if (s.selected) await game.selectTower(s.selected);
     s = await selectPlaced(game, FREE.a);
-    const ids = s.ui.towerStrip.buttons.map((b) => b.id);
-    check(`${q} карточка открыта — над ней полоса с кнопками открытых башен (${open(10).join(', ')})`, s.ui.card.visible && s.ui.towerStrip.visible && ids.join() === open(10).join(), `карточка ${s.ui.card.visible}, полоса ${s.ui.towerStrip.visible}, кнопки ${ids.join(', ')}`);
-    // при девяти–десяти открытых башнях полоса идёт в две строки по пять (src/ui/Panel.ts: STRIP_ONE_ROW_MAX 8, строка 24 px); при восьми и меньше — в одну (высота 38 px)
-    {
-      const bs = s.ui.towerStrip.buttons;
-      const rowYs = [...new Set(bs.map((b) => Math.round(b.y)))];
-      const perRow = rowYs.map((y) => bs.filter((b) => Math.round(b.y) === y).length);
-      const wantRows = bs.length > 8 ? 2 : 1;
-      check(`${q} при ${bs.length} открытых башнях полоса идёт в ${wantRows === 2 ? 'две строки (по пять)' : 'одну строку'}: строк ${rowYs.length}, кнопок в строках ${perRow.join(' и ')}, высота кнопки ${f1(bs[0].h)} px (ждали ${wantRows === 2 ? 24 : 38})`, rowYs.length === wantRows && Math.max(...perRow) <= 5 + (wantRows === 1 ? 5 : 0) && bs.every((b) => Math.abs(b.h - (wantRows === 2 ? 24 : 38)) <= 0.5), JSON.stringify(bs.map((b) => [b.id, Math.round(b.x), Math.round(b.y)])));
-    }
-    const stripBad = s.ui.towerStrip.buttons.filter((b) => {
-      const e = edges(b);
-      return e.l < s.viewW - 0.5 || e.r > W + 0.5 || [s.ui.card.close, s.ui.card.merge, s.ui.card.sell].some((r) => overlaps(b, r));
-    });
-    check(`${q} кнопки полосы внутри панели и не закрывают кнопки карточки`, stripBad.length === 0, stripBad.map((b) => b.id).join(', '));
+    check(`${q} карточка открыта, список башен (${open(10).length} открытых) остаётся в нижней панели и не закрыт карточкой`, s.ui.card.visible && s.ui.towerButtons.filter((b) => !b.locked).length === open(10).length && [s.ui.card.merge, s.ui.card.sell, s.ui.card.close].every((r) => r.y + r.h / 2 <= BOTTOM_TOP), `карточка ${s.ui.card.visible}, merge ${JSON.stringify(s.ui.card.merge)}`);
     await frames(page, 3);
     await shot(page, `strip-${deviceKey}-${lang}-pill-card`);
-    // тап по кнопке полосы: карточка закрывается, башня выбрана для постановки
-    const sb = s.ui.towerStrip.buttons.find((b) => b.id === 'syrup');
-    await frames(page, 3);
-    await game.input.tap(game.g(sb.x, sb.y));
-    s = await settleAfter(game, s, 'полоса: syrup');
-    check(`${q} тап по кнопке полосы «syrup» закрывает карточку и выбирает башню`, !s.ui.card.visible && !s.ui.towerStrip.visible && s.selected === 'syrup' && s.selectedTower === null, `карточка ${s.ui.card.visible}, полоса ${s.ui.towerStrip.visible}, выбрана ${s.selected}`);
+    // одно касание: тап по карточке башни в списке закрывает карточку и выбирает башню для постройки
+    await game.selectTower('syrup');
+    s = await game.state();
+    check(`${q} тап по карточке «syrup» в списке при открытой карточке закрывает её и выбирает башню (одно касание)`, !s.ui.card.visible && s.selected === 'syrup' && s.selectedTower === null, `карточка ${s.ui.card.visible}, selected ${s.selected}, выбрана ${JSON.stringify(s.selectedTower)}`);
     await game.tapCell(...FREE.b);
     s = await game.state();
     check(`${q} после этого Сироп ставится тапом по клетке`, towerIn(s, FREE.b)?.id === 'syrup', `в клетке ${towerIn(s, FREE.b)?.id}`);
@@ -6736,37 +6726,65 @@ async function runStrip(browser, baseUrl) {
     s = await game.state();
     const c = s.ui.card;
     const tw = towerIn(s, FREE.d);
-    check(`${q} Шприц уровня 2 ждёт выбора мутации: в карточке два варианта`, tw?.level === 2 && tw.pending !== null && c.visible && c.picks.length >= 2 && c.picks[0].visible && c.picks[1].visible, `уровень ${tw?.level}, pending ${tw?.pending}, варианты ${JSON.stringify(c.picks)}`);
+    check(`${q} Шприц уровня 2 ждёт выбора мутации: в карточке два варианта`, tw?.level === 2 && tw.pending !== null && c.visible && c.picks.length >= 2 && c.picks[0].visible && c.picks[1].visible, `уровень ${tw?.level}, pending ${tw?.pending}, карточка ${c.visible}`);
     const pick2 = edges(c.picks[1]);
     const mergeE = edges(c.merge);
-    check(`${q} нижний край второго варианта (${f1(pick2.b)}) выше верхнего края «Слить» (${f1(mergeE.t)})`, pick2.b <= mergeE.t, '');
-    check(`${q} «Слить» и «Продать» не налезают друг на друга`, !overlaps(c.merge, c.sell), `${JSON.stringify(c.merge)} / ${JSON.stringify(c.sell)}`);
+    check(`${q} второй вариант мутации (правый край ${f1(pick2.r)}) левее «Слить» (${f1(mergeE.l)})`, pick2.r <= mergeE.l, '');
+    check(`${q} «Слить» и «Продать» не налезают друг на друга, между ними зазор не меньше 40 px`, !overlaps(c.merge, c.sell) && c.sell.x - c.sell.w / 2 - (c.merge.x + c.merge.w / 2) >= 40, `${JSON.stringify(c.merge)} / ${JSON.stringify(c.sell)}`);
     const parts = { merge: c.merge, sell: c.sell, pick0: c.picks[0], pick1: c.picks[1], rotateLeft: c.rotateLeft, rotateRight: c.rotateRight, close: c.close };
     const outside = Object.entries(parts).filter(([, r]) => {
       const e = edges(r);
-      return e.l < s.viewW - 0.5 || e.r > W + 0.5 || e.t < -0.5 || e.b > H + 0.5;
+      return e.l < -0.5 || e.r > W + 0.5 || e.t < s.view.y - 0.5 || e.b > BOTTOM_TOP + 0.5;
     });
-    check(`${q} все кнопки карточки внутри панели (x ${s.viewW}…${W}, y 0…${H})`, outside.length === 0, outside.map(([k, r]) => `${k} ${JSON.stringify(r)}`).join('; '));
+    check(`${q} все кнопки карточки на карте над нижней панелью (x 0…${W}, y ${s.view.y}…${BOTTOM_TOP})`, outside.length === 0, outside.map(([k, r]) => `${k} ${JSON.stringify(r)}`).join('; '));
     const names = Object.keys(parts).filter((k) => !('visible' in parts[k]) || parts[k].visible);
     const clash = [];
     for (let i = 0; i < names.length; i++) for (let j = i + 1; j < names.length; j++) if (overlaps(parts[names[i]], parts[names[j]])) clash.push(`${names[i]}×${names[j]}`);
-    if (s.ui.waveButton.visible) for (const k of names) if (overlaps(parts[k], s.ui.waveButton)) clash.push(`${k}×«Начать волну»`);
-    for (const b of s.ui.towerStrip.buttons) for (const k of names) if (overlaps(parts[k], b)) clash.push(`${k}×полоса ${b.id}`);
-    check(`${q} кнопки карточки (${names.join(', ')}), полоса и «Начать волну» не налезают друг на друга`, clash.length === 0, clash.join(', '));
+    check(`${q} кнопки карточки (${names.join(', ')}) не налезают друг на друга`, clash.length === 0, clash.join(', '));
     await shot(page, `strip-${deviceKey}-${lang}-syringe-mutation`);
     await ctx.close();
   }
-  // уровень 1: в полосе только открытые башни
+  // прокрутка списка башен (уровень 10: все открыты): смахивание влево сдвигает список и не выбирает башню; тап по карточке справа после сдвига выбирает её
+  {
+    const q = `${p} [прокрутка списка]`;
+    const ctx = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
+    const game = await openGame(ctx, baseUrl, q, { cfg: 'waves.firstDelaySec:9999,economy.startCoins:5000', query: '&level=10' });
+    let s = await game.state();
+    const list0 = s.ui.towerList;
+    const first0 = s.ui.towerButtons[0].x;
+    check(`${q} в начале список не сдвинут (scroll ${list0.scroll}), прокрутка возможна до ${list0.maxScroll} px, видно ${s.ui.towerButtons.filter((b) => b.visible).length} из ${s.ui.towerButtons.length}`, list0.scroll === 0 && list0.maxScroll > 0 && s.ui.towerButtons.some((b) => !b.visible), JSON.stringify(list0));
+    const y = list0.y + list0.h / 2;
+    await game.input.drag(game.g(700, y), game.g(500, y), { steps: 8, stepMs: 12 });
+    await settle();
+    s = await game.state();
+    const moved = s.ui.towerList.scroll;
+    check(`${q} смахивание влево на 200 px сдвигает список на ≈ 200 (сдвиг ${f1(moved)}), карточки уехали влево, башня не выбрана (selected = ${s.selected})`, Math.abs(moved - Math.min(200, list0.maxScroll)) <= 3 && Math.abs(first0 - s.ui.towerButtons[0].x - moved) <= 1 && s.selected === null, `сдвиг ${f1(moved)}, первая карточка x ${f1(first0)} → ${f1(s.ui.towerButtons[0].x)}, selected ${s.selected}`);
+    await game.input.drag(game.g(700, y), game.g(100, y), { steps: 8, stepMs: 12 });
+    await settle();
+    s = await game.state();
+    check(`${q} дальше правого края список не едет: сдвиг ${f1(s.ui.towerList.scroll)} = наибольший ${f1(list0.maxScroll)}, последняя карточка в окне списка`, Math.abs(s.ui.towerList.scroll - list0.maxScroll) <= 1 && s.ui.towerButtons.find((b) => b.id === 'patch').visible, JSON.stringify(s.ui.towerList));
+    const patch = s.ui.towerButtons.find((b) => b.id === 'patch');
+    await game.input.tap(game.g(patch.x, patch.y));
+    await settle();
+    s = await game.state();
+    check(`${q} после сдвига тап по карточке «patch» справа выбирает её (selected = ${s.selected})`, s.selected === 'patch');
+    await game.selectTower('patch'); // снять выбор
+    await game.page.evaluate(() => window.__pvb.revealTower('pill'));
+    s = await game.state();
+    check(`${q} revealTower('pill') возвращает первую карточку в окно списка (сдвиг ${f1(s.ui.towerList.scroll)})`, s.ui.towerList.scroll === 0 && s.ui.towerButtons[0].visible, JSON.stringify(s.ui.towerList));
+    await frames(game.page, 3);
+    await shot(game.page, 'strip-desktop-ru-list');
+    await ctx.close();
+  }
+  // уровень 1: открытые башни первыми, закрытые в конце
   {
     const q = `${p} [уровень 1]`;
     const ctx = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
     const game = await openGame(ctx, baseUrl, q, { cfg: 'waves.firstDelaySec:9999,economy.startCoins:5000' });
-    await placeSure(game, 'pill', FREE.a);
-    await game.selectTower('pill');
-    const s = await selectPlaced(game, FREE.a);
-    const ids = s.ui.towerStrip.buttons.map((b) => b.id);
-    check(`${q} в полосе только открытые на уровне 1 башни (${open(1).join(', ')})`, s.ui.towerStrip.visible && ids.join() === open(1).join(), `кнопки ${ids.join(', ')}`);
-    check(`${q} при ${ids.length} открытых башнях полоса в одну строку высотой 38 px (все кнопки на одной высоте: ${[...new Set(s.ui.towerStrip.buttons.map((b) => Math.round(b.y)))].join(', ')})`, new Set(s.ui.towerStrip.buttons.map((b) => Math.round(b.y))).size === 1 && s.ui.towerStrip.buttons.every((b) => Math.abs(b.h - 38) <= 0.5), JSON.stringify(s.ui.towerStrip.buttons.map((b) => [b.id, b.y, b.h])));
+    const s = await game.state();
+    const byX = [...s.ui.towerButtons].sort((a, b) => a.x - b.x);
+    const ids = byX.filter((b) => !b.locked).map((b) => b.id);
+    check(`${q} в начале списка открытые на уровне 1 башни (${open(1).join(', ')}), за ними закрытые`, ids.join() === open(1).join() && byX.slice(ids.length).every((b) => b.locked), `порядок ${byX.map((b) => b.id + (b.locked ? '🔒' : '')).join(', ')}`);
     await frames(game.page, 3);
     await shot(game.page, 'strip-desktop-ru-level1');
     await ctx.close();
@@ -7837,7 +7855,7 @@ async function runCameraFit(browser, baseUrl) {
     let s = await game.state();
     const m = s.map;
     check(`${q} самое сильное отдаление ${f2(s.camera.zoom)} = zoomMin игры ${s.camera.zoomMin.toFixed(4)} = расчёт по карте ${CFG.zoomMin.toFixed(4)}`, Math.abs(s.camera.zoom - s.camera.zoomMin) < 1e-6 && Math.abs(s.camera.zoomMin - CFG.zoomMin) < 0.001, `zoom ${s.camera.zoom}, zoomMin ${s.camera.zoomMin}`);
-    check(`${q} карта целиком: высота ${m.worldH} × ${s.camera.zoom.toFixed(4)} = ${f2(m.worldH * s.camera.zoom)} ≤ 720,5, ширина ${f2(m.worldW * s.camera.zoom)} ≤ ${s.viewW + 0.5}`, m.worldH * s.camera.zoom <= 720.5 && m.worldW * s.camera.zoom <= s.viewW + 0.5, '');
+    check(`${q} карта целиком: высота ${m.worldH} × ${s.camera.zoom.toFixed(4)} = ${f2(m.worldH * s.camera.zoom)} ≤ ${s.view.h + 0.5} (окно карты), ширина ${f2(m.worldW * s.camera.zoom)} ≤ ${s.viewW + 0.5}`, m.worldH * s.camera.zoom <= s.view.h + 0.5 && m.worldW * s.camera.zoom <= s.viewW + 0.5, '');
     check(`${q} камера по центру карты (${f1(s.camera.cx)}; ${f1(s.camera.cy)}) ≈ (${m.worldW / 2}; ${m.worldH / 2})`, Math.abs(s.camera.cx - m.worldW / 2) <= 1 && Math.abs(s.camera.cy - m.worldH / 2) <= 1, '');
     await frames(game.page, 3);
     await shot(game.page, `camera-fit-${deviceKey}`);
@@ -8035,7 +8053,7 @@ async function runDamageNumbers(browser, baseUrl) {
 
 /** Карточка башни: зазор между «Слить» и «Продать» ≥ 20 px; в режиме слияния «Продать» скрыта (sell.w = 0), отмена слияния её возвращает. Компьютер ru, телефон en. */
 async function runSellGap(browser, baseUrl) {
-  const MIN_GAP = 20;
+  const MIN_GAP = 40;
   for (const [deviceKey, lang] of [['desktop', 'ru'], ['phone', 'en']]) {
     const device = VIEWPORTS[deviceKey];
     const p = `[зазор «Слить» и «Продать», ${device.label}, ${lang}]`;
@@ -8049,9 +8067,9 @@ async function runSellGap(browser, baseUrl) {
     let s = await game.state();
     if (s.selected) await game.selectTower(s.selected);
     s = await selectPlaced(game, FREE.a);
-    const gapOf = (c) => c.sell.y - c.merge.y - (c.merge.h + c.sell.h) / 2;
+    const gapOf = (c) => c.sell.x - c.merge.x - (c.merge.w + c.sell.w) / 2;
     check(`${p} карточка открыта, обе кнопки на месте: «Слить» доступна (пара есть), «Продать» видна`, s.ui.card.visible && s.ui.card.merge.enabled && s.ui.card.sell.w > 0, JSON.stringify([s.ui.card.merge, s.ui.card.sell]));
-    check(`${p} между «Слить» и «Продать» зазор по вертикали ${f1(gapOf(s.ui.card))} px (нужно ≥ ${MIN_GAP})`, s.ui.card.sell.w > 0 && gapOf(s.ui.card) >= MIN_GAP, JSON.stringify([s.ui.card.merge, s.ui.card.sell]));
+    check(`${p} между «Слить» и «Продать» зазор по горизонтали ${f1(gapOf(s.ui.card))} px (нужно ≥ ${MIN_GAP})`, s.ui.card.sell.w > 0 && gapOf(s.ui.card) >= MIN_GAP, JSON.stringify([s.ui.card.merge, s.ui.card.sell]));
     await frames(game.page, 3);
     await shot(game.page, `sell-gap-card-${deviceKey}-${lang}`);
     s = await tapCard(game, 'merge');

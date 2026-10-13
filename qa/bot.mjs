@@ -91,7 +91,7 @@ import {
 // ------------------------------------------------------------------ параметры бота
 
 const POLL_MS = 120; // опрос состояния, мс реального времени
-const VIEW_W = 1080; // окно карты (без правой панели), px экрана игры
+const VIEW = { x: 0, y: 40, w: 1280, h: 568 }; // окно карты между верхней (40 px) и нижней (112 px) полосами, px экрана игры (src/config.ts: map.topH, map.bottomH)
 const PATIENCE_SEC = 30; // «особо сильный»: столько секунд игрового времени ждёт монет на дорогую приоритетную башню, потом берёт доступное
 const STRONG_PATIENCE_SEC = 8; // «сильный»: ждёт монет на дорогую башню всего столько секунд (нетерпеливый: берёт доступное — больше дешёвых Таблеток)
 const STRONG_PICK_SHARE = 0.15; // «сильный»: клетку берёт наугад из лучших 15 % клеток по оценке (но не меньше четырёх) — всегда «в хорошем месте»,
@@ -1013,7 +1013,7 @@ async function playGame(browser, baseUrl, profile, run, metaLevels = null, salt 
 
     // 1) один раз отдаляем камеру до минимума колесом мыши (карта целиком в окне)
     for (let k = 0; k < 6 && s.camera.zoom > s.camera.zoomMin + 0.001; k++) {
-      await input.wheel(g2c(VIEW_W / 2, H / 2), 500);
+      await input.wheel(g2c(VIEW.x + VIEW.w / 2, VIEW.y + VIEW.h / 2), 500);
       await sleep(80);
       s = await getState(page);
     }
@@ -1024,10 +1024,12 @@ async function playGame(browser, baseUrl, profile, run, metaLevels = null, salt 
     const ensureVisible = async (col, row) => {
       for (let k = 0; k < 3; k++) {
         const g = c2g(await cellPos(col, row));
-        if (g.x >= 12 && g.x <= VIEW_W - 12 && g.y >= 12 && g.y <= H - 12) return true;
-        const dx = Math.max(-420, Math.min(420, VIEW_W / 2 - g.x));
-        const dy = Math.max(-300, Math.min(300, H / 2 - g.y));
-        await input.drag(g2c(VIEW_W / 2 - dx / 2, H / 2 - dy / 2), g2c(VIEW_W / 2 + dx / 2, H / 2 + dy / 2), { steps: 6, stepMs: 12 });
+        if (g.x >= VIEW.x + 12 && g.x <= VIEW.x + VIEW.w - 12 && g.y >= VIEW.y + 12 && g.y <= VIEW.y + VIEW.h - 12) return true;
+        const cx = VIEW.x + VIEW.w / 2;
+        const cy = VIEW.y + VIEW.h / 2;
+        const dx = Math.max(-420, Math.min(420, cx - g.x));
+        const dy = Math.max(-300, Math.min(300, cy - g.y));
+        await input.drag(g2c(cx - dx / 2, cy - dy / 2), g2c(cx + dx / 2, cy + dy / 2), { steps: 6, stepMs: 12 });
         await sleep(120);
       }
       return false;
@@ -1166,6 +1168,8 @@ async function playGame(browser, baseUrl, profile, run, metaLevels = null, salt 
       const before = st.towers.length;
       const coinsBefore = st.coins;
       if (st.selected !== type) {
+        await page.evaluate((towerId) => window.__pvb.revealTower(towerId), type); // карточка башни может быть за краем списка
+        st = await getState(page);
         const b = st.ui.towerButtons.find((x) => x.id === type);
         if (!b) return { ok: false, reason: 'нет кнопки башни' };
         await input.tap(g2c(b.x, b.y));

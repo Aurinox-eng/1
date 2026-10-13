@@ -2,7 +2,7 @@ import type Phaser from 'phaser';
 
 /**
  * «Камера» карты: сдвиг и приближение. Устроена просто — двигается и масштабируется контейнер с миром;
- * панель справа лежит поверх и никуда не двигается. Центр экрана карты (cx, cy) задаётся в пикселях мира.
+ * полосы интерфейса (верхняя и нижняя) лежат поверх и никуда не двигаются. Центр окна карты (cx, cy) задаётся в пикселях мира.
  */
 export class CameraRig {
   zoom = 1;
@@ -10,12 +10,12 @@ export class CameraRig {
   cy = 0;
 
   /**
-   * @param view окно, через которое видна карта (экран без правой панели), пикселей экрана
+   * @param view окно, через которое видна карта (экран без верхней и нижней полос), пикселей экрана: левый верхний угол (x, y) и размер (w, h)
    * @param world размер мира, пикселей
    */
   constructor(
     private readonly target: Phaser.GameObjects.Container,
-    private readonly view: { w: number; h: number },
+    private readonly view: { x: number; y: number; w: number; h: number },
     private readonly world: { w: number; h: number },
     private readonly limits: { min: number; max: number },
   ) {}
@@ -30,12 +30,12 @@ export class CameraRig {
 
   /** Точка мира под точкой экрана. */
   screenToWorld(sx: number, sy: number): { x: number; y: number } {
-    return { x: this.cx + (sx - this.view.w / 2) / this.zoom, y: this.cy + (sy - this.view.h / 2) / this.zoom };
+    return { x: this.cx + (sx - this.view.x - this.view.w / 2) / this.zoom, y: this.cy + (sy - this.view.y - this.view.h / 2) / this.zoom };
   }
 
   /** Где на экране сейчас находится точка мира. */
   worldToScreen(wx: number, wy: number): { x: number; y: number } {
-    return { x: this.view.w / 2 + (wx - this.cx) * this.zoom, y: this.view.h / 2 + (wy - this.cy) * this.zoom };
+    return { x: this.view.x + this.view.w / 2 + (wx - this.cx) * this.zoom, y: this.view.y + this.view.h / 2 + (wy - this.cy) * this.zoom };
   }
 
   /** Сдвиг карты за пальцем: dsx, dsy — на сколько сместился палец на экране. */
@@ -50,8 +50,8 @@ export class CameraRig {
   zoomAt(factor: number, sx: number, sy: number): void {
     const anchor = this.screenToWorld(sx, sy);
     this.zoom = Math.max(this.limits.min, Math.min(this.limits.max, this.zoom * factor));
-    this.cx = anchor.x - (sx - this.view.w / 2) / this.zoom;
-    this.cy = anchor.y - (sy - this.view.h / 2) / this.zoom;
+    this.cx = anchor.x - (sx - this.view.x - this.view.w / 2) / this.zoom;
+    this.cy = anchor.y - (sy - this.view.y - this.view.h / 2) / this.zoom;
     this.clampCenter();
     this.apply();
   }
@@ -66,6 +66,6 @@ export class CameraRig {
 
   private apply(): void {
     this.target.setScale(this.zoom);
-    this.target.setPosition(this.view.w / 2 - this.cx * this.zoom, this.view.h / 2 - this.cy * this.zoom);
+    this.target.setPosition(this.view.x + this.view.w / 2 - this.cx * this.zoom, this.view.y + this.view.h / 2 - this.cy * this.zoom);
   }
 }
