@@ -174,6 +174,7 @@ export class TowerCard {
     const mergeX = sellX - BTN_W - SELL_GAP;
     const rightEdge = mergeX - BTN_W / 2 - 14;
     this.rotVisible = m.beam;
+    let midRight = rightEdge; // правее этой черты в середине карточки места нет
     if (m.beam) {
       const half = ROT / 2;
       const xr = rightEdge - half;
@@ -186,6 +187,7 @@ export class TowerCard {
       }
       this.rects.rotL = { x: xl, y: cy, w: ROT, h: ROT };
       this.rects.rotR = { x: xr, y: cy, w: ROT, h: ROT };
+      midRight = xl - half - 10;
     }
 
     // Середина: выбор мутации (две кнопки) или числа башни и выбранные мутации
@@ -199,16 +201,19 @@ export class TowerCard {
     this.statTexts.forEach((text) => text.setVisible(false));
     this.noteText.setVisible(false);
     if (m.pending) {
+      // у башни с лучом справа от вариантов стоят кнопки поворота: варианты уже, чтобы не налезать на них
+      const pickW = Math.min(PICK_W, Math.floor((midRight - midX - 8) / 2));
       m.pending.slice(0, 2).forEach((opt, i) => {
-        const bx = midX + i * (PICK_W + 8);
-        this.btns.fillStyle(0x2a4d8e, 1).fillRoundedRect(bx, cy - BTN_H / 2, PICK_W, BTN_H, 12);
-        this.btns.lineStyle(3, COLORS.gold, 1).strokeRoundedRect(bx, cy - BTN_H / 2, PICK_W, BTN_H, 12);
+        const bx = midX + i * (pickW + 8);
+        this.btns.fillStyle(0x2a4d8e, 1).fillRoundedRect(bx, cy - BTN_H / 2, pickW, BTN_H, 12);
+        this.btns.lineStyle(3, COLORS.gold, 1).strokeRoundedRect(bx, cy - BTN_H / 2, pickW, BTN_H, 12);
+        this.pickDescs[i].setWordWrapWidth(pickW - 20);
         this.pickNames[i].setVisible(true).setText(opt.name).setPosition(bx + 10, cy - BTN_H / 2 + 8);
         this.pickDescs[i].setVisible(true).setText(opt.desc).setPosition(bx + 10, cy - BTN_H / 2 + 31);
         const zone = i === 0 ? this.zones.pick0 : this.zones.pick1;
-        zone.setPosition(bx + PICK_W / 2, cy);
+        zone.setSize(pickW, BTN_H).setPosition(bx + pickW / 2, cy);
         this.pickVisible[i] = true;
-        this.rects[`pick${i}`] = { x: bx + PICK_W / 2, y: cy, w: PICK_W, h: BTN_H };
+        this.rects[`pick${i}`] = { x: bx + pickW / 2, y: cy, w: pickW, h: BTN_H };
       });
     } else {
       this.statTexts.forEach((text, i) => {

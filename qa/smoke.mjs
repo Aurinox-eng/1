@@ -5678,7 +5678,7 @@ const s4Cfg = (extra = [], { coins = 100000, delay = 600 } = {}) => [`economy.st
 const cellEq = (t, cell) => t.col === cell[0] && t.row === cell[1];
 const towerIn = (s, cell) => s.towers.find((t) => cellEq(t, cell));
 const selectedIs = (s, cell) => s.selectedTower !== null && s.selectedTower.col === cell[0] && s.selectedTower.row === cell[1];
-const inGameBox = (r, s) => r.x - r.w / 2 >= s.viewW - 1 && r.x + r.w / 2 <= W + 1 && r.y - r.h / 2 >= -1 && r.y + r.h / 2 <= H + 1;
+const inGameBox = (r, s) => r.x - r.w / 2 >= -1 && r.x + r.w / 2 <= W + 1 && r.y - r.h / 2 >= -1 && r.y + r.h / 2 <= H + 1;
 
 /** Отпечаток того, что меняют кнопки карточки и тапы по башням: если после тапа он не изменился за 0,6 с, считаем, что тап ничего не сделал (так проверки не зависят от загрузки машины). */
 const cardPrint = (s) => JSON.stringify([s.mergeMode, s.selectedTower, s.ui.card.visible, s.ui.card.picks.map((r) => r.visible), s.sells, s.merges, s.mutationsPicked, s.towers.map((t) => [t.col, t.row, t.level, t.picks.length, t.aim])]);
