@@ -88,6 +88,8 @@ export class TowerCard {
   private mergeEnabled = false;
   private sellVisible = true;
   private pickVisible = [false, false];
+  /** Когда (performance.now) нажали кнопку карточки: нажатие, после которого карточка перерисовалась или закрылась, всё равно принадлежит карточке, а не карте под ней. */
+  private pressedAt = -1e9;
   private rotVisible = false;
 
   constructor(
@@ -115,7 +117,11 @@ export class TowerCard {
     this.closeText = this.text(0, 0, '✕', 22, TEXT_COLORS.soft);
     // Карточка лежит на карте: нажатия мимо её кнопок проходят к карте под ней (иначе клетки в нижней полосе окна нельзя было бы тапнуть, например при выборе пары для слияния)
     const zone = (w: number, h: number, handler: () => void): Phaser.GameObjects.Zone => {
-      const z = scene.add.zone(0, 0, w, h).setDepth(d + 3).setInteractive({ useHandCursor: true }).on('pointerdown', handler);
+      const press = (): void => {
+        this.pressedAt = performance.now();
+        handler();
+      };
+      const z = scene.add.zone(0, 0, w, h).setDepth(d + 3).setInteractive({ useHandCursor: true }).on('pointerdown', press);
       this.all.push(z);
       return z;
     };
@@ -288,6 +294,8 @@ export class TowerCard {
 
   /** Точка (x, y) экрана игры попадает на кнопку карточки (с запасом 4 px): такое нажатие принадлежит карточке, а не карте. */
   coversButton(x: number, y: number): boolean {
+    // кнопка карточки сработала только что (то же нажатие): после выбора мутации, «✕» или «Продать» кнопки уже другие или карточки нет, а нажатие карте не принадлежит
+    if (performance.now() - this.pressedAt < 30) return true;
     if (!this.shown) return false;
     const keys = ['close', 'merge'];
     if (this.sellVisible) keys.push('sell');
