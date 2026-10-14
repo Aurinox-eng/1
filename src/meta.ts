@@ -93,18 +93,35 @@ export function buyUpgrade(id: UpgradeId): boolean {
   return true;
 }
 
-/** Сколько очков ДНК даёт партия: за каждую пройденную волну и добавка за победу. */
-export function dnaForGame(wavesCleared: number, won: boolean, replay = false): number {
-  const { perWave, winBonus, replayFactor } = CONFIG.meta.dna;
-  const waves = Math.max(0, Math.floor(wavesCleared));
-  // Повтор пройденного уровня: только replayFactor от награды за волны, бонуса за победу нет
-  if (replay) return Math.floor(waves * perWave * replayFactor);
-  return waves * perWave + (won ? winBonus : 0);
+/** Из чего складываются очки ДНК партии (звёзды считаются отдельно: `recordResult`). */
+export interface DnaParts {
+  waves: number;
+  win: number;
+  coins: number;
 }
 
-/** Начисляет очки ДНК за партию на счёт и возвращает, сколько начислено. `replay` — уровень уже пройден (`isLevelBeaten`, проверять до `recordResult`). */
-export function awardDna(wavesCleared: number, won: boolean, replay = false): number {
-  const gained = dnaForGame(wavesCleared, won, replay);
+/**
+ * Очки ДНК партии по частям: за каждую пройденную волну, добавка за победу и перевод остатка монет (только при победе: 1 очко за `coinsPerPoint` монет, не больше `coinsCapShare` награды за волны).
+ * Повтор пройденного уровня: за волны и за монеты только replayFactor от обычного, бонуса за победу нет.
+ */
+export function dnaParts(wavesCleared: number, won: boolean, replay = false, coinsLeft = 0): DnaParts {
+  const { perWave, winBonus, replayFactor, coinsPerPoint, coinsCapShare } = CONFIG.meta.dna;
+  const waves = Math.max(0, Math.floor(wavesCleared));
+  const wavesReward = waves * perWave;
+  const coinsRaw = won && coinsPerPoint > 0 ? Math.min(Math.floor(Math.max(0, coinsLeft) / coinsPerPoint), Math.floor(wavesReward * coinsCapShare)) : 0;
+  if (replay) return { waves: Math.floor(wavesReward * replayFactor), win: 0, coins: Math.floor(coinsRaw * replayFactor) };
+  return { waves: wavesReward, win: won ? winBonus : 0, coins: coinsRaw };
+}
+
+/** Сколько очков ДНК даёт партия (сумма `dnaParts`). */
+export function dnaForGame(wavesCleared: number, won: boolean, replay = false, coinsLeft = 0): number {
+  const p = dnaParts(wavesCleared, won, replay, coinsLeft);
+  return p.waves + p.win + p.coins;
+}
+
+/** Начисляет очки ДНК за партию на счёт и возвращает, сколько начислено. `replay` — уровень уже пройден (`isLevelBeaten`, проверять до `recordResult`); `coinsLeft` — монет в конце партии. */
+export function awardDna(wavesCleared: number, won: boolean, replay = false, coinsLeft = 0): number {
+  const gained = dnaForGame(wavesCleared, won, replay, coinsLeft);
   state = { ...state, dna: state.dna + gained };
   persist();
   return gained;

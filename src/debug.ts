@@ -144,8 +144,10 @@ export interface DebugSnapshot {
   stars: number;
   starDna: number;
   /** Разбивка очков ДНК за партию на экране конца уровня (волны, победа, новые звёзды) и строка, которую видит игрок. */
-  dnaParts: { waves: number; win: number; stars: number };
-  endDnaText: string;
+  dnaParts: { waves: number; win: number; coins: number; stars: number };
+  /** Строки очков ДНК на экране конца уровня (итог; из чего сложился; монеты — только после победы; пометка пройденного уровня) и остаток монет, из которого посчитана добавка. */
+  endDnaLines: string[];
+  coinsLeft: number;
   /** Выбрана ли башня на панели (её название) и цена. */
   selected: string | null;
   /** Поставленные башни: клетка и центр в пикселях мира; заглушена ли (спорой); расстояние до организма по дорожкам (для «вперёд/назад»);

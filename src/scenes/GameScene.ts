@@ -4,7 +4,7 @@ import { CONFIG } from '../config';
 import { exposeDebug, QA_ENTRANCE, QA_EVENTS_MAX, QA_MODE, STRESS, STRESS_FIZZ, TIME_SCALE, type DebugSnapshot, type QaEvent } from '../debug';
 import { Effects } from '../effects';
 import { drawStar, setScreenInfo } from '../screens';
-import { awardDna, coinsBonus, exposeMetaDebug, HIDDEN_SCREEN, isLevelBeaten, livesBonus, markSeen, metaDna, metaSeen, recordResult, refundBonus, rewardMul, shieldCharges, starsForLoss, waveCoinsBonus } from '../meta';
+import { awardDna, dnaParts, coinsBonus, exposeMetaDebug, HIDDEN_SCREEN, isLevelBeaten, livesBonus, markSeen, metaDna, metaSeen, recordResult, refundBonus, rewardMul, shieldCharges, starsForLoss, waveCoinsBonus } from '../meta';
 import { num, t, type TextKey } from '../i18n';
 import { aimAngle, BLOCKED_TILES, EDGES, ENTRANCE_EDGES, LEVEL, PATH_TILES, WORLD, cellKey, worldToCell } from '../level';
 import { isPortraitPhone } from '../orientation';
@@ -219,8 +219,9 @@ export class GameScene extends Phaser.Scene {
   private stars = 0;
   private starDna = 0;
   /** Разбивка очков ДНК за партию на экране конца уровня (волны, победа, звёзды) и сама строка. */
-  private dnaParts = { waves: 0, win: 0, stars: 0 };
-  private endDnaText = '';
+  private dnaParts = { waves: 0, win: 0, coins: 0, stars: 0 };
+  private endDnaLines: string[] = [];
+  private coinsLeft = 0;
   private waveInterval = 1;
   private spawnTimer = 0;
   private plannedTotal = 0;
@@ -304,8 +305,9 @@ export class GameScene extends Phaser.Scene {
     this.dnaGained = 0;
     this.stars = 0;
     this.starDna = 0;
-    this.dnaParts = { waves: 0, win: 0, stars: 0 };
-    this.endDnaText = '';
+    this.dnaParts = { waves: 0, win: 0, coins: 0, stars: 0 };
+    this.endDnaLines = [];
+    this.coinsLeft = 0;
     this.dnaAwarded = false;
     this.dnaReplay = false;
     this.bacteria = [];
@@ -1737,25 +1739,33 @@ export class GameScene extends Phaser.Scene {
     this.deselectTower();
     if (won) sfx.win();
     else sfx.lose();
-    // Очки ДНК за партию начисляются один раз: за каждую пройденную волну (при проигрыше — без текущей) и добавка за победу
+    // Очки ДНК за партию начисляются один раз: за каждую пройденную волну (при проигрыше — без текущей), добавка за победу и перевод остатка монет (только при победе)
     if (!this.dnaAwarded) {
       this.dnaAwarded = true;
       const cleared = won ? this.waveTotal() : Math.max(0, this.waveIdx - 1);
       this.dnaReplay = isLevelBeaten(currentLevel());
-      this.dnaGained = awardDna(cleared, won, this.dnaReplay);
+      const coinsLeft = Math.floor(this.coins);
+      const parts = dnaParts(cleared, won, this.dnaReplay, coinsLeft);
+      this.dnaGained = awardDna(cleared, won, this.dnaReplay, coinsLeft);
       // Звёзды по потерянным жизням (docs/stage-5-plan.md, раздел 4) и лучшая волна уровня; за новые звёзды — очки ДНК
       this.stars = won ? starsForLoss(Math.max(0, this.maxLives() - this.lives) + this.shieldAbsorbed) : 0;
       this.starDna = recordResult(currentLevel(), cleared, this.stars).starDna;
+      this.dnaParts = { ...parts, stars: this.starDna };
+      this.coinsLeft = coinsLeft;
     }
-    // Разбивка: волны + победа (бонус только за первую победу) + звёзды (только новые); слагаемые, равные нулю, кроме волн, не показываются
-    const cleared = won ? this.waveTotal() : Math.max(0, this.waveIdx - 1);
-    const wavesPart = this.dnaReplay ? Math.floor(cleared * CONFIG.meta.dna.perWave * CONFIG.meta.dna.replayFactor) : cleared * CONFIG.meta.dna.perWave;
-    this.dnaParts = { waves: wavesPart, win: Math.max(0, this.dnaGained - wavesPart), stars: this.starDna };
-    const parts = [t('dnaPartWaves', { n: this.dnaParts.waves })];
-    if (this.dnaParts.win > 0) parts.push(t('dnaPartWin', { n: this.dnaParts.win }));
-    if (this.dnaParts.stars > 0) parts.push(t('dnaPartStars', { n: this.dnaParts.stars }));
-    this.endDnaText = t('dnaBreakdown', { sum: this.dnaGained + this.starDna, parts: parts.join(' + '), total: metaDna() });
-    this.showOverlay(won ? t('victory') : t('gameOver'), TEXT_COLORS.accent, t('killed', { n: this.kills }), this.endDnaText, this.dnaReplay ? t('dnaReplayNote', { k: Math.round(CONFIG.meta.dna.replayFactor * 100) }) : undefined);
+    // Экран конца уровня: итог, из чего он сложился (волны + победа + звёзды; нулевые слагаемые, кроме волн, не показываются), монеты отдельной строкой (только после победы), пометка пройденного уровня
+    const pieces = [t('dnaPartWaves', { n: this.dnaParts.waves })];
+    if (this.dnaParts.win > 0) pieces.push(t('dnaPartWin', { n: this.dnaParts.win }));
+    if (this.dnaParts.stars > 0) pieces.push(t('dnaPartStars', { n: this.dnaParts.stars }));
+    const total = this.dnaParts.waves + this.dnaParts.win + this.dnaParts.coins + this.dnaParts.stars;
+    const rows: { row: number; text: string }[] = [
+      { row: 0, text: t('dnaTotal', { sum: total, total: metaDna() }) },
+      { row: 1, text: pieces.join(' + ') },
+    ];
+    if (won) rows.push({ row: 2, text: t('dnaCoinsLine', { coins: this.coinsLeft, n: this.dnaParts.coins }) });
+    if (this.dnaReplay) rows.push({ row: 3, text: t('dnaReplayNote', { k: Math.round(CONFIG.meta.dna.replayFactor * 100) }) });
+    this.endDnaLines = rows.map((r) => r.text);
+    this.showOverlay(won ? t('victory') : t('gameOver'), TEXT_COLORS.accent, t('killed', { n: this.kills }), rows);
     if (won) this.drawStars(this.stars);
     this.addEndButtons(won);
   }
@@ -1798,14 +1808,23 @@ export class GameScene extends Phaser.Scene {
     return { x, y, w, h };
   }
 
-  private showOverlay(title: string, titleColor: string, line2: string, line3?: string, line4?: string): void {
+  /** Затемнение с надписью: заголовок, вторая строка и (конец уровня) до четырёх строк очков ДНК: итог, из чего сложился, монеты, пометка пройденного уровня. */
+  private showOverlay(title: string, titleColor: string, line2: string, extra: { row: number; text: string }[] = []): void {
     const items: Phaser.GameObjects.GameObject[] = [
       this.add.rectangle(W / 2, H / 2, W, H, 0x000000, 0.78),
       this.add.text(W / 2, H / 2 - 90, title, this.textStyle(76, titleColor)).setOrigin(0.5),
-      this.add.text(W / 2, H / 2 + 10, line2, this.textStyle(40)).setOrigin(0.5),
+      this.add.text(W / 2, H / 2 + 2, line2, this.textStyle(38)).setOrigin(0.5),
     ];
-    if (line3) items.push(this.add.text(W / 2, H / 2 + 92, line3, this.textStyle(32, TEXT_COLORS.accent)).setOrigin(0.5));
-    if (line4) items.push(this.add.text(W / 2, H / 2 + 134, line4, this.textStyle(24, TEXT_COLORS.soft)).setOrigin(0.5));
+    const rows = [
+      { y: 46, size: 30, color: TEXT_COLORS.accent },
+      { y: 80, size: 24, color: TEXT_COLORS.main },
+      { y: 108, size: 24, color: TEXT_COLORS.main },
+      { y: 134, size: 20, color: TEXT_COLORS.soft },
+    ];
+    for (const { row, text } of extra) {
+      const r = rows[row];
+      items.push(this.add.text(W / 2, H / 2 + r.y, text, this.textStyle(r.size, r.color)).setOrigin(0.5));
+    }
     this.overlay = this.add.container(0, 0, items).setDepth(200);
   }
 
@@ -1924,7 +1943,8 @@ export class GameScene extends Phaser.Scene {
       stars: this.stars,
       starDna: this.starDna,
       dnaParts: { ...this.dnaParts },
-      endDnaText: this.endDnaText,
+      coinsLeft: this.coinsLeft,
+      endDnaLines: [...this.endDnaLines],
       selected: this.selected,
       towers: this.towers.map((tw) => ({
         id: tw.id,

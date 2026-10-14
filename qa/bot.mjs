@@ -393,12 +393,15 @@ function starsOf(game) {
 }
 const emptyLevels = () => Object.fromEntries(Object.keys(META.upgrades).map((id) => [id, 0]));
 
-/** Очки ДНК за партию: за каждую пройденную волну (при проигрыше — без текущей) и добавка за победу — как в GameScene.endGame. */
+/** Очки ДНК за партию: за каждую пройденную волну (при проигрыше — без текущей), добавка за победу и перевод остатка монет (только при победе) — как `dnaParts` в src/meta.ts. */
 function dnaForGame(game, replay = false) {
-  const cleared = game.result === 'won' ? game.waveTotal : Math.max(0, game.wave - 1);
-  // повтор пройденного уровня: только replayFactor от награды за волны, бонуса за победу нет (как `dnaForGame` в src/meta.ts)
-  if (replay) return Math.floor(cleared * META.dna.perWave * META.dna.replayFactor);
-  return cleared * META.dna.perWave + (game.result === 'won' ? META.dna.winBonus : 0);
+  const won = game.result === 'won';
+  const cleared = won ? game.waveTotal : Math.max(0, game.wave - 1);
+  const wavesReward = cleared * META.dna.perWave;
+  const coinsRaw = won && META.dna.coinsPerPoint > 0 ? Math.min(Math.floor(Math.max(0, Math.floor(game.coins ?? 0)) / META.dna.coinsPerPoint), Math.floor(wavesReward * META.dna.coinsCapShare)) : 0;
+  // повтор пройденного уровня: за волны и за монеты только replayFactor, бонуса за победу нет
+  if (replay) return Math.floor(wavesReward * META.dna.replayFactor) + Math.floor(coinsRaw * META.dna.replayFactor);
+  return wavesReward + (won ? META.dna.winBonus : 0) + coinsRaw;
 }
 
 /** Сколько очков ДНК ещё не потрачено в древе улучшений при уровнях `levels`: { all — всё древо (все ветки), open — только ветки башен, открытых на уровне `level` }. */
