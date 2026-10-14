@@ -46,6 +46,10 @@ on:
         description: 'Контроль фарма очков ДНК: после первой победы на уровне одна повторная партия на пройденном (1 — да, 0 — нет)'
         type: string
         default: '0'
+      max_real_sec:
+        description: 'Потолок реального времени одной партии бота, секунд (по умолчанию 7200; при 3600 партии на 25–30-й волне обрывались как timeout и не приносили очков ДНК)'
+        type: string
+        default: '7200'
 
 permissions:
   contents: read
@@ -62,6 +66,7 @@ jobs:
       speed: ${{ steps.plan.outputs.speed }}
       cfg: ${{ steps.plan.outputs.cfg }}
       farm: ${{ steps.plan.outputs.farm }}
+      max_real_sec: ${{ steps.plan.outputs.max_real_sec }}
       sha: ${{ steps.sha.outputs.sha }}
     steps:
       - uses: actions/checkout@v4
@@ -83,6 +88,7 @@ jobs:
           SPEED: ${{ inputs.speed }}
           CFG: ${{ inputs.cfg }}
           FARM: ${{ inputs.farm }}
+          MAX_REAL_SEC: ${{ inputs.max_real_sec }}
         run: node .github/scripts/ladder-plan.mjs
 
   l01:
@@ -100,6 +106,7 @@ jobs:
       speed: ${{ needs.plan.outputs.speed }}
       cfg: ${{ needs.plan.outputs.cfg }}
       farm: ${{ needs.plan.outputs.farm }}
+      max_real_sec: ${{ needs.plan.outputs.max_real_sec }}
 
   l02:
     name: Уровень 2
@@ -116,6 +123,7 @@ jobs:
       speed: ${{ needs.plan.outputs.speed }}
       cfg: ${{ needs.plan.outputs.cfg }}
       farm: ${{ needs.plan.outputs.farm }}
+      max_real_sec: ${{ needs.plan.outputs.max_real_sec }}
 
   l03:
     name: Уровень 3
@@ -132,6 +140,7 @@ jobs:
       speed: ${{ needs.plan.outputs.speed }}
       cfg: ${{ needs.plan.outputs.cfg }}
       farm: ${{ needs.plan.outputs.farm }}
+      max_real_sec: ${{ needs.plan.outputs.max_real_sec }}
 
   l04:
     name: Уровень 4
@@ -148,6 +157,7 @@ jobs:
       speed: ${{ needs.plan.outputs.speed }}
       cfg: ${{ needs.plan.outputs.cfg }}
       farm: ${{ needs.plan.outputs.farm }}
+      max_real_sec: ${{ needs.plan.outputs.max_real_sec }}
 
   l05:
     name: Уровень 5
@@ -164,6 +174,7 @@ jobs:
       speed: ${{ needs.plan.outputs.speed }}
       cfg: ${{ needs.plan.outputs.cfg }}
       farm: ${{ needs.plan.outputs.farm }}
+      max_real_sec: ${{ needs.plan.outputs.max_real_sec }}
 
   l06:
     name: Уровень 6
@@ -180,6 +191,7 @@ jobs:
       speed: ${{ needs.plan.outputs.speed }}
       cfg: ${{ needs.plan.outputs.cfg }}
       farm: ${{ needs.plan.outputs.farm }}
+      max_real_sec: ${{ needs.plan.outputs.max_real_sec }}
 
   l07:
     name: Уровень 7
@@ -196,6 +208,7 @@ jobs:
       speed: ${{ needs.plan.outputs.speed }}
       cfg: ${{ needs.plan.outputs.cfg }}
       farm: ${{ needs.plan.outputs.farm }}
+      max_real_sec: ${{ needs.plan.outputs.max_real_sec }}
 
   l08:
     name: Уровень 8
@@ -212,6 +225,7 @@ jobs:
       speed: ${{ needs.plan.outputs.speed }}
       cfg: ${{ needs.plan.outputs.cfg }}
       farm: ${{ needs.plan.outputs.farm }}
+      max_real_sec: ${{ needs.plan.outputs.max_real_sec }}
 
   l09:
     name: Уровень 9
@@ -228,6 +242,7 @@ jobs:
       speed: ${{ needs.plan.outputs.speed }}
       cfg: ${{ needs.plan.outputs.cfg }}
       farm: ${{ needs.plan.outputs.farm }}
+      max_real_sec: ${{ needs.plan.outputs.max_real_sec }}
 
   l10:
     name: Уровень 10
@@ -244,6 +259,7 @@ jobs:
       speed: ${{ needs.plan.outputs.speed }}
       cfg: ${{ needs.plan.outputs.cfg }}
       farm: ${{ needs.plan.outputs.farm }}
+      max_real_sec: ${{ needs.plan.outputs.max_real_sec }}
 
   report:
     name: Итоговая таблица

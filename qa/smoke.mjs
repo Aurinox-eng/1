@@ -421,8 +421,8 @@ async function openGame(context, baseUrl, prefix, { speed = 1, cfg = '', isTouch
   // QA_EXTRA_CFG нужна только для проверки самих проверок: подмешивает «поломку» (например camera.tapMaxMovePx:14) — соответствующая проверка обязана покраснеть
   // `levels.starDna:0` идёт первым: очки за звёзды не мешают проверкам очков ДНК; сценарий звёзд подменяет это число своим (позднее в списке — главнее)
   // `waves.hpScale:1` тоже идёт первым: с 8 октября 2026 игра умножает HP всех бактерий на waves.hpScale (2,5), а проверки ждут HP из таблицы типов (бронированная 20, гигант 100,
-  // регенератор 10, кокк с hp:1 гибнет с одного выстрела Таблетки) — множитель сводится к 1; сценарий может подменить его своим числом (позднее в списке — главнее)
-  const allCfg = ['levels.starDna:0', 'waves.hpScale:1', cfg, process.env.QA_EXTRA_CFG].filter(Boolean).join(',');
+  // регенератор 10, кокк с hp:1 гибнет с одного выстрела Таблетки) — множитель сводится к 1 (и множитель уровня 1 `waves.level1HpFactor` — тоже); сценарий может подменить его своим числом (позднее в списке — главнее)
+  const allCfg = ['levels.starDna:0', 'waves.hpScale:1', 'waves.level1HpFactor:1', cfg, process.env.QA_EXTRA_CFG].filter(Boolean).join(',');
   // QA_CANVAS=1 (GitHub, группы со временем и скоростью): рисование через canvas — на сервере без видеокарты программный WebGL даёт 2–6 кадров/с, шаг игрового времени
   // ограничен 50 мс, и проверки, считающие секунды, скорости и паузы между ударами, ломаются; canvas даёт ≈ 20 кадров/с (docs/performance.md)
   // canvas: true — рисование через canvas для отдельного сценария. Проба 3 октября: красные проверки со временем (Шприц, скорость, командир) от этого не прошли — причина в скорости сервера; сейчас нигде не включено
@@ -530,7 +530,9 @@ const f2 = (n) => (Math.round(n * 100) / 100).toString();
 /** Сколько «белых» точек в том месте, где рисуется надпись подсказки «◀ Организм» (0 — подсказки нет). */
 async function chipWhitePixels(game, png) {
   const points = [];
-  for (let gy = 330; gy <= 360; gy += 2) {
+  // плашка лежит по вертикали в середине окна карты (между верхней и нижней полосами): центр надписи — VIEW.y + VIEW.h / 2
+  const mid = H / 2 + (readConfigNumber('map', 'topH') - readConfigNumber('map', 'bottomH')) / 2;
+  for (let gy = mid - 14; gy <= mid + 14; gy += 2) {
     for (let gx = 18; gx <= 140; gx += 2) {
       const c = game.screen.g2c(gx, gy);
       points.push([c.x, c.y]);
@@ -715,10 +717,11 @@ async function profileLoadAndCamera(c) {
   const cam = async () => (await game.state()).camera;
   let c0 = await cam();
   // мелкими шагами (8 px): так видно, «съедает» ли порог тапа начало движения
-  await input.drag(g(650, 300), g(450, 300), { steps: 25, stepMs: 0 });
+  // вправо: на старте слева от центра больше места, чем справа (окно карты 1280 px), влево на 200 карта упёрлась бы в край мира
+  await input.drag(g(450, 300), g(650, 300), { steps: 25, stepMs: 0 });
   await settle();
   let c1 = await cam();
-  check(`${p} сдвиг влево на 200: центр камеры уходит вправо ровно на 200 (карта догоняет палец сразу, порог тапа не «съедает» путь)`, Math.abs(c1.cx - c0.cx - 200 / c0.zoom) <= 3 && Math.abs(c1.cy - c0.cy) <= 3, `Δcx=${f1(c1.cx - c0.cx)}, Δcy=${f1(c1.cy - c0.cy)}`);
+  check(`${p} сдвиг вправо на 200: центр камеры уходит влево ровно на 200 (карта догоняет палец сразу, порог тапа не «съедает» путь)`, Math.abs(c1.cx - c0.cx + 200 / c0.zoom) <= 3 && Math.abs(c1.cy - c0.cy) <= 3, `Δcx=${f1(c1.cx - c0.cx)}, Δcy=${f1(c1.cy - c0.cy)}`);
   c0 = c1;
   await input.drag(g(600, 200), g(600, 400), { steps: 25, stepMs: 0 });
   await settle();
@@ -754,10 +757,10 @@ async function profileLoadAndCamera(c) {
   const png2 = await shot(page, `${name}-03-right-edge`);
   const chipBack = await chipWhitePixels(game, png2);
   check(`${p} подсказка «◀ Организм» возвращается, когда организм снова за краем`, chipBack >= 25, `белых точек надписи: ${chipBack}`);
-  s = await pull([600, 20], [600, 700], 2);
+  s = await pull([600, 60], [600, 600], 2); // внутри окна карты (y 40…608): касание в верхней или нижней полосе карту не двигает
   lim = cameraLimits(s);
   check(`${p} границы: тянем вниз до упора — виден верх мира`, cameraInBounds(s) && Math.abs(s.camera.cy - lim.minY) < 0.6, `cy=${f1(s.camera.cy)}, край ${f1(lim.minY)}`);
-  s = await pull([600, 700], [600, 20], 2);
+  s = await pull([600, 600], [600, 60], 2);
   lim = cameraLimits(s);
   check(`${p} границы: тянем вверх до упора — виден низ мира`, cameraInBounds(s) && Math.abs(s.camera.cy - lim.maxY) < 0.6, `cy=${f1(s.camera.cy)}, край ${f1(lim.maxY)}`);
 
@@ -2863,7 +2866,7 @@ async function towersPanel(browser, baseUrl, deviceKey, lang, { full = false } =
   if (full) {
     // цвет цены: золотая, если монет хватает, красная, если нет (у каждой башни — по своей цене из config.ts: порядок цен не по возрастанию)
     // видны на снимке только карточки в окне списка (остальные за правым краем, закрытые без цены): смотрим цены открытых видимых
-    const seen = btns.filter((b) => b.visible && !b.locked);
+    const seen = btns.filter((b) => b.visible && !b.locked && b.x + b.w / 2 <= listEnd); // целиком в окне списка: край окна обрезает цену
     const want = seen.map((b) => (TW[b.id].price <= coins ? 'gold' : 'red'));
     const got = [];
     for (const b of seen) got.push((await priceColors(game, png0, b)).kind);
@@ -5675,7 +5678,7 @@ const s4Cfg = (extra = [], { coins = 100000, delay = 600 } = {}) => [`economy.st
 const cellEq = (t, cell) => t.col === cell[0] && t.row === cell[1];
 const towerIn = (s, cell) => s.towers.find((t) => cellEq(t, cell));
 const selectedIs = (s, cell) => s.selectedTower !== null && s.selectedTower.col === cell[0] && s.selectedTower.row === cell[1];
-const inGameBox = (r, s) => r.x - r.w / 2 >= s.viewW - 1 && r.x + r.w / 2 <= W + 1 && r.y - r.h / 2 >= -1 && r.y + r.h / 2 <= H + 1;
+const inGameBox = (r, s) => r.x - r.w / 2 >= -1 && r.x + r.w / 2 <= W + 1 && r.y - r.h / 2 >= -1 && r.y + r.h / 2 <= H + 1;
 
 /** Отпечаток того, что меняют кнопки карточки и тапы по башням: если после тапа он не изменился за 0,6 с, считаем, что тап ничего не сделал (так проверки не зависят от загрузки машины). */
 const cardPrint = (s) => JSON.stringify([s.mergeMode, s.selectedTower, s.ui.card.visible, s.ui.card.picks.map((r) => r.visible), s.sells, s.merges, s.mutationsPicked, s.towers.map((t) => [t.col, t.row, t.level, t.picks.length, t.aim])]);
@@ -7078,7 +7081,9 @@ async function runStars(browser, baseUrl) {
   // порог −1: потерь 0 > −1, поэтому тройка недостижима; maxLostFor2 −1 — недостижима и двойка
   let r = await playWin('levels.stars.maxLostFor3:-1,levels.stars.maxLostFor2:-1', 'одна звезда');
   check(`${p} победа выше порогов двух и трёх звёзд: одна звезда, +10 очков ДНК за неё`, r.s.stars === 1 && r.s.starDna === 10 && r.m.progress.stars[0] === 1, `звёзд ${r.s.stars}, очков за звёзды ${r.s.starDna}, сохранено ${r.m.progress.stars[0]}`);
-  check(`${p} лучшая волна уровня 1 записана (1 волна), очки: за волну 5 + победа 15 + звезда 10 = 30`, r.m.progress.best[0] === 1 && r.m.dna === 30, `лучшая ${r.m.progress.best[0]}, очков ${r.m.dna}`);
+  const dnaTable = readMetaTable().dna; // награда за волну и бонус за победу — из config.ts (с 14 октября 2026 за волну 10, было 5)
+  const firstWinDna = dnaTable.perWave + dnaTable.winBonus + 10;
+  check(`${p} лучшая волна уровня 1 записана (1 волна), очки: за волну ${dnaTable.perWave} + победа ${dnaTable.winBonus} + звезда 10 = ${firstWinDna}`, r.m.progress.best[0] === 1 && r.m.dna === firstWinDna, `лучшая ${r.m.progress.best[0]}, очков ${r.m.dna}`);
   r = await playWin('levels.stars.maxLostFor3:-1,levels.stars.maxLostFor2:0', 'две звезды');
   check(`${p} потеряно 0 жизней при пороге двух звёзд 0 и недостижимой тройке: две звезды; за новую вторую звезду +10 (не 20)`, r.s.stars === 2 && r.s.starDna === 10 && r.m.progress.stars[0] === 2, `звёзд ${r.s.stars}, очков за звёзды ${r.s.starDna}`);
   r = await playWin('', 'три звезды');

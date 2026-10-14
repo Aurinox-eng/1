@@ -603,10 +603,10 @@ export class GameScene extends Phaser.Scene {
     return pts[pts.length - 1][1];
   }
 
-  /** Во сколько раз прочнее бактерии текущей волны (рост `waves.hpGrowthPerWave` после волны `hpGrowthFromWave` и добавка `hpGrowthLatePerWave` после волны `hpGrowthLateFromWave`; у уровней со своим ростом — `growth` из таблицы уровней); всё умножается на `waves.hpScale`; 1 — как в таблице типов. */
+  /** Во сколько раз прочнее бактерии текущей волны (рост `waves.hpGrowthPerWave` после волны `hpGrowthFromWave` и добавка `hpGrowthLatePerWave` после волны `hpGrowthLateFromWave`; у уровней со своим ростом — `growth` из таблицы уровней); всё умножается на `waves.hpScale` и на множитель уровня (`hpFactor`: у уровня 1 — `waves.level1HpFactor`); 1 — как в таблице типов. */
   private waveHpMul(): number {
     const { perWave, fromWave, latePerWave, lateFromWave } = this.params.growth;
-    return CONFIG.waves.hpScale * (1 + perWave * Math.max(0, this.waveIdx - fromWave) + latePerWave * Math.max(0, this.waveIdx - lateFromWave));
+    return CONFIG.waves.hpScale * this.params.hpFactor * (1 + perWave * Math.max(0, this.waveIdx - fromWave) + latePerWave * Math.max(0, this.waveIdx - lateFromWave));
   }
 
   /** Сколько волн идёт на уровне. */

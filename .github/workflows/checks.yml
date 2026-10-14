@@ -1,4 +1,4 @@
-# Автопроверки игры в браузере (qa/smoke.mjs, все 37 сценариев) при каждом push в рабочую ветку; также вручную: вкладка Actions → «Проверки (smoke)» → Run workflow.
+# Автопроверки игры в браузере (qa/smoke.mjs, все 37 сценариев) при каждом push в любую ветку claude/… (рабочая ветка меняется от сессии к сессии, поэтому не одна ветка по имени); также вручную: вкладка Actions → «Проверки (smoke)» → Run workflow.
 # Сценарии разложены по параллельным задачам (в каждой они идут по одному — несколько браузеров одновременно на одной машине тормозят и дают ложные красные).
 # Упала любая проверка — задача красная, и GitHub присылает письмо о неудачном запуске (включается в GitHub → Settings → Notifications → Actions →
 # «Send notifications for failed workflows only» + Email). Снимки всех сценариев — во вложениях прогона (smoke-shots-…), чтобы вид можно было посмотреть и при зелёных проверках.
@@ -7,16 +7,16 @@ name: Проверки (smoke)
 
 on:
   push:
-    branches: [claude/serene-rubin-x3t2gu]
+    branches: ['claude/**']
     paths-ignore:
       - 'docs/**'
       - '**.md'
   workflow_dispatch:
     inputs:
       ref:
-        description: 'Ветка или коммит'
+        description: 'Ветка или коммит (пусто — та ветка, с которой запущено)'
         type: string
-        default: claude/serene-rubin-x3t2gu
+        default: ''
 
 permissions:
   contents: read
