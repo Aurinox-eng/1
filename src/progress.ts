@@ -63,6 +63,8 @@ export interface LevelParams {
   /** Состав волн: строка — волна, тип → сколько штук. */
   rows: Partial<Record<KindId, number>>[];
   growth: { perWave: number; fromWave: number; latePerWave: number; lateFromWave: number };
+  /** Множитель прочности уровня поверх `waves.hpScale` (уровень 1 — `waves.level1HpFactor`, остальные — 1). */
+  hpFactor: number;
   /** Точки [волна, множитель награды]. */
   rewardCurve: number[][];
 }
@@ -95,7 +97,7 @@ export function levelParams(level: number): LevelParams {
   const growth = spec.growth ?? { perWave: w.hpGrowthPerWave, fromWave: w.hpGrowthFromWave, latePerWave: w.hpGrowthLatePerWave, lateFromWave: w.hpGrowthLateFromWave };
   const rewardCurve = spec.rewards ?? CONFIG.economy.rewardCurve;
   const count = spec.count ?? w.total;
-  if (!spec.intro || !spec.hpBudget) return { total: Math.min(count, w.list.length), rows: w.list, growth, rewardCurve };
+  if (!spec.intro || !spec.hpBudget) return { total: Math.min(count, w.list.length), rows: w.list, growth, hpFactor: w.level1HpFactor, rewardCurve };
   let params = generated.get(level);
   if (!params) {
     const gen = CONFIG.levels.gen;
@@ -105,7 +107,7 @@ export function levelParams(level: number): LevelParams {
       KINDS,
       (kind) => CONFIG.types[kind as KindId].hp,
     ) as WaveRow[];
-    params = { total: rows.length, rows: rows as Partial<Record<KindId, number>>[], growth, rewardCurve };
+    params = { total: rows.length, rows: rows as Partial<Record<KindId, number>>[], growth, hpFactor: 1, rewardCurve };
     generated.set(level, params);
   }
   return params;
