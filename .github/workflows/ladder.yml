@@ -46,6 +46,10 @@ on:
         description: 'Контроль фарма очков ДНК: после первой победы на уровне одна повторная партия на пройденном (1 — да, 0 — нет)'
         type: string
         default: '0'
+      budget_sec:
+        description: 'Бюджет реального времени одной задачи бота, секунд (по умолчанию 19800 = 5 ч 30 мин; при k_total больше k): новая партия не начинается, если не успеет закончиться до него, уровень доиграет следующая задача'
+        type: string
+        default: '19800'
       k_total:
         description: 'Всего партий на уровне до «застряла» (пусто — столько же, сколько k). Больше k — уровень играется несколькими задачами подряд по k партий (предел задачи 5 ч 50 мин); например k 10, k_total 20'
         type: string
@@ -116,6 +120,7 @@ jobs:
       max_real_sec: ${{ needs.plan.outputs.max_real_sec }}
       k_total: ${{ needs.plan.outputs.k_total }}
       chunked: ${{ needs.plan.outputs.chunked }}
+      budget_sec: ${{ inputs.budget_sec || '19800' }}
 
   l02:
     name: Уровень 2
@@ -135,6 +140,7 @@ jobs:
       max_real_sec: ${{ needs.plan.outputs.max_real_sec }}
       k_total: ${{ needs.plan.outputs.k_total }}
       chunked: ${{ needs.plan.outputs.chunked }}
+      budget_sec: ${{ inputs.budget_sec || '19800' }}
 
   l03:
     name: Уровень 3
@@ -154,6 +160,7 @@ jobs:
       max_real_sec: ${{ needs.plan.outputs.max_real_sec }}
       k_total: ${{ needs.plan.outputs.k_total }}
       chunked: ${{ needs.plan.outputs.chunked }}
+      budget_sec: ${{ inputs.budget_sec || '19800' }}
 
   l04:
     name: Уровень 4
@@ -173,6 +180,7 @@ jobs:
       max_real_sec: ${{ needs.plan.outputs.max_real_sec }}
       k_total: ${{ needs.plan.outputs.k_total }}
       chunked: ${{ needs.plan.outputs.chunked }}
+      budget_sec: ${{ inputs.budget_sec || '19800' }}
 
   l05:
     name: Уровень 5
@@ -192,6 +200,7 @@ jobs:
       max_real_sec: ${{ needs.plan.outputs.max_real_sec }}
       k_total: ${{ needs.plan.outputs.k_total }}
       chunked: ${{ needs.plan.outputs.chunked }}
+      budget_sec: ${{ inputs.budget_sec || '19800' }}
 
   l06:
     name: Уровень 6
@@ -211,6 +220,7 @@ jobs:
       max_real_sec: ${{ needs.plan.outputs.max_real_sec }}
       k_total: ${{ needs.plan.outputs.k_total }}
       chunked: ${{ needs.plan.outputs.chunked }}
+      budget_sec: ${{ inputs.budget_sec || '19800' }}
 
   l07:
     name: Уровень 7
@@ -230,6 +240,7 @@ jobs:
       max_real_sec: ${{ needs.plan.outputs.max_real_sec }}
       k_total: ${{ needs.plan.outputs.k_total }}
       chunked: ${{ needs.plan.outputs.chunked }}
+      budget_sec: ${{ inputs.budget_sec || '19800' }}
 
   l08:
     name: Уровень 8
@@ -249,6 +260,7 @@ jobs:
       max_real_sec: ${{ needs.plan.outputs.max_real_sec }}
       k_total: ${{ needs.plan.outputs.k_total }}
       chunked: ${{ needs.plan.outputs.chunked }}
+      budget_sec: ${{ inputs.budget_sec || '19800' }}
 
   l09:
     name: Уровень 9
@@ -268,6 +280,7 @@ jobs:
       max_real_sec: ${{ needs.plan.outputs.max_real_sec }}
       k_total: ${{ needs.plan.outputs.k_total }}
       chunked: ${{ needs.plan.outputs.chunked }}
+      budget_sec: ${{ inputs.budget_sec || '19800' }}
 
   l10:
     name: Уровень 10
@@ -287,6 +300,7 @@ jobs:
       max_real_sec: ${{ needs.plan.outputs.max_real_sec }}
       k_total: ${{ needs.plan.outputs.k_total }}
       chunked: ${{ needs.plan.outputs.chunked }}
+      budget_sec: ${{ inputs.budget_sec || '19800' }}
 
   report:
     name: Итоговая таблица
