@@ -1780,7 +1780,7 @@ export class GameScene extends Phaser.Scene {
   private addEndButtons(won: boolean): void {
     const w = 320;
     const h = 76;
-    const y = H / 2 + 190;
+    const y = H / 2 + 200;
     const y2 = y + h + 14;
     const restart = this.addEndButton(W / 2 - 180, y, w, h, t('restart'), 0x2a8a4a, COLORS.merge, () => {
       if (performance.now() >= this.restartAllowedAt) this.scene.restart();

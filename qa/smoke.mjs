@@ -7092,6 +7092,11 @@ async function runStars(browser, baseUrl) {
     const want = [i18nText('dnaPartWaves', 0, { n: dnaTable.perWave }), i18nText('dnaPartWin', 0, { n: dnaTable.winBonus }), i18nText('dnaPartStars', 0, { n: 10 })];
     check(`${p} экран победы: разбивка очков ДНК «${want.join(' + ')}» = ${firstWinDna}; строки «${lines.join(' | ')}»`, parts && parts.waves === dnaTable.perWave && parts.win === dnaTable.winBonus && parts.stars === 10 && parts.coins === 0 && parts.waves + parts.win + parts.stars === firstWinDna && lines.length >= 3 && lines[0].startsWith(`+${firstWinDna} `) && lines[1] === want.join(' + ') && lines[2].includes(String(r.s.coinsLeft)), JSON.stringify(parts));
   }
+  r = await playWin('levels.stars.maxLostFor3:-1,levels.stars.maxLostFor2:0', 'две звезды');
+  check(`${p} потеряно 0 жизней при пороге двух звёзд 0 и недостижимой тройке: две звезды; за новую вторую звезду +10 (не 20)`, r.s.stars === 2 && r.s.starDna === 10 && r.m.progress.stars[0] === 2, `звёзд ${r.s.stars}, очков за звёзды ${r.s.starDna}`);
+  r = await playWin('', 'три звезды');
+  check(`${p} победа без потерь при обычных порогах: три звезды; за новую третью +10`, r.s.stars === 3 && r.s.starDna === 10 && r.m.progress.stars[0] === 3, `звёзд ${r.s.stars}, очков за звёзды ${r.s.starDna}`);
+  const dnaAfter = r.m.dna;
   r = await playWin('', 'повторные три звезды');
   // уровень уже пройден: за волны только replayFactor от награды, бонуса за победу нет (решение владельца 13 октября, правило В)
   const replayGain = Math.floor(1 * readMetaTable().dna.perWave * readMetaTable().dna.replayFactor);
@@ -7373,8 +7378,8 @@ async function runMetaDna(browser, baseUrl) {
     await calc.page.close();
   }
   // ---- экран победы на телефоне (844×390, горизонтально): итог, волны + победа + звёзды, монеты, пометка пройденного уровня; текст не налезает на кнопки и не шире экрана; снимки для владельца.
-  //      Числа как на уровне 1: «волна» стоит 300 очков (30 волн × 10), на старте 1500 монет, в конце ≈ 1360: первая победа 300 + 15 + 30 + 13, повтор 30 + 0 + 0 + 1
-  const winCfg = coinBase('economy.startCoins:1500,meta.dna.perWave:300,meta.dna.coinsPerPoint:100,meta.dna.coinsCapShare:0.1,levels.starDna:10');
+  //      Числа как на уровне 1: «волна» стоит 300 очков (30 волн × 10), на старте 1500 монет, в конце ≈ 1360: первая победа 300 + 15 + 30 (звёзды) + 13 (монеты), повтор 30 + 0 + 20 (две новые звезды) + 1
+  const winCfg = coinBase('economy.startCoins:1500,meta.dna.perWave:300,meta.dna.winBonus:15,meta.dna.coinsPerPoint:100,meta.dna.coinsCapShare:0.1,levels.starDna:10');
   for (const [lang, li, replay] of [['ru', 0, false], ['en', 1, true]]) {
     const ctxP = await newDeviceContext(browser, VIEWPORTS.phone, lang);
     const w = await openGame(ctxP, baseUrl, p, { speed: 4, isTouch: true, query: replay ? '&stars=1' : '', cfg: winCfg });
@@ -7386,7 +7391,8 @@ async function runMetaDna(browser, baseUrl) {
     const buttonsTop = Math.min(...buttons.map((b) => b.y - b.h / 2));
     const parts = st.dnaParts;
     const rawCoins = Math.min(Math.floor(Math.floor(st.coins) / 100), 30);
-    const want = replay ? { waves: 30, win: 0, coins: Math.floor(rawCoins * 0.1), stars: 0 } : { waves: 300, win: 15, coins: rawCoins, stars: 30 };
+    // повтор (&stars=1: на уровне уже одна звезда): за волны и монеты × 0,1; победа без потерь даёт 3 звезды, новых две → 20 очков за звёзды (звёзды платятся один раз и без ×0,1)
+    const want = replay ? { waves: 30, win: 0, coins: Math.floor(rawCoins * 0.1), stars: 20 } : { waves: 300, win: 15, coins: rawCoins, stars: 30 };
     const wantRows = replay ? 4 : 3;
     check(`${p} экран победы на телефоне (${lang}, ${replay ? 'повтор пройденного уровня' : 'первая победа'}): ДНК ${JSON.stringify(want)} при остатке ${st.coinsLeft} монет, строк ${wantRows} (получено ${JSON.stringify(parts)}, строк ${st.endDnaLines.length})`, parts.waves === want.waves && parts.win === want.win && parts.coins === want.coins && parts.stars === want.stars && st.endDnaLines.length === wantRows && st.coinsLeft >= 1000 && st.endDnaLines[0].startsWith(`+${want.waves + want.win + want.coins + want.stars} `), st.endDnaLines.join(' | '));
     check(`${p} экран победы на телефоне (${lang}, ${replay ? 'повтор' : 'первая победа'}): текст кончается на ${f1(st.overlayBox.bottom)}, кнопки начинаются на ${f1(buttonsTop)} (запас ≥ 6 px), самая широкая строка ${f1(st.overlayBox.maxWidth)} ≤ ${W - 40}`, st.overlayBox.bottom + 6 <= buttonsTop && st.overlayBox.maxWidth <= W - 40, JSON.stringify(st.overlayBox));
