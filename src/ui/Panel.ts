@@ -1,12 +1,12 @@
 import Phaser from 'phaser';
 import { CONFIG } from '../config';
-import { t } from '../i18n';
+import { t, type TextKey } from '../i18n';
 import { createTowerArt, type TowerId } from '../objects/Tower';
 import { isTowerOpen, unlockLevel } from '../progress';
 import { towerPrice } from '../towerStats';
 import { COLORS, FONT, TEXT_COLORS } from '../theme';
 import { drawPlate, roundButton, waveButton as waveButtonTexture } from './panelArt';
-import { TowerCard, type CardGeometry, type CardModel } from './TowerCard';
+import { CARD_COMPACT_H, TowerCard, type CardGeometry, type CardModel } from './TowerCard';
 
 const { width: W, height: H } = CONFIG.screen;
 /** Высота верхней полосы (волна, монеты, жизни) и нижней панели (список башен, «Начать волну», скорость, пауза), пикселей экрана игры. */
@@ -127,8 +127,10 @@ export class Panel {
     private readonly scene: Phaser.Scene,
     private readonly callbacks: PanelCallbacks,
   ) {
+    // Открытые — по таблице башен; закрытые — по порядку открытия (с какого уровня башня доступна; при равенстве — по таблице)
     const open = TOWER_IDS.filter((id) => isTowerOpen(id));
-    this.order = [...open, ...TOWER_IDS.filter((id) => !open.includes(id))];
+    const locked = TOWER_IDS.filter((id) => !open.includes(id)).sort((a, b) => unlockLevel(a) - unlockLevel(b));
+    this.order = [...open, ...locked];
 
     // ---- верхняя полоса: только вывод
     const top = scene.add.graphics().setDepth(D.panel);
@@ -283,7 +285,7 @@ export class Panel {
 
   /** Верхний край карточки башни на экране (когда она открыта): выше него камера держит выбранную башню. */
   cardTop(): number {
-    return CARD_AREA.y;
+    return this.card.isCompact ? CARD_AREA.y + CARD_AREA.h - CARD_COMPACT_H : CARD_AREA.y;
   }
 
   /** Точка (x, y) экрана попала на кнопку карточки выбранной башни: касание принадлежит ей, а не карте (мимо кнопок касания проходят к карте под карточкой). */
@@ -441,7 +443,11 @@ export class Panel {
     const bg = scene.add.graphics();
     const need = scene.add.graphics();
     box.add(bg);
-    const icon = scene.add.container(CARD.w / 2, 33).setScale(0.5);
+    // Название башни сверху (русское или английское, по языку игры), ниже значок, у открытой — цена
+    const name = this.text(CARD.w / 2, 11, t(`tower${id.charAt(0).toUpperCase()}${id.slice(1)}` as TextKey), 14, TEXT_COLORS.main).setDepth(0);
+    if (name.width > CARD.w - 8) name.setScale((CARD.w - 8) / name.width);
+    box.add(name);
+    const icon = scene.add.container(CARD.w / 2, 39).setScale(0.44);
     createTowerArt(scene, icon, id);
     box.add(icon);
     let price: Phaser.GameObjects.Text | null = null;
@@ -454,8 +460,8 @@ export class Panel {
       const veil = scene.add.graphics();
       veil.fillStyle(0x070d1c, 0.7).fillRoundedRect(0, 0, CARD.w, CARD.h, 12);
       box.add(veil);
-      box.add(this.lockIcon(CARD.w / 2, 30));
-      const lock = this.text(CARD.w / 2, 71, t('lockedLevel', { n: unlockLevel(id) }), 17, TEXT_COLORS.soft).setDepth(0);
+      box.add(this.lockIcon(CARD.w / 2, 36));
+      const lock = this.text(CARD.w / 2, 74, t('lockedLevel', { n: unlockLevel(id) }), 17, TEXT_COLORS.soft).setDepth(0);
       if (lock.width > CARD.w - 10) lock.setScale((CARD.w - 10) / lock.width);
       box.add(lock);
     }

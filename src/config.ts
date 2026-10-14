@@ -896,6 +896,8 @@ export const CONFIG = {
      *  damageNumSteps (доли прочности). */
     damageNumMs: 750,
     damageNumMergeMs: 260,
+    /** Число урона не рисуется поверх соседнего свежего (младше damageNumMergeMs), если оно ближе этого расстояния, пикселей мира: удары складываются в одно число (у развилки толпа, 14 октября 2026). */
+    damageNumNearPx: 44,
     damageNumMax: 90,
     damageNumSteps: [0.06, 0.15, 0.3] as number[],
     damageNumSizes: [0.5, 0.7, 0.95, 1.25] as number[],

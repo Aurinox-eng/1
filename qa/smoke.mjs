@@ -6831,7 +6831,7 @@ const META_LOSE_CFG = 'lives.start:1,waves.firstDelaySec:1,bacteria.baseSpeed:25
 
 // ---------------------------------------------------------------- экран «Улучшения» — дерево (8 октября 2026): помощники для проверок
 // Описание экрана — `window.__pvbMeta.getMeta().screen`: узлы (центр и размер на экране игры с учётом прокрутки, onScreen, open, canBuy), окно дерева `view` (левый верхний угол и размер),
-// карточка выбранного узла `detail` (texts: название, «Уровень n из max», «Дальше: …» или итог, условие открытия, подпись кнопки; buy — центр кнопки покупки; fits). Тап по узлу его выбирает,
+// карточка выбранного узла `detail` (texts: название, «Уровень n из max», «подпись + Сейчас … → станет …» или итог, условие открытия, подпись кнопки; buy — центр кнопки покупки; fits). Тап по узлу его выбирает,
 // покупка — тап по кнопке карточки. Дерево двигается колесом мыши и перетаскиванием. `app` — всё, у чего есть `page`, `input` и `g(x, y)` (результат openGame или openMenu).
 
 /** Название улучшения на языке (li: 0 — русский, 1 — английский): ключ `upg` + id с заглавной буквы. */
@@ -7084,6 +7084,13 @@ async function runStars(browser, baseUrl) {
   const dnaTable = readMetaTable().dna; // награда за волну и бонус за победу — из config.ts (с 14 октября 2026 за волну 10, было 5)
   const firstWinDna = dnaTable.perWave + dnaTable.winBonus + 10;
   check(`${p} лучшая волна уровня 1 записана (1 волна), очки: за волну ${dnaTable.perWave} + победа ${dnaTable.winBonus} + звезда 10 = ${firstWinDna}`, r.m.progress.best[0] === 1 && r.m.dna === firstWinDna, `лучшая ${r.m.progress.best[0]}, очков ${r.m.dna}`);
+  // экран победы: разбивка очков ДНК (волны + победа + звёзды) в состоянии игры и в строке, которую видит игрок (русский текст)
+  {
+    const parts = r.s.dnaParts;
+    const line = r.s.endDnaText ?? '';
+    const want = [i18nText('dnaPartWaves', 0, { n: dnaTable.perWave }), i18nText('dnaPartWin', 0, { n: dnaTable.winBonus }), i18nText('dnaPartStars', 0, { n: 10 })];
+    check(`${p} экран победы: разбивка очков ДНК «${want.join(' + ')}» = ${firstWinDna}, строка «${line}»`, parts && parts.waves === dnaTable.perWave && parts.win === dnaTable.winBonus && parts.stars === 10 && parts.waves + parts.win + parts.stars === firstWinDna && line.startsWith(`+${firstWinDna} `) && want.every((x) => line.includes(x)), JSON.stringify(parts));
+  }
   r = await playWin('levels.stars.maxLostFor3:-1,levels.stars.maxLostFor2:0', 'две звезды');
   check(`${p} потеряно 0 жизней при пороге двух звёзд 0 и недостижимой тройке: две звезды; за новую вторую звезду +10 (не 20)`, r.s.stars === 2 && r.s.starDna === 10 && r.m.progress.stars[0] === 2, `звёзд ${r.s.stars}, очков за звёзды ${r.s.starDna}`);
   r = await playWin('', 'три звезды');
@@ -7552,7 +7559,11 @@ async function runTreeShop(browser, baseUrl) {
     check(`${p} окно дерева, кнопка покупки в карточке и «Играть» внутри экрана и не налезают друг на друга, узлы между собой не налезают; в начале выбран корень «${rootId}»`, v.x >= 0 && v.y >= 0 && v.x + v.w <= W && v.y + v.h <= H && detail && insideScreen(detail.buy) && insideScreen(m.screen.play) && !overlaps(detail.buy, m.screen.play) && detail.buy.x - detail.buy.w / 2 >= v.x + v.w && clash === '' && inView && m.screen.selected === rootId, `${JSON.stringify(v)} ${JSON.stringify(detail && detail.buy)} ${clash}`);
     await shot(app.page, `tree-shop-top-${deviceKey}-${lang}`);
     if (UP[rootId].effect === 'damage') {
-      const next = i18nText('upgNext', li, { text: i18nText('upgDamageDesc', li, { n: Math.round(UP[rootId].perLevel * 100) }) });
+      // «подпись\nСейчас +0 % → станет +10 %»: описание «подпись: значение» делится по первому «: » (как effectParts в UpgradesScene)
+      const descTpl = readI18n('upgDamageDesc')[li];
+      const cut = descTpl.indexOf(': ');
+      const valueTpl = descTpl.slice(cut + 2);
+      const next = `${descTpl.slice(0, cut)}\n${i18nText('upgNowNext', li, { now: valueTpl.split('{n}').join('0'), next: valueTpl.split('{n}').join(String(Math.round(UP[rootId].perLevel * 100))) })}`;
       check(`${p} карточка корня «${rootId}»: «${i18nText('upgLevel', li, { n: 0, max: UP[rootId].prices.length })}», «${next}»`, detail.texts[1] === i18nText('upgLevel', li, { n: 0, max: UP[rootId].prices.length }) && detail.texts[2] === next, JSON.stringify(detail.texts));
     }
 

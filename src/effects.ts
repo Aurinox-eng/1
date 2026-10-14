@@ -296,14 +296,17 @@ export class Effects {
 
   /**
    * Число урона над бактерией `target` (номер бактерии): value — сколько HP снял удар, share — доля её полной прочности, color — цвет башни.
-   * Удары по той же бактерии в пределах `damageNumMergeMs` складываются в одно число (очередь Шприца, взрыв и снаряд подряд). Числа берутся из запаса;
+   * Удары по той же бактерии в пределах `damageNumMergeMs` складываются в одно число (очередь Шприца, взрыв и снаряд подряд); так же складываются удары по бактериям ближе `damageNumNearPx`
+   * друг к другу (толпа у развилки не превращается в наслоение чисел). Числа берутся из запаса;
    * если все заняты, вытесняется самое мелкое (по доле прочности), если новое крупнее, иначе новое не показывается.
    */
   damageNumber(target: number, x: number, y: number, value: number, share: number, color: number): void {
     if (value <= 0) return;
     this.damageNumbers++;
-    const { damageNumMergeMs, damageNumMax, damageNumSteps, damageNumSizes } = CONFIG.feedback;
+    const { damageNumMergeMs, damageNumNearPx, damageNumMax, damageNumSteps, damageNumSizes } = CONFIG.feedback;
     let a = this.damagePool.find((p) => p.busy && p.target === target && p.ms < damageNumMergeMs);
+    // Свежее число рядом (у развилки толпа бактерий): удар складывается с ним, а не рисуется поверх (14 октября 2026, замечание рецензента)
+    a ??= this.damagePool.find((p) => p.busy && p.ms < damageNumMergeMs && Math.hypot(p.label.x - x, p.fromY - y) < damageNumNearPx);
     if (a) {
       a.value += value;
       a.share += share;

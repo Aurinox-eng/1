@@ -218,6 +218,9 @@ export class GameScene extends Phaser.Scene {
   /** Звёзды, заработанные в этой партии (0 при проигрыше), и очки ДНК за впервые полученные звёзды. */
   private stars = 0;
   private starDna = 0;
+  /** Разбивка очков ДНК за партию на экране конца уровня (волны, победа, звёзды) и сама строка. */
+  private dnaParts = { waves: 0, win: 0, stars: 0 };
+  private endDnaText = '';
   private waveInterval = 1;
   private spawnTimer = 0;
   private plannedTotal = 0;
@@ -301,6 +304,8 @@ export class GameScene extends Phaser.Scene {
     this.dnaGained = 0;
     this.stars = 0;
     this.starDna = 0;
+    this.dnaParts = { waves: 0, win: 0, stars: 0 };
+    this.endDnaText = '';
     this.dnaAwarded = false;
     this.dnaReplay = false;
     this.bacteria = [];
@@ -1174,7 +1179,7 @@ export class GameScene extends Phaser.Scene {
   /** Нижняя подсказка: у новых башен — как они бьют; у таблетки и до первой башни — «выберите башню и тапните по клетке». */
   private updateHint(): void {
     if (this.mergeMode) {
-      this.panel.setHint(t('hintMerge'));
+      this.panel.setHint(null); // подсказка слияния — в узкой полосе карточки (иначе плашка над карточкой закрывала бы кандидатов)
       return;
     }
     const info = this.selected ? this.towerInfo(this.selected) : null;
@@ -1301,6 +1306,11 @@ export class GameScene extends Phaser.Scene {
     sfx.select();
     this.refreshCard();
     this.updateHint();
+    // Полная карточка сменилась узкой полосой: башня и все кандидаты должны остаться выше неё (камера сдвигается вверх, если кто-то оказался под полосой)
+    const limit = this.panel.cardTop() - 40;
+    let lowest = -Infinity;
+    for (const tower of [this.selectedTower, ...candidates]) lowest = Math.max(lowest, this.rig.worldToScreen(tower.x, tower.y).y);
+    if (lowest > limit) this.rig.panBy(0, limit - lowest);
   }
 
   private cancelMerge(update = true): void {
@@ -1433,6 +1443,7 @@ export class GameScene extends Phaser.Scene {
       beam: tower.isBeam,
       merge,
       sell: this.sellValue(tower),
+      mergeHint: this.mergeMode ? t('hintMerge') : null,
     });
   }
 
@@ -1736,7 +1747,15 @@ export class GameScene extends Phaser.Scene {
       this.stars = won ? starsForLoss(Math.max(0, this.maxLives() - this.lives) + this.shieldAbsorbed) : 0;
       this.starDna = recordResult(currentLevel(), cleared, this.stars).starDna;
     }
-    this.showOverlay(won ? t('victory') : t('gameOver'), TEXT_COLORS.accent, t('killed', { n: this.kills }), t('dnaGained', { n: this.dnaGained + this.starDna, total: metaDna() }) + (this.dnaReplay ? ` · ${t('dnaReplayNote', { k: Math.round(CONFIG.meta.dna.replayFactor * 100) })}` : ''));
+    // Разбивка: волны + победа (бонус только за первую победу) + звёзды (только новые); слагаемые, равные нулю, кроме волн, не показываются
+    const cleared = won ? this.waveTotal() : Math.max(0, this.waveIdx - 1);
+    const wavesPart = this.dnaReplay ? Math.floor(cleared * CONFIG.meta.dna.perWave * CONFIG.meta.dna.replayFactor) : cleared * CONFIG.meta.dna.perWave;
+    this.dnaParts = { waves: wavesPart, win: Math.max(0, this.dnaGained - wavesPart), stars: this.starDna };
+    const parts = [t('dnaPartWaves', { n: this.dnaParts.waves })];
+    if (this.dnaParts.win > 0) parts.push(t('dnaPartWin', { n: this.dnaParts.win }));
+    if (this.dnaParts.stars > 0) parts.push(t('dnaPartStars', { n: this.dnaParts.stars }));
+    this.endDnaText = t('dnaBreakdown', { sum: this.dnaGained + this.starDna, parts: parts.join(' + '), total: metaDna() });
+    this.showOverlay(won ? t('victory') : t('gameOver'), TEXT_COLORS.accent, t('killed', { n: this.kills }), this.endDnaText, this.dnaReplay ? t('dnaReplayNote', { k: Math.round(CONFIG.meta.dna.replayFactor * 100) }) : undefined);
     if (won) this.drawStars(this.stars);
     this.addEndButtons(won);
   }
@@ -1779,13 +1798,14 @@ export class GameScene extends Phaser.Scene {
     return { x, y, w, h };
   }
 
-  private showOverlay(title: string, titleColor: string, line2: string, line3?: string): void {
+  private showOverlay(title: string, titleColor: string, line2: string, line3?: string, line4?: string): void {
     const items: Phaser.GameObjects.GameObject[] = [
       this.add.rectangle(W / 2, H / 2, W, H, 0x000000, 0.78),
       this.add.text(W / 2, H / 2 - 90, title, this.textStyle(76, titleColor)).setOrigin(0.5),
       this.add.text(W / 2, H / 2 + 10, line2, this.textStyle(40)).setOrigin(0.5),
     ];
     if (line3) items.push(this.add.text(W / 2, H / 2 + 92, line3, this.textStyle(32, TEXT_COLORS.accent)).setOrigin(0.5));
+    if (line4) items.push(this.add.text(W / 2, H / 2 + 134, line4, this.textStyle(24, TEXT_COLORS.soft)).setOrigin(0.5));
     this.overlay = this.add.container(0, 0, items).setDepth(200);
   }
 
@@ -1903,6 +1923,8 @@ export class GameScene extends Phaser.Scene {
       dnaGained: this.dnaGained,
       stars: this.stars,
       starDna: this.starDna,
+      dnaParts: { ...this.dnaParts },
+      endDnaText: this.endDnaText,
       selected: this.selected,
       towers: this.towers.map((tw) => ({
         id: tw.id,
