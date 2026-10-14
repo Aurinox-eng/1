@@ -221,6 +221,8 @@ export class GameScene extends Phaser.Scene {
   /** Разбивка очков ДНК за партию на экране конца уровня (волны, победа, звёзды) и сама строка. */
   private dnaParts = { waves: 0, win: 0, coins: 0, stars: 0 };
   private endDnaLines: string[] = [];
+  /** Нижний край и наибольшая ширина текстов на затемнении (конец уровня, пауза), пикселей экрана игры: проверка «текст не налезает на кнопки». */
+  private overlayBox = { bottom: 0, maxWidth: 0 };
   private coinsLeft = 0;
   private waveInterval = 1;
   private spawnTimer = 0;
@@ -307,6 +309,7 @@ export class GameScene extends Phaser.Scene {
     this.starDna = 0;
     this.dnaParts = { waves: 0, win: 0, coins: 0, stars: 0 };
     this.endDnaLines = [];
+    this.overlayBox = { bottom: 0, maxWidth: 0 };
     this.coinsLeft = 0;
     this.dnaAwarded = false;
     this.dnaReplay = false;
@@ -1825,6 +1828,14 @@ export class GameScene extends Phaser.Scene {
       const r = rows[row];
       items.push(this.add.text(W / 2, H / 2 + r.y, text, this.textStyle(r.size, r.color)).setOrigin(0.5));
     }
+    let bottom = 0;
+    let maxWidth = 0;
+    for (const item of items) {
+      if (!(item instanceof Phaser.GameObjects.Text)) continue;
+      bottom = Math.max(bottom, item.y + item.displayHeight / 2);
+      maxWidth = Math.max(maxWidth, item.displayWidth);
+    }
+    this.overlayBox = { bottom, maxWidth };
     this.overlay = this.add.container(0, 0, items).setDepth(200);
   }
 
@@ -1944,6 +1955,7 @@ export class GameScene extends Phaser.Scene {
       starDna: this.starDna,
       dnaParts: { ...this.dnaParts },
       coinsLeft: this.coinsLeft,
+      overlayBox: { ...this.overlayBox },
       endDnaLines: [...this.endDnaLines],
       selected: this.selected,
       towers: this.towers.map((tw) => ({

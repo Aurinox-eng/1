@@ -7353,6 +7353,53 @@ async function runMetaDna(browser, baseUrl) {
   c = await playCoins('economy.startCoins:1500,meta.dna.coinsCapShare:0.5', '&stars=1');
   raw = rawOf(c, 0.5);
   check(`${p} пройденный уровень: добавка за монеты тоже × replayFactor 0,1: ⌊${raw} × 0,1⌋ = ${Math.floor(raw * 0.1)}, за волну ⌊1 × 20 × 0,1⌋ = 2, бонуса за победу нет (начислено ${c.dnaGained})`, raw >= 10 && c.dnaParts.coins === Math.floor(raw * 0.1) && c.dnaParts.win === 0 && c.dnaGained === 2 + Math.floor(raw * 0.1), JSON.stringify(c.dnaParts));
+  // Расчёт «1360 монет» на настоящих числах уровня 1 (30 волн, награда за волну из config.ts) через формулу игры, без прохождения 30 волн: порядок — сначала предел (доля coinsCapShare от награды
+  // за волны, считаемой без ×replayFactor), потом ×replayFactor с округлением вниз; первая победа: монеты min(⌊1360 / 100⌋ = 13, ⌊30 × 10 × 0,1⌋ = 30) = 13; повтор: ⌊13 × 0,1⌋ = 1, волны ⌊300 × 0,1⌋ = 30
+  {
+    const D = readMetaTable().dna;
+    const calc = await openGame(context, baseUrl, p, { speed: 1, cfg: 'meta.dna.coinsCapShare:0.1' });
+    const ask = (waves, won, replay, coins) => calc.page.evaluate(([w, o, r, c]) => window.__pvbMeta.dnaFor(w, o, r, c), [waves, won, replay, coins]);
+    const reward = 30 * D.perWave;
+    const rawFor = (coins) => Math.min(Math.floor(coins / D.coinsPerPoint), Math.floor(reward * 0.1));
+    const first = await ask(30, true, false, 1360);
+    const replay = await ask(30, true, true, 1360);
+    check(`${p} первая победа на уровне 1 с 1360 монетами: волны ${reward} + победа ${D.winBonus} + монеты min(⌊1360 / ${D.coinsPerPoint}⌋, ⌊${reward} × 0,1⌋) = ${rawFor(1360)} (получено ${first.waves} + ${first.win} + ${first.coins})`, first.waves === reward && first.win === D.winBonus && first.coins === rawFor(1360) && rawFor(1360) === 13, JSON.stringify(first));
+    check(`${p} повтор пройденного уровня с 1360 монетами: волны ⌊${reward} × ${D.replayFactor}⌋ = ${Math.floor(reward * D.replayFactor)}, победы нет, монеты ⌊${rawFor(1360)} × ${D.replayFactor}⌋ = ${Math.floor(rawFor(1360) * D.replayFactor)} (получено ${replay.waves} + ${replay.win} + ${replay.coins})`, replay.waves === Math.floor(reward * D.replayFactor) && replay.win === 0 && replay.coins === Math.floor(rawFor(1360) * D.replayFactor) && replay.coins === 1, JSON.stringify(replay));
+    const capped = await ask(30, true, false, 4000);
+    const cappedReplay = await ask(30, true, true, 4000);
+    check(`${p} предел 10 % работает до умножения на replayFactor: 4000 монет → ⌊4000 / ${D.coinsPerPoint}⌋ = 40, предел ${Math.floor(reward * 0.1)}; первая победа ${capped.coins}, повтор ⌊${Math.floor(reward * 0.1)} × ${D.replayFactor}⌋ = ${Math.floor(Math.floor(reward * 0.1) * D.replayFactor)} (получено ${cappedReplay.coins})`, capped.coins === Math.floor(reward * 0.1) && cappedReplay.coins === Math.floor(Math.floor(reward * 0.1) * D.replayFactor), JSON.stringify([capped, cappedReplay]));
+    const lost = await ask(12, false, false, 1360);
+    check(`${p} проигрыш с 1360 монетами: за монеты 0 (получено ${lost.coins})`, lost.coins === 0, JSON.stringify(lost));
+    await calc.page.close();
+  }
+  // ---- экран победы на телефоне (844×390, горизонтально): итог, волны + победа + звёзды, монеты, пометка пройденного уровня; текст не налезает на кнопки и не шире экрана; снимки для владельца.
+  //      Числа как на уровне 1: «волна» стоит 300 очков (30 волн × 10), на старте 1500 монет, в конце ≈ 1360: первая победа 300 + 15 + 30 + 13, повтор 30 + 0 + 0 + 1
+  const winCfg = coinBase('economy.startCoins:1500,meta.dna.perWave:300,meta.dna.coinsPerPoint:100,meta.dna.coinsCapShare:0.1,levels.starDna:10');
+  for (const [lang, li, replay] of [['ru', 0, false], ['en', 1, true]]) {
+    const ctxP = await newDeviceContext(browser, VIEWPORTS.phone, lang);
+    const w = await openGame(ctxP, baseUrl, p, { speed: 4, isTouch: true, query: replay ? '&stars=1' : '', cfg: winCfg });
+    for (const cell of [FREE.a, FREE.b]) await placeSure(w, 'pill', cell);
+    const st = await waitFor(w.page, (x) => x.state === 'won', WAIT_MS, 'победа (экран победы на телефоне)');
+    await sleep(500);
+    await shot(w.page, `win-screen-phone-${lang}-${replay ? 'replay' : 'first'}`);
+    const buttons = [st.endButton, st.upgradesButton, st.nextButton, st.menuButton].filter(Boolean);
+    const buttonsTop = Math.min(...buttons.map((b) => b.y - b.h / 2));
+    const parts = st.dnaParts;
+    const rawCoins = Math.min(Math.floor(Math.floor(st.coins) / 100), 30);
+    const want = replay ? { waves: 30, win: 0, coins: Math.floor(rawCoins * 0.1), stars: 0 } : { waves: 300, win: 15, coins: rawCoins, stars: 30 };
+    const wantRows = replay ? 4 : 3;
+    check(`${p} экран победы на телефоне (${lang}, ${replay ? 'повтор пройденного уровня' : 'первая победа'}): ДНК ${JSON.stringify(want)} при остатке ${st.coinsLeft} монет, строк ${wantRows} (получено ${JSON.stringify(parts)}, строк ${st.endDnaLines.length})`, parts.waves === want.waves && parts.win === want.win && parts.coins === want.coins && parts.stars === want.stars && st.endDnaLines.length === wantRows && st.coinsLeft >= 1000 && st.endDnaLines[0].startsWith(`+${want.waves + want.win + want.coins + want.stars} `), st.endDnaLines.join(' | '));
+    check(`${p} экран победы на телефоне (${lang}, ${replay ? 'повтор' : 'первая победа'}): текст кончается на ${f1(st.overlayBox.bottom)}, кнопки начинаются на ${f1(buttonsTop)} (запас ≥ 6 px), самая широкая строка ${f1(st.overlayBox.maxWidth)} ≤ ${W - 40}`, st.overlayBox.bottom + 6 <= buttonsTop && st.overlayBox.maxWidth <= W - 40, JSON.stringify(st.overlayBox));
+    if (!replay) {
+      // телефон повернули вертикально прямо на экране победы: игра рассчитана на горизонтальное положение, поверх неё подсказка «Поверните телефон» (снимок для владельца)
+      await w.page.setViewportSize({ width: 390, height: 844 });
+      await sleep(1500);
+      const rot = await rotateInfo(w.page);
+      await shot(w.page, 'win-screen-phone-portrait-rotate-prompt');
+      check(`${p} вертикальный телефон 390×844 на экране победы: подсказка «Поверните телефон» на весь экран (display ${rot.display}, на весь экран ${rot.full}, текст «${rot.text}» внутри ${rot.textInside})`, rot.display !== 'none' && rot.full && rot.textInside, JSON.stringify(rot));
+    }
+    await ctxP.close();
+  }
   const loseCoins = await openGame(context, baseUrl, p, {
     speed: 4,
     cfg: `waves.total:3,waves.pauseSec:0.1,waves.firstDelaySec:1,waves.intervalStartSec:1,waves.intervalEndSec:1,waves.list.0.coccus:2,waves.list.1.coccus:2,waves.list.2.coccus:2,lives.start:1,bacteria.baseSpeed:250,economy.startCoins:500,meta.dna.perWave:20,meta.dna.coinsPerPoint:50,meta.dna.coinsCapShare:0.5`,

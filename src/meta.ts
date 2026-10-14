@@ -262,13 +262,13 @@ export interface MetaDebugSnapshot {
 
 declare global {
   interface Window {
-    __pvbMeta?: { getMeta: () => MetaDebugSnapshot };
+    __pvbMeta?: { getMeta: () => MetaDebugSnapshot; dnaFor: (wavesCleared: number, won: boolean, replay: boolean, coinsLeft: number) => DnaParts };
   }
 }
 
 /** Делает состояние очков и улучшений доступным проверкам (`window.__pvbMeta`); `screen` отдаёт описание экрана «Улучшения» (или «не показан»). */
 export function exposeMetaDebug(screen: () => MetaScreenInfo): void {
-  if (QA_MODE) window.__pvbMeta = { getMeta: () => ({ dna: state.dna, levels: metaLevels(), progress: { stars: [...state.progress.stars], best: [...state.progress.best] }, seen: [...state.seen], screen: screen() }) };
+  if (QA_MODE) window.__pvbMeta = { getMeta: () => ({ dna: state.dna, levels: metaLevels(), progress: { stars: [...state.progress.stars], best: [...state.progress.best] }, seen: [...state.seen], screen: screen() }), dnaFor: dnaParts };
 }
 
 export const HIDDEN_SCREEN: MetaScreenInfo = { visible: false, balance: '', selected: '', scroll: 0, view: { x: 0, y: 0, w: 0, h: 0 }, nodes: [], detail: null, play: null };
