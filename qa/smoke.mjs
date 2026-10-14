@@ -7877,7 +7877,8 @@ async function runTreeEffects(browser, baseUrl) {
 
   // ---- щит у линии: гасит столько бактерий, сколько уровней; для звёзд погашенные считаются потерянными жизнями
   {
-    const cfg = `${wavesOnlyCfg({ coccus: 3 })},waves.firstDelaySec:1,bacteria.baseSpeed:250,lives.start:3`;
+    // пороги звёзд здесь свои (★★★ — без потерь, ★★ — не больше 1): проверяется правило «погашенное щитом считается потерянным», а не настоящие пороги (они проверены выше через starsFor)
+    const cfg = `${wavesOnlyCfg({ coccus: 3 })},waves.firstDelaySec:1,bacteria.baseSpeed:250,lives.start:3,levels.stars.maxLostFor3:0,levels.stars.maxLostFor2:1`;
     const run = async (shield) => {
       const game = await openGame(context, baseUrl, p, { speed: 4, cfg, query: `&meta=dna:0${shield ? `,shield:${shield}` : ''}` });
       const s = await waitFor(game.page, (x) => x.state === 'won' || x.state === 'lost', WAIT_MS, 'конец партии со щитом');
