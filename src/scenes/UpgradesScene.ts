@@ -50,6 +50,13 @@ function effectText(id: UpgradeId, level: number): string {
   return t(descKey(spec.effect), { n: num(value) });
 }
 
+/** Описание улучшения на уровне level, разобранное на подпись («урон всех башен») и значение («+80 %»): все описания записаны как «подпись: значение», делим по первому «: ». */
+function effectParts(id: UpgradeId, level: number): { label: string; value: string } {
+  const text = effectText(id, level);
+  const i = text.indexOf(': ');
+  return i < 0 ? { label: '', value: text } : { label: text.slice(0, i), value: text.slice(i + 2) };
+}
+
 /** Центр узла в координатах содержимого дерева (до прокрутки). */
 function nodeCenter(id: UpgradeId): { x: number; y: number } {
   const [col, row] = CONFIG.meta.treePos[id] ?? [0, 0];
@@ -264,7 +271,10 @@ export class UpgradesScene extends Phaser.Scene {
     const price = nextPrice(id);
     this.detailName.setText(t(nameKey(id)));
     this.detailLevel.setText(t('upgLevel', { n: level, max: maxLevel(id) }));
-    this.detailEffect.setText(price === null ? effectText(id, level) : t('upgNext', { text: effectText(id, level + 1) }));
+    // Не максимум: подпись и строка «Сейчас +80 % → станет +90 %»; максимум — итог одной строкой
+    const now = effectParts(id, level);
+    const next = effectParts(id, level + 1);
+    this.detailEffect.setText(price === null ? effectText(id, level) : `${now.label ? `${now.label}\n` : ''}${t('upgNowNext', { now: now.value, next: next.value })}`);
     // условие открытия: ветка башни по уровню карты, родитель по дереву
     const lines: string[] = [];
     if (!isBranchOpen(spec.branch)) lines.push(t('upgLocked', { n: branchUnlockLevel(spec.branch) }));

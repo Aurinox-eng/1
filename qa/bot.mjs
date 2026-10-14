@@ -98,7 +98,7 @@ const STRONG_PICK_SHARE = 0.15; // «сильный»: клетку берёт �
 const STRONG_PICK_MIN = 4; // … но не обязательно в лучшем: башни стоят неравномерно (так же выбирает «средний», только по другой оценке)
 const STRONG_NOISE = 0.12; // «сильный»: шум оценки клеток (доля), у «особо сильного» — EXPERT_NOISE
 const EXPERT_NOISE = 0.03;
-const DECIDE_EVERY = { novice: 2, average: 2, strong: 3, expert: 2 }; // как часто игрок принимает решения, игровых секунд (человек: сильный реагирует медленнее)
+const DECIDE_EVERY = { novice: 2, average: 2, strong: 3, expert: 2, zone: 2 }; // как часто игрок принимает решения, игровых секунд (человек: сильный реагирует медленнее)
 const OVERLAP_DISCOUNT = 0.5; // «сильный»: охват, уже накрытый другой башней, ценится в столько раз (расставляет по сети, а не кучкой)
 const SYRUP_OVERLAP = 0.8; // …но замедляющей башне выгодно стоять там, где уже стреляют: скидка мягче
 const ADJACENT_FACTOR = 0.3; // «сильный»: клетка рядом (в том числе по диагонали) с уже стоящей башней ценится в столько раз
@@ -117,9 +117,9 @@ const AIM_STEPS = 8; // «Шприц»: сколько направлений л
 const BEAM_MARGIN_PX = 22; // «Шприц»: насколько дальше полуширины луча от линии выстрела может лежать середина дорожки, чтобы луч её задел (как в игре)
 const MERGE_ZONE_PX = 170; // «Шипучка»: участки дорожки ближе этого к узлу слияния считаются «кучей»
 const MERGE_FACTOR = 2; // … и ценятся вдвое
-const MERGE_UP_TO = { novice: -1, average: -1, strong: 1, expert: 99 }; // башни какого уровня и ниже профиль сливает (−1 — не сливает совсем): «сильный» — только пары первого уровня, «особо сильный» — всё; сливают только пары в радиусе mergeRadiusPx
+const MERGE_UP_TO = { novice: -1, average: -1, strong: 1, expert: 99, zone: 99 }; // башни какого уровня и ниже профиль сливает (−1 — не сливает совсем): «сильный» — только пары первого уровня, «особо сильный» — всё; сливают только пары в радиусе mergeRadiusPx
 // Какую мутацию выбирает профиль (номер варианта 0/1 по порогам): «сильный» всегда первую; «особо сильный» — по таблице (Сироп — «Едкая» в конце, чтобы лужа ещё и убивала; Шприц — «Бронебойный», затем «Второй луч»)
-const MUTATION_PICKS = { strong: { default: [0, 0] }, expert: { pill: [0, 0], syrup: [0, 0], fizz: [0, 0], syringe: [1, 0], ampule: [0, 0], antibiotic: [0, 0] } };
+const MUTATION_PICKS = { strong: { default: [0, 0] }, expert: { pill: [0, 0], syrup: [0, 0], fizz: [0, 0], syringe: [1, 0], ampule: [0, 0], antibiotic: [0, 0] }, zone: { pill: [0, 0], syrup: [0, 0] } };
 // Мутации башен пачки 2 выбираются по названиям (id из config.ts), а не по номерам: порядок строк в config.ts бот сверяет с таблицей и при расхождении останавливает замер.
 // Лампа: «Узкий пучок» (угол 30°, урон ×1,5) на 2-м уровне, «Раскал» (урон ×1,6) на 4-м; Витамин: «Усиление» и «Сильное усиление» (прибавка к скорости ×1,5 каждая).
 // Пачка 3: Холод — «Глубокая заморозка» (время ×1,5) и «Долгий мороз» (время ×1,5); Пластырь — «Скорый» (пауза ×0,65) и «Едкий» (урон ловушки ×2).
@@ -154,8 +154,14 @@ const STALL_SEC = 30; // игровое время не идёт столько 
 
 const NAMES = { pill: 'Таблетка', syrup: 'Сироп', fizz: 'Шипучка', syringe: 'Шприц', ampule: 'Ампула', antibiotic: 'Антибиотик', lamp: 'Лампа', vitamin: 'Витамин', frost: 'Холод', patch: 'Пластырь' };
 const SHORT = { pill: 'Таб', syrup: 'Сир', fizz: 'Шип', syringe: 'Шпр', ampule: 'Амп', antibiotic: 'Ант', lamp: 'Лмп', vitamin: 'Вит', frost: 'Хол', patch: 'Пла' };
-const PROFILE_TITLES = { novice: 'новичок', average: 'средний', strong: 'сильный', expert: 'особо сильный' };
+const PROFILE_TITLES = { novice: 'новичок', average: 'средний', strong: 'сильный', expert: 'особо сильный', zone: 'всё у Z' };
 const PROFILE_IDS = Object.keys(PROFILE_TITLES);
+// «Всё у Z» (14 октября 2026, по замечанию рецензента): Таблетки и один Сироп только вокруг последней развилки Z («ствол» у организма, узел [4, 7] в `src/level.ts`, единицы сети дорожек `map.pathUnit`),
+// слияние в радиусе, улучшения как у остальных. Проверяет, меряет ли «сильный» слабую расстановку (башни разбросаны по карте), а не слабого игрока. В `--profile=all` не входит.
+const ZONE_Z = { x: readConfigNumber('map', 'pathUnit') * 4, y: readConfigNumber('map', 'pathUnit') * 7 };
+const ZONE_TOWERS = new Set(['pill', 'syrup']);
+const ZONE_CYCLE = ['pill', 'pill', 'syrup', 'pill'];
+const ALL_PROFILE_IDS = ['novice', 'average', 'strong', 'expert']; // что значит --profile=all
 const AVERAGE_CYCLE = ['pill', 'pill', 'syrup', 'pill', 'fizz', 'syringe'];
 const STRONG_CYCLE = ['fizz', 'pill', 'syrup', 'syringe', 'pill', 'fizz', 'syringe', 'syrup', 'pill']; // после «начала партии» (две Таблетки); рой с 4-й волны требует Шипучку — она первая
 
@@ -168,7 +174,7 @@ const HELP = `Бот-замерщик баланса: играет целые п
 
   node qa/bot.mjs [параметры]
 
-  --profile=novice|average|strong|expert|all   кто играет (по умолчанию all); expert — «особо сильный» (бывший «сильный» кругов 1–2)
+  --profile=novice|average|strong|expert|zone|all   кто играет (по умолчанию all = первые четыре; zone — «всё у Z»: Таблетки и один Сироп вокруг развилки Z); expert — «особо сильный» (бывший «сильный» кругов 1–2)
   --runs=N                              партий на профиль (по умолчанию 10; для замера нужно не меньше 10)
   --speed=2                             ускорение игрового времени, 0.1…4 (по умолчанию 2). ВЫШЕ 2 ЗАМЕРЫ ГРУБЕЕ: годится для проб, не для итоговых чисел
   --exclude=syrup,fizz,syringe,pill,ampule,antibiotic,lamp,vitamin,frost,patch   каких башен профили не строят (проверка «нужна ли башня»)
@@ -235,7 +241,7 @@ function numArg(name, fallback, { min = -Infinity, max = Infinity, int = false }
 
 const profileArg = args.profile === undefined ? 'all' : String(args.profile);
 if (profileArg !== 'all' && !PROFILE_IDS.includes(profileArg)) die(`--profile=«${profileArg}»: есть ${PROFILE_IDS.join(', ')}, all.`);
-const PROFILES = profileArg === 'all' ? PROFILE_IDS : [profileArg];
+const PROFILES = profileArg === 'all' ? ALL_PROFILE_IDS : [profileArg];
 const RUNS = numArg('runs', 10, { min: 1, max: 1000, int: true });
 const SPEED = numArg('speed', 2, { min: 0.1, max: 4 });
 if (args.speed !== undefined && SPEED > 4) die('--speed не выше 4.');
@@ -387,12 +393,15 @@ function starsOf(game) {
 }
 const emptyLevels = () => Object.fromEntries(Object.keys(META.upgrades).map((id) => [id, 0]));
 
-/** Очки ДНК за партию: за каждую пройденную волну (при проигрыше — без текущей) и добавка за победу — как в GameScene.endGame. */
+/** Очки ДНК за партию: за каждую пройденную волну (при проигрыше — без текущей), добавка за победу и перевод остатка монет (только при победе) — как `dnaParts` в src/meta.ts. */
 function dnaForGame(game, replay = false) {
-  const cleared = game.result === 'won' ? game.waveTotal : Math.max(0, game.wave - 1);
-  // повтор пройденного уровня: только replayFactor от награды за волны, бонуса за победу нет (как `dnaForGame` в src/meta.ts)
-  if (replay) return Math.floor(cleared * META.dna.perWave * META.dna.replayFactor);
-  return cleared * META.dna.perWave + (game.result === 'won' ? META.dna.winBonus : 0);
+  const won = game.result === 'won';
+  const cleared = won ? game.waveTotal : Math.max(0, game.wave - 1);
+  const wavesReward = cleared * META.dna.perWave;
+  const coinsRaw = won && META.dna.coinsPerPoint > 0 ? Math.min(Math.floor(Math.max(0, Math.floor(game.coins ?? 0)) / META.dna.coinsPerPoint), Math.floor(wavesReward * META.dna.coinsCapShare)) : 0;
+  // повтор пройденного уровня: за волны и за монеты только replayFactor, бонуса за победу нет
+  if (replay) return Math.floor(wavesReward * META.dna.replayFactor) + Math.floor(coinsRaw * META.dna.replayFactor);
+  return wavesReward + (won ? META.dna.winBonus : 0) + coinsRaw;
 }
 
 /** Сколько очков ДНК ещё не потрачено в древе улучшений при уровнях `levels`: { all — всё древо (все ветки), open — только ветки башен, открытых на уровне `level` }. */
@@ -689,8 +698,9 @@ function buildWorld(graph, map, cols, rows) {
  * без занятых и «плохих»), covCount }. После успешной покупки зовётся bought(), после неудачи клетку бот сам помечает «плохой».
  */
 function makePlayer(profile, { world, rng, buttons }) {
-  const available = (id) => TABLE[id] && buttons.includes(id) && !EXCLUDE.has(id) && (!SOLO_ALLOWED || SOLO_ALLOWED.has(id));
-  const cycle = SOLO_CYCLE ?? STRONG_CYCLE;
+  const zone = profile === 'zone'; // «всё у Z»: только Таблетки и один Сироп, клетки — ближайшие к развилке Z
+  const available = (id) => TABLE[id] && buttons.includes(id) && !EXCLUDE.has(id) && (!SOLO_ALLOWED || SOLO_ALLOWED.has(id)) && (!zone || ZONE_TOWERS.has(id));
+  const cycle = zone ? ZONE_CYCLE : SOLO_CYCLE ?? STRONG_CYCLE;
   const pick = (list) => list[Math.floor(rng() * list.length)];
   /** Проверка «клетка в радиусе слияния от стоящей башни этого вида 1-го уровня (мутация не ждёт)»; null — таких башен нет (тогда как раньше). */
   const nearPartner = (view, type) => {
@@ -844,7 +854,7 @@ function makePlayer(profile, { world, rng, buttons }) {
         headSince = now;
       }
       let order = [];
-      const syrupDone = SOLO && view.towers.some((tw) => tw.id === 'syrup'); // при --solo Сироп один: построен — из круга уходит
+      const syrupDone = (SOLO || zone) && view.towers.some((tw) => tw.id === 'syrup'); // при --solo Сироп один: построен — из круга уходит
       for (let k = 0; k < cycle.length; k++) {
         const idx = (ptr + k) % cycle.length;
         if (available(cycle[idx]) && !(syrupDone && cycle[idx] === 'syrup')) order.push({ idx, type: cycle[idx] });
@@ -885,7 +895,8 @@ function makePlayer(profile, { world, rng, buttons }) {
       }
       const candidates = [];
       for (const c of view.free) {
-        let v = world.strongScore(chosen.type, c, view.covCount, !imperfect);
+        // «всё у Z»: оценка — близость к Z (при условии, что клетка вообще достаёт до дорожки); остальные профили — охват дорожки
+        let v = zone ? (world.cover(chosen.type, c) > 0 ? 1000 / (50 + Math.hypot(c.x - ZONE_Z.x, c.y - ZONE_Z.y)) : 0) : world.strongScore(chosen.type, c, view.covCount, !imperfect);
         if (view.towers.some((tw) => Math.abs(tw.col - c.col) <= 1 && Math.abs(tw.row - c.row) <= 1)) v *= imperfect ? ADJACENT_FACTOR : EXPERT_ADJACENT_FACTOR;
         v *= 1 + noise * rng(); // небольшой шум: идеально одинаковых партий не бывает
         if (v > 0) candidates.push({ c, v });

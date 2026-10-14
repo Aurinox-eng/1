@@ -489,7 +489,7 @@ export async function heapMb(cdp) {
 }
 
 /**
- * Очки ДНК и улучшения вне партии из src/config.ts (раздел meta): { dna: { perWave, winBonus, replayFactor }, upgrades: { id: { branch, effect, perLevel, prices: [...] } } }.
+ * Очки ДНК и улучшения вне партии из src/config.ts (раздел meta): { dna: { perWave, winBonus, replayFactor, coinsPerPoint, coinsCapShare }, upgrades: { id: { branch, effect, perLevel, prices: [...] } } }.
  * Порядок ключей — порядок строк в таблице (как на экране «Улучшения»).
  */
 export function readMetaTable() {
@@ -509,7 +509,7 @@ export function readMetaTable() {
     upgrades[m[1]] = { branch: m[2], effect: m[3], perLevel: Number(m[4]), prices: m[5].split(',').map((x) => Number(x.trim())).filter((x) => Number.isFinite(x)), requires: m[6] ? { id: m[6], level: Number(m[7]) } : null };
   }
   if (!Object.keys(upgrades).length) throw new Error('В разделе «meta» config.ts не нашлось улучшений');
-  return { dna: { perWave: num('perWave'), winBonus: num('winBonus'), replayFactor: num('replayFactor') }, upgrades };
+  return { dna: { perWave: num('perWave'), winBonus: num('winBonus'), replayFactor: num('replayFactor'), coinsPerPoint: num('coinsPerPoint'), coinsCapShare: num('coinsCapShare') }, upgrades };
 }
 
 /**

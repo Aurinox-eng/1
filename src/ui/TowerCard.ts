@@ -23,6 +23,8 @@ export interface CardModel {
   /** Слияние: можно («ready»), нет пары («none»), высший уровень («max»), идёт выбор пары («active» — кнопка «Отмена»). */
   merge: 'ready' | 'none' | 'max' | 'active';
   sell: number;
+  /** Подсказка режима слияния (рисуется в узкой полосе вместо полной карточки); null — не режим слияния. */
+  mergeHint: string | null;
 }
 
 export interface CardCallbacks {
@@ -59,6 +61,9 @@ const PAD = 12;
 /** Сторона кнопок поворота луча (Шприц), пикселей. */
 const ROT = 40;
 const CLOSE = 44;
+/** Высота узкой полосы карточки в режиме слияния, пикселей: полная карточка (104 px) и подсказка над ней закрывали бы кандидатов в нижней части карты. */
+export const CARD_COMPACT_H = 60;
+const COMPACT_BTN_H = 46;
 
 /**
  * Карточка выбранной стоящей башни: полоса над нижней панелью, на карте. Слева «✕», значок, название и уровень; дальше числа башни (или две кнопки выбора мутации);
@@ -77,6 +82,7 @@ export class TowerCard {
   private readonly pickDescs: Phaser.GameObjects.Text[];
   private readonly listText: Phaser.GameObjects.Text;
   private readonly noteText: Phaser.GameObjects.Text;
+  private readonly hintText: Phaser.GameObjects.Text;
   private readonly mergeText: Phaser.GameObjects.Text;
   private readonly mergeSub: Phaser.GameObjects.Text;
   private readonly sellText: Phaser.GameObjects.Text;
@@ -91,6 +97,7 @@ export class TowerCard {
   /** Когда (performance.now) нажали кнопку карточки: нажатие, после которого карточка перерисовалась или закрылась, всё равно принадлежит карточке, а не карте под ней. */
   private pressedAt = -1e9;
   private rotVisible = false;
+  private compact = false;
 
   constructor(
     private readonly scene: Phaser.Scene,
@@ -110,6 +117,7 @@ export class TowerCard {
     this.pickDescs = [0, 1].map(() => this.text(0, 0, '', 13, TEXT_COLORS.soft, 0).setFontStyle('normal').setWordWrapWidth(PICK_W - 20));
     this.listText = this.text(0, 0, '', 13, TEXT_COLORS.main, 0).setFontStyle('normal').setWordWrapWidth(330);
     this.noteText = this.text(0, 0, '', 12, TEXT_COLORS.soft, 0).setFontStyle('normal').setWordWrapWidth(330);
+    this.hintText = this.text(0, 0, '', 18, TEXT_COLORS.accent, 0).setFontStyle('normal').setVisible(false);
     this.mergeText = this.text(0, 0, '', 24, TEXT_COLORS.main);
     this.mergeSub = this.text(0, 0, '', 14, TEXT_COLORS.main).setFontStyle('normal');
     this.sellText = this.text(0, 0, '', 24, TEXT_COLORS.main);
@@ -143,14 +151,25 @@ export class TowerCard {
     return this.shown;
   }
 
+  /** Карточка сейчас узкая полоса режима слияния (а не полная). */
+  get isCompact(): boolean {
+    return this.shown && this.compact;
+  }
+
   hide(): void {
     this.setShown(false);
   }
 
   /** Показывает карточку и раскладывает всё по модели. */
   show(m: CardModel): void {
+    this.compact = m.merge === 'active';
+    if (this.compact) {
+      this.showCompact(m);
+      return;
+    }
     const { x, y, w, h } = this.area;
     this.setShown(true);
+    this.zones.merge.setSize(BTN_W, BTN_H);
     this.bg.clear();
     this.bg.fillStyle(0x0e1a32, 0.9).fillRoundedRect(x, y, w, h, 14);
     this.bg.lineStyle(2, 0x33578f, 1).strokeRoundedRect(x, y, w, h, 14);
@@ -271,6 +290,53 @@ export class TowerCard {
   }
 
   /**
+   * Режим слияния: вместо полной карточки узкая полоса у нижнего края области карточки — «✕», название и уровень, подсказка и «Отмена». «Продать», мутации, числа и поворот скрыты:
+   * выбор пары по карте не должен заканчиваться случайной продажей, а полоса закрывает всего CARD_COMPACT_H px карты, а не 104 + подсказку над ней.
+   */
+  private showCompact(m: CardModel): void {
+    const { x, y, w, h } = this.area;
+    const sh = CARD_COMPACT_H;
+    const sy = y + h - sh;
+    const cy = sy + sh / 2;
+    this.setShown(true);
+    this.bg.clear();
+    this.bg.fillStyle(0x0e1a32, 0.92).fillRoundedRect(x, sy, w, sh, 14);
+    this.bg.lineStyle(2, 0xffb347, 1).strokeRoundedRect(x, sy, w, sh, 14);
+    this.btns.clear();
+    const closeX = x + PAD + CLOSE / 2;
+    this.closeText.setPosition(closeX, cy);
+    this.zones.close.setPosition(closeX, cy);
+    this.btns.fillStyle(0x1d3760, 1).fillCircle(closeX, cy, CLOSE / 2);
+    this.btns.lineStyle(2, 0x33578f, 1).strokeCircle(closeX, cy, CLOSE / 2);
+    this.rects.close = { x: closeX, y: cy, w: CLOSE, h: CLOSE };
+    this.icon.setVisible(false);
+    const nameX = closeX + CLOSE / 2 + 14;
+    this.nameText.setText(m.name).setPosition(nameX, cy - 14);
+    this.levelText.setText(t('cardLevel', { n: m.level, max: m.maxLevel })).setPosition(nameX, cy + 13);
+    // Справа «Отмена»; между названием и ней — подсказка
+    const cancelX = x + w - PAD - BTN_W / 2;
+    this.btns.fillStyle(0x9a5a1c, 1).fillRoundedRect(cancelX - BTN_W / 2, cy - COMPACT_BTN_H / 2, BTN_W, COMPACT_BTN_H, 14);
+    this.btns.lineStyle(3, 0xffb347, 1).strokeRoundedRect(cancelX - BTN_W / 2, cy - COMPACT_BTN_H / 2, BTN_W, COMPACT_BTN_H, 14);
+    this.mergeText.setText(t('cardMergeCancel')).setColor(TEXT_COLORS.main).setPosition(cancelX, cy);
+    if (this.mergeText.width > BTN_W - 16) this.mergeText.setScale((BTN_W - 16) / this.mergeText.width);
+    else this.mergeText.setScale(1);
+    this.mergeSub.setVisible(false);
+    this.zones.merge.setSize(BTN_W, COMPACT_BTN_H).setPosition(cancelX, cy);
+    this.rects.merge = { x: cancelX, y: cy, w: BTN_W, h: COMPACT_BTN_H };
+    this.mergeEnabled = true;
+    this.sellVisible = false;
+    this.pickVisible = [false, false];
+    this.rotVisible = false;
+    this.rects.sell = { x: 0, y: 0, w: 0, h: 0 };
+    for (const text of [...this.statTexts, ...this.pickNames, ...this.pickDescs, this.listText, this.noteText, this.sellText, this.sellSub]) text.setVisible(false);
+    const hintX = nameX + 180;
+    const hintW = cancelX - BTN_W / 2 - 14 - hintX;
+    this.hintText.setWordWrapWidth(hintW).setText(m.mergeHint ?? '').setPosition(hintX, cy - this.hintText.height / 2).setVisible(true);
+    this.hintText.setY(cy - this.hintText.height / 2);
+    this.applyEnabled();
+  }
+
+  /**
    * Нажатие в точке (x, y) экрана игры: если там кнопка карточки — выполняет её. Нужно, потому что нажатие, которое Phaser отдал не кнопке карточки,
    * а подложке (только что показанная карточка иногда не успевает стать «верхней»), иначе пропало бы.
    */
@@ -328,6 +394,7 @@ export class TowerCard {
     for (const text of [this.nameText, this.levelText, ...this.statTexts, ...this.pickNames, ...this.pickDescs, this.listText, this.noteText, this.mergeText, this.mergeSub, this.sellText, this.sellSub, this.closeText]) {
       text.setVisible(on);
     }
+    this.hintText.setVisible(on && this.compact);
     this.applyEnabled();
   }
 

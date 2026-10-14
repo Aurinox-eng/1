@@ -193,13 +193,15 @@ let MERGE_RADIUS = (() => {
 })();
 const WAVE_LIST = readWaveList();
 /** Все типы бактерий (с 9 октября 2026 — 17: после пачки 2 этапа 7 добавились stealth и toxin) в порядке таблицы `types` config.ts (в этом порядке игра выпускает новые типы в волне). */
+const REAL_LIVES = readConfigNumber('lives', 'start');
 const KINDS = readKinds();
 /** Первая волна (с 1), где тип есть в таблице волн, и порядок, в котором типы впервые появляются по таблице (при равных волнах — по порядку таблицы типов). */
 const FIRST_WAVE = Object.fromEntries(KINDS.map((k) => [k, WAVE_LIST.findIndex((row) => (row[k] ?? 0) > 0) + 1]));
 const INTRO_ORDER = KINDS.filter((k) => FIRST_WAVE[k] > 0).sort((a, b) => FIRST_WAVE[a] - FIRST_WAVE[b] || KINDS.indexOf(a) - KINDS.indexOf(b));
 const CFG = {
   startCoins: readConfigNumber('economy', 'startCoins'),
-  lives: readConfigNumber('lives', 'start'),
+  // В проверках игра идёт с 3 жизнями (`lives.start:3` в allCfg и FIXED_BALANCE: проигрыши короткие); настоящее число жизней (с 14 октября 2026 — 20) — REAL_LIVES
+  lives: 3,
   waves: readConfigNumber('waves', 'total'),
   zoomStart: readConfigNumber('camera', 'zoomStart'),
   // Самое сильное отдаление считается игрой из размеров карты и окна (карта целиком по ширине и по высоте), в config.ts числа нет
@@ -419,10 +421,11 @@ async function openGame(context, baseUrl, prefix, { speed = 1, cfg = '', isTouch
   const page = await context.newPage();
   watchConsole(page, prefix);
   // QA_EXTRA_CFG нужна только для проверки самих проверок: подмешивает «поломку» (например camera.tapMaxMovePx:14) — соответствующая проверка обязана покраснеть
+  // `meta.dna.coinsCapShare:0` — остаток монет не превращается в очки ДНК (иначе ожидаемые суммы очков в других проверках зависели бы от монет в конце партии); сценарий «монеты → ДНК» включает его своим числом
   // `levels.starDna:0` идёт первым: очки за звёзды не мешают проверкам очков ДНК; сценарий звёзд подменяет это число своим (позднее в списке — главнее)
   // `waves.hpScale:1` тоже идёт первым: с 8 октября 2026 игра умножает HP всех бактерий на waves.hpScale (2,5), а проверки ждут HP из таблицы типов (бронированная 20, гигант 100,
   // регенератор 10, кокк с hp:1 гибнет с одного выстрела Таблетки) — множитель сводится к 1 (и множитель уровня 1 `waves.level1HpFactor` — тоже); сценарий может подменить его своим числом (позднее в списке — главнее)
-  const allCfg = ['levels.starDna:0', 'waves.hpScale:1', 'waves.level1HpFactor:1', cfg, process.env.QA_EXTRA_CFG].filter(Boolean).join(',');
+  const allCfg = ['levels.starDna:0', 'lives.start:3', 'meta.dna.coinsCapShare:0', 'waves.hpScale:1', 'waves.level1HpFactor:1', cfg, process.env.QA_EXTRA_CFG].filter(Boolean).join(',');
   // QA_CANVAS=1 (GitHub, группы со временем и скоростью): рисование через canvas — на сервере без видеокарты программный WebGL даёт 2–6 кадров/с, шаг игрового времени
   // ограничен 50 мс, и проверки, считающие секунды, скорости и паузы между ударами, ломаются; canvas даёт ≈ 20 кадров/с (docs/performance.md)
   // canvas: true — рисование через canvas для отдельного сценария. Проба 3 октября: красные проверки со временем (Шприц, скорость, командир) от этого не прошли — причина в скорости сервера; сейчас нигде не включено
@@ -3804,9 +3807,14 @@ async function towersMixed(browser, baseUrl) {
   const p = '[башни: все вместе]';
   const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
   const sum = TOWER_IDS.reduce((x, id) => x + TW[id].price, 0);
+  // Волна из 40 бактерий, а не из 16, и порог убитых — четверть волны (10). Причина: восемь «поздних» башен ставятся после того, как Шипучка и Сироп сработали, а это реальное время (на занятом сервере оно
+  // растёт); за него проходила большая часть волны из 16, и убитых получалось от 4 до 15 при пороге 6 — по логам 12 прогонов 14 октября 2026: 15, 13, 9, 6, 7, 12, 7, 7, 13, 6 и два падения (4 и 5). В волне из 40 поздние
+  // башни всегда видят бо́льшую часть волны (счёт убитых перестаёт зависеть от задержки постановки), а порог в четверть волны далеко от нижнего хвоста.
+  const WAVE_N = 40;
+  const KILLS_MIN = Math.ceil(WAVE_N / 4);
   const cfg = [
     'waves.total:1',
-    'waves.list.0.coccus:16',
+    `waves.list.0.coccus:${WAVE_N}`,
     'waves.intervalStartSec:0.7',
     'waves.intervalEndSec:0.7',
     'waves.firstDelaySec:2',
@@ -3842,7 +3850,7 @@ async function towersMixed(browser, baseUrl) {
     }
     return st.state === 'won' || st.state === 'lost';
   }, 150000, 25);
-  check(`${p} вместе работают все: замедлений ${end.slows} (Сироп), взрывов ${end.effects.blasts} (Шипучка), ударов луча ${end.effects.beams} (Шприц), уколов яда ${end.poisons} (Антибиотик), убито ${end.kills} из ${end.spawned}, выстрелов ${end.shots}; убитые + дошедшие = вышедшие (${end.kills} + ${end.leaked} = ${end.spawned})`, end.state === 'won' && (end.slows >= 1 || end.effects.splats >= 1) && end.effects.blasts >= 1 && end.effects.beams >= 1 && end.poisons >= 1 && end.kills >= 6 && end.kills + end.leaked === end.spawned && end.spawned === 16, `состояние ${end.state}`);
+  check(`${p} вместе работают все: замедлений ${end.slows} (Сироп), взрывов ${end.effects.blasts} (Шипучка), ударов луча ${end.effects.beams} (Шприц), уколов яда ${end.poisons} (Антибиотик), убито ${end.kills} из ${end.spawned} (нужно не меньше ${KILLS_MIN}), выстрелов ${end.shots}; убитые + дошедшие = вышедшие (${end.kills} + ${end.leaked} = ${end.spawned})`, end.state === 'won' && (end.slows >= 1 || end.effects.splats >= 1) && end.effects.blasts >= 1 && end.effects.beams >= 1 && end.poisons >= 1 && end.kills >= KILLS_MIN && end.kills + end.leaked === end.spawned && end.spawned === WAVE_N, `состояние ${end.state}`);
   check(`${p} монеты: ${BASE.reward} за каждого убитого (башни куплены на все монеты): монет ${end.coins} = ${BASE.reward} × ${end.kills}`, end.coins === BASE.reward * end.kills, `монет ${end.coins}`);
   check(`${p} снимок боя всех башен сделан`, shotDone);
   await context.close();
@@ -6831,7 +6839,7 @@ const META_LOSE_CFG = 'lives.start:1,waves.firstDelaySec:1,bacteria.baseSpeed:25
 
 // ---------------------------------------------------------------- экран «Улучшения» — дерево (8 октября 2026): помощники для проверок
 // Описание экрана — `window.__pvbMeta.getMeta().screen`: узлы (центр и размер на экране игры с учётом прокрутки, onScreen, open, canBuy), окно дерева `view` (левый верхний угол и размер),
-// карточка выбранного узла `detail` (texts: название, «Уровень n из max», «Дальше: …» или итог, условие открытия, подпись кнопки; buy — центр кнопки покупки; fits). Тап по узлу его выбирает,
+// карточка выбранного узла `detail` (texts: название, «Уровень n из max», «подпись + Сейчас … → станет …» или итог, условие открытия, подпись кнопки; buy — центр кнопки покупки; fits). Тап по узлу его выбирает,
 // покупка — тап по кнопке карточки. Дерево двигается колесом мыши и перетаскиванием. `app` — всё, у чего есть `page`, `input` и `g(x, y)` (результат openGame или openMenu).
 
 /** Название улучшения на языке (li: 0 — русский, 1 — английский): ключ `upg` + id с заглавной буквы. */
@@ -7084,6 +7092,13 @@ async function runStars(browser, baseUrl) {
   const dnaTable = readMetaTable().dna; // награда за волну и бонус за победу — из config.ts (с 14 октября 2026 за волну 10, было 5)
   const firstWinDna = dnaTable.perWave + dnaTable.winBonus + 10;
   check(`${p} лучшая волна уровня 1 записана (1 волна), очки: за волну ${dnaTable.perWave} + победа ${dnaTable.winBonus} + звезда 10 = ${firstWinDna}`, r.m.progress.best[0] === 1 && r.m.dna === firstWinDna, `лучшая ${r.m.progress.best[0]}, очков ${r.m.dna}`);
+  // экран победы: итог и разбивка очков ДНК (волны + победа + звёзды) в состоянии игры и в строках, которые видит игрок (русский текст); монеты — отдельной строкой
+  {
+    const parts = r.s.dnaParts;
+    const lines = r.s.endDnaLines ?? [];
+    const want = [i18nText('dnaPartWaves', 0, { n: dnaTable.perWave }), i18nText('dnaPartWin', 0, { n: dnaTable.winBonus }), i18nText('dnaPartStars', 0, { n: 10 })];
+    check(`${p} экран победы: разбивка очков ДНК «${want.join(' + ')}» = ${firstWinDna}; строки «${lines.join(' | ')}»`, parts && parts.waves === dnaTable.perWave && parts.win === dnaTable.winBonus && parts.stars === 10 && parts.coins === 0 && parts.waves + parts.win + parts.stars === firstWinDna && lines.length >= 3 && lines[0].startsWith(`+${firstWinDna} `) && lines[1] === want.join(' + ') && lines[2].includes(String(r.s.coinsLeft)), JSON.stringify(parts));
+  }
   r = await playWin('levels.stars.maxLostFor3:-1,levels.stars.maxLostFor2:0', 'две звезды');
   check(`${p} потеряно 0 жизней при пороге двух звёзд 0 и недостижимой тройке: две звезды; за новую вторую звезду +10 (не 20)`, r.s.stars === 2 && r.s.starDna === 10 && r.m.progress.stars[0] === 2, `звёзд ${r.s.stars}, очков за звёзды ${r.s.starDna}`);
   r = await playWin('', 'три звезды');
@@ -7327,6 +7342,101 @@ async function runMetaDna(browser, baseUrl) {
   s = await waitFor(firstTime.page, (x) => x.state === 'won', WAIT_MS, 'первая победа');
   check(`${p} первая победа на непройденном уровне: 1 × 20 + 7 = 27 очков полностью (начислено ${s.dnaGained})`, s.dnaGained === 27, `начислено ${s.dnaGained}`);
   await fresh.close();
+
+  // ---- остаток монет → очки ДНК (решение владельца 14 октября 2026, вариант А): 1 очко за coinsPerPoint монет, не больше coinsCapShare награды за волны, только при победе;
+  //      на пройденном уровне эта добавка тоже умножается на replayFactor; на экране победы — отдельная строка
+  const coinBase = (extra) => `${wavesOnlyCfg({ coccus: 1 })},waves.firstDelaySec:1,towers.pill.range:900,towers.pill.damage:50,lives.start:3,meta.dna.perWave:20,meta.dna.winBonus:7,meta.dna.replayFactor:0.1,meta.dna.coinsPerPoint:50,${extra}`;
+  const playCoins = async (cfgExtra, query = '') => {
+    const ctx = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
+    const g = await openGame(ctx, baseUrl, p, { speed: 4, query, cfg: coinBase(cfgExtra) });
+    for (const cell of [FREE.a, FREE.b]) await placeSure(g, 'pill', cell);
+    const st = await waitFor(g.page, (x) => x.state === 'won', WAIT_MS, 'победа (монеты → ДНК)');
+    await ctx.close();
+    return st;
+  };
+  const rawOf = (st, share) => Math.min(Math.floor(Math.floor(st.coins) / 50), Math.floor(1 * 20 * share));
+  const coinLine = (st) => i18nText('dnaCoinsLine', 0, { coins: Math.floor(st.coins), n: st.dnaParts.coins });
+  let c = await playCoins('economy.startCoins:500,meta.dna.coinsCapShare:0.5');
+  let raw = rawOf(c, 0.5);
+  check(`${p} победа с остатком ${Math.floor(c.coins)} монет: добавка за монеты min(⌊монеты / 50⌋, ⌊1 × 20 × 0,5⌋) = ${raw}; всего 1 × 20 + 7 + ${raw} = ${27 + raw} (начислено ${c.dnaGained})`, raw >= 3 && c.dnaParts.coins === raw && c.dnaGained === 27 + raw && c.coinsLeft === Math.floor(c.coins), JSON.stringify(c.dnaParts));
+  check(`${p} на экране победы монеты — отдельной строкой «${coinLine(c)}»`, c.endDnaLines.includes(coinLine(c)) && c.endDnaLines[0].startsWith(`+${27 + raw} `), c.endDnaLines.join(' | '));
+  c = await playCoins('economy.startCoins:500,meta.dna.coinsCapShare:0.1');
+  check(`${p} предел добавки за монеты: при доле 0,1 не больше ⌊1 × 20 × 0,1⌋ = 2 очков (остаток ${Math.floor(c.coins)} монет дал бы ${Math.floor(Math.floor(c.coins) / 50)}), начислено за монеты ${c.dnaParts.coins}`, c.dnaParts.coins === 2 && c.dnaGained === 29, JSON.stringify(c.dnaParts));
+  c = await playCoins('economy.startCoins:1500,meta.dna.coinsCapShare:0.5', '&stars=1');
+  raw = rawOf(c, 0.5);
+  check(`${p} пройденный уровень: добавка за монеты тоже × replayFactor 0,1: ⌊${raw} × 0,1⌋ = ${Math.floor(raw * 0.1)}, за волну ⌊1 × 20 × 0,1⌋ = 2, бонуса за победу нет (начислено ${c.dnaGained})`, raw >= 10 && c.dnaParts.coins === Math.floor(raw * 0.1) && c.dnaParts.win === 0 && c.dnaGained === 2 + Math.floor(raw * 0.1), JSON.stringify(c.dnaParts));
+  // Расчёт «1360 монет» на настоящих числах уровня 1 (30 волн, награда за волну из config.ts) через формулу игры, без прохождения 30 волн: порядок — сначала предел (доля coinsCapShare от награды
+  // за волны, считаемой без ×replayFactor), потом ×replayFactor с округлением вниз; первая победа: монеты min(⌊1360 / 100⌋ = 13, ⌊30 × 10 × 0,1⌋ = 30) = 13; повтор: ⌊13 × 0,1⌋ = 1, волны ⌊300 × 0,1⌋ = 30
+  {
+    const D = readMetaTable().dna;
+    const calc = await openGame(context, baseUrl, p, { speed: 1, cfg: 'meta.dna.coinsCapShare:0.1' });
+    const ask = (waves, won, replay, coins) => calc.page.evaluate(([w, o, r, c]) => window.__pvbMeta.dnaFor(w, o, r, c), [waves, won, replay, coins]);
+    const reward = 30 * D.perWave;
+    const rawFor = (coins) => Math.min(Math.floor(coins / D.coinsPerPoint), Math.floor(reward * 0.1));
+    const first = await ask(30, true, false, 1360);
+    const replay = await ask(30, true, true, 1360);
+    check(`${p} первая победа на уровне 1 с 1360 монетами: волны ${reward} + победа ${D.winBonus} + монеты min(⌊1360 / ${D.coinsPerPoint}⌋, ⌊${reward} × 0,1⌋) = ${rawFor(1360)} (получено ${first.waves} + ${first.win} + ${first.coins})`, first.waves === reward && first.win === D.winBonus && first.coins === rawFor(1360) && rawFor(1360) === 13, JSON.stringify(first));
+    check(`${p} повтор пройденного уровня с 1360 монетами: волны ⌊${reward} × ${D.replayFactor}⌋ = ${Math.floor(reward * D.replayFactor)}, победы нет, монеты ⌊${rawFor(1360)} × ${D.replayFactor}⌋ = ${Math.floor(rawFor(1360) * D.replayFactor)} (получено ${replay.waves} + ${replay.win} + ${replay.coins})`, replay.waves === Math.floor(reward * D.replayFactor) && replay.win === 0 && replay.coins === Math.floor(rawFor(1360) * D.replayFactor) && replay.coins === 1, JSON.stringify(replay));
+    const capped = await ask(30, true, false, 4000);
+    const cappedReplay = await ask(30, true, true, 4000);
+    check(`${p} предел 10 % работает до умножения на replayFactor: 4000 монет → ⌊4000 / ${D.coinsPerPoint}⌋ = 40, предел ${Math.floor(reward * 0.1)}; первая победа ${capped.coins}, повтор ⌊${Math.floor(reward * 0.1)} × ${D.replayFactor}⌋ = ${Math.floor(Math.floor(reward * 0.1) * D.replayFactor)} (получено ${cappedReplay.coins})`, capped.coins === Math.floor(reward * 0.1) && cappedReplay.coins === Math.floor(Math.floor(reward * 0.1) * D.replayFactor), JSON.stringify([capped, cappedReplay]));
+    const lost = await ask(12, false, false, 1360);
+    check(`${p} проигрыш с 1360 монетами: за монеты 0 (получено ${lost.coins})`, lost.coins === 0, JSON.stringify(lost));
+    await calc.page.close();
+  }
+  // ---- 20 жизней (решение владельца 14 октября 2026): число в верхней полосе, пороги звёзд ★★★ ≤ 2 и ★★ ≤ 6 потерянных жизней
+  {
+    const calc2 = await openGame(context, baseUrl, p, { speed: 1, cfg: 'meta.dna.coinsCapShare:0' });
+    const T3 = readConfigNumber('levels', 'maxLostFor3');
+    const T2 = readConfigNumber('levels', 'maxLostFor2');
+    const starsAt = (lost) => calc2.page.evaluate((x) => window.__pvbMeta.starsFor(x), lost);
+    const got = [await starsAt(0), await starsAt(2), await starsAt(2.25), await starsAt(6), await starsAt(6.25), await starsAt(19)];
+    check(`${p} в config.ts настоящие числа решения владельца: жизней ${REAL_LIVES} (ждали 20), пороги звёзд ${T3} и ${T2} (ждали 2 и 6)`, REAL_LIVES === 20 && T3 === 2 && T2 === 6, `жизней ${REAL_LIVES}, пороги ${T3}/${T2}`);
+    check(`${p} звёзды по потерянным жизням при порогах 2 и 6: 0 → ${got[0]}, 2 → ${got[1]}, 2,25 → ${got[2]}, 6 → ${got[3]}, 6,25 → ${got[4]}, 19 → ${got[5]} (ждали 3, 3, 2, 2, 1, 1)`, got.join() === '3,3,2,2,1,1', got.join());
+    await calc2.page.close();
+    const lv = await openGame(context, baseUrl, p, { speed: 4, cfg: `waves.firstDelaySec:1,waves.total:1,waves.list.0.coccus:6,bacteria.baseSpeed:250,towers.pill.damage:0,lives.start:${REAL_LIVES}` });
+    const s0 = await lv.state();
+    check(`${p} старт с настоящим числом жизней: жизни ${s0.lives} из ${s0.maxLives}, в верхней полосе «${s0.ui.livesText}» (ждали «${REAL_LIVES} / ${REAL_LIVES}»)`, s0.lives === REAL_LIVES && s0.maxLives === REAL_LIVES && s0.ui.livesText === `${REAL_LIVES} / ${REAL_LIVES}`, `${s0.lives}/${s0.maxLives} «${s0.ui.livesText}»`);
+    const s1 = await waitFor(lv.page, (x) => x.lives <= REAL_LIVES - 3, WAIT_MS, 'потеряно несколько жизней');
+    check(`${p} после потерь число в верхней полосе обновляется: жизни ${s1.lives}, «${s1.ui.livesText}» (ждали «${Math.ceil(s1.lives)} / ${REAL_LIVES}»)`, s1.ui.livesText === `${Math.ceil(s1.lives - 1e-9)} / ${REAL_LIVES}` && s1.lives < REAL_LIVES, `${s1.lives} «${s1.ui.livesText}»`);
+    await lv.page.close();
+  }
+  // ---- экран победы на телефоне (844×390, горизонтально): итог, волны + победа + звёзды, монеты, пометка пройденного уровня; текст не налезает на кнопки и не шире экрана; снимки для владельца.
+  //      Числа как на уровне 1: «волна» стоит 300 очков (30 волн × 10), на старте 1500 монет, в конце ≈ 1360: первая победа 300 + 15 + 30 (звёзды) + 13 (монеты), повтор 30 + 0 + 20 (две новые звезды) + 1
+  const winCfg = coinBase('economy.startCoins:1500,meta.dna.perWave:300,meta.dna.winBonus:15,meta.dna.coinsPerPoint:100,meta.dna.coinsCapShare:0.1,levels.starDna:10');
+  for (const [lang, li, replay] of [['ru', 0, false], ['en', 1, true]]) {
+    const ctxP = await newDeviceContext(browser, VIEWPORTS.phone, lang);
+    const w = await openGame(ctxP, baseUrl, p, { speed: 4, isTouch: true, query: replay ? '&stars=1' : '', cfg: winCfg });
+    for (const cell of [FREE.a, FREE.b]) await placeSure(w, 'pill', cell);
+    const st = await waitFor(w.page, (x) => x.state === 'won', WAIT_MS, 'победа (экран победы на телефоне)');
+    await sleep(500);
+    await shot(w.page, `win-screen-phone-${lang}-${replay ? 'replay' : 'first'}`);
+    const buttons = [st.endButton, st.upgradesButton, st.nextButton, st.menuButton].filter(Boolean);
+    const buttonsTop = Math.min(...buttons.map((b) => b.y - b.h / 2));
+    const parts = st.dnaParts;
+    const rawCoins = Math.min(Math.floor(Math.floor(st.coins) / 100), 30);
+    // повтор (&stars=1: на уровне уже одна звезда): за волны и монеты × 0,1; победа без потерь даёт 3 звезды, новых две → 20 очков за звёзды (звёзды платятся один раз и без ×0,1)
+    const want = replay ? { waves: 30, win: 0, coins: Math.floor(rawCoins * 0.1), stars: 20 } : { waves: 300, win: 15, coins: rawCoins, stars: 30 };
+    const wantRows = replay ? 4 : 3;
+    check(`${p} экран победы на телефоне (${lang}, ${replay ? 'повтор пройденного уровня' : 'первая победа'}): ДНК ${JSON.stringify(want)} при остатке ${st.coinsLeft} монет, строк ${wantRows} (получено ${JSON.stringify(parts)}, строк ${st.endDnaLines.length})`, parts.waves === want.waves && parts.win === want.win && parts.coins === want.coins && parts.stars === want.stars && st.endDnaLines.length === wantRows && st.coinsLeft >= 1000 && st.endDnaLines[0].startsWith(`+${want.waves + want.win + want.coins + want.stars} `), st.endDnaLines.join(' | '));
+    check(`${p} экран победы на телефоне (${lang}, ${replay ? 'повтор' : 'первая победа'}): текст кончается на ${f1(st.overlayBox.bottom)}, кнопки начинаются на ${f1(buttonsTop)} (запас ≥ 6 px), самая широкая строка ${f1(st.overlayBox.maxWidth)} ≤ ${W - 40}`, st.overlayBox.bottom + 6 <= buttonsTop && st.overlayBox.maxWidth <= W - 40, JSON.stringify(st.overlayBox));
+    if (!replay) {
+      // телефон повернули вертикально прямо на экране победы: игра рассчитана на горизонтальное положение, поверх неё подсказка «Поверните телефон» (снимок для владельца)
+      await w.page.setViewportSize({ width: 390, height: 844 });
+      await sleep(1500);
+      const rot = await rotateInfo(w.page);
+      await shot(w.page, 'win-screen-phone-portrait-rotate-prompt');
+      check(`${p} вертикальный телефон 390×844 на экране победы: подсказка «Поверните телефон» на весь экран (display ${rot.display}, на весь экран ${rot.full}, текст «${rot.text}» внутри ${rot.textInside})`, rot.display !== 'none' && rot.full && rot.textInside, JSON.stringify(rot));
+    }
+    await ctxP.close();
+  }
+  const loseCoins = await openGame(context, baseUrl, p, {
+    speed: 4,
+    cfg: `waves.total:3,waves.pauseSec:0.1,waves.firstDelaySec:1,waves.intervalStartSec:1,waves.intervalEndSec:1,waves.list.0.coccus:2,waves.list.1.coccus:2,waves.list.2.coccus:2,lives.start:1,bacteria.baseSpeed:250,economy.startCoins:500,meta.dna.perWave:20,meta.dna.coinsPerPoint:50,meta.dna.coinsCapShare:0.5`,
+  });
+  s = await waitFor(loseCoins.page, (x) => x.state === 'lost', WAIT_MS, 'проигрыш (монеты → ДНК)');
+  check(`${p} при проигрыше остаток монет (${Math.floor(s.coins)}) в очки ДНК не переводится: за монеты ${s.dnaParts.coins}, строки «${s.endDnaLines.join(' | ')}» без строки про монеты`, s.dnaParts.coins === 0 && s.endDnaLines.every((x) => !x.startsWith('остаток монет')), JSON.stringify(s.dnaParts));
+  await loseCoins.page.close();
   await context.close();
 }
 
@@ -7552,7 +7662,11 @@ async function runTreeShop(browser, baseUrl) {
     check(`${p} окно дерева, кнопка покупки в карточке и «Играть» внутри экрана и не налезают друг на друга, узлы между собой не налезают; в начале выбран корень «${rootId}»`, v.x >= 0 && v.y >= 0 && v.x + v.w <= W && v.y + v.h <= H && detail && insideScreen(detail.buy) && insideScreen(m.screen.play) && !overlaps(detail.buy, m.screen.play) && detail.buy.x - detail.buy.w / 2 >= v.x + v.w && clash === '' && inView && m.screen.selected === rootId, `${JSON.stringify(v)} ${JSON.stringify(detail && detail.buy)} ${clash}`);
     await shot(app.page, `tree-shop-top-${deviceKey}-${lang}`);
     if (UP[rootId].effect === 'damage') {
-      const next = i18nText('upgNext', li, { text: i18nText('upgDamageDesc', li, { n: Math.round(UP[rootId].perLevel * 100) }) });
+      // «подпись\nСейчас +0 % → станет +10 %»: описание «подпись: значение» делится по первому «: » (как effectParts в UpgradesScene)
+      const descTpl = readI18n('upgDamageDesc')[li];
+      const cut = descTpl.indexOf(': ');
+      const valueTpl = descTpl.slice(cut + 2);
+      const next = `${descTpl.slice(0, cut)}\n${i18nText('upgNowNext', li, { now: valueTpl.split('{n}').join('0'), next: valueTpl.split('{n}').join(String(Math.round(UP[rootId].perLevel * 100))) })}`;
       check(`${p} карточка корня «${rootId}»: «${i18nText('upgLevel', li, { n: 0, max: UP[rootId].prices.length })}», «${next}»`, detail.texts[1] === i18nText('upgLevel', li, { n: 0, max: UP[rootId].prices.length }) && detail.texts[2] === next, JSON.stringify(detail.texts));
     }
 
@@ -7763,7 +7877,8 @@ async function runTreeEffects(browser, baseUrl) {
 
   // ---- щит у линии: гасит столько бактерий, сколько уровней; для звёзд погашенные считаются потерянными жизнями
   {
-    const cfg = `${wavesOnlyCfg({ coccus: 3 })},waves.firstDelaySec:1,bacteria.baseSpeed:250,lives.start:3`;
+    // пороги звёзд здесь свои (★★★ — без потерь, ★★ — не больше 1): проверяется правило «погашенное щитом считается потерянным», а не настоящие пороги (они проверены выше через starsFor)
+    const cfg = `${wavesOnlyCfg({ coccus: 3 })},waves.firstDelaySec:1,bacteria.baseSpeed:250,lives.start:3,levels.stars.maxLostFor3:0,levels.stars.maxLostFor2:1`;
     const run = async (shield) => {
       const game = await openGame(context, baseUrl, p, { speed: 4, cfg, query: `&meta=dna:0${shield ? `,shield:${shield}` : ''}` });
       const s = await waitFor(game.page, (x) => x.state === 'won' || x.state === 'lost', WAIT_MS, 'конец партии со щитом');

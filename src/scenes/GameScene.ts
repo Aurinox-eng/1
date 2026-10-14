@@ -4,7 +4,7 @@ import { CONFIG } from '../config';
 import { exposeDebug, QA_ENTRANCE, QA_EVENTS_MAX, QA_MODE, STRESS, STRESS_FIZZ, TIME_SCALE, type DebugSnapshot, type QaEvent } from '../debug';
 import { Effects } from '../effects';
 import { drawStar, setScreenInfo } from '../screens';
-import { awardDna, coinsBonus, exposeMetaDebug, HIDDEN_SCREEN, isLevelBeaten, livesBonus, markSeen, metaDna, metaSeen, recordResult, refundBonus, rewardMul, shieldCharges, starsForLoss, waveCoinsBonus } from '../meta';
+import { awardDna, dnaParts, coinsBonus, exposeMetaDebug, HIDDEN_SCREEN, isLevelBeaten, livesBonus, markSeen, metaDna, metaSeen, recordResult, refundBonus, rewardMul, shieldCharges, starsForLoss, waveCoinsBonus } from '../meta';
 import { num, t, type TextKey } from '../i18n';
 import { aimAngle, BLOCKED_TILES, EDGES, ENTRANCE_EDGES, LEVEL, PATH_TILES, WORLD, cellKey, worldToCell } from '../level';
 import { isPortraitPhone } from '../orientation';
@@ -218,6 +218,12 @@ export class GameScene extends Phaser.Scene {
   /** Звёзды, заработанные в этой партии (0 при проигрыше), и очки ДНК за впервые полученные звёзды. */
   private stars = 0;
   private starDna = 0;
+  /** Разбивка очков ДНК за партию на экране конца уровня (волны, победа, звёзды) и сама строка. */
+  private dnaParts = { waves: 0, win: 0, coins: 0, stars: 0 };
+  private endDnaLines: string[] = [];
+  /** Нижний край и наибольшая ширина текстов на затемнении (конец уровня, пауза), пикселей экрана игры: проверка «текст не налезает на кнопки». */
+  private overlayBox = { bottom: 0, maxWidth: 0 };
+  private coinsLeft = 0;
   private waveInterval = 1;
   private spawnTimer = 0;
   private plannedTotal = 0;
@@ -301,6 +307,10 @@ export class GameScene extends Phaser.Scene {
     this.dnaGained = 0;
     this.stars = 0;
     this.starDna = 0;
+    this.dnaParts = { waves: 0, win: 0, coins: 0, stars: 0 };
+    this.endDnaLines = [];
+    this.overlayBox = { bottom: 0, maxWidth: 0 };
+    this.coinsLeft = 0;
     this.dnaAwarded = false;
     this.dnaReplay = false;
     this.bacteria = [];
@@ -1174,7 +1184,7 @@ export class GameScene extends Phaser.Scene {
   /** Нижняя подсказка: у новых башен — как они бьют; у таблетки и до первой башни — «выберите башню и тапните по клетке». */
   private updateHint(): void {
     if (this.mergeMode) {
-      this.panel.setHint(t('hintMerge'));
+      this.panel.setHint(null); // подсказка слияния — в узкой полосе карточки (иначе плашка над карточкой закрывала бы кандидатов)
       return;
     }
     const info = this.selected ? this.towerInfo(this.selected) : null;
@@ -1301,6 +1311,11 @@ export class GameScene extends Phaser.Scene {
     sfx.select();
     this.refreshCard();
     this.updateHint();
+    // Полная карточка сменилась узкой полосой: башня и все кандидаты должны остаться выше неё (камера сдвигается вверх, если кто-то оказался под полосой)
+    const limit = this.panel.cardTop() - 40;
+    let lowest = -Infinity;
+    for (const tower of [this.selectedTower, ...candidates]) lowest = Math.max(lowest, this.rig.worldToScreen(tower.x, tower.y).y);
+    if (lowest > limit) this.rig.panBy(0, limit - lowest);
   }
 
   private cancelMerge(update = true): void {
@@ -1433,6 +1448,7 @@ export class GameScene extends Phaser.Scene {
       beam: tower.isBeam,
       merge,
       sell: this.sellValue(tower),
+      mergeHint: this.mergeMode ? t('hintMerge') : null,
     });
   }
 
@@ -1726,17 +1742,33 @@ export class GameScene extends Phaser.Scene {
     this.deselectTower();
     if (won) sfx.win();
     else sfx.lose();
-    // Очки ДНК за партию начисляются один раз: за каждую пройденную волну (при проигрыше — без текущей) и добавка за победу
+    // Очки ДНК за партию начисляются один раз: за каждую пройденную волну (при проигрыше — без текущей), добавка за победу и перевод остатка монет (только при победе)
     if (!this.dnaAwarded) {
       this.dnaAwarded = true;
       const cleared = won ? this.waveTotal() : Math.max(0, this.waveIdx - 1);
       this.dnaReplay = isLevelBeaten(currentLevel());
-      this.dnaGained = awardDna(cleared, won, this.dnaReplay);
+      const coinsLeft = Math.floor(this.coins);
+      const parts = dnaParts(cleared, won, this.dnaReplay, coinsLeft);
+      this.dnaGained = awardDna(cleared, won, this.dnaReplay, coinsLeft);
       // Звёзды по потерянным жизням (docs/stage-5-plan.md, раздел 4) и лучшая волна уровня; за новые звёзды — очки ДНК
       this.stars = won ? starsForLoss(Math.max(0, this.maxLives() - this.lives) + this.shieldAbsorbed) : 0;
       this.starDna = recordResult(currentLevel(), cleared, this.stars).starDna;
+      this.dnaParts = { ...parts, stars: this.starDna };
+      this.coinsLeft = coinsLeft;
     }
-    this.showOverlay(won ? t('victory') : t('gameOver'), TEXT_COLORS.accent, t('killed', { n: this.kills }), t('dnaGained', { n: this.dnaGained + this.starDna, total: metaDna() }) + (this.dnaReplay ? ` · ${t('dnaReplayNote', { k: Math.round(CONFIG.meta.dna.replayFactor * 100) })}` : ''));
+    // Экран конца уровня: итог, из чего он сложился (волны + победа + звёзды; нулевые слагаемые, кроме волн, не показываются), монеты отдельной строкой (только после победы), пометка пройденного уровня
+    const pieces = [t('dnaPartWaves', { n: this.dnaParts.waves })];
+    if (this.dnaParts.win > 0) pieces.push(t('dnaPartWin', { n: this.dnaParts.win }));
+    if (this.dnaParts.stars > 0) pieces.push(t('dnaPartStars', { n: this.dnaParts.stars }));
+    const total = this.dnaParts.waves + this.dnaParts.win + this.dnaParts.coins + this.dnaParts.stars;
+    const rows: { row: number; text: string }[] = [
+      { row: 0, text: t('dnaTotal', { sum: total, total: metaDna() }) },
+      { row: 1, text: pieces.join(' + ') },
+    ];
+    if (won) rows.push({ row: 2, text: t('dnaCoinsLine', { coins: this.coinsLeft, n: this.dnaParts.coins }) });
+    if (this.dnaReplay) rows.push({ row: 3, text: t('dnaReplayNote', { k: Math.round(CONFIG.meta.dna.replayFactor * 100) }) });
+    this.endDnaLines = rows.map((r) => r.text);
+    this.showOverlay(won ? t('victory') : t('gameOver'), TEXT_COLORS.accent, t('killed', { n: this.kills }), rows);
     if (won) this.drawStars(this.stars);
     this.addEndButtons(won);
   }
@@ -1748,7 +1780,7 @@ export class GameScene extends Phaser.Scene {
   private addEndButtons(won: boolean): void {
     const w = 320;
     const h = 76;
-    const y = H / 2 + 190;
+    const y = H / 2 + 200;
     const y2 = y + h + 14;
     const restart = this.addEndButton(W / 2 - 180, y, w, h, t('restart'), 0x2a8a4a, COLORS.merge, () => {
       if (performance.now() >= this.restartAllowedAt) this.scene.restart();
@@ -1779,13 +1811,31 @@ export class GameScene extends Phaser.Scene {
     return { x, y, w, h };
   }
 
-  private showOverlay(title: string, titleColor: string, line2: string, line3?: string): void {
+  /** Затемнение с надписью: заголовок, вторая строка и (конец уровня) до четырёх строк очков ДНК: итог, из чего сложился, монеты, пометка пройденного уровня. */
+  private showOverlay(title: string, titleColor: string, line2: string, extra: { row: number; text: string }[] = []): void {
     const items: Phaser.GameObjects.GameObject[] = [
       this.add.rectangle(W / 2, H / 2, W, H, 0x000000, 0.78),
       this.add.text(W / 2, H / 2 - 90, title, this.textStyle(76, titleColor)).setOrigin(0.5),
-      this.add.text(W / 2, H / 2 + 10, line2, this.textStyle(40)).setOrigin(0.5),
+      this.add.text(W / 2, H / 2 + 2, line2, this.textStyle(38)).setOrigin(0.5),
     ];
-    if (line3) items.push(this.add.text(W / 2, H / 2 + 92, line3, this.textStyle(32, TEXT_COLORS.accent)).setOrigin(0.5));
+    const rows = [
+      { y: 46, size: 30, color: TEXT_COLORS.accent },
+      { y: 80, size: 24, color: TEXT_COLORS.main },
+      { y: 108, size: 24, color: TEXT_COLORS.main },
+      { y: 134, size: 20, color: TEXT_COLORS.soft },
+    ];
+    for (const { row, text } of extra) {
+      const r = rows[row];
+      items.push(this.add.text(W / 2, H / 2 + r.y, text, this.textStyle(r.size, r.color)).setOrigin(0.5));
+    }
+    let bottom = 0;
+    let maxWidth = 0;
+    for (const item of items) {
+      if (!(item instanceof Phaser.GameObjects.Text)) continue;
+      bottom = Math.max(bottom, item.y + item.displayHeight / 2);
+      maxWidth = Math.max(maxWidth, item.displayWidth);
+    }
+    this.overlayBox = { bottom, maxWidth };
     this.overlay = this.add.container(0, 0, items).setDepth(200);
   }
 
@@ -1903,6 +1953,10 @@ export class GameScene extends Phaser.Scene {
       dnaGained: this.dnaGained,
       stars: this.stars,
       starDna: this.starDna,
+      dnaParts: { ...this.dnaParts },
+      coinsLeft: this.coinsLeft,
+      overlayBox: { ...this.overlayBox },
+      endDnaLines: [...this.endDnaLines],
       selected: this.selected,
       towers: this.towers.map((tw) => ({
         id: tw.id,
