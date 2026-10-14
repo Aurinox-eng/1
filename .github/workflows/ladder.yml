@@ -19,7 +19,7 @@ on:
         type: string
         default: claude/serene-rubin-x3t2gu
       profile:
-        description: 'Профиль бота: novice, average, strong или expert'
+        description: 'Профиль бота: novice, average, strong, expert или zone («всё у Z»: Таблетки и Сироп вокруг развилки Z)'
         type: string
         default: strong
       lanes:

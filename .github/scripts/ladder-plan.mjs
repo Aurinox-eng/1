@@ -28,7 +28,7 @@ const integer = (name, fallback, min, max) => {
   return value;
 };
 const profile = (env.PROFILE ?? '').trim() || 'strong';
-if (!['novice', 'average', 'strong', 'expert'].includes(profile)) fail(`PROFILE=«${profile}»: нужно novice, average, strong или expert`);
+if (!['novice', 'average', 'strong', 'expert', 'zone'].includes(profile)) fail(`PROFILE=«${profile}»: нужно novice, average, strong, expert или zone`);
 const lanes = integer('LANES', 6, 1, 10);
 const k = integer('K', 8, 1, 20);
 const toLevel = integer('TO_LEVEL', 10, 1, 10);
