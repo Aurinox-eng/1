@@ -245,6 +245,8 @@ export interface DebugSnapshot {
       close: { x: number; y: number; w: number; h: number };
     };
     lives: number;
+    /** Что написано в окошке жизней верхней полосы («18 / 20»). */
+    livesText: string;
   };
   /** Сколько обработчиков нажатия навешено на сцену (при перезапуске не должно расти — иначе утечка). */
   pointerListeners: number;

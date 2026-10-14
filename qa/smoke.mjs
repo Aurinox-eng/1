@@ -193,13 +193,15 @@ let MERGE_RADIUS = (() => {
 })();
 const WAVE_LIST = readWaveList();
 /** Все типы бактерий (с 9 октября 2026 — 17: после пачки 2 этапа 7 добавились stealth и toxin) в порядке таблицы `types` config.ts (в этом порядке игра выпускает новые типы в волне). */
+const REAL_LIVES = readConfigNumber('lives', 'start');
 const KINDS = readKinds();
 /** Первая волна (с 1), где тип есть в таблице волн, и порядок, в котором типы впервые появляются по таблице (при равных волнах — по порядку таблицы типов). */
 const FIRST_WAVE = Object.fromEntries(KINDS.map((k) => [k, WAVE_LIST.findIndex((row) => (row[k] ?? 0) > 0) + 1]));
 const INTRO_ORDER = KINDS.filter((k) => FIRST_WAVE[k] > 0).sort((a, b) => FIRST_WAVE[a] - FIRST_WAVE[b] || KINDS.indexOf(a) - KINDS.indexOf(b));
 const CFG = {
   startCoins: readConfigNumber('economy', 'startCoins'),
-  lives: readConfigNumber('lives', 'start'),
+  // В проверках игра идёт с 3 жизнями (`lives.start:3` в allCfg и FIXED_BALANCE: проигрыши короткие); настоящее число жизней (с 14 октября 2026 — 20) — REAL_LIVES
+  lives: 3,
   waves: readConfigNumber('waves', 'total'),
   zoomStart: readConfigNumber('camera', 'zoomStart'),
   // Самое сильное отдаление считается игрой из размеров карты и окна (карта целиком по ширине и по высоте), в config.ts числа нет
@@ -423,7 +425,7 @@ async function openGame(context, baseUrl, prefix, { speed = 1, cfg = '', isTouch
   // `levels.starDna:0` идёт первым: очки за звёзды не мешают проверкам очков ДНК; сценарий звёзд подменяет это число своим (позднее в списке — главнее)
   // `waves.hpScale:1` тоже идёт первым: с 8 октября 2026 игра умножает HP всех бактерий на waves.hpScale (2,5), а проверки ждут HP из таблицы типов (бронированная 20, гигант 100,
   // регенератор 10, кокк с hp:1 гибнет с одного выстрела Таблетки) — множитель сводится к 1 (и множитель уровня 1 `waves.level1HpFactor` — тоже); сценарий может подменить его своим числом (позднее в списке — главнее)
-  const allCfg = ['levels.starDna:0', 'meta.dna.coinsCapShare:0', 'waves.hpScale:1', 'waves.level1HpFactor:1', cfg, process.env.QA_EXTRA_CFG].filter(Boolean).join(',');
+  const allCfg = ['levels.starDna:0', 'lives.start:3', 'meta.dna.coinsCapShare:0', 'waves.hpScale:1', 'waves.level1HpFactor:1', cfg, process.env.QA_EXTRA_CFG].filter(Boolean).join(',');
   // QA_CANVAS=1 (GitHub, группы со временем и скоростью): рисование через canvas — на сервере без видеокарты программный WebGL даёт 2–6 кадров/с, шаг игрового времени
   // ограничен 50 мс, и проверки, считающие секунды, скорости и паузы между ударами, ломаются; canvas даёт ≈ 20 кадров/с (docs/performance.md)
   // canvas: true — рисование через canvas для отдельного сценария. Проба 3 октября: красные проверки со временем (Шприц, скорость, командир) от этого не прошли — причина в скорости сервера; сейчас нигде не включено
@@ -3805,9 +3807,14 @@ async function towersMixed(browser, baseUrl) {
   const p = '[башни: все вместе]';
   const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
   const sum = TOWER_IDS.reduce((x, id) => x + TW[id].price, 0);
+  // Волна из 40 бактерий, а не из 16, и порог убитых — четверть волны (10). Причина: восемь «поздних» башен ставятся после того, как Шипучка и Сироп сработали, а это реальное время (на занятом сервере оно
+  // растёт); за него проходила большая часть волны из 16, и убитых получалось от 4 до 15 при пороге 6 — по логам 12 прогонов 14 октября 2026: 15, 13, 9, 6, 7, 12, 7, 7, 13, 6 и два падения (4 и 5). В волне из 40 поздние
+  // башни всегда видят бо́льшую часть волны (счёт убитых перестаёт зависеть от задержки постановки), а порог в четверть волны далеко от нижнего хвоста.
+  const WAVE_N = 40;
+  const KILLS_MIN = Math.ceil(WAVE_N / 4);
   const cfg = [
     'waves.total:1',
-    'waves.list.0.coccus:16',
+    `waves.list.0.coccus:${WAVE_N}`,
     'waves.intervalStartSec:0.7',
     'waves.intervalEndSec:0.7',
     'waves.firstDelaySec:2',
@@ -3843,7 +3850,7 @@ async function towersMixed(browser, baseUrl) {
     }
     return st.state === 'won' || st.state === 'lost';
   }, 150000, 25);
-  check(`${p} вместе работают все: замедлений ${end.slows} (Сироп), взрывов ${end.effects.blasts} (Шипучка), ударов луча ${end.effects.beams} (Шприц), уколов яда ${end.poisons} (Антибиотик), убито ${end.kills} из ${end.spawned}, выстрелов ${end.shots}; убитые + дошедшие = вышедшие (${end.kills} + ${end.leaked} = ${end.spawned})`, end.state === 'won' && (end.slows >= 1 || end.effects.splats >= 1) && end.effects.blasts >= 1 && end.effects.beams >= 1 && end.poisons >= 1 && end.kills >= 6 && end.kills + end.leaked === end.spawned && end.spawned === 16, `состояние ${end.state}`);
+  check(`${p} вместе работают все: замедлений ${end.slows} (Сироп), взрывов ${end.effects.blasts} (Шипучка), ударов луча ${end.effects.beams} (Шприц), уколов яда ${end.poisons} (Антибиотик), убито ${end.kills} из ${end.spawned} (нужно не меньше ${KILLS_MIN}), выстрелов ${end.shots}; убитые + дошедшие = вышедшие (${end.kills} + ${end.leaked} = ${end.spawned})`, end.state === 'won' && (end.slows >= 1 || end.effects.splats >= 1) && end.effects.blasts >= 1 && end.effects.beams >= 1 && end.poisons >= 1 && end.kills >= KILLS_MIN && end.kills + end.leaked === end.spawned && end.spawned === WAVE_N, `состояние ${end.state}`);
   check(`${p} монеты: ${BASE.reward} за каждого убитого (башни куплены на все монеты): монет ${end.coins} = ${BASE.reward} × ${end.kills}`, end.coins === BASE.reward * end.kills, `монет ${end.coins}`);
   check(`${p} снимок боя всех башен сделан`, shotDone);
   await context.close();
@@ -7376,6 +7383,23 @@ async function runMetaDna(browser, baseUrl) {
     const lost = await ask(12, false, false, 1360);
     check(`${p} проигрыш с 1360 монетами: за монеты 0 (получено ${lost.coins})`, lost.coins === 0, JSON.stringify(lost));
     await calc.page.close();
+  }
+  // ---- 20 жизней (решение владельца 14 октября 2026): число в верхней полосе, пороги звёзд ★★★ ≤ 2 и ★★ ≤ 6 потерянных жизней
+  {
+    const calc2 = await openGame(context, baseUrl, p, { speed: 1, cfg: 'meta.dna.coinsCapShare:0' });
+    const T3 = readConfigNumber('levels', 'maxLostFor3');
+    const T2 = readConfigNumber('levels', 'maxLostFor2');
+    const starsAt = (lost) => calc2.page.evaluate((x) => window.__pvbMeta.starsFor(x), lost);
+    const got = [await starsAt(0), await starsAt(2), await starsAt(2.25), await starsAt(6), await starsAt(6.25), await starsAt(19)];
+    check(`${p} в config.ts настоящие числа решения владельца: жизней ${REAL_LIVES} (ждали 20), пороги звёзд ${T3} и ${T2} (ждали 2 и 6)`, REAL_LIVES === 20 && T3 === 2 && T2 === 6, `жизней ${REAL_LIVES}, пороги ${T3}/${T2}`);
+    check(`${p} звёзды по потерянным жизням при порогах 2 и 6: 0 → ${got[0]}, 2 → ${got[1]}, 2,25 → ${got[2]}, 6 → ${got[3]}, 6,25 → ${got[4]}, 19 → ${got[5]} (ждали 3, 3, 2, 2, 1, 1)`, got.join() === '3,3,2,2,1,1', got.join());
+    await calc2.page.close();
+    const lv = await openGame(context, baseUrl, p, { speed: 4, cfg: `waves.firstDelaySec:1,waves.total:1,waves.list.0.coccus:6,bacteria.baseSpeed:250,towers.pill.damage:0,lives.start:${REAL_LIVES}` });
+    const s0 = await lv.state();
+    check(`${p} старт с настоящим числом жизней: жизни ${s0.lives} из ${s0.maxLives}, в верхней полосе «${s0.ui.livesText}» (ждали «${REAL_LIVES} / ${REAL_LIVES}»)`, s0.lives === REAL_LIVES && s0.maxLives === REAL_LIVES && s0.ui.livesText === `${REAL_LIVES} / ${REAL_LIVES}`, `${s0.lives}/${s0.maxLives} «${s0.ui.livesText}»`);
+    const s1 = await waitFor(lv.page, (x) => x.lives <= REAL_LIVES - 3, WAIT_MS, 'потеряно несколько жизней');
+    check(`${p} после потерь число в верхней полосе обновляется: жизни ${s1.lives}, «${s1.ui.livesText}» (ждали «${Math.ceil(s1.lives)} / ${REAL_LIVES}»)`, s1.ui.livesText === `${Math.ceil(s1.lives - 1e-9)} / ${REAL_LIVES}` && s1.lives < REAL_LIVES, `${s1.lives} «${s1.ui.livesText}»`);
+    await lv.page.close();
   }
   // ---- экран победы на телефоне (844×390, горизонтально): итог, волны + победа + звёзды, монеты, пометка пройденного уровня; текст не налезает на кнопки и не шире экрана; снимки для владельца.
   //      Числа как на уровне 1: «волна» стоит 300 очков (30 волн × 10), на старте 1500 монет, в конце ≈ 1360: первая победа 300 + 15 + 30 (звёзды) + 13 (монеты), повтор 30 + 0 + 20 (две новые звезды) + 1
