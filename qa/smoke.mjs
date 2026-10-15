@@ -1049,7 +1049,12 @@ async function profilePlacement(c) {
 
     // монет не хватает (рядом с только что поставленной башней)
     const used = new Set(Object.values(FREE).map((q) => q.join(',')));
-    const next = [[0, -1], [0, 1], [-1, 0], [1, 0], [-1, -1], [1, 1], [-1, 1], [1, -1]].map(([dc, dr]) => [FREE.e[0] + dc, FREE.e[1] + dr]).find(([c, r]) => c >= 0 && c < LEVEL.cols && r >= 0 && r < LEVEL.rows && !GEO.isPathCell(c, r) && !used.has(`${c},${r}`));
+    // Десять клеток FREE стоят плотной группой, поэтому у «e» свободного соседа в радиусе 1 может не быть: берём ближайшую клетку в радиусе до 3
+    const ring = [];
+    for (let dc = -3; dc <= 3; dc++) for (let dr = -3; dr <= 3; dr++) if (dc || dr) ring.push([dc, dr]);
+    ring.sort((a, b) => Math.max(Math.abs(a[0]), Math.abs(a[1])) - Math.max(Math.abs(b[0]), Math.abs(b[1])) || Math.hypot(...a) - Math.hypot(...b));
+    const next = ring.map(([dc, dr]) => [FREE.e[0] + dc, FREE.e[1] + dr]).find(([c, r]) => c >= 0 && c < LEVEL.cols && r >= 0 && r < LEVEL.rows && !GEO.isPathCell(c, r) && !used.has(`${c},${r}`));
+    check(`${p} для проверки «не хватает монет» нашлась свободная клетка рядом с «e» (радиус до 3)`, !!next, `e ${FREE.e}`);
     await game.tapCell(...next);
     await shot(page, `${name}-15-toast-no-coins`);
     s = await st();
