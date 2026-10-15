@@ -141,6 +141,8 @@ export interface DebugSnapshot {
   pauseAlmanacButton: { x: number; y: number; w: number; h: number } | null;
   pauseSoundButton: { x: number; y: number; w: number; h: number } | null;
   pauseRestartButton: { x: number; y: number; w: number; h: number } | null;
+  /** Фактические числа роста прочности текущего уровня, с которыми идёт партия (после подмены `?qa&cfg=`): бот пишет их в журнал и сверяет с `--cfg`, чтобы подмена не прошла незамеченной (не на тот уровень, не тем числом). */
+  levelGrowth: { level: number; perWave: number; fromWave: number; latePerWave: number; lateFromWave: number; hpFactor: number; hpScale: number };
   /** Тряска при потере жизни: трясётся только карта (контейнер мира), главная камера сцены (а с ней панели и надписи) не трясётся и не сдвинута. */
   shake: { active: boolean; offset: { x: number; y: number }; mapX: number; mapY: number; cameraShaking: boolean; cameraScroll: { x: number; y: number } };
   dnaGained: number;
