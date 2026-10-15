@@ -4,7 +4,7 @@ import { exposeMetaDebug, branchUnlockLevel, buyUpgrade, canBuy, isBranchOpen, i
 import { num, t, type TextKey } from '../i18n';
 import { maxLevel, UPGRADE_IDS, type UpgradeId } from '../save';
 import { sfx } from '../sound';
-import { currentLevel } from '../progress';
+import { currentLevel, favoriteBranch } from '../progress';
 import { drawLock, setScreenInfo } from '../screens';
 import { COLORS, FONT, TEXT_COLORS } from '../theme';
 
@@ -66,9 +66,23 @@ function nodeCenter(id: UpgradeId): { x: number; y: number } {
 
 const CONTENT_H = Math.max(...UPGRADE_IDS.map((id) => nodeCenter(id).y)) + NODE_R + 52;
 
+/**
+ * Узлы с меткой «★ рекомендуем» (решение владельца 15 октября 2026, docs/tester-feedback-plan-2026-10-15.md, пункт 8): «Сильное вещество», пока оно ниже 3-го уровня (с него открываются
+ * все ветки башен), и первый узел ветки той башни, которую игрок больше всего ставил в последней партии, пока он не куплен до наибольшего уровня.
+ */
+function recommendedIds(): UpgradeId[] {
+  const ids: UpgradeId[] = [];
+  if (metaLevel('damage') < 3) ids.push('damage');
+  const branch = favoriteBranch();
+  const root = branch === null ? undefined : UPGRADE_IDS.find((id) => CONFIG.meta.upgrades[id].branch === branch && CONFIG.meta.upgrades[id].requires?.[0] === 'damage');
+  if (root !== undefined && metaLevel(root) < maxLevel(root)) ids.push(root);
+  return ids;
+}
+
 interface NodeView {
   id: UpgradeId;
   gfx: Phaser.GameObjects.Graphics;
+  star: Phaser.GameObjects.Text;
   level: Phaser.GameObjects.Text;
   label: Phaser.GameObjects.Text;
 }
@@ -89,6 +103,8 @@ export class UpgradesScene extends Phaser.Scene {
   private detailLevel!: Phaser.GameObjects.Text;
   private detailEffect!: Phaser.GameObjects.Text;
   private detailNeed!: Phaser.GameObjects.Text;
+  /** «★ рекомендуем» над кнопкой покупки (у узла с меткой). */
+  private detailHint!: Phaser.GameObjects.Text;
   private buyBg!: Phaser.GameObjects.Graphics;
   private buyLabel!: Phaser.GameObjects.Text;
   /** Откуда пришли: 'menu' — из главного меню («Играть» ведёт на выбор уровня); иначе с экрана конца уровня («Играть» начинает новую партию того же уровня). */
@@ -158,8 +174,9 @@ export class UpgradesScene extends Phaser.Scene {
     const gfx = this.add.graphics().setPosition(c.x, c.y);
     const level = this.add.text(c.x, c.y, '', this.style(22)).setOrigin(0.5);
     const label = this.add.text(c.x, c.y + NODE_R + 6, t(nameKey(id)), { ...this.style(17, TEXT_COLORS.main, false), align: 'center', wordWrap: { width: STEP.x - 24 } }).setOrigin(0.5, 0);
-    this.world.add([gfx, level, label]);
-    this.nodes.push({ id, gfx, level, label });
+    const star = this.add.text(c.x, c.y - NODE_R - 4, '★', this.style(30, TEXT_COLORS.accent)).setOrigin(0.5, 1).setVisible(false);
+    this.world.add([gfx, level, label, star]);
+    this.nodes.push({ id, gfx, star, level, label });
   }
 
   private buildDetail(): void {
@@ -172,6 +189,7 @@ export class UpgradesScene extends Phaser.Scene {
     this.detailLevel = this.add.text(x, DETAIL.y + 100, '', this.style(22, TEXT_COLORS.soft, false)).setOrigin(0, 0);
     this.detailEffect = this.add.text(x, DETAIL.y + 136, '', { ...this.style(22, TEXT_COLORS.main, false), wordWrap: { width: ww } }).setOrigin(0, 0);
     this.detailNeed = this.add.text(x, DETAIL.y + 240, '', { ...this.style(21, TEXT_COLORS.bad, false), wordWrap: { width: ww } }).setOrigin(0, 0);
+    this.detailHint = this.add.text(x, BUY_CENTER.y - BUY.h / 2 - 34, '', this.style(22, TEXT_COLORS.accent, false)).setOrigin(0, 0);
     this.buyBg = this.add.graphics();
     this.buyLabel = this.add.text(BUY_CENTER.x, BUY_CENTER.y, '', this.style(26)).setOrigin(0.5);
     this.add.zone(BUY_CENTER.x, BUY_CENTER.y, BUY.w, BUY.h).setInteractive({ useHandCursor: true }).on('pointerdown', () => this.onBuy(this.selected));
@@ -242,7 +260,11 @@ export class UpgradesScene extends Phaser.Scene {
   private refresh(): void {
     this.balance.setText(t('dnaBalance', { n: metaDna() }));
     this.drawEdges();
-    for (const n of this.nodes) this.drawNode(n);
+    const recommended = recommendedIds();
+    for (const n of this.nodes) {
+      this.drawNode(n);
+      n.star.setVisible(recommended.includes(n.id));
+    }
     this.refreshDetail();
   }
 
@@ -272,6 +294,7 @@ export class UpgradesScene extends Phaser.Scene {
     const price = nextPrice(id);
     this.detailName.setText(t(nameKey(id)));
     this.detailLevel.setText(t('upgLevel', { n: level, max: maxLevel(id) }));
+    this.detailHint.setText(recommendedIds().includes(id) ? t('upgRecommended') : '');
     // Не максимум: подпись и строка «Сейчас +80 % → станет +90 %»; максимум — итог одной строкой
     const now = effectParts(id, level);
     const next = effectParts(id, level + 1);
@@ -316,10 +339,12 @@ export class UpgradesScene extends Phaser.Scene {
           open: isNodeOpen(nid),
           onScreen: y - NODE_R >= VIEW.y && y + NODE_R <= VIEW.y + VIEW.h,
           rect: { x, y, w: NODE_R * 2, h: NODE_R * 2 },
+          recommended: recommendedIds().includes(nid),
         };
       }),
       detail: {
         texts: [this.detailName.text, this.detailLevel.text, this.detailEffect.text, this.detailNeed.text, this.buyLabel.text],
+        hint: this.detailHint.text,
         buy: { x: BUY_CENTER.x, y: BUY_CENTER.y, w: BUY.w, h: BUY.h },
         fits: this.detailFits(),
       },

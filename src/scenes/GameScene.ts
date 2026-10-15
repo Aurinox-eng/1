@@ -9,7 +9,7 @@ import { num, t, type TextKey } from '../i18n';
 import { ALMANAC_BEATEN_BY } from '../almanac';
 import { aimAngle, BLOCKED_TILES, EDGES, ENTRANCE_EDGES, LEVEL, PATH_TILES, WORLD, cellKey, worldToCell } from '../level';
 import { isPortraitPhone } from '../orientation';
-import { currentLevel, isTowerOpen, levelParams, newTowersOfLevel, setCurrentLevel, unlockLevel, type LevelParams } from '../progress';
+import { currentLevel, isTowerOpen, levelParams, newTowersOfLevel, setCurrentLevel, setLastBuilt, unlockLevel, type LevelParams } from '../progress';
 import { addMap } from '../mapArt';
 import { MapGestures } from '../mapGestures';
 import { Bacterium, type BacteriumKind } from '../objects/Bacterium';
@@ -1795,6 +1795,10 @@ export class GameScene extends Phaser.Scene {
     this.bursts = [];
     this.chains = [];
     this.deselectTower();
+    // Какая башня стояла на поле больше всех — на экране «Улучшения» её ветка получает метку «рекомендуем»
+    const built: Record<string, number> = {};
+    for (const tower of this.towers) built[tower.id] = (built[tower.id] ?? 0) + 2 ** (tower.level - 1);
+    setLastBuilt(built);
     if (won) sfx.win();
     else sfx.lose();
     // Очки ДНК за партию начисляются один раз: за каждую пройденную волну (при проигрыше — без текущей), добавка за победу и перевод остатка монет (только при победе)

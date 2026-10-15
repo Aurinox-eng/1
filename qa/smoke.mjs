@@ -7488,10 +7488,21 @@ async function runLevelsLock(browser, baseUrl) {
     await win2.input.tap(win2.g(st2.upgradesButton.x, st2.upgradesButton.y));
     await sleep(700);
     const uu = await win2.page.evaluate(() => window.__pvbUi?.get() ?? null);
+    const meta2 = await win2.page.evaluate(() => window.__pvbMeta.getMeta());
+    const recommended = meta2.screen.nodes.filter((n) => n.recommended).map((n) => n.id).sort();
+    check(`${p} метка «рекомендуем» после партии с двумя Таблетками: «Сильное вещество» (ниже 3-го уровня) и первый узел ветки Таблетки (метки: ${recommended.join(', ')})`, recommended.join() === 'damage,pillPower', recommended.join());
     await win2.input.tap(win2.g(uu.buttons.play.x, uu.buttons.play.y));
     const next = await waitFor(win2.page, (x) => x.state === 'playing' && x.elapsed < 3, 30000, 'партия после «Улучшения» → «Играть»');
     check(`${p} «Играть» на экране «Улучшения» после победы на уровне 1 начинает уровень ${next.level} (следующий открытый), а не повтор уровня 1`, uu.scene === 'upgrades' && next.level === 2, `экран ${uu && uu.scene}, уровень ${next.level}`);
     await win2.page.close();
+    // без партии на странице метка одна — «Сильное вещество»
+    const freshApp = await openMenu(context, baseUrl, p, {});
+    const fu = await freshApp.ui();
+    await freshApp.tapRect(fu.buttons.upgrades);
+    await freshApp.waitUi('upgrades', 'улучшения без партии');
+    const freshRec = (await freshApp.page.evaluate(() => window.__pvbMeta.getMeta())).screen.nodes.filter((n) => n.recommended).map((n) => n.id);
+    check(`${p} без партии на странице метка «рекомендуем» только у «Сильного вещества» (метки: ${freshRec.join(', ')})`, freshRec.join() === 'damage', freshRec.join());
+    await freshApp.page.close();
     // проигрыш: «Играть» — тот же уровень заново
     const lose2 = await openGame(context, baseUrl, p, { speed: 4, cfg: META_LOSE_CFG, query: '&level=2' });
     const sl2 = await waitFor(lose2.page, (x) => x.state === 'lost', WAIT_MS, 'проигрыш (путь через «Улучшения»)');
