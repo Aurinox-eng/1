@@ -2042,7 +2042,8 @@ export class GameScene extends Phaser.Scene {
       pauseAlmanacButton: this.pauseAlmanacButton ? { ...this.pauseAlmanacButton } : null,
       pauseSoundButton: this.pauseSoundButton ? { ...this.pauseSoundButton } : null,
       pauseRestartButton: this.pauseRestartButton ? { ...this.pauseRestartButton } : null,
-      shake: { ...this.rig.shakeInfo(), cameraShaking: this.cameras.main.shakeEffect.isRunning, cameraScroll: { x: this.cameras.main.scrollX, y: this.cameras.main.scrollY } },
+      // сцена могла уже закрыться (снимок запрашивают и после перехода на другой экран): тогда у неё нет камер
+      shake: { ...this.rig.shakeInfo(), cameraShaking: this.cameras?.main?.shakeEffect?.isRunning ?? false, cameraScroll: { x: this.cameras?.main?.scrollX ?? 0, y: this.cameras?.main?.scrollY ?? 0 } },
       dnaGained: this.dnaGained,
       stars: this.stars,
       starDna: this.starDna,
