@@ -10,14 +10,14 @@ on:
   # Без кнопки: изменить `.github/ladder-request.json` (поля profile, lanes, k, to_level, speed, cfg, farm) и сделать push в рабочую ветку; кнопка Run workflow
   # появляется на вкладке Actions, только когда этот файл уже лежит в main.
   push:
-    branches: [claude/serene-rubin-x3t2gu]
+    branches: ['claude/**']
     paths: ['.github/ladder-request.json']
   workflow_dispatch:
     inputs:
       ref:
-        description: 'Ветка или коммит'
+        description: 'Ветка или коммит (пусто — та ветка, с которой запущено)'
         type: string
-        default: claude/serene-rubin-x3t2gu
+        default: ''
       profile:
         description: 'Профиль бота: novice, average, strong, expert или zone («всё у Z»: Таблетки и Сироп вокруг развилки Z)'
         type: string
