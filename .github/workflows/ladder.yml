@@ -58,6 +58,10 @@ on:
         description: 'Потолок реального времени одной партии бота, секунд (по умолчанию 7200; при 3600 партии на 25–30-й волне обрывались как timeout и не приносили очков ДНК)'
         type: string
         default: '7200'
+      max_parallel:
+        description: 'Сколько дорожек одной серии идёт одновременно (по умолчанию 7). На аккаунте 20 мест на все задачи: две серии по 7 дорожек занимают 14, и для проверок (smoke) остаётся не меньше 6; больше двух серий одновременно не запускать'
+        type: string
+        default: '7'
 
 permissions:
   contents: read
@@ -121,6 +125,7 @@ jobs:
       k_total: ${{ needs.plan.outputs.k_total }}
       chunked: ${{ needs.plan.outputs.chunked }}
       budget_sec: ${{ inputs.budget_sec || '19800' }}
+      max_parallel: ${{ inputs.max_parallel || '7' }}
 
   l02:
     name: Уровень 2
@@ -141,6 +146,7 @@ jobs:
       k_total: ${{ needs.plan.outputs.k_total }}
       chunked: ${{ needs.plan.outputs.chunked }}
       budget_sec: ${{ inputs.budget_sec || '19800' }}
+      max_parallel: ${{ inputs.max_parallel || '7' }}
 
   l03:
     name: Уровень 3
@@ -161,6 +167,7 @@ jobs:
       k_total: ${{ needs.plan.outputs.k_total }}
       chunked: ${{ needs.plan.outputs.chunked }}
       budget_sec: ${{ inputs.budget_sec || '19800' }}
+      max_parallel: ${{ inputs.max_parallel || '7' }}
 
   l04:
     name: Уровень 4
@@ -181,6 +188,7 @@ jobs:
       k_total: ${{ needs.plan.outputs.k_total }}
       chunked: ${{ needs.plan.outputs.chunked }}
       budget_sec: ${{ inputs.budget_sec || '19800' }}
+      max_parallel: ${{ inputs.max_parallel || '7' }}
 
   l05:
     name: Уровень 5
@@ -201,6 +209,7 @@ jobs:
       k_total: ${{ needs.plan.outputs.k_total }}
       chunked: ${{ needs.plan.outputs.chunked }}
       budget_sec: ${{ inputs.budget_sec || '19800' }}
+      max_parallel: ${{ inputs.max_parallel || '7' }}
 
   l06:
     name: Уровень 6
@@ -221,6 +230,7 @@ jobs:
       k_total: ${{ needs.plan.outputs.k_total }}
       chunked: ${{ needs.plan.outputs.chunked }}
       budget_sec: ${{ inputs.budget_sec || '19800' }}
+      max_parallel: ${{ inputs.max_parallel || '7' }}
 
   l07:
     name: Уровень 7
@@ -241,6 +251,7 @@ jobs:
       k_total: ${{ needs.plan.outputs.k_total }}
       chunked: ${{ needs.plan.outputs.chunked }}
       budget_sec: ${{ inputs.budget_sec || '19800' }}
+      max_parallel: ${{ inputs.max_parallel || '7' }}
 
   l08:
     name: Уровень 8
@@ -261,6 +272,7 @@ jobs:
       k_total: ${{ needs.plan.outputs.k_total }}
       chunked: ${{ needs.plan.outputs.chunked }}
       budget_sec: ${{ inputs.budget_sec || '19800' }}
+      max_parallel: ${{ inputs.max_parallel || '7' }}
 
   l09:
     name: Уровень 9
@@ -281,6 +293,7 @@ jobs:
       k_total: ${{ needs.plan.outputs.k_total }}
       chunked: ${{ needs.plan.outputs.chunked }}
       budget_sec: ${{ inputs.budget_sec || '19800' }}
+      max_parallel: ${{ inputs.max_parallel || '7' }}
 
   l10:
     name: Уровень 10
@@ -301,6 +314,7 @@ jobs:
       k_total: ${{ needs.plan.outputs.k_total }}
       chunked: ${{ needs.plan.outputs.chunked }}
       budget_sec: ${{ inputs.budget_sec || '19800' }}
+      max_parallel: ${{ inputs.max_parallel || '7' }}
 
   report:
     name: Итоговая таблица

@@ -43,6 +43,10 @@ on:
         description: 'Бюджет реального времени задачи для бота, секунд (при chunked): новая партия не начинается, если не успеет закончиться до него'
         type: string
         default: '19800'
+      max_parallel:
+        description: 'Сколько дорожек идёт одновременно (strategy.max-parallel): на аккаунте 20 мест на все задачи, серии не должны занимать больше 14'
+        type: string
+        default: '7'
       chunked:
         description: 'true — уровень играется двумя задачами подряд (k партий в каждой): состояние и результаты первой лежат в ladder-state-…/ladder-chunk-…, второй — в …-b'
         type: string
@@ -58,6 +62,7 @@ jobs:
     timeout-minutes: 350
     strategy:
       fail-fast: false
+      max-parallel: ${{ fromJSON(inputs.max_parallel) }}
       matrix:
         lane: ${{ fromJSON(inputs.lanes_json) }}
     steps:
@@ -131,6 +136,7 @@ jobs:
     timeout-minutes: 350
     strategy:
       fail-fast: false
+      max-parallel: ${{ fromJSON(inputs.max_parallel) }}
       matrix:
         lane: ${{ fromJSON(inputs.lanes_json) }}
     steps:

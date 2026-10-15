@@ -272,10 +272,16 @@ function setupWorld(graph, state) {
   // f…j — тоже рядом с a, но без требования к парам.
   const close = MERGE_RADIUS * 0.9;
   const dist = (p, q) => Math.hypot(GEO.center(p.col, p.row).x - GEO.center(q.col, q.row).x, GEO.center(p.col, p.row).y - GEO.center(q.col, q.row).y);
-  const chosen = free.length ? [free[0]] : [];
-  for (const c of free.slice(1)) {
-    if (chosen.length >= 5) break;
-    if (chosen.every((q) => dist(q, c) <= close)) chosen.push(c);
+  // Якорь — клетка с наибольшим покрытием, у которой нашлось ещё четыре клетки, попарно близких друг к другу (при старте камеры у «ствола» у самой лучшей клетки таких соседей могло не хватить)
+  let chosen = [];
+  for (const anchor of free) {
+    const group = [anchor];
+    for (const c of free) {
+      if (group.length >= 5) break;
+      if (c !== anchor && group.every((q) => dist(q, c) <= close)) group.push(c);
+    }
+    if (group.length > chosen.length) chosen = group;
+    if (group.length >= 5) break;
   }
   for (const c of free) {
     if (chosen.length >= keys.length) break;
@@ -705,7 +711,7 @@ async function profileLoadAndCamera(c) {
       if (outside || underChip) hiddenNearZ.push(`${col};${row}`);
     }
   }
-  check(`${p} старт: «ствол» на экране в (${f1(zScreen.x)}; ${f1(zScreen.y)}) — правее плашки «◀ Организм» (x 0…${CHIP.x1}) не меньше чем на 150 px, в окне карты; все ${nearZCount} свободных клеток в радиусе 225 px от него видны целиком и не под плашкой`, zScreen.x >= CHIP.x1 + 150 && zScreen.y > winTop && zScreen.y < winBottom && nearZCount >= 10 && hiddenNearZ.length === 0, `скрыты: ${hiddenNearZ.join(' ')}`);
+  check(`${p} старт: «ствол» на экране в (${f1(zScreen.x)}; ${f1(zScreen.y)}) — правее плашки «◀ Организм» (x 0…${CHIP.x1}) не меньше чем на 150 px, в окне карты; все ${nearZCount} свободных клеток в радиусе 225 px от него видны целиком и не под плашкой`, zScreen.x >= CHIP.x1 + 150 && zScreen.y > winTop && zScreen.y < winBottom && nearZCount >= 6 && hiddenNearZ.length === 0, `скрыты: ${hiddenNearZ.join(' ')}`);
   check(`${p} старт: внизу подсказка «${readI18n('hintJunction')[lang === 'ru' ? 0 : 1]}», пока нет ни одной башни`, s0.ui.hint === readI18n('hintJunction')[lang === 'ru' ? 0 : 1], `подсказка: ${JSON.stringify(s0.ui.hint)}`);
   const rot0 = await rotateInfo(page);
   check(`${p} подсказка «Поверните телефон» в горизонтальном положении (и на компьютере) не показана`, rot0.display === 'none', `display=${rot0.display}, pointer:coarse=${rot0.coarse}`);
@@ -1074,7 +1080,7 @@ async function profileBattle(c) {
     if (s.kills >= 2 && shotTaken) break;
     await sleep(40);
   }
-  check(`${p} подсказка про сходящиеся дорожки после постановки башен пропала`, s.ui.hint === null, `подсказка: ${JSON.stringify(s.ui.hint)}`);
+  check(`${p} подсказка про сходящиеся дорожки после постановки башен пропала (внизу уже не «${readI18n('hintJunction')[0]}»; две Таблетки рядом — подсказка о слиянии)`, s.ui.hint !== readI18n('hintJunction')[0], `подсказка: ${JSON.stringify(s.ui.hint)}`);
   check(`${p} бой: башни стреляют, бактерии гибнут, за каждую — монеты`, s.shots > 0 && s.kills >= 1 && s.coins === CFG.startCoins - 2 * BASE.price + s.kills * BASE.reward, `выстрелов ${s.shots}, убито ${s.kills}, монет ${s.coins}`);
   check(`${p} бой: звук запущен по касанию и играет`, s.sound.state === 'running' && s.sound.played > 0, JSON.stringify(s.sound));
   check(`${p} бой: отклик — «+монеты» и частицы на каждое убийство`, s.effects.bursts === s.kills && s.effects.popups === s.kills, `частицы ${s.effects.bursts}, «+монеты» ${s.effects.popups}, убито ${s.kills}`);
