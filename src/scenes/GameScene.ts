@@ -2042,6 +2042,7 @@ export class GameScene extends Phaser.Scene {
       pauseAlmanacButton: this.pauseAlmanacButton ? { ...this.pauseAlmanacButton } : null,
       pauseSoundButton: this.pauseSoundButton ? { ...this.pauseSoundButton } : null,
       pauseRestartButton: this.pauseRestartButton ? { ...this.pauseRestartButton } : null,
+      shake: { ...this.rig.shakeInfo(), cameraShaking: this.cameras.main.shakeEffect.isRunning, cameraScroll: { x: this.cameras.main.scrollX, y: this.cameras.main.scrollY } },
       dnaGained: this.dnaGained,
       stars: this.stars,
       starDna: this.starDna,

@@ -49,6 +49,11 @@ export class CameraRig {
     this.apply();
   }
 
+  /** Состояние тряски карты для проверок: идёт ли, текущее смещение и положение контейнера карты на экране (с учётом смещения). */
+  shakeInfo(): { active: boolean; offset: { x: number; y: number }; mapX: number; mapY: number } {
+    return { active: this.shakeLeft > 0, offset: { ...this.shakeOffset }, mapX: this.target.x, mapY: this.target.y };
+  }
+
   /** Точка мира под точкой экрана. */
   screenToWorld(sx: number, sy: number): { x: number; y: number } {
     return { x: this.cx + (sx - this.view.x - this.view.w / 2) / this.zoom, y: this.cy + (sy - this.view.y - this.view.h / 2) / this.zoom };

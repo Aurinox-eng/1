@@ -150,7 +150,7 @@ if (['stage-1', 'stage-1b', 'stage-1b-qa', 'td-1-mockup', 'tmp'].includes(tag)) 
   process.exit(2);
 }
 
-const SCENARIOS = ['desktop-ru', 'phone-ru', 'desktop-en', 'phone-en', 'rules', 'graph', 'combat', 'dash', 'split', 'spore', 'armored', 'intro', 'lose-ru', 'lose-en', 'win-ru', 'win-en', 'towers', 'card', 'merge', 'mutations', 'sell', 'special', 'danger', 'rotate', 'production', 'fullgame', 'locked', 'strip', 'almanac', 'almanac-pause', 'damage-numbers', 'sell-gap', 'restart-button', 'deflation', 'camera-fit', 'colors', 'meta-save', 'meta-dna', 'meta-shop', 'meta-effects', 'tree-effects', 'tree-shop', 'level-waves', 'progress-save', 'stars', 'menu-flow', 'levels-lock', 'step-dps', 'sound']
+const SCENARIOS = ['desktop-ru', 'phone-ru', 'desktop-en', 'phone-en', 'rules', 'graph', 'combat', 'dash', 'split', 'spore', 'armored', 'intro', 'lose-ru', 'lose-en', 'win-ru', 'win-en', 'towers', 'card', 'merge', 'mutations', 'sell', 'special', 'danger', 'rotate', 'production', 'fullgame', 'locked', 'strip', 'almanac', 'almanac-pause', 'damage-numbers', 'sell-gap', 'restart-button', 'deflation', 'camera-fit', 'colors', 'meta-save', 'meta-dna', 'meta-shop', 'meta-effects', 'tree-effects', 'tree-shop', 'level-waves', 'progress-save', 'stars', 'menu-flow', 'levels-lock', 'step-dps', 'sound', 'lose-line', 'shake']
 const only = args.only === undefined ? null : String(args.only);
 if (only !== null && !SCENARIOS.includes(only)) {
   console.error(`Неизвестный сценарий --only=${only}. Есть: ${SCENARIOS.join(', ')}`);
@@ -695,23 +695,22 @@ async function profileLoadAndCamera(c) {
   const CHIP = { x1: 128, y0: VIEW_CENTER.y - 17, y1: VIEW_CENTER.y + 17 };
   const winTop = TOP_H;
   const winBottom = H - BOTTOM_H;
-  const hiddenNearZ = [];
-  let nearZCount = 0;
-  for (let col = 0; col < LEVEL.cols; col++) {
-    for (let row = 0; row < LEVEL.rows; row++) {
-      if (GEO.isPathCell(col, row)) continue;
-      const w = GEO.center(col, row);
-      if (Math.hypot(w.x - zWorld[0], w.y - zWorld[1]) > 225) continue;
-      nearZCount++;
-      const sx = VIEW_CENTER.x + (w.x - s0.camera.cx) * s0.camera.zoom;
-      const sy = VIEW_CENTER.y + (w.y - s0.camera.cy) * s0.camera.zoom;
-      const half = (MAP.tile / 2) * s0.camera.zoom;
-      const outside = sx - half < 0 || sx + half > W || sy - half < winTop || sy + half > winBottom;
-      const underChip = sx - half < CHIP.x1 && sy + half > CHIP.y0 && sy - half < CHIP.y1;
-      if (outside || underChip) hiddenNearZ.push(`${col};${row}`);
-    }
-  }
-  check(`${p} старт: «ствол» на экране в (${f1(zScreen.x)}; ${f1(zScreen.y)}) — правее плашки «◀ Организм» (x 0…${CHIP.x1}) не меньше чем на 150 px, в окне карты; все ${nearZCount} свободных клеток в радиусе 225 px от него видны целиком и не под плашкой`, zScreen.x >= CHIP.x1 + 150 && zScreen.y > winTop && zScreen.y < winBottom && nearZCount >= 6 && hiddenNearZ.length === 0, `скрыты: ${hiddenNearZ.join(' ')}`);
+  // Клетки, с которых Таблетка (200 + радиус бактерии ≈ 25 = 225 px) достаёт всех бактерий: свободные клетки, до которых от каждого из маршрутов (вход → выход по рёбрам) не дальше 225 px.
+  // На уровне 1 их ровно 12 из 196 свободных (18 маршрутов); все 12 должны быть на старте целиком в окне карты и не под плашкой
+  const reachAll = GEO.reachAllCells(225);
+  const hiddenReach = [];
+  const reachScreen = reachAll.cells.map(([col, row]) => {
+    const w = GEO.center(col, row);
+    const sx = VIEW_CENTER.x + (w.x - s0.camera.cx) * s0.camera.zoom;
+    const sy = VIEW_CENTER.y + (w.y - s0.camera.cy) * s0.camera.zoom;
+    const half = (MAP.tile / 2) * s0.camera.zoom;
+    const outside = sx - half < 0 || sx + half > W || sy - half < winTop || sy + half > winBottom;
+    const underChip = sx - half < CHIP.x1 && sy + half > CHIP.y0 && sy - half < CHIP.y1;
+    if (outside || underChip) hiddenReach.push(`${col};${row}`);
+    return { col, row, sx, sy, size: MAP.tile * s0.camera.zoom };
+  });
+  check(`${p} старт: «ствол» на экране в (${f1(zScreen.x)}; ${f1(zScreen.y)}) — правее плашки «◀ Организм» (x 0…${CHIP.x1}) не меньше чем на 150 px, в окне карты`, zScreen.x >= CHIP.x1 + 150 && zScreen.y > winTop && zScreen.y < winBottom, `ствол (${f1(zScreen.x)}; ${f1(zScreen.y)})`);
+  check(`${p} старт: все 12 клеток, достающих всех бактерий (${reachAll.routes} маршрутов, радиус 225 px), целиком в окне карты и не под плашкой — видно ${reachAll.cells.length - hiddenReach.length} из ${reachAll.cells.length}`, reachAll.routes === 18 && reachAll.cells.length === 12 && hiddenReach.length === 0, `маршрутов ${reachAll.routes}, клеток ${reachAll.cells.length}, скрыты: ${hiddenReach.join(' ') || 'нет'}; клетки ${reachAll.cells.map(([c, r]) => `${c};${r}`).join(' ')}`);
   check(`${p} старт: внизу подсказка «${readI18n('hintJunction')[lang === 'ru' ? 0 : 1]}», пока нет ни одной башни`, s0.ui.hint === readI18n('hintJunction')[lang === 'ru' ? 0 : 1], `подсказка: ${JSON.stringify(s0.ui.hint)}`);
   const rot0 = await rotateInfo(page);
   check(`${p} подсказка «Поверните телефон» в горизонтальном положении (и на компьютере) не показана`, rot0.display === 'none', `display=${rot0.display}, pointer:coarse=${rot0.coarse}`);
@@ -747,6 +746,25 @@ async function profileLoadAndCamera(c) {
 
   await sleep(400);
   const startPng = await shot(page, `${name}-01-start`);
+  // тот же кадр с отметками 12 клеток (для владельца): рамки поверх холста, потом убираем
+  await page.evaluate((cells) => {
+    const canvas = document.querySelector('canvas');
+    const r = canvas.getBoundingClientRect();
+    const k = r.width / 1280;
+    const box = document.createElement('div');
+    box.id = '__reach12';
+    box.style.cssText = 'position:fixed;left:0;top:0;width:100vw;height:100vh;pointer-events:none;z-index:99999';
+    for (const c of cells) {
+      const d = document.createElement('div');
+      const size = c.size * k;
+      d.style.cssText = `position:absolute;left:${r.left + c.sx * k - size / 2}px;top:${r.top + c.sy * k - size / 2}px;width:${size}px;height:${size}px;box-sizing:border-box;border:3px solid #ffd400;background:rgba(255,212,0,0.28);border-radius:6px;`;
+      box.appendChild(d);
+    }
+    document.body.appendChild(box);
+  }, reachScreen);
+  await sleep(200);
+  await shot(page, `${name}-01b-start-12-cells`);
+  await page.evaluate(() => document.getElementById('__reach12')?.remove());
   const chipStart = await chipWhitePixels(game, startPng);
   check(`${p} подсказка «◀ Организм» видна на старте (организм за краем экрана)`, chipStart >= 25, `белых точек надписи: ${chipStart}`);
 
@@ -1858,6 +1876,91 @@ async function runProduction(browser, prodUrl, qaUrl) {
  * неубиваемых кокков (hp 10⁹, жизни не отнимают) 120 игровых секунд на ×1 и на ×5; число выстрелов в секунду (урон выстрела один и тот же) на ×1 и ×5 совпадает в пределах 1 %
  * и близко к 1000 / пауза. До исправления пауза после выстрела округлялась вверх до целого числа шагов кадра (на ×5 — до 250 мс), и на ×5 башня стреляла заметно реже.
  */
+/** Таблица «какие башни бьют бактерию» из src/almanac.ts: { порода: [башни по порядку] }. */
+function readBeatenBy() {
+  const text = fs.readFileSync(path.join(ROOT, 'src', 'almanac.ts'), 'utf8');
+  const block = text.slice(text.indexOf('export const ALMANAC_BEATEN_BY'));
+  const body = block.slice(block.indexOf('{') + 1, block.indexOf('};'));
+  const table = {};
+  for (const m of body.matchAll(/^\s*(\w+):\s*\[([^\]]*)\]/gm)) table[m[1]] = [...m[2].matchAll(/'(\w+)'/g)].map((x) => x[1]);
+  return table;
+}
+
+/**
+ * Строка проигрыша «Больше всего жизней отняла: <порода> (<число>). Бьют: <башни>» называет только башни, ОТКРЫТЫЕ у игрока (levels.towerUnlock ≤ текущий уровень), не больше трёх, в порядке таблицы альманаха;
+ * если ни одна из башен, что бьют эту породу, не открыта, остаётся «Больше всего жизней отняла: <порода> (<число>)» без «Бьют». Четыре партии без башен: кокк (бьют Таблетка и Шипучка — открыта только Таблетка), палочка (Таблетка и Сироп — обе),
+ * бронированная на уровне 1 (бьют Шприц, Ампула, Пластырь — ни одна не открыта) и бронированная на уровне 3 (открыта Ампула).
+ */
+async function runLoseLine(browser, baseUrl) {
+  const capital = (id) => id.charAt(0).toUpperCase() + id.slice(1);
+  const beaten = readBeatenBy();
+  const cases = [
+    { lang: 'ru', li: 0, kind: 'coccus', level: 1, n: 12 },
+    { lang: 'en', li: 1, kind: 'rod', level: 1, n: 12 },
+    { lang: 'ru', li: 0, kind: 'armored', level: 1, n: 6 },
+    { lang: 'en', li: 1, kind: 'armored', level: 3, n: 6 },
+  ];
+  for (const c of cases) {
+    const p = `[строка проигрыша: ${c.kind}, уровень ${c.level}, ${c.lang}]`;
+    const context = await newDeviceContext(browser, VIEWPORTS.desktop, c.lang);
+    const cfg = `${wavesOnlyCfg({ [c.kind]: c.n })},waves.firstDelaySec:1,bacteria.baseSpeed:250,lives.start:3`;
+    const game = await openGame(context, baseUrl, p, { speed: 4, cfg, query: c.level > 1 ? `&level=${c.level}` : '' });
+    const lost = await waitFor(game.page, (x) => x.state === 'lost', WAIT_MS, 'проигрыш без башен');
+    const expectedOpen = (beaten[c.kind] ?? []).filter((id) => unlockOf(id) <= c.level).slice(0, 3);
+    const closed = (beaten[c.kind] ?? []).filter((id) => unlockOf(id) > c.level);
+    const kindName = readI18n(`bacName${capital(c.kind)}`)[c.li];
+    const towerNames = expectedOpen.map((id) => readI18n(`tower${capital(id)}`)[c.li]);
+    const closedNames = closed.map((id) => readI18n(`tower${capital(id)}`)[c.li]);
+    const escape = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const lineTemplate = readI18n(towerNames.length > 0 ? 'loseLeakLine' : 'loseLeakOnly')[c.li];
+    const re = new RegExp(`^${escape(lineTemplate).replace(/\\\{kind\\\}/, '(.+?)').replace(/\\\{n\\\}/, '(\\d+)').replace(/\\\{towers\\\}/, '(.+)')}$`);
+    const found = (lost.endDnaLines || []).map((line) => ({ line, m: re.exec(line) })).find((x) => x.m);
+    const gotKind = found ? found.m[1] : null;
+    const gotTowers = found && towerNames.length > 0 ? found.m[3].split(', ') : [];
+    const noClosedNamed = closedNames.every((name) => !(found?.line ?? '').includes(name));
+    check(`${p} строка проигрыша: порода «${kindName}», башни «${towerNames.join(', ') || '— (ни одна не открыта: «Бьют» нет)'}» (все, что бьют породу: ${(beaten[c.kind] ?? []).join(', ')}; закрыты: ${closed.join(', ') || 'нет'})`,
+      Boolean(found) && gotKind === kindName && JSON.stringify(gotTowers) === JSON.stringify(towerNames) && noClosedNamed && gotTowers.length <= 3,
+      `строки: ${JSON.stringify(lost.endDnaLines)}`);
+    await game.page.close();
+    await context.close();
+  }
+}
+
+/**
+ * Тряска при потере жизни трясёт только карту: контейнер мира смещается на размах тряски, а главная камера сцены (с нею панели и надписи) не трясётся и не сдвинута.
+ * Длительность и размах в проверке увеличены (feedback.lifeLostShakeMs 6000, lifeLostShakeIntensity 0,04), чтобы поймать тряску при 3–20 кадрах в секунду.
+ */
+async function runShake(browser, baseUrl) {
+  const p = '[тряска только карты]';
+  const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
+  const cfg = 'waves.firstDelaySec:1,waves.total:1,waves.list.0.coccus:6,bacteria.baseSpeed:250,towers.pill.damage:0,lives.start:20,feedback.lifeLostShakeMs:6000,feedback.lifeLostShakeIntensity:0.04';
+  const game = await openGame(context, baseUrl, p, { speed: 1, cfg });
+  const TOP = readConfigNumber('map', 'topH');
+  const BOTTOM = readConfigNumber('map', 'bottomH');
+  const before = await game.state();
+  check(`${p} до потери жизни тряски нет: смещение карты 0, главная камера не трясётся`, before.shake.active === false && before.shake.offset.x === 0 && before.shake.offset.y === 0 && before.shake.cameraShaking === false, JSON.stringify(before.shake));
+  await waitFor(game.page, (x) => x.lives < 20, WAIT_MS, 'потеряна первая жизнь');
+  const samples = [];
+  const started = Date.now();
+  while (Date.now() - started < 3500) {
+    const x = await game.state();
+    samples.push({ shake: x.shake, cx: x.camera.cx, cy: x.camera.cy, zoom: x.camera.zoom });
+    await sleep(60);
+  }
+  const shaking = samples.filter((q) => q.shake.active && (Math.abs(q.shake.offset.x) > 0.5 || Math.abs(q.shake.offset.y) > 0.5));
+  const mapMoved = shaking.filter((q) => {
+    const baseX = 640 - q.cx * q.zoom;
+    const baseY = (TOP + (720 - TOP - BOTTOM) / 2) - q.cy * q.zoom;
+    return Math.abs(q.shake.mapX - baseX - q.shake.offset.x) < 0.01 && Math.abs(q.shake.mapY - baseY - q.shake.offset.y) < 0.01;
+  });
+  const cameraClean = samples.every((q) => q.shake.cameraShaking === false && q.shake.cameraScroll.x === 0 && q.shake.cameraScroll.y === 0);
+  check(`${p} при потере жизни карта трясётся: кадров со смещением ≥ 0,5 px — ${shaking.length} из ${samples.length} (нужно ≥ 3)`, shaking.length >= 3, `размахи: ${shaking.slice(0, 4).map((q) => `${f1(q.shake.offset.x)};${f1(q.shake.offset.y)}`).join(' | ')}`);
+  check(`${p} трясётся контейнер мира: его положение на экране = база от камеры + смещение тряски (во всех ${shaking.length} кадрах тряски)`, shaking.length >= 3 && mapMoved.length === shaking.length, `совпало ${mapMoved.length} из ${shaking.length}`);
+  check(`${p} главная камера сцены не трясётся и не сдвинута (панели и надписи стоят): во всех ${samples.length} кадрах cameraShaking = false, прокрутка 0;0`, cameraClean, `первый кадр: ${JSON.stringify(samples[0]?.shake)}`);
+  await game.page.close();
+  await context.close();
+}
+
 async function runStepDps(browser, baseUrl) {
   const p = '[шаг игры: урон в секунду на ×1 и ×5]';
   const WINDOW = 120; // игровых секунд
@@ -8571,6 +8674,8 @@ try {
   if (wants('sell-gap')) await safe('[зазор Слить и Продать]', () => runSellGap(browser, qaServer.url));
   if (wants('levels-lock')) await safe('[открытие уровней и конец уровня]', () => runLevelsLock(browser, qaServer.url));
   if (wants('sound')) await safe('[звук]', () => runSound(browser, qaServer.url));
+  if (wants('lose-line')) await safe('[строка проигрыша]', () => runLoseLine(browser, qaServer.url));
+  if (wants('shake')) await safe('[тряска только карты]', () => runShake(browser, qaServer.url));
   if (wants('step-dps')) await safe('[шаг игры и скорость]', () => runStepDps(browser, qaServer.url));
 } catch (error) {
   crashed = error;

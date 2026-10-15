@@ -141,6 +141,8 @@ export interface DebugSnapshot {
   pauseAlmanacButton: { x: number; y: number; w: number; h: number } | null;
   pauseSoundButton: { x: number; y: number; w: number; h: number } | null;
   pauseRestartButton: { x: number; y: number; w: number; h: number } | null;
+  /** Тряска при потере жизни: трясётся только карта (контейнер мира), главная камера сцены (а с ней панели и надписи) не трясётся и не сдвинута. */
+  shake: { active: boolean; offset: { x: number; y: number }; mapX: number; mapY: number; cameraShaking: boolean; cameraScroll: { x: number; y: number } };
   dnaGained: number;
   /** Звёзды, заработанные в этой партии (0 — партия не выиграна или ещё идёт), и очки ДНК за впервые полученные звёзды (в `dnaGained` не входят). */
   stars: number;
