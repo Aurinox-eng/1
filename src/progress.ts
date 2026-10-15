@@ -134,7 +134,7 @@ export function levelParams(level: number): LevelParams {
       KINDS,
       (kind) => CONFIG.types[kind as KindId].hp,
     ) as WaveRow[];
-    params = { total: rows.length, rows: rows as Partial<Record<KindId, number>>[], growth, hpFactor: 1, rewardCurve };
+    params = { total: rows.length, rows: rows as Partial<Record<KindId, number>>[], growth, hpFactor: CONFIG.levels.hpFactor[level] ?? 1, rewardCurve };
     generated.set(level, params);
   }
   return params;
