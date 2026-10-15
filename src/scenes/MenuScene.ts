@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import { CONFIG } from '../config';
 import { t } from '../i18n';
 import { metaDna } from '../meta';
+import { sfx } from '../sound';
 import { addButton, setScreenInfo, textStyle } from '../screens';
 import { COLORS, TEXT_COLORS } from '../theme';
 
@@ -40,11 +41,26 @@ export class MenuScene extends Phaser.Scene {
       line: 0x4a5c82,
       onTap: () => this.scene.start('Almanac', { from: 'menu' }),
     });
+    // Звук: маленькая кнопка в правом верхнем углу (по тапу — выключить или включить, надпись обновляется перезапуском сцены)
+    const sound = addButton(this, {
+      x: W - 130,
+      y: 52,
+      w: 220,
+      h: 60,
+      label: t(sfx.muted ? 'soundOff' : 'soundOn'),
+      fontSize: 28,
+      fill: 0x2a3550,
+      line: 0x4a5c82,
+      onTap: () => {
+        sfx.setMuted(!sfx.muted);
+        this.scene.restart();
+      },
+    });
     // Знак авторского права внизу по центру: ниже кнопки «Альманах» (низ — y 678), над краем экрана остаётся запас
     const copyright = this.add.text(W / 2, H - 18, t('copyright'), textStyle(20, TEXT_COLORS.soft, false)).setOrigin(0.5);
     setScreenInfo(() =>
       this.scene.isActive()
-        ? { scene: 'menu', buttons: { play, upgrades, almanac }, texts: [title.text, balance.text], labels: { copyright: { x: copyright.x, y: copyright.y, w: copyright.width, h: copyright.height } } }
+        ? { scene: 'menu', buttons: { play, upgrades, almanac, sound }, texts: [title.text, balance.text], labels: { copyright: { x: copyright.x, y: copyright.y, w: copyright.width, h: copyright.height } } }
         : null,
     );
   }

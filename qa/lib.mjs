@@ -352,6 +352,31 @@ export function makeGraphGeometry(graph, map, cols, rows) {
       }
       return total;
     },
+    /**
+     * Клетки, с которых достаётся до всех бактерий: свободная клетка «достаёт» маршрут (от входа до выхода по рёбрам), если какая-то точка маршрута ближе reach пикселей
+     * к её центру; берутся клетки, достающие каждый из маршрутов. Для уровня 1 (reach 225 = Таблетка 200 + радиус бактерии ≈ 25) — 12 клеток из 196 свободных, 18 маршрутов.
+     * Возвращает { routes: число маршрутов, cells: [[col, row], …] }.
+     */
+    reachAllCells: (reach) => {
+      const routes = [];
+      const walk = (id, acc) => {
+        const next = outOf[byId.get(id).to] ?? [];
+        const chain = [...acc, id];
+        if (!next.length) routes.push(chain);
+        else for (const n of next) walk(n, chain);
+      };
+      for (const id of graph.entrances) walk(id, []);
+      const cells = [];
+      for (let col = 0; col < cols; col++) {
+        for (let row = 0; row < rows; row++) {
+          if (pathCells.has(`${col},${row}`)) continue;
+          const c = center(col, row);
+          const reaches = (chain) => chain.some((id) => byId.get(id).pts.some((q) => Math.hypot(q[0] - c.x, q[1] - c.y) <= reach));
+          if (routes.every(reaches)) cells.push([col, row]);
+        }
+      }
+      return { routes: routes.length, cells };
+    },
   };
 }
 

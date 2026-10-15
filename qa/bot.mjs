@@ -176,7 +176,7 @@ const HELP = `Бот-замерщик баланса: играет целые п
 
   --profile=novice|average|strong|expert|zone|all   кто играет (по умолчанию all = первые четыре; zone — «всё у Z»: Таблетки и один Сироп вокруг развилки Z); expert — «особо сильный» (бывший «сильный» кругов 1–2)
   --runs=N                              партий на профиль (по умолчанию 10; для замера нужно не меньше 10)
-  --speed=2                             ускорение игрового времени, 0.1…4 (по умолчанию 2). ВЫШЕ 2 ЗАМЕРЫ ГРУБЕЕ: годится для проб, не для итоговых чисел
+  --speed=2                             ускорение игрового времени, 0.1…5 (по умолчанию 2; 5 — как кнопка ×5 в игре). ВЫШЕ 2 ЗАМЕРЫ ГРУБЕЕ: годится для проб, не для итоговых чисел
   --exclude=syrup,fizz,syringe,pill,ampule,antibiotic,lamp,vitamin,frost,patch   каких башен профили не строят (проверка «нужна ли башня»)
   --cfg=путь:число,...                  подмена чисел игры без правки config.ts, например towers.pill.price:40,economy.startCoins:5000
                                         (бот сам учтёт подмену цен и радиусов; непонятная запись останавливает замер)
@@ -243,8 +243,8 @@ const profileArg = args.profile === undefined ? 'all' : String(args.profile);
 if (profileArg !== 'all' && !PROFILE_IDS.includes(profileArg)) die(`--profile=«${profileArg}»: есть ${PROFILE_IDS.join(', ')}, all.`);
 const PROFILES = profileArg === 'all' ? ALL_PROFILE_IDS : [profileArg];
 const RUNS = numArg('runs', 10, { min: 1, max: 1000, int: true });
-const SPEED = numArg('speed', 2, { min: 0.1, max: 4 });
-if (args.speed !== undefined && SPEED > 4) die('--speed не выше 4.');
+const SPEED = numArg('speed', 2, { min: 0.1, max: 5 });
+if (args.speed !== undefined && SPEED > 5) die('--speed не выше 5.');
 const MAX_GAME_SEC = numArg('max-game-sec', 2400, { min: 30, max: 100000 });
 const MAX_REAL_SEC = numArg('max-real-sec', 3600, { min: 30, max: 100000 });
 const LEVEL = numArg('level', 1, { min: 1, max: 10, int: true });

@@ -10,7 +10,7 @@ import { COLORS, TEXT_COLORS } from '../theme';
 const { width: W } = CONFIG.screen;
 
 /** Раскладка: пять карточек в ряд, два ряда; сверху заголовок, снизу «Назад». Координаты — экран игры 1280×720. */
-const CARD = { w: 220, h: 240, gap: 30, cols: 5, left: 30, top: 110, rowGap: 24 };
+const CARD = { w: 220, h: 256, gap: 30, cols: 5, left: 30, top: 104, rowGap: 16 };
 
 const cap = (word: string): string => word.charAt(0).toUpperCase() + word.slice(1);
 const levelName = (level: number): string => t(`levelName${level}` as TextKey);
@@ -50,6 +50,8 @@ export class LevelsScene extends Phaser.Scene {
     g.lineStyle(4, !open ? 0x2c3448 : stars > 0 ? COLORS.gold : 0x3a5f9c, 1).strokeRoundedRect(x0, y0, CARD.w, CARD.h, 20);
 
     const texts: string[] = [];
+    let textsBottom = 0;
+    let lowerTopOut = 0;
     const add = (y: number, text: string, size: number, color: string, wrap = false): Phaser.GameObjects.Text => {
       const obj = this.add.text(cx, y, text, textStyle(size, color, false)).setOrigin(0.5, 0);
       if (wrap) obj.setWordWrapWidth(CARD.w - 24).setAlign('center');
@@ -63,15 +65,33 @@ export class LevelsScene extends Phaser.Scene {
       add(y0 + 100, t('levelLocked', { n: level - 1 }), 20, TEXT_COLORS.dim, true);
       drawLock(g, cx, y0 + CARD.h - 50, 44);
     } else {
-      let y = y0 + 96;
+      // Нижняя часть карточки — «Лучшая волна» (если уровень проигран) и звёзды; «Открыто» и «Новая» идут сверху вниз по реальной высоте текста и сжимаются по размеру шрифта, пока не уместятся над ней
+      const showBest = stars === 0 && best > 0;
+      const lowerTop = showBest ? y0 + CARD.h - 84 : y0 + CARD.h - 62;
+      const limit = lowerTop - 6;
       const towers = levelNewTowers(level);
-      if (towers.length > 0) {
-        add(y, t('levelOpens', { names: towers.map(towerName).join(', ') }), 20, TEXT_COLORS.soft, true);
-        y += 50;
-      }
       const kinds = levelNewKinds(level);
-      if (kinds.length > 0) add(y, t('levelNewBac', { names: kinds.map(kindName).join(', ') }), 20, TEXT_COLORS.soft, true);
-      if (stars === 0 && best > 0) add(y0 + CARD.h - 84, t('levelBest', { n: best }), 20, TEXT_COLORS.bad);
+      const parts: string[] = [];
+      if (towers.length > 0) parts.push(t('levelOpens', { names: towers.map(towerName).join(', ') }));
+      if (kinds.length > 0) parts.push(t('levelNewBac', { names: kinds.map(kindName).join(', ') }));
+      const objs = parts.map((text) => add(0, text, 20, TEXT_COLORS.soft, true));
+      let size = 20;
+      const place = (): number => {
+        let y = y0 + 96;
+        for (const obj of objs) {
+          obj.setFontSize(size);
+          obj.setPosition(cx, y);
+          y += obj.height + 6;
+        }
+        return y - 6;
+      };
+      textsBottom = place();
+      while (objs.length > 0 && textsBottom > limit && size > 13) {
+        size--;
+        textsBottom = place();
+      }
+      lowerTopOut = lowerTop;
+      if (showBest) add(lowerTop, t('levelBest', { n: best }), 20, TEXT_COLORS.bad);
       for (let s = 0; s < 3; s++) drawStar(g, cx + (s - 1) * 56, y0 + CARD.h - 40, 22, s < stars);
     }
     this.add
@@ -85,6 +105,6 @@ export class LevelsScene extends Phaser.Scene {
           sfx.denied();
         }
       });
-    this.cards.push({ level, open, stars, best, rect: { x: cx, y: y0 + CARD.h / 2, w: CARD.w, h: CARD.h }, texts });
+    this.cards.push({ level, open, stars, best, rect: { x: cx, y: y0 + CARD.h / 2, w: CARD.w, h: CARD.h }, texts, textsBottom, lowerTop: lowerTopOut });
   }
 }

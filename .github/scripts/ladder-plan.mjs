@@ -10,7 +10,7 @@ import fs from 'node:fs';
 const env = { ...process.env };
 if (env.EVENT_NAME === 'push') {
   const request = JSON.parse(fs.readFileSync('.github/ladder-request.json', 'utf8'));
-  for (const name of ['PROFILE', 'LANES', 'K', 'TO_LEVEL', 'SPEED', 'CFG', 'FARM', 'MAX_REAL_SEC', 'K_TOTAL']) {
+  for (const name of ['PROFILE', 'LANES', 'K', 'TO_LEVEL', 'SPEED', 'CFG', 'FARM', 'MAX_REAL_SEC', 'K_TOTAL', 'MAX_PARALLEL']) {
     const value = request[name.toLowerCase()];
     if (value !== undefined && value !== null) env[name] = String(value);
   }
@@ -35,14 +35,15 @@ const kTotal = (env.K_TOTAL ?? '').trim() ? integer('K_TOTAL', k, k, 40) : k; //
 const chunked = kTotal > k ? 'true' : 'false';
 const toLevel = integer('TO_LEVEL', 10, 1, 10);
 const speed = (env.SPEED ?? '').trim() || '2';
-if (!/^\d+(\.\d+)?$/.test(speed) || Number(speed) <= 0 || Number(speed) > 4) fail(`SPEED=«${speed}»: нужно число от 0 до 4`);
+if (!/^\d+(\.\d+)?$/.test(speed) || Number(speed) <= 0 || Number(speed) > 5) fail(`SPEED=«${speed}»: нужно число от 0 до 5`);
 const cfg = (env.CFG ?? '').trim();
 if (cfg && !/^[\w.\-]+:-?[\d.]+(,[\w.\-]+:-?[\d.]+)*$/.test(cfg)) fail(`CFG=«${cfg}»: нужно «путь:число,путь:число», например waves.hpGrowthPerWave:0.06`);
 const farm = ['1', 'true', 'yes'].includes((env.FARM ?? '').trim().toLowerCase()) ? '1' : '0';
 const maxRealSec = integer('MAX_REAL_SEC', 7200, 600, 20000); // потолок реального времени партии, секунд (бот: --max-real-sec); при 3600 поздние партии лестницы обрывались как timeout без очков ДНК
+const maxParallel = integer('MAX_PARALLEL', 7, 1, 7); // дорожек одной серии одновременно: не больше 7 (две серии = 14 мест из 20, для smoke остаётся не меньше 6; см. slots-guard.mjs)
 const laneList = Array.from({ length: lanes }, (_, i) => i + 1);
-const out = { profile, lanes: JSON.stringify(laneList), k: String(k), k_total: String(kTotal), chunked, to_level: String(toLevel), speed, cfg, farm, max_real_sec: String(maxRealSec) };
-console.log(`Лестница: профиль ${profile}, дорожек ${lanes}, до ${k} партий за задачу${chunked === 'true' ? `, всего до ${kTotal} на уровне` : ''}, уровни 1–${toLevel}, speed ${speed}${cfg ? `, cfg ${cfg}` : ''}${farm === '1' ? ', контроль фарма' : ''}, потолок партии ${maxRealSec} с реального времени`);
+const out = { profile, lanes: JSON.stringify(laneList), k: String(k), k_total: String(kTotal), chunked, to_level: String(toLevel), speed, cfg, farm, max_real_sec: String(maxRealSec), max_parallel: String(maxParallel) };
+console.log(`Лестница: профиль ${profile}, дорожек ${lanes}, до ${k} партий за задачу${chunked === 'true' ? `, всего до ${kTotal} на уровне` : ''}, уровни 1–${toLevel}, speed ${speed}${cfg ? `, cfg ${cfg}` : ''}${farm === '1' ? ', контроль фарма' : ''}, потолок партии ${maxRealSec} с реального времени, одновременно не больше ${maxParallel} дорожек`);
 const lines = Object.entries(out).map(([key, value]) => `${key}=${value}`);
 if (process.env.GITHUB_OUTPUT) fs.appendFileSync(process.env.GITHUB_OUTPUT, `${lines.join('\n')}\n`);
 else console.log(lines.join('\n'));

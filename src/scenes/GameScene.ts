@@ -6,9 +6,10 @@ import { Effects } from '../effects';
 import { drawStar, setScreenInfo } from '../screens';
 import { awardDna, dnaParts, coinsBonus, exposeMetaDebug, HIDDEN_SCREEN, isLevelBeaten, livesBonus, markSeen, metaDna, metaSeen, recordResult, refundBonus, rewardMul, shieldCharges, starsForLoss, waveCoinsBonus } from '../meta';
 import { num, t, type TextKey } from '../i18n';
+import { ALMANAC_BEATEN_BY } from '../almanac';
 import { aimAngle, BLOCKED_TILES, EDGES, ENTRANCE_EDGES, LEVEL, PATH_TILES, WORLD, cellKey, worldToCell } from '../level';
 import { isPortraitPhone } from '../orientation';
-import { currentLevel, isTowerOpen, levelParams, newTowersOfLevel, setCurrentLevel, unlockLevel, type LevelParams } from '../progress';
+import { currentLevel, isTowerOpen, levelParams, newTowersOfLevel, setCurrentLevel, setLastBuilt, unlockLevel, type LevelParams } from '../progress';
 import { addMap } from '../mapArt';
 import { MapGestures } from '../mapGestures';
 import { Bacterium, type BacteriumKind } from '../objects/Bacterium';
@@ -185,6 +186,10 @@ export class GameScene extends Phaser.Scene {
   private mergeMode = false;
   /** Круг слияния вокруг выбранной башни. */
   private mergeRing!: Phaser.GameObjects.Image;
+  /** Сколько жизней отняла каждая порода бактерий за партию (то, что реально списано; поглощённое щитом не считается): для строки на экране проигрыша. */
+  private livesLostByKind: Partial<Record<BacteriumKind, number>> = {};
+  /** Башни пары, на которую сейчас показывается разовая подсказка о слиянии (пусто — подсказки нет). */
+  private mergeHintTowers: Tower[] = [];
   private merges = 0;
   private sells = 0;
   private mutationsPicked = 0;
@@ -214,6 +219,8 @@ export class GameScene extends Phaser.Scene {
   private menuButton: { x: number; y: number; w: number; h: number } | null = null;
   private pauseMenuButton: { x: number; y: number; w: number; h: number } | null = null;
   private pauseAlmanacButton: { x: number; y: number; w: number; h: number } | null = null;
+  private pauseSoundButton: { x: number; y: number; w: number; h: number } | null = null;
+  private pauseRestartButton: { x: number; y: number; w: number; h: number } | null = null;
   private dnaGained = 0;
   private dnaAwarded = false;
   /** Уровень уже был пройден до этой партии: очки за волны — доля `meta.dna.replayFactor`. */
@@ -285,6 +292,7 @@ export class GameScene extends Phaser.Scene {
     this.splits = 0;
     this.disables = 0;
     this.leaked = 0;
+    this.livesLostByKind = {};
     this.shots = 0;
     this.slows = 0;
     this.poisons = 0;
@@ -306,6 +314,8 @@ export class GameScene extends Phaser.Scene {
     this.menuButton = null;
     this.pauseMenuButton = null;
     this.pauseAlmanacButton = null;
+    this.pauseSoundButton = null;
+    this.pauseRestartButton = null;
     setScreenInfo(null);
     this.dnaGained = 0;
     this.stars = 0;
@@ -377,7 +387,7 @@ export class GameScene extends Phaser.Scene {
 
     this.threads = this.add.graphics();
     this.projectileLayer.add(this.threads);
-    this.effects = new Effects(this, this.fxLayer);
+    this.effects = new Effects(this, this.fxLayer, (ms, intensity) => this.rig.shake(ms, intensity));
     this.buildGhost();
     this.mergeRing = ringImage(this, 0, 0, CONFIG.mergeRadiusPx, 5, COLORS.merge, 0.45).setVisible(false);
     this.ghostLayer.add(this.mergeRing);
@@ -459,6 +469,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   update(time: number, deltaMs: number): void {
+    this.rig.tickShake(Math.min(deltaMs, MAX_FRAME_MS));
     this.updateChip(time / 1000);
     if (this.state !== 'playing' || isPortraitPhone()) return;
 
@@ -1158,6 +1169,7 @@ export class GameScene extends Phaser.Scene {
         sfx.place();
       } else {
         damage += bacterium.lifeDamage;
+        this.livesLostByKind[bacterium.kind] = (this.livesLostByKind[bacterium.kind] ?? 0) + bacterium.lifeDamage;
       }
       this.removeBacterium(bacterium);
     }
@@ -1202,8 +1214,22 @@ export class GameScene extends Phaser.Scene {
       this.panel.setHint(null); // подсказка слияния — в узкой полосе карточки (иначе плашка над карточкой закрывала бы кандидатов)
       return;
     }
+    // Разовая подсказка о слиянии: первая пара одинаковых башен рядом мигает, внизу — как её слить (пока башня не выбрана: у выбранной в карточке уже горит «Слить»)
+    this.mergeHintTowers = this.mergeHintPair();
+    for (const tower of this.towers) tower.setMergeCandidate(this.mergeHintTowers.includes(tower));
+    const mergeLine = this.mergeHintTowers.length > 0 && !this.selectedTower ? t('hintMergePair') : null;
     const info = this.selected ? this.towerInfo(this.selected) : null;
-    this.panel.setHint(info ?? (this.placedAny || this.selectedTower ? null : t('hintPlace')));
+    this.panel.setHint(info ?? mergeLine ?? (this.placedAny || this.selectedTower ? null : t('hintJunction')));
+  }
+
+  /** Первая пара одинаковых башен в радиусе слияния, пока игрок ни разу не включал «Слить» (запоминается как `h:merge` вместе с показанными уведомлениями); иначе пусто. */
+  private mergeHintPair(): Tower[] {
+    if (this.mergeMode || seenNews.has('h:merge')) return [];
+    for (const tower of this.towers) {
+      const other = this.mergeCandidates(tower)[0];
+      if (other) return [tower, other];
+    }
+    return [];
   }
 
   private towerInfo(id: TowerId): string | null {
@@ -1322,6 +1348,9 @@ export class GameScene extends Phaser.Scene {
     const candidates = this.mergeCandidates(this.selectedTower);
     if (candidates.length === 0) return;
     this.mergeMode = true;
+    rememberNews('h:merge');
+    this.mergeHintTowers = [];
+    for (const tower of this.towers) tower.setMergeCandidate(false);
     for (const tower of candidates) tower.setMergeCandidate(true);
     sfx.select();
     this.refreshCard();
@@ -1590,7 +1619,7 @@ export class GameScene extends Phaser.Scene {
     if (isPortraitPhone()) return;
     const now = performance.now();
     // Тап по кнопке «В меню» на паузе игру не возобновляет (кнопка сама уводит в меню)
-    for (const b of [this.pauseMenuButton, this.pauseAlmanacButton]) {
+    for (const b of [this.pauseMenuButton, this.pauseAlmanacButton, this.pauseSoundButton, this.pauseRestartButton]) {
       if (this.state === 'paused' && b && pointer && Math.abs(pointer.x - b.x) <= b.w / 2 && Math.abs(pointer.y - b.y) <= b.h / 2) return;
     }
     if (this.state === 'paused' && now >= this.resumeAllowedAt) this.togglePause();
@@ -1622,14 +1651,25 @@ export class GameScene extends Phaser.Scene {
       this.resumeAllowedAt = performance.now() + 250;
       this.ghost.setVisible(false);
       this.showOverlay(t('paused'), TEXT_COLORS.accent, t('tapToResume'));
-      this.pauseAlmanacButton = this.addEndButton(W / 2 - 180, H / 2 + 190, 320, 76, t('almanacBtn'), 0x2a3550, 0x4a5c82, () => this.openAlmanac());
-      this.pauseMenuButton = this.addEndButton(W / 2 + 180, H / 2 + 190, 320, 76, t('toMenu'), 0x2a3550, 0x4a5c82, () => this.leaveToMenu());
+      // Два ряда по 76 px: «Альманах» и «Звук», ниже «Заново» и «В меню»
+      this.pauseAlmanacButton = this.addEndButton(W / 2 - 180, H / 2 + 110, 320, 76, t('almanacBtn'), 0x2a3550, 0x4a5c82, () => this.openAlmanac());
+      const sound = this.addLabeledButton(W / 2 + 180, H / 2 + 110, 320, 76, t(sfx.muted ? 'soundOff' : 'soundOn'), 0x2a3550, 0x4a5c82, () => {
+        sfx.setMuted(!sfx.muted);
+        sound.label.setText(t(sfx.muted ? 'soundOff' : 'soundOn'));
+      }, 30);
+      this.pauseSoundButton = sound.rect;
+      this.pauseRestartButton = this.addEndButton(W / 2 - 180, H / 2 + 200, 320, 76, t('restart'), 0x2a8a4a, COLORS.merge, () => {
+        if (performance.now() >= this.resumeAllowedAt) this.scene.restart();
+      });
+      this.pauseMenuButton = this.addEndButton(W / 2 + 180, H / 2 + 200, 320, 76, t('toMenu'), 0x2a3550, 0x4a5c82, () => this.leaveToMenu());
     } else if (this.state === 'paused') {
       this.state = 'playing';
       this.overlay?.destroy();
       this.overlay = null;
       this.pauseMenuButton = null;
-    this.pauseAlmanacButton = null;
+      this.pauseAlmanacButton = null;
+      this.pauseSoundButton = null;
+      this.pauseRestartButton = null;
     }
   }
 
@@ -1755,6 +1795,10 @@ export class GameScene extends Phaser.Scene {
     this.bursts = [];
     this.chains = [];
     this.deselectTower();
+    // Какая башня стояла на поле больше всех — на экране «Улучшения» её ветка получает метку «рекомендуем»
+    const built: Record<string, number> = {};
+    for (const tower of this.towers) built[tower.id] = (built[tower.id] ?? 0) + 2 ** (tower.level - 1);
+    setLastBuilt(built);
     if (won) sfx.win();
     else sfx.lose();
     // Очки ДНК за партию начисляются один раз: за каждую пройденную волну (при проигрыше — без текущей), добавка за победу и перевод остатка монет (только при победе)
@@ -1780,12 +1824,36 @@ export class GameScene extends Phaser.Scene {
       { row: 0, text: t('dnaTotal', { sum: total, total: metaDna() }) },
       { row: 1, text: pieces.join(' + ') },
     ];
-    if (won) rows.push({ row: 2, text: t('dnaCoinsLine', { coins: this.coinsLeft, n: this.dnaParts.coins }) });
+    // Строка про остаток монет — только при ненулевой добавке (решение владельца 15 октября 2026: «остаток монет 47 → +0 очков ДНК» ничего не говорит)
+    if (won && this.dnaParts.coins > 0) rows.push({ row: 2, text: t('dnaCoinsLine', { coins: this.coinsLeft, n: this.dnaParts.coins }) });
+    else {
+      const leak = this.leakLine();
+      if (leak) rows.push({ row: 2, text: leak });
+    }
     if (this.dnaReplay) rows.push({ row: 3, text: t('dnaReplayNote', { k: Math.round(CONFIG.meta.dna.replayFactor * 100) }) });
     this.endDnaLines = rows.map((r) => r.text);
     this.showOverlay(won ? t('victory') : t('gameOver'), TEXT_COLORS.accent, t('killed', { n: this.kills }), rows);
     if (won) this.drawStars(this.stars);
     this.addEndButtons(won);
+  }
+
+  /** Строка проигрыша: порода, отнявшая больше всего жизней, и открытые у игрока башни, которые бьют её (по таблице альманаха, не больше трёх); null — жизни никто не отнял. */
+  private leakLine(): string | null {
+    let top: BacteriumKind | null = null;
+    let most = 0;
+    for (const kind of KINDS) {
+      const n = this.livesLostByKind[kind] ?? 0;
+      if (n > most) {
+        most = n;
+        top = kind;
+      }
+    }
+    if (top === null) return null;
+    const cap = (id: string): string => id.charAt(0).toUpperCase() + id.slice(1);
+    const kind = t(`bacName${cap(top)}` as TextKey);
+    const n = Math.max(1, Math.round(most));
+    const towers = ALMANAC_BEATEN_BY[top].filter((id) => isTowerOpen(id)).slice(0, 3).map((id) => t(`tower${cap(id)}` as TextKey));
+    return towers.length > 0 ? t('loseLeakLine', { kind, n, towers: towers.join(', ') }) : t('loseLeakOnly', { kind, n });
   }
 
   /**
@@ -1817,13 +1885,18 @@ export class GameScene extends Phaser.Scene {
   }
 
   private addEndButton(x: number, y: number, w: number, h: number, label: string, fill: number, line: number, onTap: () => void, fontSize = 34): { x: number; y: number; w: number; h: number } {
+    return this.addLabeledButton(x, y, w, h, label, fill, line, onTap, fontSize).rect;
+  }
+
+  /** Кнопка затемнения вместе с её надписью (надпись нужна кнопкам, что меняют подпись по тапу, — «Звук: вкл / выкл»). */
+  private addLabeledButton(x: number, y: number, w: number, h: number, label: string, fill: number, line: number, onTap: () => void, fontSize = 34): { rect: { x: number; y: number; w: number; h: number }; label: Phaser.GameObjects.Text } {
     const g = this.add.graphics();
     g.fillStyle(fill, 1).fillRoundedRect(x - w / 2, y - h / 2, w, h, 18);
     g.lineStyle(4, line, 1).strokeRoundedRect(x - w / 2, y - h / 2, w, h, 18);
     const text = this.add.text(x, y, label, this.textStyle(fontSize)).setOrigin(0.5);
     const zone = this.add.zone(x, y, w, h).setInteractive({ useHandCursor: true }).on('pointerdown', onTap);
     this.overlay?.add([g, text, zone]);
-    return { x, y, w, h };
+    return { rect: { x, y, w, h }, label: text };
   }
 
   /** Затемнение с надписью: заголовок, вторая строка и (конец уровня) до четырёх строк очков ДНК: итог, из чего сложился, монеты, пометка пройденного уровня. */
@@ -1841,7 +1914,9 @@ export class GameScene extends Phaser.Scene {
     ];
     for (const { row, text } of extra) {
       const r = rows[row];
-      items.push(this.add.text(W / 2, H / 2 + r.y, text, this.textStyle(r.size, r.color)).setOrigin(0.5));
+      const line = this.add.text(W / 2, H / 2 + r.y, text, this.textStyle(r.size, r.color)).setOrigin(0.5);
+      if (line.width > W - 100) line.setScale((W - 100) / line.width); // длинная строка (названия бактерий и башен) сжимается, а не выходит за экран
+      items.push(line);
     }
     let bottom = 0;
     let maxWidth = 0;
@@ -1965,6 +2040,10 @@ export class GameScene extends Phaser.Scene {
       menuButton: this.menuButton ? { ...this.menuButton } : null,
       pauseMenuButton: this.pauseMenuButton ? { ...this.pauseMenuButton } : null,
       pauseAlmanacButton: this.pauseAlmanacButton ? { ...this.pauseAlmanacButton } : null,
+      pauseSoundButton: this.pauseSoundButton ? { ...this.pauseSoundButton } : null,
+      pauseRestartButton: this.pauseRestartButton ? { ...this.pauseRestartButton } : null,
+      // сцена могла уже закрыться (снимок запрашивают и после перехода на другой экран): тогда у неё нет камер
+      shake: { ...this.rig.shakeInfo(), cameraShaking: this.cameras?.main?.shakeEffect?.isRunning ?? false, cameraScroll: { x: this.cameras?.main?.scrollX ?? 0, y: this.cameras?.main?.scrollY ?? 0 } },
       dnaGained: this.dnaGained,
       stars: this.stars,
       starDna: this.starDna,
@@ -2011,6 +2090,7 @@ export class GameScene extends Phaser.Scene {
       })),
       selectedTower: this.selectedTower ? { col: this.selectedTower.col, row: this.selectedTower.row } : null,
       mergeMode: this.mergeMode,
+      mergeHint: this.mergeHintTowers.map((tower) => ({ col: tower.col, row: tower.row })),
       maxTowerLevel: MAX_TOWER_LEVEL,
       mergeRadiusPx: CONFIG.mergeRadiusPx,
       merges: this.merges,
@@ -2059,7 +2139,7 @@ export class GameScene extends Phaser.Scene {
         splats: this.effects.splats,
         frosts: this.effects.frosts,
       },
-      sound: { state: sfx.state, played: sfx.played },
+      sound: { state: sfx.state, played: sfx.played, muted: sfx.muted },
     };
   }
 }

@@ -41,9 +41,9 @@ jobs:
           - group: 'Экран на английском, клетки, граф (desktop-en, phone-en, rules, graph)'
             key: screen-en
             scenarios: 'desktop-en phone-en rules graph'
-          - group: 'Бактерии и бой (combat, dash, split, spore, armored, intro, danger, rotate, step-dps)'
+          - group: 'Бактерии и бой (combat, dash, split, spore, armored, intro, danger, rotate, step-dps, sound)'
             key: bacteria
-            scenarios: 'combat dash split spore armored intro danger rotate step-dps'
+            scenarios: 'combat dash split spore armored intro danger rotate step-dps sound'
           - group: 'Башни: панель, цены, Сироп, Шипучка, Шприц, Таблетка, Ампула, Антибиотик (towers, часть 1)'
             key: towers-a
             scenarios: 'towers'
@@ -55,9 +55,9 @@ jobs:
           - group: 'Карточка, слияние, мутации (card, merge, mutations, sell, special, strip, sell-gap)'
             key: card
             scenarios: 'card merge mutations sell special strip sell-gap'
-          - group: 'Альманах и числа урона (almanac, almanac-pause, damage-numbers)'
+          - group: 'Альманах, числа урона, строка проигрыша, тряска (almanac, almanac-pause, damage-numbers, lose-line, shake)'
             key: almanac
-            scenarios: 'almanac almanac-pause damage-numbers'
+            scenarios: 'almanac almanac-pause damage-numbers lose-line shake'
           - group: 'Конец уровня, экономика, игровая сборка (lose, win, restart-button, deflation, camera-fit, colors, locked, production)'
             key: end
             scenarios: 'lose-ru lose-en win-ru win-en restart-button deflation camera-fit colors locked production'

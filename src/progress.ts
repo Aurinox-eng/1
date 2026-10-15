@@ -39,6 +39,27 @@ export function setCurrentLevel(level: number): void {
   current = Math.max(1, Math.min(CONFIG.levels.count, Math.floor(level)));
 }
 
+/** Что игрок больше всего ставил в последней партии: вид башни → вклад (число башен × 2^(уровень − 1)); хранится до закрытия страницы (для метки «рекомендуем» в дереве улучшений). */
+let lastBuilt: Record<string, number> = {};
+
+export function setLastBuilt(weights: Record<string, number>): void {
+  lastBuilt = { ...weights };
+}
+
+/** Вид башни с наибольшим вкладом в последней партии (при равенстве — первый в таблице башен); null — партий ещё не было или башен не стояло. */
+export function favoriteBranch(): string | null {
+  let best: string | null = null;
+  let most = 0;
+  for (const id of Object.keys(CONFIG.towers)) {
+    const weight = lastBuilt[id] ?? 0;
+    if (weight > most) {
+      most = weight;
+      best = id;
+    }
+  }
+  return best;
+}
+
 /** С какого уровня башня открыта (1 — с самого начала). Башни, которой нет в таблице, открыта всегда. */
 export function unlockLevel(id: string): number {
   return CONFIG.levels.towerUnlock[id] ?? 1;
@@ -113,7 +134,7 @@ export function levelParams(level: number): LevelParams {
       KINDS,
       (kind) => CONFIG.types[kind as KindId].hp,
     ) as WaveRow[];
-    params = { total: rows.length, rows: rows as Partial<Record<KindId, number>>[], growth, hpFactor: 1, rewardCurve };
+    params = { total: rows.length, rows: rows as Partial<Record<KindId, number>>[], growth, hpFactor: CONFIG.levels.hpFactor[level] ?? 1, rewardCurve };
     generated.set(level, params);
   }
   return params;

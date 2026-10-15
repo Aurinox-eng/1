@@ -139,6 +139,10 @@ export interface DebugSnapshot {
   menuButton: { x: number; y: number; w: number; h: number } | null;
   pauseMenuButton: { x: number; y: number; w: number; h: number } | null;
   pauseAlmanacButton: { x: number; y: number; w: number; h: number } | null;
+  pauseSoundButton: { x: number; y: number; w: number; h: number } | null;
+  pauseRestartButton: { x: number; y: number; w: number; h: number } | null;
+  /** Тряска при потере жизни: трясётся только карта (контейнер мира), главная камера сцены (а с ней панели и надписи) не трясётся и не сдвинута. */
+  shake: { active: boolean; offset: { x: number; y: number }; mapX: number; mapY: number; cameraShaking: boolean; cameraScroll: { x: number; y: number } };
   dnaGained: number;
   /** Звёзды, заработанные в этой партии (0 — партия не выиграна или ещё идёт), и очки ДНК за впервые полученные звёзды (в `dnaGained` не входят). */
   stars: number;
@@ -178,6 +182,8 @@ export interface DebugSnapshot {
   /** Выбранная на карте башня (клетка), идёт ли режим выбора пары для слияния, сколько слияний, продаж и выборов мутаций было за партию. */
   selectedTower: { col: number; row: number } | null;
   mergeMode: boolean;
+  /** Клетки башен пары, на которую показана разовая подсказка о слиянии (пусто — подсказки нет). */
+  mergeHint: { col: number; row: number }[];
   /** Самый высокий уровень башни. */
   maxTowerLevel: number;
   /** Радиус слияния башен, пикселей между центрами (`mergeRadiusPx`). */
@@ -247,13 +253,15 @@ export interface DebugSnapshot {
     lives: number;
     /** Что написано в окошке жизней верхней полосы («18 / 20»). */
     livesText: string;
+    /** Постоянная подсказка снизу окна карты (null — не показана). */
+    hint: string | null;
   };
   /** Сколько обработчиков нажатия навешено на сцену (при перезапуске не должно расти — иначе утечка). */
   pointerListeners: number;
   /** Сколько раз сработали вспышка, частицы, «+монеты», кольцо постановки, красная вспышка потери жизни, кольцо глушения башни, взрыв шипучки, удар луча шприца и всплеск лужи. */
   effects: { flashes: number; bursts: number; popups: number; damageNumbers: number; placements: number; lifeLosses: number; zaps: number; blasts: number; beams: number; splats: number; frosts: number };
   /** Звук: состояние аудио («running» — играет) и сколько звуков сыграно с загрузки страницы. */
-  sound: { state: string; played: number };
+  sound: { state: string; played: number; muted: boolean };
 }
 
 /** Сеть дорожек для проверок: рёбра-кривые (точки в пикселях мира), входы (номера рёбер) и выходы (узлы). */

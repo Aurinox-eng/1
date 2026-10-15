@@ -58,9 +58,14 @@ on:
         description: 'Потолок реального времени одной партии бота, секунд (по умолчанию 7200; при 3600 партии на 25–30-й волне обрывались как timeout и не приносили очков ДНК)'
         type: string
         default: '7200'
+      max_parallel:
+        description: 'Сколько дорожек одной серии идёт одновременно (по умолчанию 7). На аккаунте 20 мест на все задачи: две серии по 7 дорожек занимают 14, и для проверок (smoke) остаётся не меньше 6; больше двух серий одновременно не запускать'
+        type: string
+        default: '7'
 
 permissions:
   contents: read
+  actions: read # сторож мест (slots-guard.mjs) читает список идущих запусков
 
 jobs:
   plan:
@@ -77,6 +82,7 @@ jobs:
       max_real_sec: ${{ steps.plan.outputs.max_real_sec }}
       k_total: ${{ steps.plan.outputs.k_total }}
       chunked: ${{ steps.plan.outputs.chunked }}
+      max_parallel: ${{ steps.plan.outputs.max_parallel }}
       sha: ${{ steps.sha.outputs.sha }}
     steps:
       - uses: actions/checkout@v4
@@ -100,7 +106,15 @@ jobs:
           FARM: ${{ inputs.farm }}
           MAX_REAL_SEC: ${{ inputs.max_real_sec }}
           K_TOTAL: ${{ inputs.k_total }}
+          MAX_PARALLEL: ${{ inputs.max_parallel }}
         run: node .github/scripts/ladder-plan.mjs
+      # не больше 14 мест на все длинные серии вместе (лестница и замер баланса): для smoke остаётся не меньше 6 мест из 20
+      - name: Сторож мест
+        env:
+          GH_TOKEN: ${{ github.token }}
+          LANES_JSON: ${{ steps.plan.outputs.lanes }}
+          MAX_PARALLEL: ${{ steps.plan.outputs.max_parallel }}
+        run: node .github/scripts/slots-guard.mjs
 
   l01:
     name: Уровень 1
@@ -121,6 +135,7 @@ jobs:
       k_total: ${{ needs.plan.outputs.k_total }}
       chunked: ${{ needs.plan.outputs.chunked }}
       budget_sec: ${{ inputs.budget_sec || '19800' }}
+      max_parallel: ${{ needs.plan.outputs.max_parallel }}
 
   l02:
     name: Уровень 2
@@ -141,6 +156,7 @@ jobs:
       k_total: ${{ needs.plan.outputs.k_total }}
       chunked: ${{ needs.plan.outputs.chunked }}
       budget_sec: ${{ inputs.budget_sec || '19800' }}
+      max_parallel: ${{ needs.plan.outputs.max_parallel }}
 
   l03:
     name: Уровень 3
@@ -161,6 +177,7 @@ jobs:
       k_total: ${{ needs.plan.outputs.k_total }}
       chunked: ${{ needs.plan.outputs.chunked }}
       budget_sec: ${{ inputs.budget_sec || '19800' }}
+      max_parallel: ${{ needs.plan.outputs.max_parallel }}
 
   l04:
     name: Уровень 4
@@ -181,6 +198,7 @@ jobs:
       k_total: ${{ needs.plan.outputs.k_total }}
       chunked: ${{ needs.plan.outputs.chunked }}
       budget_sec: ${{ inputs.budget_sec || '19800' }}
+      max_parallel: ${{ needs.plan.outputs.max_parallel }}
 
   l05:
     name: Уровень 5
@@ -201,6 +219,7 @@ jobs:
       k_total: ${{ needs.plan.outputs.k_total }}
       chunked: ${{ needs.plan.outputs.chunked }}
       budget_sec: ${{ inputs.budget_sec || '19800' }}
+      max_parallel: ${{ needs.plan.outputs.max_parallel }}
 
   l06:
     name: Уровень 6
@@ -221,6 +240,7 @@ jobs:
       k_total: ${{ needs.plan.outputs.k_total }}
       chunked: ${{ needs.plan.outputs.chunked }}
       budget_sec: ${{ inputs.budget_sec || '19800' }}
+      max_parallel: ${{ needs.plan.outputs.max_parallel }}
 
   l07:
     name: Уровень 7
@@ -241,6 +261,7 @@ jobs:
       k_total: ${{ needs.plan.outputs.k_total }}
       chunked: ${{ needs.plan.outputs.chunked }}
       budget_sec: ${{ inputs.budget_sec || '19800' }}
+      max_parallel: ${{ needs.plan.outputs.max_parallel }}
 
   l08:
     name: Уровень 8
@@ -261,6 +282,7 @@ jobs:
       k_total: ${{ needs.plan.outputs.k_total }}
       chunked: ${{ needs.plan.outputs.chunked }}
       budget_sec: ${{ inputs.budget_sec || '19800' }}
+      max_parallel: ${{ needs.plan.outputs.max_parallel }}
 
   l09:
     name: Уровень 9
@@ -281,6 +303,7 @@ jobs:
       k_total: ${{ needs.plan.outputs.k_total }}
       chunked: ${{ needs.plan.outputs.chunked }}
       budget_sec: ${{ inputs.budget_sec || '19800' }}
+      max_parallel: ${{ needs.plan.outputs.max_parallel }}
 
   l10:
     name: Уровень 10
@@ -301,6 +324,7 @@ jobs:
       k_total: ${{ needs.plan.outputs.k_total }}
       chunked: ${{ needs.plan.outputs.chunked }}
       budget_sec: ${{ inputs.budget_sec || '19800' }}
+      max_parallel: ${{ needs.plan.outputs.max_parallel }}
 
   report:
     name: Итоговая таблица
