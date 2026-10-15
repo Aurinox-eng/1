@@ -8,6 +8,8 @@ export default defineConfig({
     outDir: 'dist',
     // Phaser весит больше 500 КБ — это нормально, предупреждение не нужно.
     chunkSizeWarningLimit: 2000,
+    // Лицензии пакетов, попавших в сборку (Phaser — MIT, требует сохранять текст лицензии), кладутся в dist/licenses.md.
+    license: { fileName: 'licenses.md' },
   },
   server: { port: 5173 },
 });
