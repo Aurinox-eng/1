@@ -7202,6 +7202,8 @@ async function runMenuFlow(browser, baseUrl) {
     const app = await openMenu(context, baseUrl, p, { isTouch: device.hasTouch });
     let u = await app.ui();
     check(`${p} игра открывается на главном меню: название «${TITLES[lang]}», кнопки «Играть» и «Улучшения» внутри экрана и не налезают друг на друга`, u.texts[0] === TITLES[lang] && insideScreen(u.buttons.play) && insideScreen(u.buttons.upgrades) && !overlaps(u.buttons.play, u.buttons.upgrades), JSON.stringify(u));
+    const cr = u.labels && u.labels.copyright;
+    check(`${p} строка «© 2026 Aurinox» внизу меню (одинаковая на русском и английском), внутри экрана и не перекрывает кнопки`, !!cr && readI18n('copyright')[li] === '© 2026 Aurinox' && insideScreen(cr) && !overlaps(cr, u.buttons.play) && !overlaps(cr, u.buttons.upgrades) && !overlaps(cr, u.buttons.almanac), JSON.stringify({ cr, buttons: u.buttons }));
     await shot(app.page, `menu-main-${deviceKey}-${lang}`);
 
     await app.tapRect(u.buttons.play);

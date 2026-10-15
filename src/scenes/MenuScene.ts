@@ -5,7 +5,7 @@ import { metaDna } from '../meta';
 import { addButton, setScreenInfo, textStyle } from '../screens';
 import { COLORS, TEXT_COLORS } from '../theme';
 
-const { width: W } = CONFIG.screen;
+const { width: W, height: H } = CONFIG.screen;
 
 /** Главное меню (этап 5, docs/stage-5-plan.md): название, очки ДНК, кнопки «Играть» (выбор уровня) и «Улучшения». */
 export class MenuScene extends Phaser.Scene {
@@ -40,6 +40,12 @@ export class MenuScene extends Phaser.Scene {
       line: 0x4a5c82,
       onTap: () => this.scene.start('Almanac', { from: 'menu' }),
     });
-    setScreenInfo(() => (this.scene.isActive() ? { scene: 'menu', buttons: { play, upgrades, almanac }, texts: [title.text, balance.text] } : null));
+    // Знак авторского права внизу по центру: ниже кнопки «Альманах» (низ — y 678), над краем экрана остаётся запас
+    const copyright = this.add.text(W / 2, H - 18, t('copyright'), textStyle(20, TEXT_COLORS.soft, false)).setOrigin(0.5);
+    setScreenInfo(() =>
+      this.scene.isActive()
+        ? { scene: 'menu', buttons: { play, upgrades, almanac }, texts: [title.text, balance.text], labels: { copyright: { x: copyright.x, y: copyright.y, w: copyright.width, h: copyright.height } } }
+        : null,
+    );
   }
 }

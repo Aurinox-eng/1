@@ -29,6 +29,8 @@ export interface ScreenInfo {
   buttons: Record<string, Rect>;
   texts: string[];
   levels?: LevelCardInfo[];
+  /** Надписи без нажатия (например, строка об авторском праве в меню): центр и размер на экране игры. */
+  labels?: Record<string, Rect>;
 }
 
 declare global {
