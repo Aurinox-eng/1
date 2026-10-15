@@ -957,6 +957,32 @@ async function pollUntil(page, predicate, timeoutMs, pollMs = 35) {
 
 let WORLD = null; // строится один раз по сети дорожек из первой партии
 
+/**
+ * Сверка фактических чисел роста прочности уровня (levelGrowth из игры) с тем, что задал --cfg для ЭТОГО уровня: levels.specs.<номер уровня − 1>.growth.*, levels.hpFactor.<уровень>,
+ * для уровня 1 — waves.hpGrowth*, waves.level1HpFactor; waves.hpScale — для любого. Подмена другого уровня (не текущего) не проверяется. Возвращает список расхождений.
+ */
+function growthMismatches(lg, level) {
+  const out = [];
+  const same = (a, b) => Number.isFinite(a) && Math.abs(a - b) <= 1e-9;
+  for (const [path, value] of CFG_ITEMS) {
+    let actual;
+    let m = /^levels\.specs\.(\d+)\.growth\.(perWave|fromWave|latePerWave|lateFromWave)$/.exec(path);
+    if (m) {
+      if (Number(m[1]) !== level - 1) continue;
+      actual = lg[m[2]];
+    } else if ((m = /^levels\.hpFactor\.(\d+)$/.exec(path))) {
+      if (Number(m[1]) !== level) continue;
+      actual = lg.hpFactor;
+    } else if (level === 1 && (m = /^waves\.hpGrowth(PerWave|FromWave|LatePerWave|LateFromWave)$/.exec(path))) {
+      actual = lg[m[1].charAt(0).toLowerCase() + m[1].slice(1)];
+    } else if (level === 1 && path === 'waves.level1HpFactor') actual = lg.hpFactor;
+    else if (path === 'waves.hpScale') actual = lg.hpScale;
+    else continue;
+    if (!same(actual, value)) out.push(`${path} задано ${value}, в игре ${actual}`);
+  }
+  return out;
+}
+
 /** Играет одну партию. Возвращает запись о партии. Бросает FatalConsole (ошибка консоли / «cfg:»), остальные ошибки — наверх. */
 async function playGame(browser, baseUrl, profile, run, metaLevels = null, salt = '', level = LEVEL, extraQuery = '') {
   applyMetaToTable(metaLevels);
@@ -986,6 +1012,7 @@ async function playGame(browser, baseUrl, profile, run, metaLevels = null, salt 
     if (problems.length) throw new FatalConsole([...new Set(problems)].slice(0, 8).join('\n   '));
   };
 
+  let levelGrowth = null;
   const realStart = Date.now();
   try {
     await page.goto(`${baseUrl}?qa&speed=${SPEED}${args.canvas ? '&canvas' : ''}${CFG_STRING ? `&cfg=${CFG_STRING}` : ''}&level=${level}${level > 1 ? '&levelwaves' : ''}${metaLevels ? `&meta=${Object.entries(metaLevels).map(([id, n]) => `${id}:${n}`).join(',')}` : ''}${extraQuery}`, { waitUntil: 'load' });
@@ -1015,6 +1042,14 @@ async function playGame(browser, baseUrl, profile, run, metaLevels = null, salt 
     };
     s = await closePlaques();
     if (s.state !== 'playing') throw new Error(`После закрытия плашек игра не в состоянии «playing», а «${s.state}»`);
+
+    // Защита от тихой подмены: фактические числа роста прочности уровня (из игры) — в журнал; те из них, что задал --cfg, сверяются с фактом, расхождение останавливает замер
+    levelGrowth = s.levelGrowth ?? null;
+    if (levelGrowth) {
+      console.log(`  рост уровня ${levelGrowth.level} в игре: perWave ${levelGrowth.perWave}, fromWave ${levelGrowth.fromWave}, latePerWave ${levelGrowth.latePerWave}, lateFromWave ${levelGrowth.lateFromWave}, hpFactor ${levelGrowth.hpFactor}, hpScale ${levelGrowth.hpScale}`);
+      const mismatch = growthMismatches(levelGrowth, level);
+      if (mismatch.length) throw new FatalConsole(`Расхождение чисел уровня ${level} с --cfg (подмена не дошла или попала не туда): ${mismatch.join('; ')}`);
+    }
 
     if (!WORLD) {
       const graph = await page.evaluate(() => window.__pvb.getGraph());
@@ -1350,6 +1385,7 @@ async function playGame(browser, baseUrl, profile, run, metaLevels = null, salt 
       minLives,
       lifeLossWaves,
       lifeLossKinds,
+      levelGrowth,
       leakLives,
       stealthLives: leakLives.stealth ?? 0,
       kills: last.kills,
