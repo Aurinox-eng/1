@@ -139,6 +139,7 @@ export interface DebugSnapshot {
   menuButton: { x: number; y: number; w: number; h: number } | null;
   pauseMenuButton: { x: number; y: number; w: number; h: number } | null;
   pauseAlmanacButton: { x: number; y: number; w: number; h: number } | null;
+  pauseSoundButton: { x: number; y: number; w: number; h: number } | null;
   dnaGained: number;
   /** Звёзды, заработанные в этой партии (0 — партия не выиграна или ещё идёт), и очки ДНК за впервые полученные звёзды (в `dnaGained` не входят). */
   stars: number;
@@ -257,7 +258,7 @@ export interface DebugSnapshot {
   /** Сколько раз сработали вспышка, частицы, «+монеты», кольцо постановки, красная вспышка потери жизни, кольцо глушения башни, взрыв шипучки, удар луча шприца и всплеск лужи. */
   effects: { flashes: number; bursts: number; popups: number; damageNumbers: number; placements: number; lifeLosses: number; zaps: number; blasts: number; beams: number; splats: number; frosts: number };
   /** Звук: состояние аудио («running» — играет) и сколько звуков сыграно с загрузки страницы. */
-  sound: { state: string; played: number };
+  sound: { state: string; played: number; muted: boolean };
 }
 
 /** Сеть дорожек для проверок: рёбра-кривые (точки в пикселях мира), входы (номера рёбер) и выходы (узлы). */

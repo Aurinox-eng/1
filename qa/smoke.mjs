@@ -81,6 +81,7 @@
  *                          без `&levelwaves` на любом уровне волны уровня 1 (так идут остальные проверки и бот)
  *   progress-save          сохранение версии 2 (этап 5, шаг 2): прогресс по уровням (звёзды, лучшая волна) и показанные уведомления — чтение, версия 1 без прогресса, чужие и испорченные значения, показанные уведомления остаются записанными после обновления страницы (&persistseen)
  *   stars                  звёзды: победа без потерь — три, пороги по потерянным жизням, очки ДНК только за впервые полученные звёзды, результат не ухудшается, лучшая волна при проигрыше, звёзды на экране конца уровня
+ *   sound                 звук (15 октября 2026): в стресс-сценарии одновременно звучит не больше soundMaxVoices тонов, с выключенным звуком (pvb.sound = 0) тонов нет
  *   step-dps              шаг игры и скорость (15 октября 2026): слитая Таблетка стреляет одинаково часто на ×1 и ×5 (расхождение не больше 1 %), скорострельность близка к 1000 / пауза
  *   menu-flow              главное меню и выбор уровня (этап 5, шаг 3; компьютер ru, телефон en): игра открывается на меню (`?qa&menu`), «Играть» → 10 карточек (уровень 1 открыт, остальные закрыты), тап по закрытой ничего не делает, по открытой — партия, пауза → «В меню», «Улучшения» из меню и возврат
  *   levels-lock            открытие уровней по звёздам (`&stars=`), экран конца уровня: «Следующий уровень» после победы (не на последнем уровне), «В меню», тап по «Следующий уровень» открывает уровень 2
@@ -149,7 +150,7 @@ if (['stage-1', 'stage-1b', 'stage-1b-qa', 'td-1-mockup', 'tmp'].includes(tag)) 
   process.exit(2);
 }
 
-const SCENARIOS = ['desktop-ru', 'phone-ru', 'desktop-en', 'phone-en', 'rules', 'graph', 'combat', 'dash', 'split', 'spore', 'armored', 'intro', 'lose-ru', 'lose-en', 'win-ru', 'win-en', 'towers', 'card', 'merge', 'mutations', 'sell', 'special', 'danger', 'rotate', 'production', 'fullgame', 'locked', 'strip', 'almanac', 'almanac-pause', 'damage-numbers', 'sell-gap', 'restart-button', 'deflation', 'camera-fit', 'colors', 'meta-save', 'meta-dna', 'meta-shop', 'meta-effects', 'tree-effects', 'tree-shop', 'level-waves', 'progress-save', 'stars', 'menu-flow', 'levels-lock', 'step-dps']
+const SCENARIOS = ['desktop-ru', 'phone-ru', 'desktop-en', 'phone-en', 'rules', 'graph', 'combat', 'dash', 'split', 'spore', 'armored', 'intro', 'lose-ru', 'lose-en', 'win-ru', 'win-en', 'towers', 'card', 'merge', 'mutations', 'sell', 'special', 'danger', 'rotate', 'production', 'fullgame', 'locked', 'strip', 'almanac', 'almanac-pause', 'damage-numbers', 'sell-gap', 'restart-button', 'deflation', 'camera-fit', 'colors', 'meta-save', 'meta-dna', 'meta-shop', 'meta-effects', 'tree-effects', 'tree-shop', 'level-waves', 'progress-save', 'stars', 'menu-flow', 'levels-lock', 'step-dps', 'sound']
 const only = args.only === undefined ? null : String(args.only);
 if (only !== null && !SCENARIOS.includes(only)) {
   console.error(`Неизвестный сценарий --only=${only}. Есть: ${SCENARIOS.join(', ')}`);
@@ -1884,6 +1885,75 @@ async function runStepDps(browser, baseUrl) {
   check(`${p} оба замера дошли до конца окна ${WINDOW} игровых секунд`, a.ok && b.ok, JSON.stringify(rates));
   check(`${p} выстрелов в секунду: ×1 — ${f2(a.rate)}, ×5 — ${f2(b.rate)}; расхождение ${f2((Math.abs(b.rate / a.rate - 1)) * 100)} % (допуск 1 %)`, a.ok && b.ok && Math.abs(b.rate / a.rate - 1) <= 0.01, JSON.stringify(rates));
   check(`${p} скорострельность близка к 1000 / пауза (${f2(a.theory)} в секунду): ×1 ${f2(a.rate / a.theory * 100)} %, ×5 ${f2(b.rate / b.theory * 100)} % (допуск 97…101 %)`, a.ok && b.ok && a.rate / a.theory >= 0.97 && a.rate / a.theory <= 1.01 && b.rate / b.theory >= 0.97 && b.rate / b.theory <= 1.01, JSON.stringify(rates));
+}
+
+// ================================================================== звук
+
+/** Подмена AudioContext.createOscillator: запоминает время начала и конца каждого тона (в часах аудио), чтобы посчитать, сколько тонов звучит одновременно. */
+const OSC_SPY = () => {
+  window.__osc = [];
+  const Ctor = window.AudioContext || window.webkitAudioContext;
+  if (!Ctor) return;
+  const original = Ctor.prototype.createOscillator;
+  Ctor.prototype.createOscillator = function () {
+    const osc = original.call(this);
+    const rec = { start: null, stop: null };
+    window.__osc.push(rec);
+    const start = osc.start.bind(osc);
+    const stop = osc.stop.bind(osc);
+    osc.start = (t) => {
+      rec.start = t === undefined ? this.currentTime : t;
+      return start(t);
+    };
+    osc.stop = (t) => {
+      rec.stop = t;
+      return stop(t);
+    };
+    return osc;
+  };
+};
+
+/**
+ * Звук (пункт 6 плана тестировщика, решение владельца 15 октября 2026): в стресс-сценарии (40 башен, ≈ 200 бактерий, ×3) одновременно звучит не больше `feedback.soundMaxVoices` тонов
+ * (с запасом на тоны одного составного звука); с выключенным звуком (`pvb.sound` = 0 в хранилище) не создаётся ни одного тона, а в состоянии игры muted = true.
+ */
+async function runSound(browser, baseUrl) {
+  const p = '[звук: ограничитель и выключение]';
+  const maxVoices = readConfigNumber('feedback', 'soundMaxVoices');
+  const gapMs = readConfigNumber('feedback', 'soundMinGapMs');
+  // ---- звук включён: стресс-сценарий
+  let context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
+  await context.addInitScript(OSC_SPY);
+  let game = await openGame(context, baseUrl, p, { query: '&stress', speed: 1 });
+  await game.input.tap(game.g(640, 300)); // касание запускает звук
+  await sleep(1500);
+  const before = await game.page.evaluate(() => window.__osc.length);
+  await sleep(8000);
+  const spy = await game.page.evaluate(() => window.__osc.filter((r) => r.start !== null && r.stop !== null));
+  const s = await game.state();
+  const events = spy.flatMap((r) => [[r.start, 1], [r.stop, -1]]).sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  let live = 0;
+  let peak = 0;
+  for (const [, d] of events) {
+    live += d;
+    peak = Math.max(peak, live);
+  }
+  check(`${p} стресс-сценарий: звук запущен (${s.sound.state}), за 8 с создано ${spy.length - before > 0 ? spy.length - before : spy.length} тонов`, s.sound.state === 'running' && spy.length > 20, JSON.stringify(s.sound));
+  check(`${p} одновременно звучит не больше ${maxVoices} тонов плюс запас на тоны одного составного звука (до 3): наибольшее число одновременно ${peak}`, peak <= maxVoices + 3, `пик ${peak}, тонов ${spy.length}, пауза между звуками одного вида ${gapMs} мс`);
+  await game.page.close();
+  await context.close();
+  // ---- звук выключен в хранилище
+  context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
+  await context.addInitScript(OSC_SPY);
+  await context.addInitScript(() => window.localStorage.setItem('pvb.sound', '0'));
+  game = await openGame(context, baseUrl, p, { query: '&stress', speed: 1 });
+  await game.input.tap(game.g(640, 300));
+  await sleep(4000);
+  const muted = await game.state();
+  const created = await game.page.evaluate(() => window.__osc.length);
+  check(`${p} звук выключен в хранилище: в состоянии игры muted = ${muted.sound.muted}, за 4 с в стресс-сценарии создано тонов: ${created}`, muted.sound.muted === true && created === 0, JSON.stringify({ sound: muted.sound, created }));
+  await game.page.close();
+  await context.close();
 }
 
 // ================================================================== запуск
@@ -7292,6 +7362,16 @@ async function runMenuFlow(browser, baseUrl) {
     check(`${p} игра открывается на главном меню: название «${TITLES[lang]}», кнопки «Играть» и «Улучшения» внутри экрана и не налезают друг на друга`, u.texts[0] === TITLES[lang] && insideScreen(u.buttons.play) && insideScreen(u.buttons.upgrades) && !overlaps(u.buttons.play, u.buttons.upgrades), JSON.stringify(u));
     const cr = u.labels && u.labels.copyright;
     check(`${p} строка «© 2026 Aurinox» внизу меню (одинаковая на русском и английском), внутри экрана и не перекрывает кнопки`, !!cr && readI18n('copyright')[li] === '© 2026 Aurinox' && insideScreen(cr) && !overlaps(cr, u.buttons.play) && !overlaps(cr, u.buttons.upgrades) && !overlaps(cr, u.buttons.almanac), JSON.stringify({ cr, buttons: u.buttons }));
+    check(`${p} кнопка «Звук» в углу меню внутри экрана и не налезает на другие кнопки`, !!u.buttons.sound && insideScreen(u.buttons.sound) && !overlaps(u.buttons.sound, u.buttons.play) && !overlaps(u.buttons.sound, u.buttons.upgrades) && !overlaps(u.buttons.sound, u.buttons.almanac), JSON.stringify(u.buttons));
+    await app.tapRect(u.buttons.sound);
+    await sleep(700);
+    const soundOff = await app.page.evaluate(() => window.localStorage.getItem('pvb.sound'));
+    u = await app.ui();
+    await app.tapRect(u.buttons.sound);
+    await sleep(700);
+    const soundOn = await app.page.evaluate(() => window.localStorage.getItem('pvb.sound'));
+    u = await app.ui();
+    check(`${p} тап по «Звук» в меню выключает звук (в хранилище «${soundOff}»), второй тап включает («${soundOn}»); меню остаётся на экране`, soundOff === '0' && soundOn === '1' && u && u.scene === 'menu', JSON.stringify({ soundOff, soundOn, scene: u && u.scene }));
     await shot(app.page, `menu-main-${deviceKey}-${lang}`);
 
     await app.tapRect(u.buttons.play);
@@ -8217,7 +8297,19 @@ async function runAlmanacPause(browser, baseUrl) {
     s = await waitFor(page, (x) => x.state === 'paused', 10000, 'пауза');
     await sleep(500); // тап по кнопкам паузы принимается через 0,25 с после её начала
     s = await game.state();
-    check(`${p} на паузе две кнопки: «Альманах» слева и «В меню» справа, обе внутри экрана и не налезают друг на друга`, s.pauseAlmanacButton !== null && s.pauseMenuButton !== null && insideScreen(s.pauseAlmanacButton) && insideScreen(s.pauseMenuButton) && !overlaps(s.pauseAlmanacButton, s.pauseMenuButton) && s.pauseAlmanacButton.x < s.pauseMenuButton.x, `альманах ${JSON.stringify(s.pauseAlmanacButton)}, в меню ${JSON.stringify(s.pauseMenuButton)}`);
+    check(`${p} на паузе три кнопки: сверху «Альманах» слева и «Звук» справа, ниже «В меню»; все внутри экрана и не налезают друг на друга`, s.pauseAlmanacButton !== null && s.pauseSoundButton !== null && s.pauseMenuButton !== null && [s.pauseAlmanacButton, s.pauseSoundButton, s.pauseMenuButton].every(insideScreen) && !overlaps(s.pauseAlmanacButton, s.pauseSoundButton) && !overlaps(s.pauseAlmanacButton, s.pauseMenuButton) && !overlaps(s.pauseSoundButton, s.pauseMenuButton) && s.pauseAlmanacButton.x < s.pauseSoundButton.x && s.pauseMenuButton.y > s.pauseAlmanacButton.y, `альманах ${JSON.stringify(s.pauseAlmanacButton)}, звук ${JSON.stringify(s.pauseSoundButton)}, в меню ${JSON.stringify(s.pauseMenuButton)}`);
+    // «Звук»: тап выключает звук (и запоминает в хранилище), второй тап включает; игра на паузе не возобновляется
+    const mutedBefore = s.sound.muted;
+    await game.input.tap(game.g(s.pauseSoundButton.x, s.pauseSoundButton.y));
+    await sleep(500);
+    let afterSound = await game.state();
+    const storedOff = await page.evaluate(() => window.localStorage.getItem('pvb.sound'));
+    check(`${p} тап по «Звук» выключает звук (muted ${mutedBefore} → ${afterSound.sound.muted}), записывает «0» в хранилище (${storedOff}), пауза остаётся (${afterSound.state})`, mutedBefore === false && afterSound.sound.muted === true && storedOff === '0' && afterSound.state === 'paused', JSON.stringify({ muted: afterSound.sound.muted, storedOff, state: afterSound.state }));
+    await game.input.tap(game.g(s.pauseSoundButton.x, s.pauseSoundButton.y));
+    await sleep(500);
+    afterSound = await game.state();
+    const storedOn = await page.evaluate(() => window.localStorage.getItem('pvb.sound'));
+    check(`${p} второй тап по «Звук» включает звук (muted ${afterSound.sound.muted}), в хранилище «1» (${storedOn}), пауза остаётся (${afterSound.state})`, afterSound.sound.muted === false && storedOn === '1' && afterSound.state === 'paused', JSON.stringify({ muted: afterSound.sound.muted, storedOn, state: afterSound.state }));
     await frames(page, 3);
     await shot(page, `almanac-pause-overlay-${deviceKey}-${lang}`);
     const elapsed0 = s.elapsed;
@@ -8401,6 +8493,7 @@ try {
   if (wants('damage-numbers')) await safe('[числа урона]', () => runDamageNumbers(browser, qaServer.url));
   if (wants('sell-gap')) await safe('[зазор Слить и Продать]', () => runSellGap(browser, qaServer.url));
   if (wants('levels-lock')) await safe('[открытие уровней и конец уровня]', () => runLevelsLock(browser, qaServer.url));
+  if (wants('sound')) await safe('[звук]', () => runSound(browser, qaServer.url));
   if (wants('step-dps')) await safe('[шаг игры и скорость]', () => runStepDps(browser, qaServer.url));
 } catch (error) {
   crashed = error;

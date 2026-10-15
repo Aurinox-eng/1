@@ -18,10 +18,29 @@ type ToneOptions = {
   delayMs?: number;
 };
 
+const MUTE_KEY = 'pvb.sound';
+
+/** Звук выключен игроком (кнопка «Звук» на паузе и в меню): хранится отдельным ключом, не в сохранении прогресса. */
+function loadMuted(): boolean {
+  try {
+    return window.localStorage.getItem(MUTE_KEY) === '0';
+  } catch {
+    return false;
+  }
+}
+
 class Sfx {
   private ctx: AudioContext | null = null;
+  /** Общий усилитель и компрессор перед выходом: десятки одновременных тонов поздних волн не складываются в треск. */
+  private master: AudioNode | null = null;
   /** Сколько звуков сыграно (для проверок). */
   played = 0;
+  /** Выключен ли звук игроком. */
+  muted = loadMuted();
+  /** Когда (время аудио, секунды) последний раз играл звук каждого вида частых звуков. */
+  private lastAt = new Map<string, number>();
+  /** Когда (время аудио, секунды) заканчиваются тоны, которые звучат сейчас. */
+  private ends: number[] = [];
 
   constructor() {
     // Именно эти события браузеры считают «действием игрока» (касание начинается, а разрешает звук — его окончание)
@@ -34,6 +53,32 @@ class Sfx {
     return this.ctx?.state ?? 'none';
   }
 
+  /** Включить или выключить звук (запоминается между запусками). */
+  setMuted(on: boolean): void {
+    this.muted = on;
+    try {
+      window.localStorage.setItem(MUTE_KEY, on ? '0' : '1');
+    } catch {
+      /* не страшно: просто не запомнится */
+    }
+  }
+
+  /**
+   * Пропуск частого звука: не чаще одного звука одного вида за `feedback.soundMinGapMs` и не больше `feedback.soundMaxVoices` тонов одновременно
+   * (выстрелов, попаданий и гибелей на поздних волнах — сотни в секунду). Редкие звуки (постановка, слияние, волна, победа) через пропуск не идут.
+   */
+  private gate(key: string): boolean {
+    const ctx = this.ctx;
+    if (this.muted || !ctx || ctx.state !== 'running') return false;
+    const now = ctx.currentTime;
+    const last = this.lastAt.get(key);
+    if (last !== undefined && now - last < CONFIG.feedback.soundMinGapMs / 1000) return false;
+    this.ends = this.ends.filter((end) => end > now);
+    if (this.ends.length >= CONFIG.feedback.soundMaxVoices) return false;
+    this.lastAt.set(key, now);
+    return true;
+  }
+
   private unlock(): void {
     if (CONFIG.feedback.soundVolume <= 0) return;
     try {
@@ -41,6 +86,9 @@ class Sfx {
         const Ctor = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
         if (!Ctor) return;
         this.ctx = new Ctor();
+        const compressor = this.ctx.createDynamicsCompressor();
+        compressor.connect(this.ctx.destination);
+        this.master = compressor;
       }
       if (this.ctx.state === 'suspended') void this.ctx.resume();
     } catch {
@@ -51,7 +99,7 @@ class Sfx {
   private tone({ from, to, ms, type = 'sine', gain = 1, delayMs = 0 }: ToneOptions): void {
     const ctx = this.ctx;
     const volume = CONFIG.feedback.soundVolume * gain;
-    if (!ctx || ctx.state !== 'running' || volume <= 0) return;
+    if (this.muted || !ctx || ctx.state !== 'running' || volume <= 0) return;
 
     const start = ctx.currentTime + delayMs / 1000;
     const end = start + ms / 1000;
@@ -63,14 +111,16 @@ class Sfx {
     amp.gain.setValueAtTime(0.0001, start);
     amp.gain.exponentialRampToValueAtTime(volume, start + 0.006);
     amp.gain.exponentialRampToValueAtTime(0.0001, end);
-    osc.connect(amp).connect(ctx.destination);
+    osc.connect(amp).connect(this.master ?? ctx.destination);
     osc.start(start);
     osc.stop(end + 0.02);
+    this.ends.push(end + 0.02);
     this.played++;
   }
 
   /** Выстрел башни: короткий тихий «пуф» (выстрелов много, поэтому тише остальных звуков). У каждой башни свой тон. */
   shoot(tower: 'pill' | 'syrup' | 'fizz' | 'syringe' | 'ampule' | 'antibiotic' | 'lamp' | 'vitamin' | 'frost' | 'patch' = 'pill'): void {
+    if (!this.gate(`shoot:${tower}`)) return;
     if (tower === 'syrup') this.tone({ from: 220, to: 330, ms: 90, type: 'sine', gain: 0.45 });
     else if (tower === 'fizz') this.tone({ from: 160, to: 90, ms: 110, type: 'triangle', gain: 0.5 });
     else if (tower === 'ampule') this.tone({ from: 2200, to: 500, ms: 160, type: 'sine', gain: 0.4 });
@@ -84,6 +134,7 @@ class Sfx {
 
   /** Лужа сиропа шлёпнулась на дорожку: короткое «плюх». */
   splash(): void {
+    if (!this.gate('splash')) return;
     this.tone({ from: 260, to: 120, ms: 140, type: 'sine', gain: 0.5 });
     this.tone({ from: 480, to: 200, ms: 90, type: 'triangle', gain: 0.25, delayMs: 30 });
   }
@@ -119,11 +170,13 @@ class Sfx {
 
   /** Удар луча шприца: быстрый высокий «вжик» (на каждый удар очереди). */
   zap(): void {
+    if (!this.gate('zap')) return;
     this.tone({ from: 2200, to: 700, ms: 110, type: 'sawtooth', gain: 0.22 });
   }
 
   /** Взрыв шипучки: низкий «бум» с шипением. */
   blast(): void {
+    if (!this.gate('blast')) return;
     this.tone({ from: 140, to: 50, ms: 220, type: 'sawtooth', gain: 0.6 });
     this.tone({ from: 900, to: 300, ms: 150, type: 'square', gain: 0.15, delayMs: 20 });
   }
@@ -131,15 +184,18 @@ class Sfx {
   /** Попадание, не добившее бактерию: короткий «тик». Тон зависит от типа (бронированная — глухой «клац»). */
   hit(kind: string): void {
     if (kind === 'armored' || kind === 'giant') {
+      if (!this.gate('hit:armor')) return;
       this.tone({ from: 260, to: 170, ms: 90, type: 'square', gain: 0.5 });
       return;
     }
+    if (!this.gate('hit')) return;
     const pitch = ({ coccus: 520, rod: 430, splitter: 480, spore: 720, swarm: 880, runner: 640, healer: 360, slick: 400, regen: 340, commander: 560, brood: 300, leaper: 760, phago: 330, stealth: 400, toxin: 280, mutant: 450, parasite: 620 } as Record<string, number>)[kind] ?? 500;
     this.tone({ from: pitch, to: pitch * 0.6, ms: 70, type: 'triangle', gain: 0.8 });
   }
 
   /** Бактерия уничтожена: яркий «дзинь». */
   destroy(): void {
+    if (!this.gate('destroy')) return;
     this.tone({ from: 700, to: 1400, ms: 110, type: 'triangle' });
     this.tone({ from: 1400, to: 2100, ms: 90, gain: 0.6, delayMs: 60 });
   }
@@ -163,6 +219,7 @@ class Sfx {
 
   /** Делящаяся распалась на кокков: «поп-поп». */
   split(): void {
+    if (!this.gate('split')) return;
     this.tone({ from: 330, to: 130, ms: 130, type: 'triangle' });
     this.tone({ from: 520, to: 220, ms: 90, gain: 0.7, delayMs: 45 });
   }
@@ -176,6 +233,7 @@ class Sfx {
 
   /** Спора заглушила башню: низкий «бззз». */
   disabled(): void {
+    if (!this.gate('disabled')) return;
     this.tone({ from: 140, to: 90, ms: 220, type: 'sawtooth', gain: 0.45 });
   }
 

@@ -219,6 +219,7 @@ export class GameScene extends Phaser.Scene {
   private menuButton: { x: number; y: number; w: number; h: number } | null = null;
   private pauseMenuButton: { x: number; y: number; w: number; h: number } | null = null;
   private pauseAlmanacButton: { x: number; y: number; w: number; h: number } | null = null;
+  private pauseSoundButton: { x: number; y: number; w: number; h: number } | null = null;
   private dnaGained = 0;
   private dnaAwarded = false;
   /** Уровень уже был пройден до этой партии: очки за волны — доля `meta.dna.replayFactor`. */
@@ -312,6 +313,7 @@ export class GameScene extends Phaser.Scene {
     this.menuButton = null;
     this.pauseMenuButton = null;
     this.pauseAlmanacButton = null;
+    this.pauseSoundButton = null;
     setScreenInfo(null);
     this.dnaGained = 0;
     this.stars = 0;
@@ -1614,7 +1616,7 @@ export class GameScene extends Phaser.Scene {
     if (isPortraitPhone()) return;
     const now = performance.now();
     // Тап по кнопке «В меню» на паузе игру не возобновляет (кнопка сама уводит в меню)
-    for (const b of [this.pauseMenuButton, this.pauseAlmanacButton]) {
+    for (const b of [this.pauseMenuButton, this.pauseAlmanacButton, this.pauseSoundButton]) {
       if (this.state === 'paused' && b && pointer && Math.abs(pointer.x - b.x) <= b.w / 2 && Math.abs(pointer.y - b.y) <= b.h / 2) return;
     }
     if (this.state === 'paused' && now >= this.resumeAllowedAt) this.togglePause();
@@ -1646,14 +1648,21 @@ export class GameScene extends Phaser.Scene {
       this.resumeAllowedAt = performance.now() + 250;
       this.ghost.setVisible(false);
       this.showOverlay(t('paused'), TEXT_COLORS.accent, t('tapToResume'));
-      this.pauseAlmanacButton = this.addEndButton(W / 2 - 180, H / 2 + 190, 320, 76, t('almanacBtn'), 0x2a3550, 0x4a5c82, () => this.openAlmanac());
-      this.pauseMenuButton = this.addEndButton(W / 2 + 180, H / 2 + 190, 320, 76, t('toMenu'), 0x2a3550, 0x4a5c82, () => this.leaveToMenu());
+      // Два ряда по 76 px: «Альманах» и «Звук», ниже «В меню»
+      this.pauseAlmanacButton = this.addEndButton(W / 2 - 180, H / 2 + 110, 320, 76, t('almanacBtn'), 0x2a3550, 0x4a5c82, () => this.openAlmanac());
+      const sound = this.addLabeledButton(W / 2 + 180, H / 2 + 110, 320, 76, t(sfx.muted ? 'soundOff' : 'soundOn'), 0x2a3550, 0x4a5c82, () => {
+        sfx.setMuted(!sfx.muted);
+        sound.label.setText(t(sfx.muted ? 'soundOff' : 'soundOn'));
+      }, 30);
+      this.pauseSoundButton = sound.rect;
+      this.pauseMenuButton = this.addEndButton(W / 2, H / 2 + 200, 320, 76, t('toMenu'), 0x2a3550, 0x4a5c82, () => this.leaveToMenu());
     } else if (this.state === 'paused') {
       this.state = 'playing';
       this.overlay?.destroy();
       this.overlay = null;
       this.pauseMenuButton = null;
-    this.pauseAlmanacButton = null;
+      this.pauseAlmanacButton = null;
+      this.pauseSoundButton = null;
     }
   }
 
@@ -1864,13 +1873,18 @@ export class GameScene extends Phaser.Scene {
   }
 
   private addEndButton(x: number, y: number, w: number, h: number, label: string, fill: number, line: number, onTap: () => void, fontSize = 34): { x: number; y: number; w: number; h: number } {
+    return this.addLabeledButton(x, y, w, h, label, fill, line, onTap, fontSize).rect;
+  }
+
+  /** Кнопка затемнения вместе с её надписью (надпись нужна кнопкам, что меняют подпись по тапу, — «Звук: вкл / выкл»). */
+  private addLabeledButton(x: number, y: number, w: number, h: number, label: string, fill: number, line: number, onTap: () => void, fontSize = 34): { rect: { x: number; y: number; w: number; h: number }; label: Phaser.GameObjects.Text } {
     const g = this.add.graphics();
     g.fillStyle(fill, 1).fillRoundedRect(x - w / 2, y - h / 2, w, h, 18);
     g.lineStyle(4, line, 1).strokeRoundedRect(x - w / 2, y - h / 2, w, h, 18);
     const text = this.add.text(x, y, label, this.textStyle(fontSize)).setOrigin(0.5);
     const zone = this.add.zone(x, y, w, h).setInteractive({ useHandCursor: true }).on('pointerdown', onTap);
     this.overlay?.add([g, text, zone]);
-    return { x, y, w, h };
+    return { rect: { x, y, w, h }, label: text };
   }
 
   /** Затемнение с надписью: заголовок, вторая строка и (конец уровня) до четырёх строк очков ДНК: итог, из чего сложился, монеты, пометка пройденного уровня. */
@@ -2014,6 +2028,7 @@ export class GameScene extends Phaser.Scene {
       menuButton: this.menuButton ? { ...this.menuButton } : null,
       pauseMenuButton: this.pauseMenuButton ? { ...this.pauseMenuButton } : null,
       pauseAlmanacButton: this.pauseAlmanacButton ? { ...this.pauseAlmanacButton } : null,
+      pauseSoundButton: this.pauseSoundButton ? { ...this.pauseSoundButton } : null,
       dnaGained: this.dnaGained,
       stars: this.stars,
       starDna: this.starDna,
@@ -2109,7 +2124,7 @@ export class GameScene extends Phaser.Scene {
         splats: this.effects.splats,
         frosts: this.effects.frosts,
       },
-      sound: { state: sfx.state, played: sfx.played },
+      sound: { state: sfx.state, played: sfx.played, muted: sfx.muted },
     };
   }
 }
