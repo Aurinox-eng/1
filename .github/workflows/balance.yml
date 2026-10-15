@@ -73,6 +73,7 @@ on:
 
 permissions:
   contents: read
+  actions: read # сторож мест (slots-guard.mjs) читает список идущих запусков
 
 jobs:
   plan:
@@ -109,6 +110,12 @@ jobs:
           MAX_GAME_SEC: ${{ inputs.max_game_sec }}
           MAX_REAL_SEC: ${{ inputs.max_real_sec }}
         run: node .github/scripts/balance-matrix.mjs
+      # не больше 14 мест на все длинные серии вместе (лестница и замер баланса): для smoke остаётся не меньше 6 мест из 20
+      - name: Сторож мест
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PLANNED: ${{ steps.matrix.outputs.count }}
+        run: node .github/scripts/slots-guard.mjs
       - uses: actions/upload-artifact@v4
         with:
           name: plan
@@ -122,6 +129,7 @@ jobs:
     timeout-minutes: 350
     strategy:
       fail-fast: false
+      max-parallel: 7 # не больше 7 задач одной серии одновременно (две серии = 14 мест из 20, для smoke остаётся не меньше 6)
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     steps:
       - uses: actions/checkout@v4
