@@ -1758,6 +1758,37 @@ async function runProduction(browser, prodUrl, qaUrl) {
   await shot(play, 'production-tower');
   await play.close();
 
+  // Адрес с номером уровня не обходит блокировку: при пустом хранилище `?level=10` открывает главное меню, а не бой уровня 10. В игровой сборке нет интерфейса проверок,
+  // поэтому, что открылось, узнаём по картинке: сетка точек 16 × 9 на снимке, число совпадений цвета с эталонами (меню — адрес без уровня, бой — `?level=1`).
+  const gridOf = async (pg) => {
+    const vp = pg.viewportSize();
+    const pts = [];
+    for (let i = 0; i < 16; i++) for (let j = 0; j < 9; j++) pts.push([((i + 0.5) * vp.width) / 16, ((j + 0.5) * vp.height) / 9]);
+    return samplePixels(pg, await pg.screenshot(), pts);
+  };
+  const same = (a, b) => a.filter((c, i) => Math.abs(c[0] - b[i][0]) + Math.abs(c[1] - b[i][1]) + Math.abs(c[2] - b[i][2]) <= 24).length;
+  const shotAt = async (url, seed) => {
+    const ctx = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
+    if (seed) await ctx.addInitScript((save) => window.localStorage.setItem('pvb.meta', save), seed);
+    const pg = await ctx.newPage();
+    watchConsole(pg, p);
+    await pg.goto(url, { waitUntil: 'load', timeout: 90000 });
+    await sleep(2500);
+    const grid = await gridOf(pg);
+    if (!seed && url.includes('level=10')) await shot(pg, 'production-level10-locked');
+    await ctx.close();
+    return grid;
+  };
+  const menuGrid = await shotAt(prodUrl);
+  const battleGrid = await shotAt(`${prodUrl}?level=1`);
+  const lockedGrid = await shotAt(`${prodUrl}?level=10`);
+  const nineStars = JSON.stringify({ v: 3, progress: { stars: [1, 1, 1, 1, 1, 1, 1, 1, 1, 0], best: [30, 30, 30, 30, 30, 30, 30, 30, 30, 0] } });
+  const openGrid = await shotAt(`${prodUrl}?level=10`, nineStars);
+  const cells = menuGrid.length;
+  check(`${p} эталоны различимы: меню и бой совпадают по цвету не более чем в ${Math.floor(cells * 0.6)} из ${cells} точек`, same(menuGrid, battleGrid) <= cells * 0.6, `совпало ${same(menuGrid, battleGrid)} из ${cells}`);
+  check(`${p} блокировка уровней: ?level=10 при пустом хранилище открывает главное меню, а не бой уровня 10`, same(lockedGrid, menuGrid) >= cells * 0.8 && same(lockedGrid, battleGrid) <= cells * 0.6, `с меню совпало ${same(lockedGrid, menuGrid)}, с боем ${same(lockedGrid, battleGrid)} из ${cells}`);
+  check(`${p} контроль: ?level=10 при пройденных уровнях 1–9 открывает бой, а не меню`, same(openGrid, menuGrid) <= cells * 0.6, `с меню совпало ${same(openGrid, menuGrid)} из ${cells}`);
+
   // Подсказка «Поверните телефон» есть и в игровой сборке
   const portrait = await context.newPage();
   watchConsole(portrait, p);
