@@ -1509,6 +1509,11 @@ async function runLose(browser, baseUrl, lang, deviceKey, full) {
     if (cycle === 1) {
       check(`${p} без башен бактерии доходят до организма: жизни ${CFG.lives} → 0, состояние «проигрыш»`, s.state === 'lost' && s.lives === 0 && lives.join('→').startsWith(`${CFG.lives}`) && lives.every((v, i) => i === 0 || v < lives[i - 1]), `жизни по ходу: ${lives.join(' → ')}, состояние ${s.state}`);
       check(`${p} дошло до организма ≥ ${CFG.lives}, красная вспышка потери жизни сработала, убитых нет`, s.leaked >= CFG.lives && s.effects.lifeLosses >= 1 && s.effects.lifeLosses <= s.leaked && s.kills === 0, `дошло ${s.leaked}, вспышек ${s.effects.lifeLosses}, убито ${s.kills}`);
+      // Строка проигрыша: «Больше всего жизней отняла: <порода> (<число>). Бьют: <открытые башни>» (на уровне 1 открыты Таблетка и Сироп — каждая порода, что выходит в первых волнах, бьётся хотя бы одной из них)
+      const leakTemplate = readI18n('loseLeakLine')[lang === 'ru' ? 0 : 1];
+      const leakRe = new RegExp(`^${leakTemplate.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\\\{kind\\\}/, '(.+)').replace(/\\\{n\\\}/, '(\\d+)').replace(/\\\{towers\\\}/, '(.+)')}$`);
+      const leakLine = (s.endDnaLines || []).find((line) => leakRe.test(line));
+      check(`${p} на экране проигрыша есть строка «${leakTemplate}»: порода, число жизней и башни, что её бьют`, Boolean(leakLine), `строки: ${JSON.stringify(s.endDnaLines)}`);
     }
     // нажатие «Заново» сразу после проигрыша перезапуск не запускает (блокировка)
     if (!lockChecked || !lockHeld) {

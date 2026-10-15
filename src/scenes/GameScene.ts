@@ -6,6 +6,7 @@ import { Effects } from '../effects';
 import { drawStar, setScreenInfo } from '../screens';
 import { awardDna, dnaParts, coinsBonus, exposeMetaDebug, HIDDEN_SCREEN, isLevelBeaten, livesBonus, markSeen, metaDna, metaSeen, recordResult, refundBonus, rewardMul, shieldCharges, starsForLoss, waveCoinsBonus } from '../meta';
 import { num, t, type TextKey } from '../i18n';
+import { ALMANAC_BEATEN_BY } from '../almanac';
 import { aimAngle, BLOCKED_TILES, EDGES, ENTRANCE_EDGES, LEVEL, PATH_TILES, WORLD, cellKey, worldToCell } from '../level';
 import { isPortraitPhone } from '../orientation';
 import { currentLevel, isTowerOpen, levelParams, newTowersOfLevel, setCurrentLevel, unlockLevel, type LevelParams } from '../progress';
@@ -185,6 +186,8 @@ export class GameScene extends Phaser.Scene {
   private mergeMode = false;
   /** Круг слияния вокруг выбранной башни. */
   private mergeRing!: Phaser.GameObjects.Image;
+  /** Сколько жизней отняла каждая порода бактерий за партию (то, что реально списано; поглощённое щитом не считается): для строки на экране проигрыша. */
+  private livesLostByKind: Partial<Record<BacteriumKind, number>> = {};
   /** Башни пары, на которую сейчас показывается разовая подсказка о слиянии (пусто — подсказки нет). */
   private mergeHintTowers: Tower[] = [];
   private merges = 0;
@@ -287,6 +290,7 @@ export class GameScene extends Phaser.Scene {
     this.splits = 0;
     this.disables = 0;
     this.leaked = 0;
+    this.livesLostByKind = {};
     this.shots = 0;
     this.slows = 0;
     this.poisons = 0;
@@ -1160,6 +1164,7 @@ export class GameScene extends Phaser.Scene {
         sfx.place();
       } else {
         damage += bacterium.lifeDamage;
+        this.livesLostByKind[bacterium.kind] = (this.livesLostByKind[bacterium.kind] ?? 0) + bacterium.lifeDamage;
       }
       this.removeBacterium(bacterium);
     }
@@ -1800,11 +1805,34 @@ export class GameScene extends Phaser.Scene {
       { row: 1, text: pieces.join(' + ') },
     ];
     if (won) rows.push({ row: 2, text: t('dnaCoinsLine', { coins: this.coinsLeft, n: this.dnaParts.coins }) });
+    else {
+      const leak = this.leakLine();
+      if (leak) rows.push({ row: 2, text: leak });
+    }
     if (this.dnaReplay) rows.push({ row: 3, text: t('dnaReplayNote', { k: Math.round(CONFIG.meta.dna.replayFactor * 100) }) });
     this.endDnaLines = rows.map((r) => r.text);
     this.showOverlay(won ? t('victory') : t('gameOver'), TEXT_COLORS.accent, t('killed', { n: this.kills }), rows);
     if (won) this.drawStars(this.stars);
     this.addEndButtons(won);
+  }
+
+  /** Строка проигрыша: порода, отнявшая больше всего жизней, и открытые у игрока башни, которые бьют её (по таблице альманаха, не больше трёх); null — жизни никто не отнял. */
+  private leakLine(): string | null {
+    let top: BacteriumKind | null = null;
+    let most = 0;
+    for (const kind of KINDS) {
+      const n = this.livesLostByKind[kind] ?? 0;
+      if (n > most) {
+        most = n;
+        top = kind;
+      }
+    }
+    if (top === null) return null;
+    const cap = (id: string): string => id.charAt(0).toUpperCase() + id.slice(1);
+    const kind = t(`bacName${cap(top)}` as TextKey);
+    const n = Math.max(1, Math.round(most));
+    const towers = ALMANAC_BEATEN_BY[top].filter((id) => isTowerOpen(id)).slice(0, 3).map((id) => t(`tower${cap(id)}` as TextKey));
+    return towers.length > 0 ? t('loseLeakLine', { kind, n, towers: towers.join(', ') }) : t('loseLeakOnly', { kind, n });
   }
 
   /**
@@ -1860,7 +1888,9 @@ export class GameScene extends Phaser.Scene {
     ];
     for (const { row, text } of extra) {
       const r = rows[row];
-      items.push(this.add.text(W / 2, H / 2 + r.y, text, this.textStyle(r.size, r.color)).setOrigin(0.5));
+      const line = this.add.text(W / 2, H / 2 + r.y, text, this.textStyle(r.size, r.color)).setOrigin(0.5);
+      if (line.width > W - 100) line.setScale((W - 100) / line.width); // длинная строка (названия бактерий и башен) сжимается, а не выходит за экран
+      items.push(line);
     }
     let bottom = 0;
     let maxWidth = 0;
