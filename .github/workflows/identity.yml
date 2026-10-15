@@ -1,0 +1,40 @@
+# Сторож адреса в коммитах: у новых коммитов, которые пришли в ветку claude/**, автор и коммитер — служебный адрес GitHub владельца (решение владельца 15 октября 2026).
+# Историю не переписываем: проверяются только коммиты из этого push (при первом push новой ветки — коммиты, которых нет в main).
+# Коммит, созданный самим GitHub (слияние в веб-интерфейсе), имеет коммитером noreply@github.com — это допустимо.
+name: Адрес в коммитах
+run-name: Адрес в коммитах · ${{ github.sha }}
+on:
+  push:
+    branches: ['claude/**']
+
+permissions:
+  contents: read
+
+jobs:
+  identity:
+    name: Адрес автора и коммитера
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Проверить адреса новых коммитов
+        env:
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.sha }}
+          OWNER_MAIL: 335224071+Aurinox-eng@users.noreply.github.com
+        run: |
+          if [ "$BEFORE" = "0000000000000000000000000000000000000000" ] || ! git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+            range="origin/main..$AFTER"
+          else
+            range="$BEFORE..$AFTER"
+          fi
+          echo "Проверяемые коммиты: $range"
+          bad=0
+          while read -r sha author committer; do
+            echo "${sha:0:7} автор=$author коммитер=$committer"
+            if [ "$author" != "$OWNER_MAIL" ]; then bad=1; echo "❌ ${sha:0:7}: автор не служебный адрес владельца"; fi
+            if [ "$committer" != "$OWNER_MAIL" ] && [ "$committer" != "noreply@github.com" ]; then bad=1; echo "❌ ${sha:0:7}: коммитер не служебный адрес владельца"; fi
+          done < <(git log --format='%H %ae %ce' "$range")
+          exit $bad
