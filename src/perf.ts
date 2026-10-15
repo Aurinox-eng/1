@@ -140,7 +140,7 @@ export function frameReport(reset = false): PerfReport {
   return report;
 }
 
-/** Число на экране: левый верхний угол поля, поверх всего. Обновляется дважды в секунду. */
+/** Число на экране: правый верхний угол (верхняя полоса справа от сердец пуста: слева там волна, монеты и жизни), поверх всего. Обновляется дважды в секунду. */
 export class FpsMeter {
   private readonly label: Phaser.GameObjects.Text;
   private shownAt = 0;
@@ -150,7 +150,8 @@ export class FpsMeter {
 
   constructor(scene: Phaser.Scene) {
     this.label = scene.add
-      .text(8, 6, '', { fontFamily: FONT, fontSize: '18px', fontStyle: 'bold', color: TEXT_COLORS.accent, stroke: TEXT_COLORS.stroke, strokeThickness: 4 })
+      .text(scene.scale.width - 8, 6, '', { fontFamily: FONT, fontSize: '18px', fontStyle: 'bold', color: TEXT_COLORS.accent, stroke: TEXT_COLORS.stroke, strokeThickness: 4 })
+      .setOrigin(1, 0)
       .setDepth(1000);
     scene.events.on(Phaser.Scenes.Events.UPDATE, this.tick, this);
     scene.events.once(Phaser.Scenes.Events.SHUTDOWN, () => scene.events.off(Phaser.Scenes.Events.UPDATE, this.tick, this));
