@@ -7046,7 +7046,7 @@ const META_LOSE_CFG = 'lives.start:1,waves.firstDelaySec:1,bacteria.baseSpeed:25
 const upgName = (id, li) => readI18n(`upg${id[0].toUpperCase()}${id.slice(1)}`)[li];
 /** Строка из i18n.ts с подставленными значениями {name}, {n}… */
 /** Начало первой строки экрана конца уровня («Очки ДНК: +N (всего …»): всё до итога «всего». */
-const totalPrefix = (sum) => i18nText('dnaTotal', 0, { sum, total: '@' }).split('@')[0];
+const totalPrefix = (sum, li = 0) => i18nText('dnaTotal', li, { sum, total: '@' }).split('@')[0];
 const i18nText = (key, li, values = {}) => Object.entries(values).reduce((s, [k, v]) => s.split(`{${k}}`).join(String(v)), readI18n(key)[li]);
 /** Узел дерева в описании экрана. */
 const nodeOf = (m, id) => m.screen.nodes.find((n) => n.id === id);
@@ -7685,7 +7685,7 @@ async function runMetaDna(browser, baseUrl) {
     // повтор (&stars=1: на уровне уже одна звезда): за волны и монеты × 0,1; победа без потерь даёт 3 звезды, новых две → 20 очков за звёзды (звёзды платятся один раз и без ×0,1)
     const want = replay ? { waves: 30, win: 0, coins: Math.floor(rawCoins * 0.1), stars: 20 } : { waves: 300, win: 15, coins: rawCoins, stars: 30 };
     const wantRows = replay ? 4 : 3;
-    check(`${p} экран победы на телефоне (${lang}, ${replay ? 'повтор пройденного уровня' : 'первая победа'}): ДНК ${JSON.stringify(want)} при остатке ${st.coinsLeft} монет, строк ${wantRows} (получено ${JSON.stringify(parts)}, строк ${st.endDnaLines.length})`, parts.waves === want.waves && parts.win === want.win && parts.coins === want.coins && parts.stars === want.stars && st.endDnaLines.length === wantRows && st.coinsLeft >= 1000 && st.endDnaLines[0].startsWith(totalPrefix(want.waves + want.win + want.coins + want.stars)), st.endDnaLines.join(' | '));
+    check(`${p} экран победы на телефоне (${lang}, ${replay ? 'повтор пройденного уровня' : 'первая победа'}): ДНК ${JSON.stringify(want)} при остатке ${st.coinsLeft} монет, строк ${wantRows} (получено ${JSON.stringify(parts)}, строк ${st.endDnaLines.length})`, parts.waves === want.waves && parts.win === want.win && parts.coins === want.coins && parts.stars === want.stars && st.endDnaLines.length === wantRows && st.coinsLeft >= 1000 && st.endDnaLines[0].startsWith(totalPrefix(want.waves + want.win + want.coins + want.stars, li)), st.endDnaLines.join(' | '));
     check(`${p} экран победы на телефоне (${lang}, ${replay ? 'повтор' : 'первая победа'}): текст кончается на ${f1(st.overlayBox.bottom)}, кнопки начинаются на ${f1(buttonsTop)} (запас ≥ 6 px), самая широкая строка ${f1(st.overlayBox.maxWidth)} ≤ ${W - 40}`, st.overlayBox.bottom + 6 <= buttonsTop && st.overlayBox.maxWidth <= W - 40, JSON.stringify(st.overlayBox));
     if (!replay) {
       // телефон повернули вертикально прямо на экране победы: игра рассчитана на горизонтальное положение, поверх неё подсказка «Поверните телефон» (снимок для владельца)
