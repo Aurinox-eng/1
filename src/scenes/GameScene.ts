@@ -185,6 +185,8 @@ export class GameScene extends Phaser.Scene {
   private mergeMode = false;
   /** Круг слияния вокруг выбранной башни. */
   private mergeRing!: Phaser.GameObjects.Image;
+  /** Башни пары, на которую сейчас показывается разовая подсказка о слиянии (пусто — подсказки нет). */
+  private mergeHintTowers: Tower[] = [];
   private merges = 0;
   private sells = 0;
   private mutationsPicked = 0;
@@ -1202,8 +1204,22 @@ export class GameScene extends Phaser.Scene {
       this.panel.setHint(null); // подсказка слияния — в узкой полосе карточки (иначе плашка над карточкой закрывала бы кандидатов)
       return;
     }
+    // Разовая подсказка о слиянии: первая пара одинаковых башен рядом мигает, внизу — как её слить (пока башня не выбрана: у выбранной в карточке уже горит «Слить»)
+    this.mergeHintTowers = this.mergeHintPair();
+    for (const tower of this.towers) tower.setMergeCandidate(this.mergeHintTowers.includes(tower));
+    const mergeLine = this.mergeHintTowers.length > 0 && !this.selectedTower ? t('hintMergePair') : null;
     const info = this.selected ? this.towerInfo(this.selected) : null;
-    this.panel.setHint(info ?? (this.placedAny || this.selectedTower ? null : t('hintJunction')));
+    this.panel.setHint(info ?? mergeLine ?? (this.placedAny || this.selectedTower ? null : t('hintJunction')));
+  }
+
+  /** Первая пара одинаковых башен в радиусе слияния, пока игрок ни разу не включал «Слить» (запоминается как `h:merge` вместе с показанными уведомлениями); иначе пусто. */
+  private mergeHintPair(): Tower[] {
+    if (this.mergeMode || seenNews.has('h:merge')) return [];
+    for (const tower of this.towers) {
+      const other = this.mergeCandidates(tower)[0];
+      if (other) return [tower, other];
+    }
+    return [];
   }
 
   private towerInfo(id: TowerId): string | null {
@@ -1322,6 +1338,9 @@ export class GameScene extends Phaser.Scene {
     const candidates = this.mergeCandidates(this.selectedTower);
     if (candidates.length === 0) return;
     this.mergeMode = true;
+    rememberNews('h:merge');
+    this.mergeHintTowers = [];
+    for (const tower of this.towers) tower.setMergeCandidate(false);
     for (const tower of candidates) tower.setMergeCandidate(true);
     sfx.select();
     this.refreshCard();
@@ -2011,6 +2030,7 @@ export class GameScene extends Phaser.Scene {
       })),
       selectedTower: this.selectedTower ? { col: this.selectedTower.col, row: this.selectedTower.row } : null,
       mergeMode: this.mergeMode,
+      mergeHint: this.mergeHintTowers.map((tower) => ({ col: tower.col, row: tower.row })),
       maxTowerLevel: MAX_TOWER_LEVEL,
       mergeRadiusPx: CONFIG.mergeRadiusPx,
       merges: this.merges,

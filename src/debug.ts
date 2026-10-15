@@ -178,6 +178,8 @@ export interface DebugSnapshot {
   /** Выбранная на карте башня (клетка), идёт ли режим выбора пары для слияния, сколько слияний, продаж и выборов мутаций было за партию. */
   selectedTower: { col: number; row: number } | null;
   mergeMode: boolean;
+  /** Клетки башен пары, на которую показана разовая подсказка о слиянии (пусто — подсказки нет). */
+  mergeHint: { col: number; row: number }[];
   /** Самый высокий уровень башни. */
   maxTowerLevel: number;
   /** Радиус слияния башен, пикселей между центрами (`mergeRadiusPx`). */

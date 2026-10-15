@@ -6195,13 +6195,20 @@ async function mergeFlow(browser, baseUrl) {
   if (!F) throw new Error('на карте не нашлось шести свободных клеток');
   const price = TW.pill.price;
   await placeAt(game, 'pill', A);
-  await placeAt(game, 'pill', B);
-  await placeAt(game, 'fizz', C);
   let s = await game.state();
+  const pairText = readI18n('hintMergePair')[0];
+  check(`${p} разовая подсказка: с одной Таблеткой пары нет — подсказки о слиянии нет (пара не мигает)`, s.mergeHint.length === 0 && s.ui.hint !== pairText, `подсказка ${JSON.stringify(s.ui.hint)}, пара ${JSON.stringify(s.mergeHint)}`);
+  await placeAt(game, 'pill', B);
+  s = await game.state();
+  check(`${p} разовая подсказка: две одинаковые Таблетки рядом — внизу «${pairText}», пара мигает (${s.mergeHint.length} башни)`, s.ui.hint === pairText && s.mergeHint.length === 2 && s.mergeHint.every((c) => cellEq(c, A) || cellEq(c, B)), `подсказка ${JSON.stringify(s.ui.hint)}, пара ${JSON.stringify(s.mergeHint)}`);
+  await placeAt(game, 'fizz', C);
+  s = await game.state();
   const coins0 = s.coins;
   const placements0 = s.effects.placements;
+  check(`${p} разовая подсказка: Шипучка в пару не входит (мигают по-прежнему две Таблетки)`, s.mergeHint.length === 2 && s.mergeHint.every((c) => cellEq(c, A) || cellEq(c, B)), `пара ${JSON.stringify(s.mergeHint)}`);
 
   s = await selectPlaced(game, A);
+  check(`${p} у выбранной башни подсказка о слиянии внизу пропадает (в карточке уже горит «Слить»), а пока слияние не включали — пара продолжает мигать`, s.ui.hint !== pairText && s.mergeHint.length === 2, `подсказка ${JSON.stringify(s.ui.hint)}, пара ${JSON.stringify(s.mergeHint)}`);
   check(`${p} у Таблетки при другой Таблетке того же уровня «Слить» доступна`, s.ui.card.visible && s.ui.card.merge.enabled);
   s = await selectPlaced(game, C);
   check(`${p} у Шипучки (другого вида пары нет: Таблетка ей не пара) «Слить» недоступна`, s.ui.card.visible && !s.ui.card.merge.enabled);
@@ -6215,6 +6222,7 @@ async function mergeFlow(browser, baseUrl) {
   await shot(game.page, 'merge-01-mode');
   s = await tapCard(game, 'merge');
   check(`${p} повторный тап по той же кнопке («Отмена») выключает режим; башня осталась выбранной`, !s.mergeMode && selectedIs(s, A) && s.merges === 0);
+  check(`${p} после первого нажатия «Слить» разовая подсказка больше не показывается (внизу нет «${pairText}», пара не мигает), хотя пара осталась`, s.ui.hint !== pairText && s.mergeHint.length === 0, `подсказка ${JSON.stringify(s.ui.hint)}, пара ${JSON.stringify(s.mergeHint)}`);
   await tapCard(game, 'merge');
   await game.tapCell(...C);
   s = await game.state();
