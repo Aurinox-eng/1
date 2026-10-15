@@ -1203,7 +1203,7 @@ export class GameScene extends Phaser.Scene {
       return;
     }
     const info = this.selected ? this.towerInfo(this.selected) : null;
-    this.panel.setHint(info ?? (this.placedAny || this.selectedTower ? null : t('hintPlace')));
+    this.panel.setHint(info ?? (this.placedAny || this.selectedTower ? null : t('hintJunction')));
   }
 
   private towerInfo(id: TowerId): string | null {

@@ -375,6 +375,8 @@ export class Panel {
     lives: number;
     /** Что написано в окошке жизней верхней полосы («18 / 20»). */
     livesText: string;
+    /** Постоянная подсказка снизу окна карты (null — не показана). */
+    hint: string | null;
   } {
     const towerButtons = TOWER_IDS.map((id) => {
       const x = this.cardX(this.order.indexOf(id)) + CARD.w / 2;
@@ -391,6 +393,7 @@ export class Panel {
       card: this.card.geometry(),
       lives: this.lives,
       livesText: this.livesText.text,
+      hint: this.hintMessage,
     };
   }
 

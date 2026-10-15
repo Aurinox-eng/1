@@ -680,6 +680,32 @@ async function profileLoadAndCamera(c) {
   check(`${p} старт: волна 0 из ${CFG.waves}, никого нет, башен нет, башня не выбрана`, s0.wave === 0 && s0.waveTotal === CFG.waves && s0.spawned === 0 && s0.bacteria.length === 0 && s0.towers.length === 0 && s0.selected === null && s0.state === 'playing');
   const startCenter = startCenterPx(); // LEVEL.startCenter — в единицах сети дорожек (pathUnit 103 px), не в клетках под башню
   check(`${p} старт: приближение ${CFG.zoomStart}, камера у слияния дорожек`, Math.abs(s0.camera.zoom - CFG.zoomStart) < 0.001 && Math.abs(s0.camera.cx - startCenter.x) < 3 && Math.abs(s0.camera.cy - startCenter.y) < 3, `zoom ${f2(s0.camera.zoom)}, центр (${f1(s0.camera.cx)}; ${f1(s0.camera.cy)}), ждали (${f1(startCenter.x)}; ${f1(startCenter.y)})`);
+  // «Ствол» (узел Z, через который идут все бактерии) на старте не под плашкой «◀ Организм» (x 0–128): правее неё не меньше чем на 150 px, а все свободные клетки в радиусе
+  // 225 px от него (Таблетка 200 + радиус бактерии ≈ 25: с них достаётся до всех бактерий) целиком в окне карты и не задевают плашку; на старте горит подсказка про сходящиеся дорожки
+  const trunkEntry = Object.entries(GEO.outOf).find(([, v]) => v.length === 3);
+  const zWorld = GEO.byId.get(trunkEntry[1][0]).pts[0];
+  const zScreen = { x: VIEW_CENTER.x + (zWorld[0] - s0.camera.cx) * s0.camera.zoom, y: VIEW_CENTER.y + (zWorld[1] - s0.camera.cy) * s0.camera.zoom };
+  const CHIP = { x1: 128, y0: VIEW_CENTER.y - 17, y1: VIEW_CENTER.y + 17 };
+  const winTop = TOP_H;
+  const winBottom = H - BOTTOM_H;
+  const hiddenNearZ = [];
+  let nearZCount = 0;
+  for (let col = 0; col < LEVEL.cols; col++) {
+    for (let row = 0; row < LEVEL.rows; row++) {
+      if (GEO.isPathCell(col, row)) continue;
+      const w = GEO.center(col, row);
+      if (Math.hypot(w.x - zWorld[0], w.y - zWorld[1]) > 225) continue;
+      nearZCount++;
+      const sx = VIEW_CENTER.x + (w.x - s0.camera.cx) * s0.camera.zoom;
+      const sy = VIEW_CENTER.y + (w.y - s0.camera.cy) * s0.camera.zoom;
+      const half = (MAP.tile / 2) * s0.camera.zoom;
+      const outside = sx - half < 0 || sx + half > W || sy - half < winTop || sy + half > winBottom;
+      const underChip = sx - half < CHIP.x1 && sy + half > CHIP.y0 && sy - half < CHIP.y1;
+      if (outside || underChip) hiddenNearZ.push(`${col};${row}`);
+    }
+  }
+  check(`${p} старт: «ствол» на экране в (${f1(zScreen.x)}; ${f1(zScreen.y)}) — правее плашки «◀ Организм» (x 0…${CHIP.x1}) не меньше чем на 150 px, в окне карты; все ${nearZCount} свободных клеток в радиусе 225 px от него видны целиком и не под плашкой`, zScreen.x >= CHIP.x1 + 150 && zScreen.y > winTop && zScreen.y < winBottom && nearZCount >= 10 && hiddenNearZ.length === 0, `скрыты: ${hiddenNearZ.join(' ')}`);
+  check(`${p} старт: внизу подсказка «${readI18n('hintJunction')[lang === 'ru' ? 0 : 1]}», пока нет ни одной башни`, s0.ui.hint === readI18n('hintJunction')[lang === 'ru' ? 0 : 1], `подсказка: ${JSON.stringify(s0.ui.hint)}`);
   const rot0 = await rotateInfo(page);
   check(`${p} подсказка «Поверните телефон» в горизонтальном положении (и на компьютере) не показана`, rot0.display === 'none', `display=${rot0.display}, pointer:coarse=${rot0.coarse}`);
   const btn = s0.ui.towerButton;
@@ -721,11 +747,11 @@ async function profileLoadAndCamera(c) {
   const cam = async () => (await game.state()).camera;
   let c0 = await cam();
   // мелкими шагами (8 px): так видно, «съедает» ли порог тапа начало движения
-  // вправо: на старте слева от центра больше места, чем справа (окно карты 1280 px), влево на 200 карта упёрлась бы в край мира
-  await input.drag(g(450, 300), g(650, 300), { steps: 25, stepMs: 0 });
+  // вправо на 120: на старте до левого края мира 180 px (центр камеры на 819,5 из минимальных 640), сдвиг на 200 упёрся бы в край мира
+  await input.drag(g(450, 300), g(570, 300), { steps: 25, stepMs: 0 });
   await settle();
   let c1 = await cam();
-  check(`${p} сдвиг вправо на 200: центр камеры уходит влево ровно на 200 (карта догоняет палец сразу, порог тапа не «съедает» путь)`, Math.abs(c1.cx - c0.cx + 200 / c0.zoom) <= 3 && Math.abs(c1.cy - c0.cy) <= 3, `Δcx=${f1(c1.cx - c0.cx)}, Δcy=${f1(c1.cy - c0.cy)}`);
+  check(`${p} сдвиг вправо на 120: центр камеры уходит влево ровно на 120 (карта догоняет палец сразу, порог тапа не «съедает» путь)`, Math.abs(c1.cx - c0.cx + 120 / c0.zoom) <= 3 && Math.abs(c1.cy - c0.cy) <= 3, `Δcx=${f1(c1.cx - c0.cx)}, Δcy=${f1(c1.cy - c0.cy)}`);
   c0 = c1;
   await input.drag(g(600, 200), g(600, 400), { steps: 25, stepMs: 0 });
   await settle();
@@ -1047,6 +1073,7 @@ async function profileBattle(c) {
     if (s.kills >= 2 && shotTaken) break;
     await sleep(40);
   }
+  check(`${p} подсказка про сходящиеся дорожки после постановки башен пропала`, s.ui.hint === null, `подсказка: ${JSON.stringify(s.ui.hint)}`);
   check(`${p} бой: башни стреляют, бактерии гибнут, за каждую — монеты`, s.shots > 0 && s.kills >= 1 && s.coins === CFG.startCoins - 2 * BASE.price + s.kills * BASE.reward, `выстрелов ${s.shots}, убито ${s.kills}, монет ${s.coins}`);
   check(`${p} бой: звук запущен по касанию и играет`, s.sound.state === 'running' && s.sound.played > 0, JSON.stringify(s.sound));
   check(`${p} бой: отклик — «+монеты» и частицы на каждое убийство`, s.effects.bursts === s.kills && s.effects.popups === s.kills, `частицы ${s.effects.bursts}, «+монеты» ${s.effects.popups}, убито ${s.kills}`);
