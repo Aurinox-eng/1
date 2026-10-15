@@ -1,9 +1,10 @@
 import Phaser from 'phaser';
 import { CONFIG, type UpgradeEffect } from '../config';
-import { exposeMetaDebug, branchUnlockLevel, buyUpgrade, canBuy, isBranchOpen, isNodeOpen, metaDna, metaLevel, nextPrice, requirementMet, requirementOf, type MetaScreenInfo } from '../meta';
+import { exposeMetaDebug, branchUnlockLevel, buyUpgrade, canBuy, isBranchOpen, isLevelBeaten, isLevelOpen, isNodeOpen, metaDna, metaLevel, nextPrice, requirementMet, requirementOf, type MetaScreenInfo } from '../meta';
 import { num, t, type TextKey } from '../i18n';
 import { maxLevel, UPGRADE_IDS, type UpgradeId } from '../save';
 import { sfx } from '../sound';
+import { currentLevel } from '../progress';
 import { drawLock, setScreenInfo } from '../screens';
 import { COLORS, FONT, TEXT_COLORS } from '../theme';
 
@@ -143,7 +144,7 @@ export class UpgradesScene extends Phaser.Scene {
     this.input.on('wheel', (_p: Phaser.Input.Pointer, _o: unknown, _dx: number, dy: number) => this.setScroll(this.scrollY + dy));
 
     this.buildDetail();
-    this.addBottomButton(PLAY, t('upgPlay'), 0x2a8a4a, COLORS.merge, () => this.scene.start(this.from === 'menu' ? 'Levels' : 'Game'));
+    this.addBottomButton(PLAY, t('upgPlay'), 0x2a8a4a, COLORS.merge, () => (this.from === 'menu' ? this.scene.start('Levels') : this.scene.start('Game', { level: this.nextLevelToPlay() })));
     this.addBottomButton(MENU, t('toMenu'), 0x2a3550, 0x4a5c82, () => this.scene.start('Menu'));
     this.drawEdges();
     this.refresh();
@@ -347,5 +348,11 @@ export class UpgradesScene extends Phaser.Scene {
       strokeThickness: stroke && size > 20 ? 4 : 0,
       resolution: 2,
     };
+  }
+
+  /** Куда ведёт «Играть» с экрана конца уровня: пройденный уровень — на следующий открытый (повтор пройденного даёт лишь 10 % очков), иначе — тот же уровень заново. */
+  private nextLevelToPlay(): number {
+    const level = currentLevel();
+    return isLevelBeaten(level) && level < CONFIG.levels.count && isLevelOpen(level + 1) ? level + 1 : level;
   }
 }

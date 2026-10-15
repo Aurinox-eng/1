@@ -138,6 +138,8 @@ export class Effects {
   constructor(
     private readonly scene: Phaser.Scene,
     private readonly layer: Phaser.GameObjects.Container,
+    /** Тряска карты (миллисекунды, размах как доля окна): трясётся только карта, панели стоят. */
+    private readonly shake: (ms: number, intensity: number) => void,
   ) {
     const dot = bakeArt(scene, 'fx-dot', squareBox(DOT_R), (g) => g.fillStyle(0xffffff, 1).fillCircle(0, 0, DOT_R));
     bakeArt(scene, 'fx-disc', squareBox(DISC_R), (g) => g.fillStyle(0xffffff, 1).fillCircle(0, 0, DISC_R));
@@ -475,7 +477,7 @@ export class Effects {
     this.scene.tweens.add({ targets: flash, alpha: 0, duration: 380, onComplete: () => flash.destroy() });
     const { lifeLostShakeMs, lifeLostShakeIntensity } = CONFIG.feedback;
     if (lifeLostShakeMs > 0 && lifeLostShakeIntensity > 0) {
-      this.scene.cameras.main.shake(lifeLostShakeMs, lifeLostShakeIntensity);
+      this.shake(lifeLostShakeMs, lifeLostShakeIntensity);
     }
   }
 }

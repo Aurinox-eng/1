@@ -140,6 +140,7 @@ export interface DebugSnapshot {
   pauseMenuButton: { x: number; y: number; w: number; h: number } | null;
   pauseAlmanacButton: { x: number; y: number; w: number; h: number } | null;
   pauseSoundButton: { x: number; y: number; w: number; h: number } | null;
+  pauseRestartButton: { x: number; y: number; w: number; h: number } | null;
   dnaGained: number;
   /** Звёзды, заработанные в этой партии (0 — партия не выиграна или ещё идёт), и очки ДНК за впервые полученные звёзды (в `dnaGained` не входят). */
   stars: number;

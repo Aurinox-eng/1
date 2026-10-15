@@ -220,6 +220,7 @@ export class GameScene extends Phaser.Scene {
   private pauseMenuButton: { x: number; y: number; w: number; h: number } | null = null;
   private pauseAlmanacButton: { x: number; y: number; w: number; h: number } | null = null;
   private pauseSoundButton: { x: number; y: number; w: number; h: number } | null = null;
+  private pauseRestartButton: { x: number; y: number; w: number; h: number } | null = null;
   private dnaGained = 0;
   private dnaAwarded = false;
   /** Уровень уже был пройден до этой партии: очки за волны — доля `meta.dna.replayFactor`. */
@@ -314,6 +315,7 @@ export class GameScene extends Phaser.Scene {
     this.pauseMenuButton = null;
     this.pauseAlmanacButton = null;
     this.pauseSoundButton = null;
+    this.pauseRestartButton = null;
     setScreenInfo(null);
     this.dnaGained = 0;
     this.stars = 0;
@@ -385,7 +387,7 @@ export class GameScene extends Phaser.Scene {
 
     this.threads = this.add.graphics();
     this.projectileLayer.add(this.threads);
-    this.effects = new Effects(this, this.fxLayer);
+    this.effects = new Effects(this, this.fxLayer, (ms, intensity) => this.rig.shake(ms, intensity));
     this.buildGhost();
     this.mergeRing = ringImage(this, 0, 0, CONFIG.mergeRadiusPx, 5, COLORS.merge, 0.45).setVisible(false);
     this.ghostLayer.add(this.mergeRing);
@@ -467,6 +469,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   update(time: number, deltaMs: number): void {
+    this.rig.tickShake(Math.min(deltaMs, MAX_FRAME_MS));
     this.updateChip(time / 1000);
     if (this.state !== 'playing' || isPortraitPhone()) return;
 
@@ -1616,7 +1619,7 @@ export class GameScene extends Phaser.Scene {
     if (isPortraitPhone()) return;
     const now = performance.now();
     // Тап по кнопке «В меню» на паузе игру не возобновляет (кнопка сама уводит в меню)
-    for (const b of [this.pauseMenuButton, this.pauseAlmanacButton, this.pauseSoundButton]) {
+    for (const b of [this.pauseMenuButton, this.pauseAlmanacButton, this.pauseSoundButton, this.pauseRestartButton]) {
       if (this.state === 'paused' && b && pointer && Math.abs(pointer.x - b.x) <= b.w / 2 && Math.abs(pointer.y - b.y) <= b.h / 2) return;
     }
     if (this.state === 'paused' && now >= this.resumeAllowedAt) this.togglePause();
@@ -1648,14 +1651,17 @@ export class GameScene extends Phaser.Scene {
       this.resumeAllowedAt = performance.now() + 250;
       this.ghost.setVisible(false);
       this.showOverlay(t('paused'), TEXT_COLORS.accent, t('tapToResume'));
-      // Два ряда по 76 px: «Альманах» и «Звук», ниже «В меню»
+      // Два ряда по 76 px: «Альманах» и «Звук», ниже «Заново» и «В меню»
       this.pauseAlmanacButton = this.addEndButton(W / 2 - 180, H / 2 + 110, 320, 76, t('almanacBtn'), 0x2a3550, 0x4a5c82, () => this.openAlmanac());
       const sound = this.addLabeledButton(W / 2 + 180, H / 2 + 110, 320, 76, t(sfx.muted ? 'soundOff' : 'soundOn'), 0x2a3550, 0x4a5c82, () => {
         sfx.setMuted(!sfx.muted);
         sound.label.setText(t(sfx.muted ? 'soundOff' : 'soundOn'));
       }, 30);
       this.pauseSoundButton = sound.rect;
-      this.pauseMenuButton = this.addEndButton(W / 2, H / 2 + 200, 320, 76, t('toMenu'), 0x2a3550, 0x4a5c82, () => this.leaveToMenu());
+      this.pauseRestartButton = this.addEndButton(W / 2 - 180, H / 2 + 200, 320, 76, t('restart'), 0x2a8a4a, COLORS.merge, () => {
+        if (performance.now() >= this.resumeAllowedAt) this.scene.restart();
+      });
+      this.pauseMenuButton = this.addEndButton(W / 2 + 180, H / 2 + 200, 320, 76, t('toMenu'), 0x2a3550, 0x4a5c82, () => this.leaveToMenu());
     } else if (this.state === 'paused') {
       this.state = 'playing';
       this.overlay?.destroy();
@@ -1663,6 +1669,7 @@ export class GameScene extends Phaser.Scene {
       this.pauseMenuButton = null;
       this.pauseAlmanacButton = null;
       this.pauseSoundButton = null;
+      this.pauseRestartButton = null;
     }
   }
 
@@ -1813,7 +1820,8 @@ export class GameScene extends Phaser.Scene {
       { row: 0, text: t('dnaTotal', { sum: total, total: metaDna() }) },
       { row: 1, text: pieces.join(' + ') },
     ];
-    if (won) rows.push({ row: 2, text: t('dnaCoinsLine', { coins: this.coinsLeft, n: this.dnaParts.coins }) });
+    // Строка про остаток монет — только при ненулевой добавке (решение владельца 15 октября 2026: «остаток монет 47 → +0 очков ДНК» ничего не говорит)
+    if (won && this.dnaParts.coins > 0) rows.push({ row: 2, text: t('dnaCoinsLine', { coins: this.coinsLeft, n: this.dnaParts.coins }) });
     else {
       const leak = this.leakLine();
       if (leak) rows.push({ row: 2, text: leak });
@@ -2029,6 +2037,7 @@ export class GameScene extends Phaser.Scene {
       pauseMenuButton: this.pauseMenuButton ? { ...this.pauseMenuButton } : null,
       pauseAlmanacButton: this.pauseAlmanacButton ? { ...this.pauseAlmanacButton } : null,
       pauseSoundButton: this.pauseSoundButton ? { ...this.pauseSoundButton } : null,
+      pauseRestartButton: this.pauseRestartButton ? { ...this.pauseRestartButton } : null,
       dnaGained: this.dnaGained,
       stars: this.stars,
       starDna: this.starDna,

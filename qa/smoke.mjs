@@ -7034,6 +7034,8 @@ const META_LOSE_CFG = 'lives.start:1,waves.firstDelaySec:1,bacteria.baseSpeed:25
 /** Название улучшения на языке (li: 0 — русский, 1 — английский): ключ `upg` + id с заглавной буквы. */
 const upgName = (id, li) => readI18n(`upg${id[0].toUpperCase()}${id.slice(1)}`)[li];
 /** Строка из i18n.ts с подставленными значениями {name}, {n}… */
+/** Начало первой строки экрана конца уровня («Очки ДНК: +N (всего …»): всё до итога «всего». */
+const totalPrefix = (sum) => i18nText('dnaTotal', 0, { sum, total: '@' }).split('@')[0];
 const i18nText = (key, li, values = {}) => Object.entries(values).reduce((s, [k, v]) => s.split(`{${k}}`).join(String(v)), readI18n(key)[li]);
 /** Узел дерева в описании экрана. */
 const nodeOf = (m, id) => m.screen.nodes.find((n) => n.id === id);
@@ -7286,7 +7288,7 @@ async function runStars(browser, baseUrl) {
     const parts = r.s.dnaParts;
     const lines = r.s.endDnaLines ?? [];
     const want = [i18nText('dnaPartWaves', 0, { n: dnaTable.perWave }), i18nText('dnaPartWin', 0, { n: dnaTable.winBonus }), i18nText('dnaPartStars', 0, { n: 10 })];
-    check(`${p} экран победы: разбивка очков ДНК «${want.join(' + ')}» = ${firstWinDna}; строки «${lines.join(' | ')}»`, parts && parts.waves === dnaTable.perWave && parts.win === dnaTable.winBonus && parts.stars === 10 && parts.coins === 0 && parts.waves + parts.win + parts.stars === firstWinDna && lines.length >= 3 && lines[0].startsWith(`+${firstWinDna} `) && lines[1] === want.join(' + ') && lines[2].includes(String(r.s.coinsLeft)), JSON.stringify(parts));
+    check(`${p} экран победы: разбивка очков ДНК «${want.join(' + ')}» = ${firstWinDna}; строки «${lines.join(' | ')}»`, parts && parts.waves === dnaTable.perWave && parts.win === dnaTable.winBonus && parts.stars === 10 && parts.coins === 0 && parts.waves + parts.win + parts.stars === firstWinDna && lines.length === 2 && lines[0].startsWith(totalPrefix(firstWinDna)) && lines[1] === want.join(' + ') && !lines.includes(i18nText('dnaCoinsLine', 0, { coins: r.s.coinsLeft, n: 0 })), JSON.stringify(parts));
   }
   r = await playWin('levels.stars.maxLostFor3:-1,levels.stars.maxLostFor2:0', 'две звезды');
   check(`${p} потеряно 0 жизней при пороге двух звёзд 0 и недостижимой тройке: две звезды; за новую вторую звезду +10 (не 20)`, r.s.stars === 2 && r.s.starDna === 10 && r.m.progress.stars[0] === 2, `звёзд ${r.s.stars}, очков за звёзды ${r.s.starDna}`);
@@ -7445,6 +7447,19 @@ async function runLevelsLock(browser, baseUrl) {
   check(`${p} звёзды 1 и 3 на уровнях 1–2 открывают уровни 1, 2 и 3 (уровень открыт, когда предыдущий пройден); остальные закрыты`, open === '1110000000', `открыты: ${open}`);
   check(`${p} на карточках звёзды уровней 1–3: 1, 3, 0`, u.levels[0].stars === 1 && u.levels[1].stars === 3 && u.levels[2].stars === 0, u.levels.slice(0, 3).map((c) => c.stars).join());
   await shot(app.page, 'levels-stars');
+  // Все десять уровней открыты: «Открыто: …» и «Новая: …» не заходят на звёзды и строку «Лучшая волна» ни на одной карточке (на 5 и 6 раньше наезжали)
+  {
+    const all = await openMenu(context, baseUrl, p, { query: '&stars=1,1,1,1,1,1,1,1,1,0' });
+    let ua = await all.ui();
+    await all.tapRect(ua.buttons.play);
+    ua = await all.waitUi('levels', 'выбор уровня, все открыты');
+    const clash = ua.levels.filter((c) => c.open && c.textsBottom > c.lowerTop - 2).map((c) => `${c.level}: низ текста ${f1(c.textsBottom)} > верх нижней части ${f1(c.lowerTop)}`);
+    const backRect = ua.buttons.back;
+    const lowest = Math.max(...ua.levels.map((c) => c.rect.y + c.rect.h / 2));
+    check(`${p} карточки уровней: надписи «Открыто» и «Новая» кончаются выше звёзд на каждой из ${ua.levels.filter((c) => c.open).length} открытых карточек; карточки не заходят на кнопку «Назад» (низ ${f1(lowest)}, верх кнопки ${f1(backRect.y - backRect.h / 2)})`, ua.levels.filter((c) => c.open).length >= 9 && clash.length === 0 && lowest <= backRect.y - backRect.h / 2, clash.join('; '));
+    await shot(all.page, 'levels-all-open');
+    await all.page.close();
+  }
   await app.tapRect(u.levels[1].rect);
   const s2 = await waitFor(app.page, (x) => x.state === 'playing', 30000, 'партия уровня 2');
   check(`${p} тап по открытому уровню 2 начинает партию уровня 2`, s2.level === 2, `уровень ${s2.level}`);
@@ -7463,6 +7478,32 @@ async function runLevelsLock(browser, baseUrl) {
   s = await waitFor(win.page, (x) => x.state === 'playing' && x.level === 2 && x.elapsed < 3, 30000, 'партия уровня 2 после «Следующий уровень»');
   check(`${p} «Следующий уровень» после победы начинает партию уровня 2`, s.level === 2, `уровень ${s.level}`);
   await win.page.close();
+
+  // ---- «Играть» на экране «Улучшения» после победы ведёт на следующий открытый уровень (раньше — на тот же, повтор за 10 % очков)
+  {
+    const win2 = await openGame(context, baseUrl, p, { speed: 4, cfg: winCfg });
+    for (const cell of [FREE.a, FREE.b]) await placeSure(win2, 'pill', cell);
+    const st2 = await waitFor(win2.page, (x) => x.state === 'won', WAIT_MS, 'победа (путь через «Улучшения»)');
+    await sleep(CFG.restartLockMs + 250);
+    await win2.input.tap(win2.g(st2.upgradesButton.x, st2.upgradesButton.y));
+    await sleep(700);
+    const uu = await win2.page.evaluate(() => window.__pvbUi?.get() ?? null);
+    await win2.input.tap(win2.g(uu.buttons.play.x, uu.buttons.play.y));
+    const next = await waitFor(win2.page, (x) => x.state === 'playing' && x.elapsed < 3, 30000, 'партия после «Улучшения» → «Играть»');
+    check(`${p} «Играть» на экране «Улучшения» после победы на уровне 1 начинает уровень ${next.level} (следующий открытый), а не повтор уровня 1`, uu.scene === 'upgrades' && next.level === 2, `экран ${uu && uu.scene}, уровень ${next.level}`);
+    await win2.page.close();
+    // проигрыш: «Играть» — тот же уровень заново
+    const lose2 = await openGame(context, baseUrl, p, { speed: 4, cfg: META_LOSE_CFG, query: '&level=2' });
+    const sl2 = await waitFor(lose2.page, (x) => x.state === 'lost', WAIT_MS, 'проигрыш (путь через «Улучшения»)');
+    await sleep(CFG.restartLockMs + 250);
+    await lose2.input.tap(lose2.g(sl2.upgradesButton.x, sl2.upgradesButton.y));
+    await sleep(700);
+    const ul = await lose2.page.evaluate(() => window.__pvbUi?.get() ?? null);
+    await lose2.input.tap(lose2.g(ul.buttons.play.x, ul.buttons.play.y));
+    const again = await waitFor(lose2.page, (x) => x.state === 'playing' && x.elapsed < 3, 30000, 'партия после проигрыша → «Улучшения» → «Играть»');
+    check(`${p} «Играть» на экране «Улучшения» после проигрыша на уровне 2 начинает тот же уровень ${again.level} заново`, ul.scene === 'upgrades' && again.level === 2, `экран ${ul && ul.scene}, уровень ${again.level}`);
+    await lose2.page.close();
+  }
 
   // ---- победа на последнем уровне: «Следующего уровня» нет, «В меню» по центру
   const last = await openGame(context, baseUrl, p, { speed: 4, cfg: winCfg, query: '&level=10' });
@@ -7560,7 +7601,10 @@ async function runMetaDna(browser, baseUrl) {
   let c = await playCoins('economy.startCoins:500,meta.dna.coinsCapShare:0.5');
   let raw = rawOf(c, 0.5);
   check(`${p} победа с остатком ${Math.floor(c.coins)} монет: добавка за монеты min(⌊монеты / 50⌋, ⌊1 × 20 × 0,5⌋) = ${raw}; всего 1 × 20 + 7 + ${raw} = ${27 + raw} (начислено ${c.dnaGained})`, raw >= 3 && c.dnaParts.coins === raw && c.dnaGained === 27 + raw && c.coinsLeft === Math.floor(c.coins), JSON.stringify(c.dnaParts));
-  check(`${p} на экране победы монеты — отдельной строкой «${coinLine(c)}»`, c.endDnaLines.includes(coinLine(c)) && c.endDnaLines[0].startsWith(`+${27 + raw} `), c.endDnaLines.join(' | '));
+  check(`${p} на экране победы монеты — отдельной строкой «${coinLine(c)}»`, c.endDnaLines.includes(coinLine(c)) && c.endDnaLines[0].startsWith(totalPrefix(27 + raw)), c.endDnaLines.join(' | '));
+  const zeroCoins = await playCoins('economy.startCoins:140,meta.dna.coinsCapShare:0.5');
+  const coinsPrefix = i18nText('dnaCoinsLine', 0, { coins: '@', n: 0 }).split('@')[0];
+  check(`${p} при нулевой добавке за монеты (остаток ${Math.floor(zeroCoins.coins)} монет, за монеты ${zeroCoins.dnaParts.coins}) строки про остаток монет на экране победы нет`, zeroCoins.dnaParts.coins === 0 && !zeroCoins.endDnaLines.some((l) => l.startsWith(coinsPrefix)), zeroCoins.endDnaLines.join(' | '));
   c = await playCoins('economy.startCoins:500,meta.dna.coinsCapShare:0.1');
   check(`${p} предел добавки за монеты: при доле 0,1 не больше ⌊1 × 20 × 0,1⌋ = 2 очков (остаток ${Math.floor(c.coins)} монет дал бы ${Math.floor(Math.floor(c.coins) / 50)}), начислено за монеты ${c.dnaParts.coins}`, c.dnaParts.coins === 2 && c.dnaGained === 29, JSON.stringify(c.dnaParts));
   c = await playCoins('economy.startCoins:1500,meta.dna.coinsCapShare:0.5', '&stars=1');
@@ -7619,7 +7663,7 @@ async function runMetaDna(browser, baseUrl) {
     // повтор (&stars=1: на уровне уже одна звезда): за волны и монеты × 0,1; победа без потерь даёт 3 звезды, новых две → 20 очков за звёзды (звёзды платятся один раз и без ×0,1)
     const want = replay ? { waves: 30, win: 0, coins: Math.floor(rawCoins * 0.1), stars: 20 } : { waves: 300, win: 15, coins: rawCoins, stars: 30 };
     const wantRows = replay ? 4 : 3;
-    check(`${p} экран победы на телефоне (${lang}, ${replay ? 'повтор пройденного уровня' : 'первая победа'}): ДНК ${JSON.stringify(want)} при остатке ${st.coinsLeft} монет, строк ${wantRows} (получено ${JSON.stringify(parts)}, строк ${st.endDnaLines.length})`, parts.waves === want.waves && parts.win === want.win && parts.coins === want.coins && parts.stars === want.stars && st.endDnaLines.length === wantRows && st.coinsLeft >= 1000 && st.endDnaLines[0].startsWith(`+${want.waves + want.win + want.coins + want.stars} `), st.endDnaLines.join(' | '));
+    check(`${p} экран победы на телефоне (${lang}, ${replay ? 'повтор пройденного уровня' : 'первая победа'}): ДНК ${JSON.stringify(want)} при остатке ${st.coinsLeft} монет, строк ${wantRows} (получено ${JSON.stringify(parts)}, строк ${st.endDnaLines.length})`, parts.waves === want.waves && parts.win === want.win && parts.coins === want.coins && parts.stars === want.stars && st.endDnaLines.length === wantRows && st.coinsLeft >= 1000 && st.endDnaLines[0].startsWith(totalPrefix(want.waves + want.win + want.coins + want.stars)), st.endDnaLines.join(' | '));
     check(`${p} экран победы на телефоне (${lang}, ${replay ? 'повтор' : 'первая победа'}): текст кончается на ${f1(st.overlayBox.bottom)}, кнопки начинаются на ${f1(buttonsTop)} (запас ≥ 6 px), самая широкая строка ${f1(st.overlayBox.maxWidth)} ≤ ${W - 40}`, st.overlayBox.bottom + 6 <= buttonsTop && st.overlayBox.maxWidth <= W - 40, JSON.stringify(st.overlayBox));
     if (!replay) {
       // телефон повернули вертикально прямо на экране победы: игра рассчитана на горизонтальное положение, поверх неё подсказка «Поверните телефон» (снимок для владельца)
@@ -8349,7 +8393,18 @@ async function runAlmanacPause(browser, baseUrl) {
     await sleep(400);
     const run = await game.state();
     check(`${p} тап по экрану после альманаха возобновляет игру: state 'playing', время идёт (${f2(elapsed0)} → ${f2(run.elapsed)})`, run.state === 'playing' && run.elapsed > elapsed0, `state ${run.state}, время ${f2(run.elapsed)}`);
-    await context.close();
+    // «Заново» на паузе: ставим башню, снова пауза, тап по «Заново» — партия начинается сначала (монеты и время с нуля, башен нет), игра идёт
+    await game.towerButton();
+    await game.tapCell(...FREE.a);
+    const withTower = await game.state();
+    await game.input.tap(game.g(run.ui.pauseButton.x, run.ui.pauseButton.y));
+    await waitFor(page, (x) => x.state === 'paused', 10000, 'пауза перед «Заново»');
+    await sleep(500);
+    const pausedAgain = await game.state();
+    check(`${p} на паузе есть четвёртая кнопка «Заново» слева внизу рядом с «В меню», внутри экрана, не налезает на остальные`, pausedAgain.pauseRestartButton !== null && insideScreen(pausedAgain.pauseRestartButton) && [pausedAgain.pauseAlmanacButton, pausedAgain.pauseSoundButton, pausedAgain.pauseMenuButton].every((b) => !overlaps(pausedAgain.pauseRestartButton, b)) && pausedAgain.pauseRestartButton.x < pausedAgain.pauseMenuButton.x, JSON.stringify(pausedAgain.pauseRestartButton));
+    await game.input.tap(game.g(pausedAgain.pauseRestartButton.x, pausedAgain.pauseRestartButton.y));
+    const restarted = await waitFor(page, (x) => x.state === 'playing' && x.elapsed < 3 && x.towers.length === 0, 15000, 'партия после «Заново» с паузы');
+    check(`${p} «Заново» на паузе начинает партию сначала: башен было ${withTower.towers.length}, стало ${restarted.towers.length}, монеты ${restarted.coins} (старт ${CFG.startCoins}), время ${f2(restarted.elapsed)} с, волна ${restarted.wave}`, withTower.towers.length === 1 && restarted.towers.length === 0 && restarted.coins === CFG.startCoins && restarted.wave === 0, JSON.stringify({ towers: restarted.towers.length, coins: restarted.coins, wave: restarted.wave }));    await context.close();
   }
 }
 

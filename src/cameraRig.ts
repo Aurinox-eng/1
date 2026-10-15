@@ -8,6 +8,11 @@ export class CameraRig {
   zoom = 1;
   cx = 0;
   cy = 0;
+  /** Тряска только карты (потеря жизни): сколько миллисекунд осталась, сколько всего и размах в пикселях экрана; панели и экран конца уровня не трясутся. */
+  private shakeLeft = 0;
+  private shakeTotal = 0;
+  private shakeAmp = { x: 0, y: 0 };
+  private shakeOffset = { x: 0, y: 0 };
 
   /**
    * @param view окно, через которое видна карта (экран без верхней и нижней полос), пикселей экрана: левый верхний угол (x, y) и размер (w, h)
@@ -25,6 +30,22 @@ export class CameraRig {
     this.cx = cx;
     this.cy = cy;
     this.clampCenter();
+    this.apply();
+  }
+
+  /** Запустить тряску карты: размах — доля размеров окна карты (как у `cameras.main.shake`: 0,012 ≈ 15 px по ширине). */
+  shake(ms: number, intensity: number): void {
+    this.shakeLeft = ms;
+    this.shakeTotal = ms;
+    this.shakeAmp = { x: intensity * this.view.w, y: intensity * this.view.h };
+  }
+
+  /** Шаг тряски (вызывается каждый кадр с реальным временем кадра, мс). */
+  tickShake(deltaMs: number): void {
+    if (this.shakeLeft <= 0) return;
+    this.shakeLeft = Math.max(0, this.shakeLeft - deltaMs);
+    const k = this.shakeTotal > 0 ? this.shakeLeft / this.shakeTotal : 0;
+    this.shakeOffset = this.shakeLeft > 0 ? { x: (Math.random() * 2 - 1) * this.shakeAmp.x * k, y: (Math.random() * 2 - 1) * this.shakeAmp.y * k } : { x: 0, y: 0 };
     this.apply();
   }
 
@@ -66,6 +87,6 @@ export class CameraRig {
 
   private apply(): void {
     this.target.setScale(this.zoom);
-    this.target.setPosition(this.view.x + this.view.w / 2 - this.cx * this.zoom, this.view.y + this.view.h / 2 - this.cy * this.zoom);
+    this.target.setPosition(this.view.x + this.view.w / 2 - this.cx * this.zoom + this.shakeOffset.x, this.view.y + this.view.h / 2 - this.cy * this.zoom + this.shakeOffset.y);
   }
 }

@@ -135,7 +135,10 @@ export class AlmanacScene extends Phaser.Scene {
     const name = t(tab === 'towers' ? (`tower${key}` as TextKey) : (`bacName${key}` as TextKey));
     const line = t(tab === 'towers' ? (`almTower${key}` as TextKey) : (`almBac${key}` as TextKey));
     this.rowTexts.push(`${name}: ${line}`);
-    this.list.add(this.add.text(NAME_X, cy, name, textStyle(28)).setOrigin(0, 0.5));
+    // Длинное название («Бронированная») сжимается по ширине, чтобы не заходить на описание (оно начинается с LINE_X)
+    const nameText = this.add.text(NAME_X, cy, name, textStyle(28)).setOrigin(0, 0.5);
+    if (nameText.width > LINE_X - NAME_X - 12) nameText.setScale((LINE_X - NAME_X - 12) / nameText.width);
+    this.list.add(nameText);
     // Шипучка: под строкой — сколько целей взрыва получают полный урон (числа из config.ts); строка из i18n.ts и проверка её текста не меняются
     const limit = tab === 'towers' ? CONFIG.towers[id as TowerId].blastFullTargets : 0;
     this.list.add(this.add.text(LINE_X, limit > 0 ? cy - 14 : cy, line, { ...textStyle(22, TEXT_COLORS.main, false), fontStyle: 'normal', wordWrap: { width: LINE_W } }).setOrigin(0, 0.5));
