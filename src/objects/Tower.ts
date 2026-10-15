@@ -1073,6 +1073,9 @@ export class Tower {
   readonly remaining: number;
   /** Пауза до следующего выстрела, секунды игрового времени. */
   private cooldown = 0;
+  /** На сколько пауза «перетекла» за ноль в последнем шаге игры (секунды паузы): следующая пауза после выстрела на столько короче, поэтому скорострельность не зависит от длины шага
+   *  (а значит, от скорости игры ×1/×3/×5 и от кадров в секунду). Не копится, пока башне некуда стрелять: считается только на шаге, где пауза дошла до нуля. */
+  private overshoot = 0;
   /** Сколько секунд башня ещё заглушена (0 — работает). */
   private disabledFor = 0;
   /** Куда смотрит луч: номер направления 0…AIM_STEPS-1 (только у башен с лучом). */
@@ -1374,7 +1377,14 @@ export class Tower {
    */
   update(dt: number, bacteria: readonly Bacterium[], fire: (target: Bacterium, muzzleX: number, muzzleY: number) => boolean): void {
     // Аура Витамина рядом: пауза короче в auraMul раз (время идёт быстрее); присосавшийся паразит: длиннее в latchMul раз
-    this.cooldown = Math.max(0, this.cooldown - dt / (this.auraMul * this.latchMul));
+    const before = this.cooldown;
+    this.cooldown = before - dt / (this.auraMul * this.latchMul);
+    if (this.cooldown < 0) {
+      this.overshoot = before > 0 ? -this.cooldown : 0;
+      this.cooldown = 0;
+    } else {
+      this.overshoot = 0;
+    }
     if (this.disabledFor > 0) {
       this.disabledFor -= dt;
       this.setConeOn(false);
@@ -1403,7 +1413,7 @@ export class Tower {
       const hits = this.beamHits(bacteria);
       if (hits.length === 0) return;
       const angle = this.aimRad;
-      if (fire(hits[0], this.x + Math.cos(angle) * muzzle, this.y + Math.sin(angle) * muzzle)) this.cooldown = this.stats.cooldownMs / 1000;
+      if (fire(hits[0], this.x + Math.cos(angle) * muzzle, this.y + Math.sin(angle) * muzzle)) this.rearm();
       return;
     }
     const targets = this.pickTargets(bacteria);
@@ -1417,8 +1427,14 @@ export class Tower {
       return fire(target, this.x + Math.cos(a) * muzzle, this.y + Math.sin(a) * muzzle);
     };
     if (!shoot(targets[0])) return;
-    this.cooldown = this.stats.cooldownMs / 1000;
+    this.rearm();
     for (let i = 1; i < targets.length; i++) shoot(targets[i]);
+  }
+
+  /** Пауза после состоявшегося выстрела: полная пауза минус то, на сколько прошлый шаг игры «проскочил» нулевую отметку. */
+  private rearm(): void {
+    this.cooldown = Math.max(0, this.stats.cooldownMs / 1000 - this.overshoot);
+    this.overshoot = 0;
   }
 
   /** Лампа: смотрит на ближайшую к организму бактерию в радиусе, включает конус и по таймеру отдаёт сцене тики (каждый тик — урон всем в конусе). */

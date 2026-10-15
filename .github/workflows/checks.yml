@@ -41,9 +41,9 @@ jobs:
           - group: 'Экран на английском, клетки, граф (desktop-en, phone-en, rules, graph)'
             key: screen-en
             scenarios: 'desktop-en phone-en rules graph'
-          - group: 'Бактерии и бой (combat, dash, split, spore, armored, intro, danger, rotate)'
+          - group: 'Бактерии и бой (combat, dash, split, spore, armored, intro, danger, rotate, step-dps)'
             key: bacteria
-            scenarios: 'combat dash split spore armored intro danger rotate'
+            scenarios: 'combat dash split spore armored intro danger rotate step-dps'
           - group: 'Башни: панель, цены, Сироп, Шипучка, Шприц, Таблетка, Ампула, Антибиотик (towers, часть 1)'
             key: towers-a
             scenarios: 'towers'

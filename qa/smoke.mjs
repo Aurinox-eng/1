@@ -81,6 +81,7 @@
  *                          без `&levelwaves` на любом уровне волны уровня 1 (так идут остальные проверки и бот)
  *   progress-save          сохранение версии 2 (этап 5, шаг 2): прогресс по уровням (звёзды, лучшая волна) и показанные уведомления — чтение, версия 1 без прогресса, чужие и испорченные значения, показанные уведомления остаются записанными после обновления страницы (&persistseen)
  *   stars                  звёзды: победа без потерь — три, пороги по потерянным жизням, очки ДНК только за впервые полученные звёзды, результат не ухудшается, лучшая волна при проигрыше, звёзды на экране конца уровня
+ *   step-dps              шаг игры и скорость (15 октября 2026): слитая Таблетка стреляет одинаково часто на ×1 и ×5 (расхождение не больше 1 %), скорострельность близка к 1000 / пауза
  *   menu-flow              главное меню и выбор уровня (этап 5, шаг 3; компьютер ru, телефон en): игра открывается на меню (`?qa&menu`), «Играть» → 10 карточек (уровень 1 открыт, остальные закрыты), тап по закрытой ничего не делает, по открытой — партия, пауза → «В меню», «Улучшения» из меню и возврат
  *   levels-lock            открытие уровней по звёздам (`&stars=`), экран конца уровня: «Следующий уровень» после победы (не на последнем уровне), «В меню», тап по «Следующий уровень» открывает уровень 2
  *   restart-button         конец уровня (проигрыш и победа, компьютер ru и телефон en): есть кнопка «Заново» (endButton), тапы мимо неё не перезапускают, тап по ней — перезапускает
@@ -148,7 +149,7 @@ if (['stage-1', 'stage-1b', 'stage-1b-qa', 'td-1-mockup', 'tmp'].includes(tag)) 
   process.exit(2);
 }
 
-const SCENARIOS = ['desktop-ru', 'phone-ru', 'desktop-en', 'phone-en', 'rules', 'graph', 'combat', 'dash', 'split', 'spore', 'armored', 'intro', 'lose-ru', 'lose-en', 'win-ru', 'win-en', 'towers', 'card', 'merge', 'mutations', 'sell', 'special', 'danger', 'rotate', 'production', 'fullgame', 'locked', 'strip', 'almanac', 'almanac-pause', 'damage-numbers', 'sell-gap', 'restart-button', 'deflation', 'camera-fit', 'colors', 'meta-save', 'meta-dna', 'meta-shop', 'meta-effects', 'tree-effects', 'tree-shop', 'level-waves', 'progress-save', 'stars', 'menu-flow', 'levels-lock']
+const SCENARIOS = ['desktop-ru', 'phone-ru', 'desktop-en', 'phone-en', 'rules', 'graph', 'combat', 'dash', 'split', 'spore', 'armored', 'intro', 'lose-ru', 'lose-en', 'win-ru', 'win-en', 'towers', 'card', 'merge', 'mutations', 'sell', 'special', 'danger', 'rotate', 'production', 'fullgame', 'locked', 'strip', 'almanac', 'almanac-pause', 'damage-numbers', 'sell-gap', 'restart-button', 'deflation', 'camera-fit', 'colors', 'meta-save', 'meta-dna', 'meta-shop', 'meta-effects', 'tree-effects', 'tree-shop', 'level-waves', 'progress-save', 'stars', 'menu-flow', 'levels-lock', 'step-dps']
 const only = args.only === undefined ? null : String(args.only);
 if (only !== null && !SCENARIOS.includes(only)) {
   console.error(`Неизвестный сценарий --only=${only}. Есть: ${SCENARIOS.join(', ')}`);
@@ -1804,6 +1805,53 @@ async function runProduction(browser, prodUrl, qaUrl) {
   const bundle = fs.readdirSync(assets).filter((f) => f.endsWith('.js')).map((f) => fs.readFileSync(path.join(assets, f), 'utf8')).join('\n');
   check(`${p} в собранной игре нет ни следа интерфейса проверок (строка __pvb)`, !bundle.includes('__pvb'), bundle.includes('__pvb') ? 'строка __pvb найдена в dist/assets' : '');
   await context.close();
+}
+
+// ================================================================== шаг игры и скорость
+
+/**
+ * Урон в секунду не зависит от скорости игры (решение владельца 15 октября 2026): слитая Таблетка уровня 2 с мутацией «Скорострел» (пауза 617 мс — не кратна шагу кадра) стреляет по бесконечному потоку
+ * неубиваемых кокков (hp 10⁹, жизни не отнимают) 120 игровых секунд на ×1 и на ×5; число выстрелов в секунду (урон выстрела один и тот же) на ×1 и ×5 совпадает в пределах 1 %
+ * и близко к 1000 / пауза. До исправления пауза после выстрела округлялась вверх до целого числа шагов кадра (на ×5 — до 250 мс), и на ×5 башня стреляла заметно реже.
+ */
+async function runStepDps(browser, baseUrl) {
+  const p = '[шаг игры: урон в секунду на ×1 и ×5]';
+  const WINDOW = 120; // игровых секунд
+  const rates = {};
+  for (const speed of [1, 5]) {
+    const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
+    const cfg = s4Cfg(['waves.total:1', 'waves.list.0.coccus:220', 'waves.intervalStartSec:1', 'waves.intervalEndSec:1', 'types.coccus.hp:1000000000']);
+    const game = await openGame(context, baseUrl, p, { query: ALL_TOWERS, speed, cfg });
+    await panTo(game, 'left');
+    const [A, B] = trunkCells(2);
+    await growTo(game, 'pill', 2, A, [B]);
+    let s = await settlePick(game, A, 0);
+    const tw = towerIn(s, A);
+    check(`${p} ×${speed}: слитая Таблетка уровня ${tw?.level} с мутацией «${tw?.picks.join(', ')}» стоит у «ствола», пауза ${tw ? f1(tw.stats.cooldownMs) : '—'} мс`, tw && tw.level === 2 && tw.picks.length === 1 && tw.stats.cooldownMs > 0, JSON.stringify(tw && { level: tw.level, picks: tw.picks, stats: tw.stats }));
+    await startWave(game);
+    let first = null;
+    let from = null;
+    let last = null;
+    const started = Date.now();
+    await pollUntil(game, (st) => {
+      last = st;
+      if (st.state !== 'playing') return true;
+      if (first === null && st.shots >= 1) first = st.elapsed;
+      if (first !== null && from === null && st.elapsed >= first + 5) from = { e: st.elapsed, shots: st.shots };
+      return (from !== null && st.elapsed >= from.e + WINDOW) || Date.now() - started > 900000;
+    }, 920000, 25);
+    const ok = from !== null && last.state === 'playing' && last.elapsed >= from.e + WINDOW - 1;
+    const rate = ok ? (last.shots - from.shots) / (last.elapsed - from.e) : 0;
+    const theory = tw ? 1000 / tw.stats.cooldownMs : 0;
+    rates[speed] = { rate, theory, ok };
+    await game.page.close();
+    await context.close();
+  }
+  const a = rates[1];
+  const b = rates[5];
+  check(`${p} оба замера дошли до конца окна ${WINDOW} игровых секунд`, a.ok && b.ok, JSON.stringify(rates));
+  check(`${p} выстрелов в секунду: ×1 — ${f2(a.rate)}, ×5 — ${f2(b.rate)}; расхождение ${f2((Math.abs(b.rate / a.rate - 1)) * 100)} % (допуск 1 %)`, a.ok && b.ok && Math.abs(b.rate / a.rate - 1) <= 0.01, JSON.stringify(rates));
+  check(`${p} скорострельность близка к 1000 / пауза (${f2(a.theory)} в секунду): ×1 ${f2(a.rate / a.theory * 100)} %, ×5 ${f2(b.rate / b.theory * 100)} % (допуск 97…101 %)`, a.ok && b.ok && a.rate / a.theory >= 0.97 && a.rate / a.theory <= 1.01 && b.rate / b.theory >= 0.97 && b.rate / b.theory <= 1.01, JSON.stringify(rates));
 }
 
 // ================================================================== запуск
@@ -8313,6 +8361,7 @@ try {
   if (wants('damage-numbers')) await safe('[числа урона]', () => runDamageNumbers(browser, qaServer.url));
   if (wants('sell-gap')) await safe('[зазор Слить и Продать]', () => runSellGap(browser, qaServer.url));
   if (wants('levels-lock')) await safe('[открытие уровней и конец уровня]', () => runLevelsLock(browser, qaServer.url));
+  if (wants('step-dps')) await safe('[шаг игры и скорость]', () => runStepDps(browser, qaServer.url));
 } catch (error) {
   crashed = error;
   check('Проверка дошла до конца', false, error.message);
