@@ -227,7 +227,7 @@ if (args.help || args.h) {
   console.log(HELP);
   process.exit(0);
 }
-const KNOWN = new Set(['profile', 'runs', 'speed', 'exclude', 'cfg', 'tag', 'seed', 'max-game-sec', 'max-real-sec', 'verbose', 'shots', 'canvas', 'level', 'meta', 'campaign', 'ladder', 'from-level', 'to-level', 'state-in', 'state-out', 'run-offset', 'solo', 'lamps', 'farm', 'help']);
+const KNOWN = new Set(['profile', 'runs', 'speed', 'exclude', 'cfg', 'tag', 'seed', 'max-game-sec', 'max-real-sec', 'verbose', 'shots', 'canvas', 'level', 'meta', 'campaign', 'ladder', 'ladder-total', 'ladder-budget-sec', 'ladder-last', 'from-level', 'to-level', 'state-in', 'state-out', 'run-offset', 'solo', 'lamps', 'farm', 'help']);
 for (const key of Object.keys(args)) if (!KNOWN.has(key)) die(`Неизвестный параметр --${key}. Справка: node qa/bot.mjs --help`);
 
 function numArg(name, fallback, { min = -Infinity, max = Infinity, int = false } = {}) {
@@ -251,6 +251,13 @@ const LEVEL = numArg('level', 1, { min: 1, max: 10, int: true });
 const CAMPAIGN = numArg('campaign', 0, { min: 0, max: 40, int: true }); // 0 — обычный замер одной партии; N — серия до N партий с улучшениями
 // «Лестница» (docs/stage-5b-plan.md, Фаза Б): игрок идёт по уровням подряд; на каждом играет до LADDER партий до первой победы, между партиями получает очки ДНК и докупает улучшения
 const LADDER = numArg('ladder', 0, { min: 0, max: 20, int: true });
+// Всего партий на уровне до «застряла» (по умолчанию = LADDER): LADDER — сколько партий этот запуск, остальные доигрывает следующий запуск с --state-in (дорожка помнит `resume`): предел задачи GitHub 5 ч 50 мин не даёт сыграть 20 партий за раз
+const LADDER_TOTAL = numArg('ladder-total', 0, { min: 0, max: 40, int: true }) || LADDER;
+// Бюджет реального времени запуска, секунд (0 — без бюджета): перед новой партией бот проверяет, успеет ли она закончиться (по самой долгой из уже сыгранных в этом запуске); не успевает — партии уровня на этом запуске кончаются
+// (уровень доиграет следующий запуск, если он есть), задача не обрывается пределом GitHub 5 ч 50 мин. --ladder-last — последний запуск уровня: недоигранный уровень считается «застряла».
+const LADDER_BUDGET_SEC = numArg('ladder-budget-sec', 0, { min: 0, max: 100000 });
+const LADDER_LAST = args['ladder-last'] === true;
+const PROCESS_START = Date.now();
 // --farm: контроль «фарма» очков ДНК (решение владельца 13 октября, docs/tester-feedback-plan.md): после первой победы на уровне L дорожка играет одну повторную партию на
 // пройденном уровне (L − 1, у первого уровня — он же) со всеми башнями, открытыми к уровню L; очки за неё и время только записываются, на дорожку не переходят.
 const FARM = args.farm !== undefined && args.farm !== '0' && args.farm !== false;
@@ -1515,10 +1522,22 @@ async function ladderLane(profile, run) {
   }
   if (lane.nextLevel < LADDER_FROM) die(`Состояние дорожки ${key}: следующий уровень ${lane.nextLevel}, а --from-level=${LADDER_FROM}: пропущены уровни.`);
   for (let level = Math.max(LADDER_FROM, lane.nextLevel); level <= LADDER_TO; level++) {
-    const rec = { level, games: 0, firstWin: null, waves: [], results: [], stars: 0, dnaIn: lane.dna, levelsIn: { ...lane.levels }, bought: [], dnaGained: [], treeLeftIn: treeLeft(lane.levels, level), treeLeftAfter: [] };
-    lane.perLevel.push(rec);
-    for (let n = 1; n <= LADDER; n++) {
+    // продолжение уровня: прошлый запуск сыграл часть партий и не выиграл (lane.resume = уровень), его запись продолжается, номера партий идут дальше
+    const prevRec = lane.resume === level ? lane.perLevel.at(-1) : null;
+    const rec = prevRec && prevRec.level === level && !prevRec.firstWin ? prevRec : { level, games: 0, firstWin: null, waves: [], results: [], stars: 0, dnaIn: lane.dna, levelsIn: { ...lane.levels }, bought: [], dnaGained: [], treeLeftIn: treeLeft(lane.levels, level), treeLeftAfter: [] };
+    if (rec !== prevRec) lane.perLevel.push(rec);
+    lane.resume = null;
+    const firstN = rec.games + 1;
+    const lastN = Math.min(LADDER_TOTAL, rec.games + LADDER);
+    for (let n = firstN; n <= lastN; n++) {
       if (stopRequested) return true;
+      if (LADDER_BUDGET_SEC) {
+        const longest = Math.max(0, ...games.map((g) => g.realSec || 0));
+        if ((Date.now() - PROCESS_START) / 1000 + longest * 1.2 > LADDER_BUDGET_SEC) {
+          console.log(`[${tag}, уровень ${level}] бюджет времени запуска исчерпан (${Math.round((Date.now() - PROCESS_START) / 1000)} с из ${LADDER_BUDGET_SEC}, самая долгая партия ${Math.round(longest)} с): партии на этом запуске кончаются`);
+          break;
+        }
+      }
       let game = null;
       for (let attempt = 1; attempt <= 2 && !game; attempt++) {
         try {
@@ -1586,9 +1605,16 @@ async function ladderLane(profile, run) {
     }
     rec.dnaOut = lane.dna;
     rec.levelsOut = { ...lane.levels };
+    if (!rec.firstWin && rec.games < LADDER_TOTAL && !LADDER_LAST) {
+      // партий на уровне ещё не набралось до LADDER_TOTAL: дорожка не застряла, уровень доиграет следующий запуск с этим состоянием (--state-in)
+      lane.resume = level;
+      console.log(`[${tag}] победы на уровне ${level} пока нет (сыграно ${rec.games} из ${LADDER_TOTAL}): уровень продолжит следующий запуск`);
+      saveResults();
+      return true;
+    }
     if (!rec.firstWin) {
       lane.stuckAt = level;
-      console.log(`[${tag}] победы на уровне ${level} за ${LADDER} партий нет: дорожка застряла`);
+      console.log(`[${tag}] победы на уровне ${level} за ${rec.games} партий нет: дорожка застряла`);
       saveResults();
       return true;
     }

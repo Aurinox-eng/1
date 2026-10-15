@@ -45,6 +45,9 @@ function rememberNews(key: string): void {
 }
 /** Защита от «прыжков» после сворачивания вкладки: один кадр не длиннее 50 мс. */
 const MAX_FRAME_MS = 50;
+/** Наибольший шаг расчёта игры, секунды игрового времени: кадр на высокой скорости (×3, ×5) или на медленном устройстве делится на несколько шагов не длиннее этого, поэтому ход боя
+ *  (выстрелы, полёт снарядов, рывки, выход бактерий) не зависит от скорости игры и кадров в секунду. Это свойство движка, не число баланса. */
+const SIM_STEP_SEC = 1 / 30;
 /** Если кадр очень длинный, за него выйдет не больше стольких бактерий (защита от лавины). */
 const MAX_SPAWNS_PER_FRAME = 10;
 /** Все типы бактерий в порядке появления в игре. */
@@ -459,14 +462,26 @@ export class GameScene extends Phaser.Scene {
     this.updateChip(time / 1000);
     if (this.state !== 'playing' || isPortraitPhone()) return;
 
-    const dt = (Math.min(deltaMs, MAX_FRAME_MS) / 1000) * TIME_SCALE * this.userSpeed;
-    this.elapsed += dt;
+    const frameDt = (Math.min(deltaMs, MAX_FRAME_MS) / 1000) * TIME_SCALE * this.userSpeed;
     if (QA_MODE) {
       this.qaFrames++;
-      this.qaBaseSec += dt / this.userSpeed;
+      this.qaBaseSec += frameDt / this.userSpeed;
     }
+    // Кадр делится на равные шаги не длиннее SIM_STEP_SEC (запас 1e-6 — чтобы кадр ровно в один шаг не делился на два из-за дробной погрешности)
+    const steps = Math.max(1, Math.ceil(frameDt / SIM_STEP_SEC - 1e-6));
+    const dt = frameDt / steps;
+    for (let i = 0; i < steps; i++) {
+      this.elapsed += dt;
+      if (!this.step(dt)) return;
+      if (this.state !== 'playing') break;
+    }
+    this.refreshPanel();
+  }
+
+  /** Один шаг расчёта боя длиной dt секунд игрового времени; false — шаг прерван концом партии (проигрыш), панель в этом кадре не обновляется. */
+  private step(dt: number): boolean {
     this.updateWaves(dt);
-    if (this.state !== 'playing') return;
+    if (this.state !== 'playing') return false;
 
     this.updatePuddles(dt);
     this.applyHealing(dt);
@@ -490,10 +505,10 @@ export class GameScene extends Phaser.Scene {
     this.updateBursts(dt);
     this.updateChains(dt);
     this.resolveArrivals();
-    if (this.state !== 'playing') return;
+    if (this.state !== 'playing') return false;
 
     if (this.phase === 'done' && this.bacteria.length === 0) this.endGame(true);
-    this.refreshPanel();
+    return true;
   }
 
   /** Запись в журнал событий игры (только режим проверки; вызывать как `if (QA_MODE) this.qa(...)`, чтобы в игровой сборке не собирался и сам объект). */

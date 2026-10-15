@@ -2,22 +2,22 @@
 # Каждый профиль, каждый набор исключённых башен (--exclude) и каждая «доля» партий — отдельная параллельная задача (матрица), бот идёт с --canvas.
 # Последняя задача («Итоговая таблица») складывает результаты всех задач в одну таблицу: она на странице прогона (раздел Summary, самый низ страницы
 # прогона) и в логе задачи; сырые JSON — во вложениях прогона (Artifacts внизу страницы): bot-<тег> по задачам и bot-results-all одним архивом.
-# Второй способ запуска — без кнопки: изменить файл .github/balance-request.json (те же поля) и сделать push в рабочую ветку claude/serene-rubin-x3t2gu;
+# Второй способ запуска — без кнопки: изменить файл .github/balance-request.json (те же поля) и сделать push в рабочую ветку (любая claude/…);
 # так запускает замеры агент (кнопка Run workflow появляется на вкладке Actions, только когда этот файл уже лежит в main).
 # Подробности и примеры полей — docs/bot-prompts.md.
 name: Замер баланса (боты)
-run-name: ${{ github.event_name == 'push' && format('Боты · по файлу запроса · {0}', github.sha) || format('Боты · {0} · {1} × {2}{3}{4}', inputs.ref, inputs.profiles, inputs.runs, inputs.excludes != '-' && inputs.excludes != '' && format(' · без {0}', inputs.excludes) || '', inputs.cfg != '' && format(' · {0}', inputs.cfg) || '') }}
+run-name: ${{ github.event_name == 'push' && format('Боты · по файлу запроса · {0}', github.sha) || format('Боты · {0} · {1} × {2}{3}{4}', inputs.ref || github.ref_name, inputs.profiles, inputs.runs, inputs.excludes != '-' && inputs.excludes != '' && format(' · без {0}', inputs.excludes) || '', inputs.cfg != '' && format(' · {0}', inputs.cfg) || '') }}
 
 on:
   push:
-    branches: [claude/serene-rubin-x3t2gu]
+    branches: ['claude/**']
     paths: ['.github/balance-request.json']
   workflow_dispatch:
     inputs:
       ref:
-        description: 'Ветка или коммит (по умолчанию рабочая ветка)'
+        description: 'Ветка или коммит (пусто — та ветка, с которой запущено)'
         type: string
-        default: claude/serene-rubin-x3t2gu
+        default: ''
       profiles:
         description: 'Профили через запятую: novice, average, strong, expert (или all)'
         type: string

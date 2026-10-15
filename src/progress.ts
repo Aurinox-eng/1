@@ -1,11 +1,11 @@
 /**
  * Текущий уровень, какие башни на нём открыты и по каким правилам идут его волны.
  *
- * Номер уровня: при запуске — из адреса `?level=5` (по умолчанию 1; адрес с уровнем открывает игру сразу на нём, минуя меню); дальше его задаёт
+ * Номер уровня: при запуске — из адреса `?level=5` (по умолчанию 1; адрес с открытым у игрока уровнем открывает игру сразу на нём, минуя меню; с закрытым — главное меню); дальше его задаёт
  * `GameScene` при старте (`setCurrentLevel`). Таблица «с какого уровня открыта башня» — `CONFIG.levels.towerUnlock`; таблица уровней — `CONFIG.levels.specs`.
  */
 import { CONFIG, type KindId, type LevelSpec } from './config';
-import { LEVEL_WAVES, QA_MODE } from './debug';
+import { LEVEL_WAVES, QA_ENABLED, QA_MODE } from './debug';
 import { buildLevelWaves, spreadIntro, type WaveRow } from './waveGen';
 
 /** Номер уровня из адреса (1…`levels.count`); без параметра — 1. */
@@ -15,14 +15,20 @@ export function levelFromUrl(): number {
   return Math.min(CONFIG.levels.count, Math.floor(raw));
 }
 
-/** Открывать ли игру на главном меню: в игровой сборке — всегда, кроме адреса с `?level=N` (он открывает партию сразу); в режиме проверки — только с `&menu`
- *  (иначе все прежние сценарии `smoke` и бот, которые открывают игру без номера уровня, оказывались бы в меню). */
-export const START_IN_MENU: boolean = (() => {
-  const params = new URLSearchParams(window.location.search);
-  return QA_MODE ? params.has('menu') : !params.has('level');
-})();
-
 let current: number = levelFromUrl();
+
+/** Открывать ли игру на главном меню: в игровой сборке — всегда, кроме адреса с `?level=N` для уровня, уже открытого у игрока (он открывает партию сразу); адрес с закрытым
+ *  уровнем меню не обходит — открывается главное меню, а текущий уровень сбрасывается на 1. В режиме проверки (`?qa`) — только с `&menu` (иначе все прежние сценарии `smoke`
+ *  и бот, которые открывают игру без номера уровня, оказывались бы в меню); в тестовой сборке без `?qa` адрес с уровнем работает как раньше, без проверки открытия.
+ *  Функция, а не константа: проверку открытия подставляет `meta.ts` (`setLevelReachedCheck`), к моменту вызова из `main.ts` она уже зарегистрирована. */
+export function startInMenu(): boolean {
+  const params = new URLSearchParams(window.location.search);
+  if (QA_MODE) return params.has('menu');
+  if (!params.has('level')) return true;
+  if (QA_ENABLED || levelReached(current)) return false;
+  current = 1;
+  return true;
+}
 
 /** Номер текущего уровня (1…`levels.count`). */
 export function currentLevel(): number {

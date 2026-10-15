@@ -12,7 +12,7 @@ name: Замер скорости
 
 on:
   push:
-    branches: [claude/serene-rubin-x3t2gu]
+    branches: ['claude/**']
     paths-ignore:
       - 'docs/**'
       - '**.md'
