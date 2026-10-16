@@ -150,7 +150,7 @@ if (['stage-1', 'stage-1b', 'stage-1b-qa', 'td-1-mockup', 'tmp'].includes(tag)) 
   process.exit(2);
 }
 
-const SCENARIOS = ['desktop-ru', 'phone-ru', 'desktop-en', 'phone-en', 'rules', 'graph', 'combat', 'dash', 'split', 'spore', 'armored', 'intro', 'lose-ru', 'lose-en', 'win-ru', 'win-en', 'towers', 'card', 'merge', 'mutations', 'sell', 'special', 'danger', 'rotate', 'production', 'fullgame', 'locked', 'strip', 'almanac', 'almanac-pause', 'damage-numbers', 'sell-gap', 'restart-button', 'deflation', 'camera-fit', 'colors', 'meta-save', 'meta-dna', 'meta-shop', 'meta-effects', 'tree-effects', 'tree-shop', 'level-waves', 'progress-save', 'stars', 'menu-flow', 'levels-lock', 'step-dps', 'sound', 'lose-line', 'shake']
+const SCENARIOS = ['desktop-ru', 'phone-ru', 'desktop-en', 'phone-en', 'rules', 'graph', 'combat', 'dash', 'split', 'spore', 'armored', 'intro', 'lose-ru', 'lose-en', 'win-ru', 'win-en', 'towers', 'card', 'merge', 'mutations', 'sell', 'special', 'danger', 'rotate', 'production', 'fullgame', 'locked', 'strip', 'almanac', 'almanac-pause', 'damage-numbers', 'sell-gap', 'restart-button', 'deflation', 'camera-fit', 'colors', 'meta-save', 'meta-dna', 'meta-shop', 'meta-effects', 'tree-effects', 'tree-shop', 'level-waves', 'progress-save', 'stars', 'menu-flow', 'levels-lock', 'step-dps', 'sound', 'lose-line', 'toast-queue', 'shake']
 const only = args.only === undefined ? null : String(args.only);
 if (only !== null && !SCENARIOS.includes(only)) {
   console.error(`Неизвестный сценарий --only=${only}. Есть: ${SCENARIOS.join(', ')}`);
@@ -1908,6 +1908,43 @@ async function runLoseLine(browser, baseUrl) {
     await game.page.close();
     await context.close();
   }
+}
+
+/**
+ * Очередь уведомлений (решение владельца 16 октября 2026): на старте уровня 1 «Открыта башня: …» и «Новая бактерия: …» идут по очереди (вторая не стирает первую);
+ * ответ на нажатие (тап по закрытой башне: «откроется на уровне N») очереди не ждёт — показывается сразу, прерванная новость встаёт в начало очереди и возвращается после него.
+ */
+async function runToastQueue(browser, baseUrl) {
+  const p = '[очередь уведомлений]';
+  const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
+  const game = await openGame(context, baseUrl, p, { speed: 2, cfg: 'waves.firstDelaySec:90' });
+  const towerNews = readI18n('newTowerToast')[0].replace('{name}', '');
+  const bacNews = readI18n('newBacteriaToast')[0].replace('{name}', '');
+  const lockedText = readI18n('hintLocked')[0].replace('{n}', '');
+  const s0 = await game.state();
+  check(`${p} на старте уровня 1 сразу показана «${towerNews.trim()}», «${bacNews.trim()}» ждёт в очереди (не стёрла первую)`,
+    s0.toast.news && (s0.toast.text ?? '').startsWith(towerNews) && s0.toast.queued.length === 1 && s0.toast.queued[0].startsWith(bacNews), JSON.stringify(s0.toast));
+  // тап по закрытой башне — ответ на нажатие: показан сразу, новость возвращается в начало очереди
+  await game.selectTower('syringe');
+  const s1 = await game.state();
+  check(`${p} тап по закрытой башне: сообщение «${lockedText.trim()}…» показано сразу, прерванная «${towerNews.trim()}» первая в очереди, «${bacNews.trim()}» за ней`,
+    !s1.toast.news && (s1.toast.text ?? '').startsWith(lockedText.trim()) && s1.toast.queued.length === 2 && s1.toast.queued[0].startsWith(towerNews) && s1.toast.queued[1].startsWith(bacNews), JSON.stringify(s1.toast));
+  // дальше: ответ гаснет, возвращается «Открыта башня», затем «Новая бактерия»; в очереди пусто
+  const seen = [];
+  const started = Date.now();
+  while (Date.now() - started < 40000) {
+    const s = await game.state();
+    const text = s.toast.text;
+    if (text !== null && seen[seen.length - 1] !== text) seen.push(text);
+    if (text !== null && text.startsWith(bacNews)) break;
+    await sleep(60);
+  }
+  const kinds = seen.map((text) => (text.startsWith(towerNews) ? 'башня' : text.startsWith(bacNews) ? 'бактерия' : 'ответ'));
+  check(`${p} порядок на экране: ответ → «Открыта башня» → «Новая бактерия» (ничего не потеряно)`, kinds.join(',') === 'ответ,башня,бактерия', `показано: ${JSON.stringify(seen)}`);
+  const s2 = await game.state();
+  check(`${p} очередь пуста, когда показана последняя новость`, s2.toast.queued.length === 0 && s2.toast.news, JSON.stringify(s2.toast));
+  await game.page.close();
+  await context.close();
 }
 
 /**
@@ -8659,6 +8696,7 @@ try {
   if (wants('levels-lock')) await safe('[открытие уровней и конец уровня]', () => runLevelsLock(browser, qaServer.url));
   if (wants('sound')) await safe('[звук]', () => runSound(browser, qaServer.url));
   if (wants('lose-line')) await safe('[строка проигрыша]', () => runLoseLine(browser, qaServer.url));
+  if (wants('toast-queue')) await safe('[очередь уведомлений]', () => runToastQueue(browser, qaServer.url));
   if (wants('shake')) await safe('[тряска только карты]', () => runShake(browser, qaServer.url));
   if (wants('step-dps')) await safe('[шаг игры и скорость]', () => runStepDps(browser, qaServer.url));
 } catch (error) {

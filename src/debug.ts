@@ -153,6 +153,8 @@ export interface DebugSnapshot {
   dnaParts: { waves: number; win: number; coins: number; stars: number };
   /** Строки очков ДНК на экране конца уровня (итог; из чего сложился; монеты — только после победы; пометка пройденного уровня) и остаток монет, из которого посчитана добавка. */
   endDnaLines: string[];
+  /** Уведомление сверху окна карты: что показано сейчас (null — ничего), новость это или ответ на нажатие, и какие новости ждут в очереди (по порядку показа). */
+  toast: { text: string | null; news: boolean; queued: string[] };
   coinsLeft: number;
   /** Нижний край и наибольшая ширина текстов на затемнении (конец уровня), пикселей экрана игры. */
   overlayBox: { bottom: number; maxWidth: number };

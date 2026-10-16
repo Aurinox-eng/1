@@ -669,7 +669,7 @@ export class GameScene extends Phaser.Scene {
       this.introduced.push(kind);
       const text = NEW_TYPE_TEXT[kind];
       if (text) {
-        this.panel.toast(t(text), NEW_TYPE_TOAST_MS);
+        this.panel.news(t(text), NEW_TYPE_TOAST_MS);
         sfx.newType();
       }
     }
@@ -1521,7 +1521,7 @@ export class GameScene extends Phaser.Scene {
     this.refreshCard();
     if (CONFIG.towers[id].targeting === 'beam' && !this.rotateHinted) {
       this.rotateHinted = true;
-      this.panel.toast(t('hintRotate'), 3200);
+      this.panel.news(t('hintRotate'), 3200);
     }
   }
 
@@ -1761,7 +1761,7 @@ export class GameScene extends Phaser.Scene {
       rememberNews(`t:${id}`);
       names.push(t(`tower${id.charAt(0).toUpperCase()}${id.slice(1)}` as TextKey));
     }
-    if (names.length > 0) this.panel.toast(t('newTowerToast', { name: names.join(', ') }), NEWS_MS);
+    if (names.length > 0) this.panel.news(t('newTowerToast', { name: names.join(', ') }), NEWS_MS);
     this.announceWave(0);
   }
 
@@ -1777,7 +1777,7 @@ export class GameScene extends Phaser.Scene {
     }
     if (names.length === 0) return;
     this.phaseTimer += CONFIG.waves.newTypePauseSec;
-    this.panel.toast(t('newBacteriaToast', { name: names.join(', ') }), NEWS_MS);
+    this.panel.news(t('newBacteriaToast', { name: names.join(', ') }), NEWS_MS);
   }
 
   // ---------------------------------------------------------------- конец уровня
@@ -2050,6 +2050,7 @@ export class GameScene extends Phaser.Scene {
       coinsLeft: this.coinsLeft,
       overlayBox: { ...this.overlayBox },
       endDnaLines: [...this.endDnaLines],
+      toast: this.panel.toastInfo(),
       selected: this.selected,
       towers: this.towers.map((tw) => ({
         id: tw.id,

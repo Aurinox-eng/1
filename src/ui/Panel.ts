@@ -114,6 +114,10 @@ export class Panel {
   private readonly hintPlate: Phaser.GameObjects.Graphics;
   private readonly card: TowerCard;
   private toastTween: Phaser.Tweens.Tween | null = null;
+  /** Очередь новостей (`news`): следующая показывается, когда закончился показ предыдущей. */
+  private readonly newsQueue: { message: string; ms: number }[] = [];
+  /** Что показано сейчас: новость (после мгновенного ответа она возвращается в начало очереди) или ответ на нажатие. */
+  private toastCurrent: { message: string; ms: number; news: boolean } | null = null;
   private selected: TowerId | null = null;
   private coins = 0;
   private lives = 0;
@@ -338,18 +342,49 @@ export class Panel {
     drawPlate(plate, VIEW.x + VIEW.w / 2, y, text.width * scale + 48, text.height * scale + 18);
   }
 
-  /** Всплывающее сообщение сверху окна карты. */
+  /**
+   * Ответ на нажатие (нехватка монет, нельзя строить, слияние, продажа): показывается сразу, очереди не ждёт. Показанную в этот момент новость он не стирает безвозвратно:
+   * она встаёт в начало очереди и показывается заново после ответа.
+   */
   toast(message: string, ms: number = CONFIG.ui.toastMs): void {
+    if (this.toastCurrent?.news) this.newsQueue.unshift({ message: this.toastCurrent.message, ms: this.toastCurrent.ms });
+    this.showToast({ message, ms, news: false });
+  }
+
+  /** Новость (новая башня, новая бактерия, подсказка): если на экране уже есть сообщение, ждёт в очереди конца его показа; одинаковая новость в очереди не повторяется. */
+  news(message: string, ms: number = CONFIG.ui.toastMs): void {
+    if (this.toastCurrent === null) {
+      this.showToast({ message, ms, news: true });
+      return;
+    }
+    if (this.newsQueue.some((item) => item.message === message) || (this.toastCurrent.news && this.toastCurrent.message === message)) return;
+    this.newsQueue.push({ message, ms });
+  }
+
+  /** Состояние уведомлений для проверок: текст на экране (null — ничего не показано), число новостей в очереди. */
+  toastInfo(): { text: string | null; news: boolean; queued: string[] } {
+    return { text: this.toastCurrent?.message ?? null, news: this.toastCurrent?.news ?? false, queued: this.newsQueue.map((item) => item.message) };
+  }
+
+  private showToast(item: { message: string; ms: number; news: boolean }): void {
     this.toastTween?.stop();
-    this.toastText.setText(message).setAlpha(1);
+    this.toastCurrent = item;
+    this.toastText.setText(item.message).setAlpha(1);
     this.fitPlate(this.toastText, this.toastPlate, TOP_H + 30);
     this.toastPlate.setAlpha(1);
-    this.toastTween = this.scene.tweens.add({
+    const tween = this.scene.tweens.add({
       targets: [this.toastText, this.toastPlate],
       alpha: 0,
-      delay: ms,
+      delay: item.ms,
       duration: 400,
+      onComplete: () => {
+        if (this.toastTween !== tween) return; // его уже заменил ответ на нажатие
+        this.toastCurrent = null;
+        const next = this.newsQueue.shift();
+        if (next) this.showToast({ ...next, news: true });
+      },
     });
+    this.toastTween = tween;
   }
 
   /** Постоянная подсказка снизу окна карты (над карточкой башни, если она открыта); null — убрать. */
