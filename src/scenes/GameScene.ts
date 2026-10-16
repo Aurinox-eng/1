@@ -6,7 +6,6 @@ import { Effects } from '../effects';
 import { drawStar, setScreenInfo } from '../screens';
 import { awardDna, dnaParts, coinsBonus, exposeMetaDebug, HIDDEN_SCREEN, isLevelBeaten, livesBonus, markSeen, metaDna, metaSeen, recordResult, refundBonus, rewardMul, shieldCharges, starsForLoss, waveCoinsBonus } from '../meta';
 import { num, t, type TextKey } from '../i18n';
-import { ALMANAC_BEATEN_BY } from '../almanac';
 import { aimAngle, BLOCKED_TILES, EDGES, ENTRANCE_EDGES, LEVEL, PATH_TILES, WORLD, cellKey, worldToCell } from '../level';
 import { isPortraitPhone } from '../orientation';
 import { currentLevel, isTowerOpen, levelParams, newTowersOfLevel, setCurrentLevel, setLastBuilt, unlockLevel, type LevelParams } from '../progress';
@@ -1837,7 +1836,7 @@ export class GameScene extends Phaser.Scene {
     this.addEndButtons(won);
   }
 
-  /** Строка проигрыша: порода, отнявшая больше всего жизней, и открытые у игрока башни, которые бьют её (по таблице альманаха, не больше трёх); null — жизни никто не отнял. */
+  /** Строка проигрыша: порода, отнявшая больше всего жизней; null — жизни никто не отнял. Советов, чем бить, нет: механики игрок изучает в альманахе. */
   private leakLine(): string | null {
     let top: BacteriumKind | null = null;
     let most = 0;
@@ -1852,8 +1851,7 @@ export class GameScene extends Phaser.Scene {
     const cap = (id: string): string => id.charAt(0).toUpperCase() + id.slice(1);
     const kind = t(`bacName${cap(top)}` as TextKey);
     const n = Math.max(1, Math.round(most));
-    const towers = ALMANAC_BEATEN_BY[top].filter((id) => isTowerOpen(id)).slice(0, 3).map((id) => t(`tower${cap(id)}` as TextKey));
-    return towers.length > 0 ? t('loseLeakLine', { kind, n, towers: towers.join(', ') }) : t('loseLeakOnly', { kind, n });
+    return t('loseLeakOnly', { kind, n });
   }
 
   /**

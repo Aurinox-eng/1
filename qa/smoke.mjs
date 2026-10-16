@@ -1539,11 +1539,11 @@ async function runLose(browser, baseUrl, lang, deviceKey, full) {
     if (cycle === 1) {
       check(`${p} без башен бактерии доходят до организма: жизни ${CFG.lives} → 0, состояние «проигрыш»`, s.state === 'lost' && s.lives === 0 && lives.join('→').startsWith(`${CFG.lives}`) && lives.every((v, i) => i === 0 || v < lives[i - 1]), `жизни по ходу: ${lives.join(' → ')}, состояние ${s.state}`);
       check(`${p} дошло до организма ≥ ${CFG.lives}, красная вспышка потери жизни сработала, убитых нет`, s.leaked >= CFG.lives && s.effects.lifeLosses >= 1 && s.effects.lifeLosses <= s.leaked && s.kills === 0, `дошло ${s.leaked}, вспышек ${s.effects.lifeLosses}, убито ${s.kills}`);
-      // Строка проигрыша: «Больше всего жизней отняла: <порода> (<число>). Бьют: <открытые башни>» (на уровне 1 открыты Таблетка и Сироп — каждая порода, что выходит в первых волнах, бьётся хотя бы одной из них)
-      const leakTemplate = readI18n('loseLeakLine')[lang === 'ru' ? 0 : 1];
-      const leakRe = new RegExp(`^${leakTemplate.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\\\{kind\\\}/, '(.+)').replace(/\\\{n\\\}/, '(\\d+)').replace(/\\\{towers\\\}/, '(.+)')}$`);
+      // Строка проигрыша: «Больше всего жизней отняла: <порода> (<число>)» — без советов, чем бить (решение владельца 16 октября 2026)
+      const leakTemplate = readI18n('loseLeakOnly')[lang === 'ru' ? 0 : 1];
+      const leakRe = new RegExp(`^${leakTemplate.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\\\{kind\\\}/, '(.+)').replace(/\\\{n\\\}/, '(\\d+)')}$`);
       const leakLine = (s.endDnaLines || []).find((line) => leakRe.test(line));
-      check(`${p} на экране проигрыша есть строка «${leakTemplate}»: порода, число жизней и башни, что её бьют`, Boolean(leakLine), `строки: ${JSON.stringify(s.endDnaLines)}`);
+      check(`${p} на экране проигрыша есть строка «${leakTemplate}»: порода и число жизней`, Boolean(leakLine), `строки: ${JSON.stringify(s.endDnaLines)}`);
     }
     // нажатие «Заново» сразу после проигрыша перезапуск не запускает (блокировка)
     if (!lockChecked || !lockHeld) {
@@ -1877,23 +1877,12 @@ async function runProduction(browser, prodUrl, qaUrl) {
  * и близко к 1000 / пауза. До исправления пауза после выстрела округлялась вверх до целого числа шагов кадра (на ×5 — до 250 мс), и на ×5 башня стреляла заметно реже.
  */
 /** Таблица «какие башни бьют бактерию» из src/almanac.ts: { порода: [башни по порядку] }. */
-function readBeatenBy() {
-  const text = fs.readFileSync(path.join(ROOT, 'src', 'almanac.ts'), 'utf8');
-  const block = text.slice(text.indexOf('export const ALMANAC_BEATEN_BY'));
-  const body = block.slice(block.indexOf('{') + 1, block.indexOf('};'));
-  const table = {};
-  for (const m of body.matchAll(/^\s*(\w+):\s*\[([^\]]*)\]/gm)) table[m[1]] = [...m[2].matchAll(/'(\w+)'/g)].map((x) => x[1]);
-  return table;
-}
-
 /**
- * Строка проигрыша «Больше всего жизней отняла: <порода> (<число>). Бьют: <башни>» называет только башни, ОТКРЫТЫЕ у игрока (levels.towerUnlock ≤ текущий уровень), не больше трёх, в порядке таблицы альманаха;
- * если ни одна из башен, что бьют эту породу, не открыта, остаётся «Больше всего жизней отняла: <порода> (<число>)» без «Бьют». Четыре партии без башен: кокк (бьют Таблетка и Шипучка — открыта только Таблетка), палочка (Таблетка и Сироп — обе),
- * бронированная на уровне 1 (бьют Шприц, Ампула, Пластырь — ни одна не открыта) и бронированная на уровне 3 (открыта Ампула).
+ * Строка проигрыша «Больше всего жизней отняла: <порода> (<число>)» (решение владельца 16 октября 2026: без советов «Бьют: …», механики игрок изучает в альманахе): четыре партии без башен — кокк, палочка,
+ * бронированная на уровне 1 и бронированная на уровне 3; на обоих языках строка называет породу, число жизней и не содержит названий башен и слов «Бьют»/«Countered by».
  */
 async function runLoseLine(browser, baseUrl) {
   const capital = (id) => id.charAt(0).toUpperCase() + id.slice(1);
-  const beaten = readBeatenBy();
   const cases = [
     { lang: 'ru', li: 0, kind: 'coccus', level: 1, n: 12 },
     { lang: 'en', li: 1, kind: 'rod', level: 1, n: 12 },
@@ -1906,20 +1895,15 @@ async function runLoseLine(browser, baseUrl) {
     const cfg = `${wavesOnlyCfg({ [c.kind]: c.n })},waves.firstDelaySec:1,bacteria.baseSpeed:250,lives.start:3`;
     const game = await openGame(context, baseUrl, p, { speed: 4, cfg, query: c.level > 1 ? `&level=${c.level}` : '' });
     const lost = await waitFor(game.page, (x) => x.state === 'lost', WAIT_MS, 'проигрыш без башен');
-    const expectedOpen = (beaten[c.kind] ?? []).filter((id) => unlockOf(id) <= c.level).slice(0, 3);
-    const closed = (beaten[c.kind] ?? []).filter((id) => unlockOf(id) > c.level);
     const kindName = readI18n(`bacName${capital(c.kind)}`)[c.li];
-    const towerNames = expectedOpen.map((id) => readI18n(`tower${capital(id)}`)[c.li]);
-    const closedNames = closed.map((id) => readI18n(`tower${capital(id)}`)[c.li]);
     const escape = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const lineTemplate = readI18n(towerNames.length > 0 ? 'loseLeakLine' : 'loseLeakOnly')[c.li];
-    const re = new RegExp(`^${escape(lineTemplate).replace(/\\\{kind\\\}/, '(.+?)').replace(/\\\{n\\\}/, '(\\d+)').replace(/\\\{towers\\\}/, '(.+)')}$`);
+    const lineTemplate = readI18n('loseLeakOnly')[c.li];
+    const re = new RegExp(`^${escape(lineTemplate).replace(/\\\{kind\\\}/, '(.+?)').replace(/\\\{n\\\}/, '(\\d+)')}$`);
     const found = (lost.endDnaLines || []).map((line) => ({ line, m: re.exec(line) })).find((x) => x.m);
     const gotKind = found ? found.m[1] : null;
-    const gotTowers = found && towerNames.length > 0 ? found.m[3].split(', ') : [];
-    const noClosedNamed = closedNames.every((name) => !(found?.line ?? '').includes(name));
-    check(`${p} строка проигрыша: порода «${kindName}», башни «${towerNames.join(', ') || '— (ни одна не открыта: «Бьют» нет)'}» (все, что бьют породу: ${(beaten[c.kind] ?? []).join(', ')}; закрыты: ${closed.join(', ') || 'нет'})`,
-      Boolean(found) && gotKind === kindName && JSON.stringify(gotTowers) === JSON.stringify(towerNames) && noClosedNamed && gotTowers.length <= 3,
+    const advice = (lost.endDnaLines || []).some((line) => /Бьют|Countered by/.test(line));
+    check(`${p} строка проигрыша: порода «${kindName}», число жизней, без перечня башен («Бьют» нет)`,
+      Boolean(found) && gotKind === kindName && !advice,
       `строки: ${JSON.stringify(lost.endDnaLines)}`);
     await game.page.close();
     await context.close();
