@@ -1,6 +1,11 @@
+import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vite';
 
 export default defineConfig({
+  resolve: {
+    // Игра не использует физику Phaser (`this.physics` в коде нет): подключается сборка с одной аркадной физикой без физического движка Matter (меньше примерно на 110 КБ; типы остаются из пакета phaser).
+    alias: [{ find: /^phaser$/, replacement: fileURLToPath(new URL('./node_modules/phaser/dist/phaser-arcade-physics.js', import.meta.url)) }],
+  },
   // Относительные пути — обязательно, иначе игра не запустится из zip в консоли Яндекса.
   base: './',
   build: {
