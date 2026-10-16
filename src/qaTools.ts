@@ -98,6 +98,7 @@ export function qaSnapshot(s: GameSceneInternals): DebugSnapshot {
     upgradesButton: s.upgradesButton ? { ...s.upgradesButton } : null,
     nextButton: s.nextButton ? { ...s.nextButton } : null,
     menuButton: s.menuButton ? { ...s.menuButton } : null,
+    pauseResumeButton: s.pauseResumeButton ? { ...s.pauseResumeButton } : null,
     pauseMenuButton: s.pauseMenuButton ? { ...s.pauseMenuButton } : null,
     pauseAlmanacButton: s.pauseAlmanacButton ? { ...s.pauseAlmanacButton } : null,
     pauseSoundButton: s.pauseSoundButton ? { ...s.pauseSoundButton } : null,

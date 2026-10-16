@@ -137,6 +137,7 @@ export interface DebugSnapshot {
   /** «Следующий уровень» (только после победы, не на последнем уровне) и «В меню» на экране конца уровня; «В меню» на паузе (или null). */
   nextButton: { x: number; y: number; w: number; h: number } | null;
   menuButton: { x: number; y: number; w: number; h: number } | null;
+  pauseResumeButton: { x: number; y: number; w: number; h: number } | null;
   pauseMenuButton: { x: number; y: number; w: number; h: number } | null;
   pauseAlmanacButton: { x: number; y: number; w: number; h: number } | null;
   pauseSoundButton: { x: number; y: number; w: number; h: number } | null;

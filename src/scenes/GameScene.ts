@@ -39,6 +39,10 @@ const RESIST_COLOR = 0x9aa6bd;
 const NEWS_MS = 4200;
 /** О чём игрок уже узнал из строк-уведомлений («b:тип» — бактерия, «t:башня» — башня): повторные партии подряд их не повторяют. */
 const seenNews = new Set<string>(metaSeen());
+/** После сброса прогресса в меню все уведомления и подсказки показываются заново. */
+export function forgetNews(): void {
+  seenNews.clear();
+}
 /** Запоминает уведомление как показанное (и в сохранении, чтобы после обновления страницы оно не повторялось). */
 function rememberNews(key: string): void {
   seenNews.add(key);
@@ -204,6 +208,7 @@ export class GameScene extends Phaser.Scene {
   /** Кнопки «Следующий уровень» и «В меню» на экране конца уровня и «В меню» на паузе (или null). */
   /** (читает снимок режима проверки, qaTools) */ nextButton: { x: number; y: number; w: number; h: number } | null = null;
   /** (читает снимок режима проверки, qaTools) */ menuButton: { x: number; y: number; w: number; h: number } | null = null;
+  private pauseResumeButton: { x: number; y: number; w: number; h: number } | null = null;
   private pauseMenuButton: { x: number; y: number; w: number; h: number } | null = null;
   private pauseAlmanacButton: { x: number; y: number; w: number; h: number } | null = null;
   private pauseSoundButton: { x: number; y: number; w: number; h: number } | null = null;
@@ -299,6 +304,7 @@ export class GameScene extends Phaser.Scene {
     this.upgradesButton = null;
     this.nextButton = null;
     this.menuButton = null;
+    this.pauseResumeButton = null;
     this.pauseMenuButton = null;
     this.pauseAlmanacButton = null;
     this.pauseSoundButton = null;
@@ -1601,8 +1607,8 @@ export class GameScene extends Phaser.Scene {
   private onScreenTap(pointer?: Phaser.Input.Pointer): void {
     if (isPortraitPhone()) return;
     const now = performance.now();
-    // Тап по кнопке «В меню» на паузе игру не возобновляет (кнопка сама уводит в меню)
-    for (const b of [this.pauseMenuButton, this.pauseAlmanacButton, this.pauseSoundButton, this.pauseRestartButton]) {
+    // Тап по кнопке меню паузы игру сам не возобновляет (кнопка делает своё дело; «Продолжить» возобновляет сама)
+    for (const b of [this.pauseResumeButton, this.pauseMenuButton, this.pauseAlmanacButton, this.pauseSoundButton, this.pauseRestartButton]) {
       if (this.state === 'paused' && b && pointer && Math.abs(pointer.x - b.x) <= b.w / 2 && Math.abs(pointer.y - b.y) <= b.h / 2) return;
     }
     if (this.state === 'paused' && now >= this.resumeAllowedAt) this.togglePause();
@@ -1633,8 +1639,11 @@ export class GameScene extends Phaser.Scene {
       this.state = 'paused';
       this.resumeAllowedAt = performance.now() + 250;
       this.ghost.setVisible(false);
-      this.showOverlay(t('paused'), TEXT_COLORS.accent, t('tapToResume'));
-      // Два ряда по 76 px: «Альманах» и «Звук», ниже «Заново» и «В меню»
+      this.showOverlay(t('paused'), TEXT_COLORS.accent, '');
+      // Меню паузы: «Продолжить» по центру, ниже два ряда по 76 px — «Альманах» и «Звук», затем «Заново» и «В меню»; тап по свободному месту экрана тоже продолжает игру
+      this.pauseResumeButton = this.addEndButton(W / 2, H / 2 + 20, 320, 76, t('resumeBtn'), 0x2a8a4a, COLORS.merge, () => {
+        if (performance.now() >= this.resumeAllowedAt) this.togglePause();
+      });
       this.pauseAlmanacButton = this.addEndButton(W / 2 - 180, H / 2 + 110, 320, 76, t('almanacBtn'), 0x2a3550, 0x4a5c82, () => this.openAlmanac());
       const sound = this.addLabeledButton(W / 2 + 180, H / 2 + 110, 320, 76, t(sfx.muted ? 'soundOff' : 'soundOn'), 0x2a3550, 0x4a5c82, () => {
         sfx.setMuted(!sfx.muted);
@@ -1649,6 +1658,7 @@ export class GameScene extends Phaser.Scene {
       this.state = 'playing';
       this.overlay?.destroy();
       this.overlay = null;
+      this.pauseResumeButton = null;
       this.pauseMenuButton = null;
       this.pauseAlmanacButton = null;
       this.pauseSoundButton = null;
