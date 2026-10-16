@@ -2660,7 +2660,8 @@ async function runIntro(browser, baseUrl) {
   for (const lang of ['ru', 'en']) {
     const q = `${p} ${lang}`;
     const ctx = await newDeviceContext(browser, VIEWPORTS.desktop, lang);
-    const g = await openGame(ctx, baseUrl, q, { speed: 2, cfg: `${wavesOnlyCfg(only)},waves.intervalStartSec:3,waves.intervalEndSec:3,waves.firstDelaySec:1,${FIXED_BALANCE.join(',')},${NO_LIFE_LOSS}` });
+    const g = await openGame(ctx, baseUrl, q, { speed: 2, cfg: `${wavesOnlyCfg(only)},waves.intervalStartSec:3,waves.intervalEndSec:3,waves.firstDelaySec:1,waves.pauseSec:30,${FIXED_BALANCE.join(',')},${NO_LIFE_LOSS}` });
+    // pauseSec 30: сообщения идут по очереди (каждое ждёт конца предыдущего, ≈ 4,6 с реального времени), и при ×2 короткая пауза между волнами не давала бы показать сообщение при самом выходе типа
     await g.input.tap(g.g(540, 560)); // касание включает звук (как у настоящего игрока)
     let last = await g.state();
     const seen = [];
