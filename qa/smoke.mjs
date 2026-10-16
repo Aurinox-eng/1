@@ -8551,7 +8551,7 @@ async function runAlmanacPause(browser, baseUrl) {
     check(`${p} на паузе есть четвёртая кнопка «Заново» слева внизу рядом с «В меню», внутри экрана, не налезает на остальные`, pausedAgain.pauseRestartButton !== null && insideScreen(pausedAgain.pauseRestartButton) && [pausedAgain.pauseAlmanacButton, pausedAgain.pauseSoundButton, pausedAgain.pauseMenuButton].every((b) => !overlaps(pausedAgain.pauseRestartButton, b)) && pausedAgain.pauseRestartButton.x < pausedAgain.pauseMenuButton.x, JSON.stringify(pausedAgain.pauseRestartButton));
     await game.input.tap(game.g(pausedAgain.pauseRestartButton.x, pausedAgain.pauseRestartButton.y));
     const restarted = await waitFor(page, (x) => x.state === 'playing' && x.elapsed < 3 && x.towers.length === 0, 15000, 'партия после «Заново» с паузы');
-    check(`${p} «Заново» на паузе начинает партию сначала: башен было ${withTower.towers.length}, стало ${restarted.towers.length}, монеты ${restarted.coins} (старт ${CFG.startCoins}), время ${f2(restarted.elapsed)} с, волна ${restarted.wave}`, withTower.towers.length === 1 && restarted.towers.length === 0 && restarted.coins === CFG.startCoins && restarted.wave === 0, JSON.stringify({ towers: restarted.towers.length, coins: restarted.coins, wave: restarted.wave }));    await context.close();
+    check(`${p} «Заново» на паузе начинает партию сначала: башен было ${withTower.towers.length}, стало ${restarted.towers.length}, монеты ${restarted.coins} (старт ${CFG.startCoins}), время ${f2(restarted.elapsed)} с, волна ${restarted.wave}`, withTower.towers.length === 1 && restarted.towers.length === 0 && restarted.coins === CFG.startCoins && restarted.wave === 0, JSON.stringify({ towers: restarted.towers.length, coins: restarted.coins, wave: restarted.wave }));
     // «Продолжить» на паузе: кнопка по центру над остальными, внутри экрана, не налезает на них; одного тапа достаточно, чтобы игра пошла
     await game.input.tap(game.g(restarted.ui.pauseButton.x, restarted.ui.pauseButton.y));
     await waitFor(page, (x) => x.state === 'paused', 10000, 'пауза перед «Продолжить»');
@@ -8568,6 +8568,7 @@ async function runAlmanacPause(browser, baseUrl) {
     const afterResume = await game.state();
     check(`${p} тап по «Продолжить» возобновляет игру одним тапом: state 'playing', время идёт (${f2(elapsedResume)} → ${f2(afterResume.elapsed)}), кнопок паузы нет`,
       afterResume.state === 'playing' && afterResume.elapsed > elapsedResume && afterResume.pauseResumeButton === null && afterResume.pauseMenuButton === null, `state ${afterResume.state}`);
+    await context.close();
   }
 }
 
