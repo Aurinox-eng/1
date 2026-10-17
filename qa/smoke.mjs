@@ -481,6 +481,16 @@ const newDeviceContext = (browser, device, lang) =>
 async function openGame(context, baseUrl, prefix, { speed = 1, cfg = '', isTouch = false, query = '', canvas = false } = {}) {
   const page = await context.newPage();
   watchConsole(page, prefix);
+  // Журнал касаний на стороне страницы (время начала и конца касания, мс): по нему видно, почему тап не принят — игра считает тапом касание не дольше camera.tapMaxMs
+  await page.addInitScript(() => {
+    const taps = (window.__qaTaps = []);
+    const record = (e) => {
+      const t = e.changedTouches?.[0] ?? e;
+      taps.push({ type: e.type, t: performance.now(), x: Math.round(t.clientX), y: Math.round(t.clientY) });
+      if (taps.length > 60) taps.shift();
+    };
+    for (const type of ['touchstart', 'touchend', 'touchcancel', 'mousedown', 'mouseup']) window.addEventListener(type, record, { capture: true, passive: true });
+  });
   // QA_EXTRA_CFG нужна только для проверки самих проверок: подмешивает «поломку» (например camera.tapMaxMovePx:14) — соответствующая проверка обязана покраснеть
   // `meta.dna.coinsCapShare:0` — остаток монет не превращается в очки ДНК (иначе ожидаемые суммы очков в других проверках зависели бы от монет в конце партии); сценарий «монеты → ДНК» включает его своим числом
   // `levels.starDna:0` идёт первым: очки за звёзды не мешают проверкам очков ДНК; сценарий звёзд подменяет это число своим (позднее в списке — главнее)
@@ -547,6 +557,39 @@ async function openGame(context, baseUrl, prefix, { speed = 1, cfg = '', isTouch
     async placeTowers(cells) {
       await game.towerButton();
       for (const [col, row] of cells) await game.tapCell(col, row);
+      return getState(page);
+    },
+    /**
+     * Тап по клетке, где должна встать башня, с подтверждением по состоянию игры: ждём, пока счётчик постановок (effects.placements) вырастет (до 3 с реального времени);
+     * не вырос — тап не принят, повторяем (всего до трёх тапов). Каждый непринятый тап пишется в заметку: сколько длилось касание в браузере (игра принимает тап не дольше
+     * camera.tapMaxMs), монеты, башни и выбор на панели, чтобы причину (долгое касание, пустая панель, нехватка монет, занятая клетка) было видно по журналу. Возвращает номер принятого тапа, 0 — ни один не принят.
+     */
+    async tapCellUntilPlaced(col, row) {
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        const before = (await getState(page)).effects.placements;
+        await game.tapCell(col, row);
+        const started = Date.now();
+        while (Date.now() - started < 3000) {
+          if ((await getState(page)).effects.placements > before) return attempt;
+          await sleep(40);
+        }
+        const [s, tap] = await Promise.all([
+          getState(page),
+          page.evaluate(() => {
+            const taps = window.__qaTaps ?? [];
+            const end = taps.findLastIndex((e) => e.type === 'touchend' || e.type === 'touchcancel' || e.type === 'mouseup');
+            const start = end < 0 ? -1 : taps.findLastIndex((e, i) => i < end && (e.type === 'touchstart' || e.type === 'mousedown'));
+            return end < 0 || start < 0 ? null : { type: taps[end].type, dt: Math.round(taps[end].t - taps[start].t), x: taps[end].x, y: taps[end].y };
+          }),
+        ]);
+        note(`${prefix} тап ${attempt} по клетке ${col};${row} не поставил башню за 3 с: касание в браузере ${tap ? `${tap.type}, длилось ${tap.dt} мс (порог игры ${readConfigNumber('camera', 'tapMaxMs')} мс), точка ${tap.x};${tap.y}` : 'не записано'}; монеты ${s.coins}, башен ${s.towers.length}, на панели ${JSON.stringify(s.selected)}, состояние ${s.state}, подсказка ${JSON.stringify(s.ui.hint)}`);
+      }
+      return 0;
+    },
+    /** Выбирает башню и ставит её на клетки по очереди, каждую с подтверждением по состоянию игры (tapCellUntilPlaced). */
+    async placeTowersConfirmed(cells) {
+      await game.towerButton();
+      for (const [col, row] of cells) await game.tapCellUntilPlaced(col, row);
       return getState(page);
     },
   };
@@ -1139,7 +1182,7 @@ async function profileBattle(c) {
   const { prefix: p, isTouch, name, full } = c;
   const game = await openGame(c.context, c.baseUrl, p, { speed: 4, isTouch, cfg: `waves.firstDelaySec:1,${FIXED_BALANCE.join(',')},towers.pill.range:450` });
   const { page, input } = game;
-  let s = await game.placeTowers([FREE.a, FREE.b]);
+  let s = await game.placeTowersConfirmed([FREE.a, FREE.b]);
   check(`${p} бой: две башни поставлены, монет ${CFG.startCoins - 2 * BASE.price}`, s.towers.length === 2 && s.coins <= CFG.startCoins - 2 * BASE.price + s.kills * BASE.reward, `башен ${s.towers.length}, монет ${s.coins}`);
   let maxProjectiles = 0;
   let maxBacteria = 0;
