@@ -363,6 +363,31 @@ async function waitFor(page, predicate, timeoutMs, label, pollMs = 40) {
   throw new Error(`Не дождались: ${label}`);
 }
 
+/**
+ * Ждёт события в игре (predicate(state)), измеряя срок не секундами реального времени, а ходом игры: бюджет `gameSec` — игровые секунды без учёта кнопки скорости
+ * (state.clock.baseSec), которые игра может прожить в ожидании. Если за бюджет события не было — исключение «не дождались» (событие не наступает), а не молчаливый пропуск.
+ * `realMs` — только защита от зависшей страницы (игра совсем не продвигается). На медленном сервере игровое время идёт в разы медленнее реального (шаг кадра ограничен MAX_FRAME_MS),
+ * поэтому срок в секундах реального времени (WAIT_MS) для таких ожиданий неверен: игра успевает прожить мало, хотя событие наступило бы.
+ */
+async function waitForGame(page, predicate, label, { gameSec = 120, realMs = 900000, pollMs = 40 } = {}) {
+  const started = Date.now();
+  let base0 = null;
+  let lived = 0;
+  while (Date.now() - started < realMs) {
+    const state = await getState(page);
+    if (state) {
+      if (predicate(state)) return state;
+      if (state.clock) {
+        base0 ??= state.clock.baseSec;
+        lived = state.clock.baseSec - base0;
+        if (lived > gameSec) throw new Error(`Условие не выполнено: ${label} (игра прожила ${gameSec} игровых секунд, события не было)`);
+      }
+    }
+    await sleep(pollMs);
+  }
+  throw new Error(`Игра не дошла до условия: ${label} (за ${Math.round(realMs / 1000)} с реального времени игра прожила ${f1(lived)} из ${gameSec} игровых секунд)`);
+}
+
 /** Номер шага игры (state.clock.frames), до которого партия считается только что начатой: перезапуск и начало уровня обнуляют счётчик кадров (GameScene.create). */
 const FRESH_FRAMES = 3;
 
@@ -7758,7 +7783,7 @@ async function runMetaDna(browser, baseUrl) {
     speed: 4,
     cfg: `waves.total:3,waves.pauseSec:0.1,waves.firstDelaySec:1,waves.intervalStartSec:1,waves.intervalEndSec:1,waves.list.0.coccus:2,waves.list.1.coccus:2,waves.list.2.coccus:2,lives.start:1,bacteria.baseSpeed:250,${dnaCfg}`,
   });
-  let s = await waitFor(lose.page, (x) => x.state === 'lost', WAIT_MS, 'проигрыш');
+  let s = await waitForGame(lose.page, (x) => x.state === 'lost', 'проигрыш');
   const wantLose = (s.wave - 1) * 2;
   let m = await metaOf(lose.page);
   check(`${p} проигрыш на волне ${s.wave}: начислено (волна − 1) × 2 = ${wantLose} очков, на счёте столько же`, s.wave >= 2 && s.dnaGained === wantLose && m.dna === wantLose, `волна ${s.wave}, начислено ${s.dnaGained}, на счёте ${m.dna}`);
@@ -7776,7 +7801,7 @@ async function runMetaDna(browser, baseUrl) {
     cfg: `${wavesOnlyCfg({ coccus: 1 })},waves.firstDelaySec:1,towers.pill.range:900,towers.pill.damage:50,economy.startCoins:500,lives.start:3,${dnaCfg}`,
   });
   for (const cell of [FREE.a, FREE.b]) await placeSure(win, 'pill', cell);
-  s = await waitFor(win.page, (x) => x.state === 'won', WAIT_MS, 'победа');
+  s = await waitForGame(win.page, (x) => x.state === 'won', 'победа');
   m = await metaOf(win.page);
   check(`${p} победа за 1 волну: 1 × 2 + 7 = 9 очков (начислено ${s.dnaGained}); к ${wantLose} прежним — ${wantLose + 9} на счёте`, s.dnaGained === 9 && m.dna === wantLose + 9, `начислено ${s.dnaGained}, на счёте ${m.dna}`);
   await sleep(CFG.restartLockMs + 250);
@@ -7793,7 +7818,7 @@ async function runMetaDna(browser, baseUrl) {
     cfg: `${wavesOnlyCfg({ coccus: 1 })},waves.firstDelaySec:1,towers.pill.range:900,towers.pill.damage:50,economy.startCoins:500,lives.start:3,${replayCfg}`,
   });
   for (const cell of [FREE.a, FREE.b]) await placeSure(again, 'pill', cell);
-  s = await waitFor(again.page, (x) => x.state === 'won', WAIT_MS, 'победа на пройденном уровне');
+  s = await waitForGame(again.page, (x) => x.state === 'won', 'победа на пройденном уровне');
   check(`${p} победа на пройденном уровне за 1 волну: floor(1 × 20 × 0,1) = 2 очка, бонуса за победу нет (начислено ${s.dnaGained})`, s.dnaGained === 2, `начислено ${s.dnaGained}`);
   await again.page.close();
   // новая вкладка-контекст: в прежнем уровень 1 уже записан как пройденный (первая победа выше)
@@ -7803,7 +7828,7 @@ async function runMetaDna(browser, baseUrl) {
     cfg: `${wavesOnlyCfg({ coccus: 1 })},waves.firstDelaySec:1,towers.pill.range:900,towers.pill.damage:50,economy.startCoins:500,lives.start:3,${replayCfg}`,
   });
   for (const cell of [FREE.a, FREE.b]) await placeSure(firstTime, 'pill', cell);
-  s = await waitFor(firstTime.page, (x) => x.state === 'won', WAIT_MS, 'первая победа');
+  s = await waitForGame(firstTime.page, (x) => x.state === 'won', 'первая победа');
   check(`${p} первая победа на непройденном уровне: 1 × 20 + 7 = 27 очков полностью (начислено ${s.dnaGained})`, s.dnaGained === 27, `начислено ${s.dnaGained}`);
   await fresh.close();
 
@@ -7814,7 +7839,7 @@ async function runMetaDna(browser, baseUrl) {
     const ctx = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
     const g = await openGame(ctx, baseUrl, p, { speed: 4, query, cfg: coinBase(cfgExtra) });
     for (const cell of [FREE.a, FREE.b]) await placeSure(g, 'pill', cell);
-    const st = await waitFor(g.page, (x) => x.state === 'won', WAIT_MS, 'победа (монеты → ДНК)');
+    const st = await waitForGame(g.page, (x) => x.state === 'won', 'победа (монеты → ДНК)');
     await ctx.close();
     return st;
   };
@@ -7873,7 +7898,7 @@ async function runMetaDna(browser, baseUrl) {
     const lv = await openGame(context, baseUrl, p, { speed: 4, cfg: `waves.firstDelaySec:1,waves.total:1,waves.list.0.coccus:6,bacteria.baseSpeed:250,towers.pill.damage:0,lives.start:${REAL_LIVES}` });
     const s0 = await lv.state();
     check(`${p} старт с настоящим числом жизней: жизни ${s0.lives} из ${s0.maxLives}, в верхней полосе «${s0.ui.livesText}» (ждали «${REAL_LIVES} / ${REAL_LIVES}»)`, s0.lives === REAL_LIVES && s0.maxLives === REAL_LIVES && s0.ui.livesText === `${REAL_LIVES} / ${REAL_LIVES}`, `${s0.lives}/${s0.maxLives} «${s0.ui.livesText}»`);
-    const s1 = await waitFor(lv.page, (x) => x.lives <= REAL_LIVES - 3, WAIT_MS, 'потеряно несколько жизней');
+    const s1 = await waitForGame(lv.page, (x) => x.lives <= REAL_LIVES - 3, 'потеряно несколько жизней');
     check(`${p} после потерь число в верхней полосе обновляется: жизни ${s1.lives}, «${s1.ui.livesText}» (ждали «${Math.ceil(s1.lives)} / ${REAL_LIVES}»)`, s1.ui.livesText === `${Math.ceil(s1.lives - 1e-9)} / ${REAL_LIVES}` && s1.lives < REAL_LIVES, `${s1.lives} «${s1.ui.livesText}»`);
     await lv.page.close();
   }
@@ -7884,7 +7909,7 @@ async function runMetaDna(browser, baseUrl) {
     const ctxP = await newDeviceContext(browser, VIEWPORTS.phone, lang);
     const w = await openGame(ctxP, baseUrl, p, { speed: 4, isTouch: true, query: replay ? '&stars=1' : '', cfg: winCfg });
     for (const cell of [FREE.a, FREE.b]) await placeSure(w, 'pill', cell);
-    const st = await waitFor(w.page, (x) => x.state === 'won', WAIT_MS, 'победа (экран победы на телефоне)');
+    const st = await waitForGame(w.page, (x) => x.state === 'won', 'победа (экран победы на телефоне)');
     await sleep(500);
     await shot(w.page, `win-screen-phone-${lang}-${replay ? 'replay' : 'first'}`);
     const buttons = [st.endButton, st.upgradesButton, st.nextButton, st.menuButton].filter(Boolean);
@@ -7910,7 +7935,7 @@ async function runMetaDna(browser, baseUrl) {
     speed: 4,
     cfg: `waves.total:3,waves.pauseSec:0.1,waves.firstDelaySec:1,waves.intervalStartSec:1,waves.intervalEndSec:1,waves.list.0.coccus:2,waves.list.1.coccus:2,waves.list.2.coccus:2,lives.start:1,bacteria.baseSpeed:250,economy.startCoins:500,meta.dna.waveBase:20,meta.dna.waveStep:0,meta.dna.coinsPerPoint:50,meta.dna.coinsCapShare:0.5`,
   });
-  s = await waitFor(loseCoins.page, (x) => x.state === 'lost', WAIT_MS, 'проигрыш (монеты → ДНК)');
+  s = await waitForGame(loseCoins.page, (x) => x.state === 'lost', 'проигрыш (монеты → ДНК)');
   check(`${p} при проигрыше остаток монет (${Math.floor(s.coins)}) в очки ДНК не переводится: за монеты ${s.dnaParts.coins}, строки «${s.endDnaLines.join(' | ')}» без строки про монеты`, s.dnaParts.coins === 0 && s.endDnaLines.every((x) => !x.startsWith('остаток монет')), JSON.stringify(s.dnaParts));
   await loseCoins.page.close();
   await context.close();
