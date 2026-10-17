@@ -4379,6 +4379,11 @@ async function towersNewStats(browser, baseUrl) {
 
 // ---------------------------------------------------------------- Ампула: снайпер
 
+/** Минимум оценённых выстрелов Ампулы — как у Таблетки: не меньше половины сделанных и не меньше пяти; иначе проверка красная с пометкой «мало данных». Прогон идёт, пока данных не хватит (потолок — AMPULE_MAX_SHOTS выстрелов). */
+const AMPULE_MIN_SHARE = 0.5;
+const AMPULE_MIN_JUDGED = 5;
+const AMPULE_MAX_SHOTS = 14;
+
 /**
  * Ампула бьёт самую прочную (по текущему HP) бактерию в радиусе, а не ближайшую к организму. По каждому выстрелу, где в радиусе «точно» (с запасом 60 px) было ≥ 2 бактерий,
  * самая прочная опережает вторую на ≥ 4 HP и нет «пограничных» бактерий, которые могли оказаться прочнее, смотрим, кто потерял HP: ровно эта бактерия и ровно на урон башни.
@@ -4420,7 +4425,7 @@ function analyzeSnipeTargets(log, tw, damage) {
 /**
  * Ампула: (1) цель — самая прочная по текущему HP из находящихся в радиусе (три бактерии с разным HP; радиус для этой проверки подменён на 3000 px, чтобы все были в радиусе: так порядок
  * целей не зависит от того, с какого входа они вышли; число башни из таблицы проверяет towersNewStats); (2) каждый выстрел бьёт одну бактерию и снимает урон башни; (3) пауза между выстрелами —
- * из таблицы (игровое время; допуск на шаг кадра). Бактерии медленные, чтобы партия шла дольше семи выстрелов.
+ * из таблицы (игровое время; допуск на шаг кадра). Бактерии медленные, чтобы партия шла дольше четырнадцати выстрелов (потолок прогона AMPULE_MAX_SHOTS).
  */
 async function towersAmpule(browser, baseUrl) {
   const p = '[башни: Ампула]';
@@ -4446,19 +4451,27 @@ async function towersAmpule(browser, baseUrl) {
   const tw = { ...placed.towers[0], range: placed.towers[0]?.stats.range ?? 0 }; // радиус — из чисел башни в игре (подменён на 3000 в cfg выше)
   const log = [];
   const startedAt = Date.now();
+  // Прогон идёт, пока не набрано достаточно оценённых выстрелов (AMPULE_MIN_SHARE от сделанных, не меньше AMPULE_MIN_JUDGED, не меньше двух разных целей); потолок — AMPULE_MAX_SHOTS выстрелов или конец бактерий
+  let enough = false;
   await pollUntil(game, (st) => {
     log.push(st);
-    return st.state !== 'playing' || (st.shots >= 7 && st.projectiles === 0) || Date.now() - startedAt > 170000;
+    if (st.shots >= 7 && log.length % 20 === 0) {
+      const part = analyzeSnipeTargets(log, tw, damage);
+      enough = part.judged >= AMPULE_MIN_JUDGED && part.judged >= part.fires * AMPULE_MIN_SHARE && part.victims.size >= 2;
+    }
+    return st.state !== 'playing' || (st.projectiles === 0 && ((st.shots >= 7 && enough) || st.shots >= AMPULE_MAX_SHOTS)) || Date.now() - startedAt > 170000;
   }, 190000, 20);
   await game.page.close();
   const last = log.at(-1);
   const a = analyzeSnipeTargets(log, tw, damage);
+  const ampEnough = a.judged >= AMPULE_MIN_JUDGED && a.judged >= a.fires * AMPULE_MIN_SHARE;
+  const ampNeed = Math.max(AMPULE_MIN_JUDGED, Math.ceil(a.fires * AMPULE_MIN_SHARE));
   const fireAt = [];
   for (let j = 1; j < log.length; j++) for (let k = log[j - 1].shots; k < log[j].shots; k++) fireAt.push(log[j].elapsed);
   const gaps = fireAt.slice(1).map((e, i) => e - fireAt[i]);
   check(`${p} Ампула поставлена и стреляет: башен ${placed.towers.length} (${tw?.id}), выстрелов ${last.shots} (ждали ≥ 6)`, placed.towers.length === 1 && tw?.id === 'ampule' && last.shots >= 6, `выстрелов ${last.shots}, состояние ${last.state}`);
-  check(`${p} цель — самая прочная по текущему HP из бактерий в радиусе (HP ${Object.entries(hps).map(([k, v]) => `${k} ${v}`).join(', ')}): из ${a.fires} выстрелов оценено ${a.judged} (самая прочная впереди второй на ≥ 4 HP, неоднозначных ${a.ambiguous}, не долетело ${a.unlanded}), ошибок ${a.wrong.length}; разных целей: ${[...a.victims].join(', ') || 'нет'}`, a.judged >= 3 && a.wrong.length === 0 && a.victims.size >= 2, a.wrong.slice(0, 3).join('; ') || `оценено ${a.judged}, целей ${a.victims.size}`);
-  check(`${p} каждый выстрел Ампулы попадает ровно в одну бактерию и снимает ${damage} HP (из таблицы; отклонений ${a.badDamage})`, a.judged >= 3 && a.badDamage === 0);
+  check(`${p} цель — самая прочная по текущему HP из бактерий в радиусе (HP ${Object.entries(hps).map(([k, v]) => `${k} ${v}`).join(', ')}): из ${a.fires} выстрелов оценено ${a.judged} (самая прочная впереди второй на ≥ 4 HP, неоднозначных ${a.ambiguous}, не долетело ${a.unlanded}), ошибок ${a.wrong.length}; разных целей: ${[...a.victims].join(', ') || 'нет'}`, ampEnough && a.wrong.length === 0 && a.victims.size >= 2, !ampEnough ? `мало данных: оценено ${a.judged} из ${a.fires} выстрелов, нужно не меньше ${ampNeed}; неоднозначных ${a.ambiguous}, не долетело ${a.unlanded}` : a.wrong.slice(0, 3).join('; ') || `оценено ${a.judged}, целей ${a.victims.size}`);
+  check(`${p} каждый выстрел Ампулы попадает ровно в одну бактерию и снимает ${damage} HP (из таблицы; отклонений ${a.badDamage})`, ampEnough && a.badDamage === 0, ampEnough ? '' : `мало данных: оценено ${a.judged} из ${a.fires} выстрелов, нужно не меньше ${ampNeed}`);
   check(`${p} пауза между выстрелами — ${cd} с из таблицы (игровое время; допуск 0,6 с на шаг кадра вниз и 0,8 с вверх у медианы): выстрелов ${fireAt.length}, промежутки ${gaps.map(f2).join(', ')}`, gaps.length >= 4 && Math.min(...gaps) >= cd - 0.6 && medianOf(gaps) <= cd + 0.8, gaps.map(f2).join(', '));
   await context.close();
 }
