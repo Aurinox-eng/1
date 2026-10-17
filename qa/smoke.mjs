@@ -4062,14 +4062,20 @@ async function syringeBlind(browser, baseUrl) {
 /**
  * Таблетка бьёт ту бактерию в радиусе, которой до организма ближе всего (remaining). По каждому выстрелу, где в радиусе было ≥ 2 бактерий
  * и ближайшая к организму опережает остальных на ≥ 12 px (remaining у бактерий убывает со скоростью каждой, порядок за кадр почти не меняется), смотрим, кто потерял HP.
+ * Выстрел случился в кадре между снимками j − 1 и j, а какой был радиус в этот кадр, снимки не говорят: на медленной странице зазор между ними велик, и ближайшая к организму
+ * бактерия успевает выйти из радиуса (тогда в снимке j «ближайшей» оказывается следующая, а башня стреляла в вышедшую). Поэтому оцениваем выстрел, только если ближайшая
+ * к организму в радиусе одна и та же в обоих снимках и в каждом опережает остальных на ≥ 12 px; иначе выстрел неоднозначный.
  */
 function analyzePillTargets(log, tw, damage) {
   const out = { fires: 0, judged: 0, ambiguous: 0, wrong: [], candidates: [], badDamage: 0 };
+  const inRange = (s) => s.bacteria.filter((b) => b.hp > 0 && inReach(tw, b)).sort((a, b) => a.remaining - b.remaining);
+  const clearLeader = (c) => c.length >= 2 && c[1].remaining - c[0].remaining >= 12;
   for (let j = 1; j < log.length; j++) {
     if (log[j].shots <= log[j - 1].shots) continue;
     out.fires++;
-    const cand = log[j].bacteria.filter((b) => b.hp > 0 && inReach(tw, b)).sort((a, b) => a.remaining - b.remaining);
-    if (cand.length < 2 || cand[1].remaining - cand[0].remaining < 12) {
+    const before = inRange(log[j - 1]);
+    const cand = inRange(log[j]);
+    if (!clearLeader(before) || !clearLeader(cand) || before[0].id !== cand[0].id) {
       out.ambiguous++;
       continue;
     }
