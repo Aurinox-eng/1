@@ -1,14 +1,13 @@
 {
-  "note": "Таблетка одна (база), уровень 5, expert и strong, улучшения: ветка Таблетки первой",
-  "profiles": "expert,strong",
-  "runs": 6,
-  "shards": 6,
+  "note": "Короткая проверка бота после перехода на облегчённую сборку Phaser (16 октября 2026): одна партия «сильного» на уровне 1",
+  "profiles": "strong",
+  "runs": 1,
+  "shards": 1,
   "excludes": "-",
-  "solos": "pill",
+  "solos": "-",
   "cfg": "-",
-  "level": 5,
-  "speed": 2,
-  "meta": "damage:3,pillPower:6,pillRate:8,pillRange:6,pillCheap:5",
-  "max_game_sec": 3000,
-  "max_real_sec": 7200
+  "level": 1,
+  "speed": 4,
+  "max_game_sec": 1500,
+  "max_real_sec": 3600
 }

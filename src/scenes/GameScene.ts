@@ -1,12 +1,12 @@
 import Phaser from 'phaser';
 import { CameraRig } from '../cameraRig';
 import { CONFIG } from '../config';
-import { exposeDebug, QA_ENTRANCE, QA_EVENTS_MAX, QA_MODE, STRESS, STRESS_FIZZ, TIME_SCALE, type DebugSnapshot, type QaEvent } from '../debug';
+import { exposeDebug, QA_ENTRANCE, QA_MODE, STRESS, STRESS_FIZZ, TIME_SCALE, type QaEvent } from '../debug';
+import { qaLog, qaSnapshot, setupStress, stressFrame } from '../qaTools';
 import { Effects } from '../effects';
 import { drawStar, setScreenInfo } from '../screens';
 import { awardDna, dnaParts, coinsBonus, exposeMetaDebug, HIDDEN_SCREEN, isLevelBeaten, livesBonus, markSeen, metaDna, metaSeen, recordResult, refundBonus, rewardMul, shieldCharges, starsForLoss, waveCoinsBonus } from '../meta';
 import { num, t, type TextKey } from '../i18n';
-import { ALMANAC_BEATEN_BY } from '../almanac';
 import { aimAngle, BLOCKED_TILES, EDGES, ENTRANCE_EDGES, LEVEL, PATH_TILES, WORLD, cellKey, worldToCell } from '../level';
 import { isPortraitPhone } from '../orientation';
 import { currentLevel, isTowerOpen, levelParams, newTowersOfLevel, setCurrentLevel, setLastBuilt, unlockLevel, type LevelParams } from '../progress';
@@ -39,6 +39,10 @@ const RESIST_COLOR = 0x9aa6bd;
 const NEWS_MS = 4200;
 /** О чём игрок уже узнал из строк-уведомлений («b:тип» — бактерия, «t:башня» — башня): повторные партии подряд их не повторяют. */
 const seenNews = new Set<string>(metaSeen());
+/** После сброса прогресса в меню все уведомления и подсказки показываются заново. */
+export function forgetNews(): void {
+  seenNews.clear();
+}
 /** Запоминает уведомление как показанное (и в сохранении, чтобы после обновления страницы оно не повторялось). */
 function rememberNews(key: string): void {
   seenNews.add(key);
@@ -87,19 +91,6 @@ const BEAM_START_PX = 50;
 const SPLITS_INTO: BacteriumKind = 'coccus';
 /** Кого рожает матка (правило игры; сколько и как часто — в таблице типов). */
 const BREWS_INTO: BacteriumKind = 'swarm';
-/** Стресс-сценарий (`?qa&stress`; второй — `?qa&stress=fizz`, см. ниже): сколько башен, сколько бактерий держится на карте, скорость игры, во сколько раз прочнее бактерии (чтобы жили дольше). */
-const STRESS_TOWERS = 40;
-const STRESS_BACTERIA = 200;
-const STRESS_SPEED = 3;
-const STRESS_HP_MUL = 3;
-/** Сколько бактерий стресс-сценарий добавляет за кадр взамен погибших. */
-const STRESS_REFILL_PER_FRAME = 20;
-/** Новые бактерии стресс-сценария появляются не ближе стольких клеток к организму. */
-const STRESS_ORGANISM_GAP_TILES = 3;
-/** Второй стресс-сценарий (`?qa&stress=fizz`): сколько Шипучек 4-го уровня, во сколько раз прочнее бактерии (Шипучки бьют по площади и сильно — иначе бактерии гибли бы с одного-двух взрывов). */
-const STRESS_FIZZ_TOWERS = 12;
-const STRESS_FIZZ_HP_MUL = 40;
-
 /** Кто выходит следующим в волне: тип, вход (null — случайный) и сколько секунд ждать до следующего (в пачке — короткая пауза). */
 interface SpawnItem {
   kind: BacteriumKind;
@@ -211,17 +202,18 @@ export class GameScene extends Phaser.Scene {
   private introduced: BacteriumKind[] = [];
   /** Плашки, ждущие показа (по одной за тап), и когда можно закрыть текущую (реальные часы, мс). */
   /** Кнопка «Заново» на экране конца уровня (центр и размер на экране игры), пока экран не показан — null. */
-  private endButton: { x: number; y: number; w: number; h: number } | null = null;
+  /** (читает снимок режима проверки, qaTools) */ endButton: { x: number; y: number; w: number; h: number } | null = null;
   /** Кнопка «Улучшения» на экране конца уровня и сколько очков ДНК начислено за эту партию (0, пока партия идёт). */
-  private upgradesButton: { x: number; y: number; w: number; h: number } | null = null;
+  /** (читает снимок режима проверки, qaTools) */ upgradesButton: { x: number; y: number; w: number; h: number } | null = null;
   /** Кнопки «Следующий уровень» и «В меню» на экране конца уровня и «В меню» на паузе (или null). */
-  private nextButton: { x: number; y: number; w: number; h: number } | null = null;
-  private menuButton: { x: number; y: number; w: number; h: number } | null = null;
+  /** (читает снимок режима проверки, qaTools) */ nextButton: { x: number; y: number; w: number; h: number } | null = null;
+  /** (читает снимок режима проверки, qaTools) */ menuButton: { x: number; y: number; w: number; h: number } | null = null;
+  private pauseResumeButton: { x: number; y: number; w: number; h: number } | null = null;
   private pauseMenuButton: { x: number; y: number; w: number; h: number } | null = null;
   private pauseAlmanacButton: { x: number; y: number; w: number; h: number } | null = null;
   private pauseSoundButton: { x: number; y: number; w: number; h: number } | null = null;
   private pauseRestartButton: { x: number; y: number; w: number; h: number } | null = null;
-  private dnaGained = 0;
+  /** (читает снимок режима проверки, qaTools) */ dnaGained = 0;
   private dnaAwarded = false;
   /** Уровень уже был пройден до этой партии: очки за волны — доля `meta.dna.replayFactor`. */
   private dnaReplay = false;
@@ -230,9 +222,9 @@ export class GameScene extends Phaser.Scene {
   private starDna = 0;
   /** Разбивка очков ДНК за партию на экране конца уровня (волны, победа, звёзды) и сама строка. */
   private dnaParts = { waves: 0, win: 0, coins: 0, stars: 0 };
-  private endDnaLines: string[] = [];
+  /** (читает снимок режима проверки, qaTools) */ endDnaLines: string[] = [];
   /** Нижний край и наибольшая ширина текстов на затемнении (конец уровня, пауза), пикселей экрана игры: проверка «текст не налезает на кнопки». */
-  private overlayBox = { bottom: 0, maxWidth: 0 };
+  /** (читает снимок режима проверки, qaTools) */ overlayBox = { bottom: 0, maxWidth: 0 };
   private coinsLeft = 0;
   private waveInterval = 1;
   private spawnTimer = 0;
@@ -312,6 +304,7 @@ export class GameScene extends Phaser.Scene {
     this.upgradesButton = null;
     this.nextButton = null;
     this.menuButton = null;
+    this.pauseResumeButton = null;
     this.pauseMenuButton = null;
     this.pauseAlmanacButton = null;
     this.pauseSoundButton = null;
@@ -417,14 +410,14 @@ export class GameScene extends Phaser.Scene {
       isCovered: (sx, sy) => this.panel.coversPoint(sx, sy),
     });
     this.input.on('pointerdown', this.onScreenTap, this);
-    if (STRESS) this.setupStress();
+    if (STRESS) setupStress(this);
     else this.announceStart();
     if (FPS_ENABLED || QA_MODE) installFrameStats(this.game);
     if (FPS_ENABLED) new FpsMeter(this);
 
     exposeMetaDebug(() => HIDDEN_SCREEN);
     exposeDebug({
-      getState: () => this.snapshot(),
+      getState: () => qaSnapshot(this),
       getEvents: (from = 0) => this.qaEvents.slice(from),
       getGraph: () => ({
         edges: EDGES.map((e) => ({ id: e.id, from: e.from, to: e.to, length: e.length, pts: e.pts.map((p): [number, number] => [p.x, p.y]) })),
@@ -522,10 +515,6 @@ export class GameScene extends Phaser.Scene {
     return true;
   }
 
-  /** Запись в журнал событий игры (только режим проверки; вызывать как `if (QA_MODE) this.qa(...)`, чтобы в игровой сборке не собирался и сам объект). */
-  private qa(type: QaEvent['type'], data: Record<string, unknown>): void {
-    if (QA_MODE && this.qaEvents.length < QA_EVENTS_MAX) this.qaEvents.push({ type, t: this.elapsed, ...data });
-  }
 
   /** Вход, по которому выходит бактерия: случайный, а в режиме проверки с `&entrance=N` — всегда ребро N. */
   private pickEntrance(): Edge {
@@ -537,7 +526,7 @@ export class GameScene extends Phaser.Scene {
 
   private updateWaves(dt: number): void {
     if (STRESS) {
-      this.refillStress(STRESS_REFILL_PER_FRAME);
+      stressFrame(this);
       return;
     }
     if (this.phase === 'done') return;
@@ -665,12 +654,12 @@ export class GameScene extends Phaser.Scene {
     const born = new Bacterium(this, this.bacteriaLayer, kind, edge, 0, this.waveHpMul());
     this.bacteria.push(born);
     this.spawned++;
-    if (QA_MODE) this.qa('spawn', { id: born.id, kind, edge: edge.id });
+    if (QA_MODE) qaLog(this, 'spawn', { id: born.id, kind, edge: edge.id });
     if (!this.introduced.includes(kind)) {
       this.introduced.push(kind);
       const text = NEW_TYPE_TEXT[kind];
       if (text) {
-        this.panel.toast(t(text), NEW_TYPE_TOAST_MS);
+        this.panel.news(t(text), NEW_TYPE_TOAST_MS);
         sfx.newType();
       }
     }
@@ -839,7 +828,7 @@ export class GameScene extends Phaser.Scene {
         }
         if (b.latchedTo) {
           this.latches++;
-          if (QA_MODE) this.qa('latch', { id: b.id, col: b.latchedTo.col, row: b.latchedTo.row, dist: bestDist });
+          if (QA_MODE) qaLog(this, 'latch', { id: b.id, col: b.latchedTo.col, row: b.latchedTo.row, dist: bestDist });
         }
       }
       const host = b.latchedTo;
@@ -979,7 +968,7 @@ export class GameScene extends Phaser.Scene {
     const hits = tower.beamHits(this.bacteria);
     const killsBefore = this.kills;
     for (const bacterium of hits) this.damageBacterium(bacterium, st, true, damage);
-    if (QA_MODE) this.qa('beam', { col: tower.col, row: tower.row, index, hits: hits.length, kills: this.kills - killsBefore });
+    if (QA_MODE) qaLog(this, 'beam', { col: tower.col, row: tower.row, index, hits: hits.length, kills: this.kills - killsBefore });
   }
 
   /**
@@ -1069,7 +1058,7 @@ export class GameScene extends Phaser.Scene {
         if (QA_MODE) restDealt.push(bacterium.lastDealt);
       }
     }
-    if (QA_MODE) this.qa('blast', { x, y, radius, hits: inCircle.length, full, rest, acid, fullDealt, restDealt, fullFar, restNear, kills: this.kills - killsBefore, chain: !allowChain });
+    if (QA_MODE) qaLog(this, 'blast', { x, y, radius, hits: inCircle.length, full, rest, acid, fullDealt, restDealt, fullFar, restNear, kills: this.kills - killsBefore, chain: !allowChain });
     if (allowChain && st.chain) this.chains.push({ left: CHAIN_DELAY_SEC, x, y, stats: st });
   }
 
@@ -1096,7 +1085,7 @@ export class GameScene extends Phaser.Scene {
     const gain = Math.floor(this.rewardPool + 1e-9);
     this.rewardPool -= gain;
     this.coins += gain;
-    if (QA_MODE) this.qa('kill', { id: bacterium.id, kind: bacterium.kind, gain, coins: this.coins });
+    if (QA_MODE) qaLog(this, 'kill', { id: bacterium.id, kind: bacterium.kind, gain, coins: this.coins });
     this.effects.burst(bacterium.x, bacterium.y, bacterium.kind);
     if (gain > 0) this.effects.popup(bacterium.x, bacterium.y, t('coinsPopup', { n: gain }));
     sfx.destroy();
@@ -1160,7 +1149,7 @@ export class GameScene extends Phaser.Scene {
       if (!bacterium.reachedOrganism) continue;
       lastY = bacterium.y;
       this.leaked++;
-      if (QA_MODE) this.qa('leak', { id: bacterium.id, kind: bacterium.kind, wave: this.waveIdx, damage: bacterium.lifeDamage, absorbed: this.shieldLeft > 0 });
+      if (QA_MODE) qaLog(this, 'leak', { id: bacterium.id, kind: bacterium.kind, wave: this.waveIdx, damage: bacterium.lifeDamage, absorbed: this.shieldLeft > 0 });
       if (this.shieldLeft > 0) {
         // «Щит у линии»: бактерия гасится, жизни не отнимаются (для звёзд она считается потерянной жизнью)
         this.shieldLeft--;
@@ -1522,7 +1511,7 @@ export class GameScene extends Phaser.Scene {
     this.refreshCard();
     if (CONFIG.towers[id].targeting === 'beam' && !this.rotateHinted) {
       this.rotateHinted = true;
-      this.panel.toast(t('hintRotate'), 3200);
+      this.panel.news(t('hintRotate'), 3200);
     }
   }
 
@@ -1618,8 +1607,8 @@ export class GameScene extends Phaser.Scene {
   private onScreenTap(pointer?: Phaser.Input.Pointer): void {
     if (isPortraitPhone()) return;
     const now = performance.now();
-    // Тап по кнопке «В меню» на паузе игру не возобновляет (кнопка сама уводит в меню)
-    for (const b of [this.pauseMenuButton, this.pauseAlmanacButton, this.pauseSoundButton, this.pauseRestartButton]) {
+    // Тап по кнопке меню паузы игру сам не возобновляет (кнопка делает своё дело; «Продолжить» возобновляет сама)
+    for (const b of [this.pauseResumeButton, this.pauseMenuButton, this.pauseAlmanacButton, this.pauseSoundButton, this.pauseRestartButton]) {
       if (this.state === 'paused' && b && pointer && Math.abs(pointer.x - b.x) <= b.w / 2 && Math.abs(pointer.y - b.y) <= b.h / 2) return;
     }
     if (this.state === 'paused' && now >= this.resumeAllowedAt) this.togglePause();
@@ -1650,8 +1639,11 @@ export class GameScene extends Phaser.Scene {
       this.state = 'paused';
       this.resumeAllowedAt = performance.now() + 250;
       this.ghost.setVisible(false);
-      this.showOverlay(t('paused'), TEXT_COLORS.accent, t('tapToResume'));
-      // Два ряда по 76 px: «Альманах» и «Звук», ниже «Заново» и «В меню»
+      this.showOverlay(t('paused'), TEXT_COLORS.accent, '');
+      // Меню паузы: «Продолжить» по центру, ниже два ряда по 76 px — «Альманах» и «Звук», затем «Заново» и «В меню»; тап по свободному месту экрана тоже продолжает игру
+      this.pauseResumeButton = this.addEndButton(W / 2, H / 2 + 20, 320, 76, t('resumeBtn'), 0x2a8a4a, COLORS.merge, () => {
+        if (performance.now() >= this.resumeAllowedAt) this.togglePause();
+      });
       this.pauseAlmanacButton = this.addEndButton(W / 2 - 180, H / 2 + 110, 320, 76, t('almanacBtn'), 0x2a3550, 0x4a5c82, () => this.openAlmanac());
       const sound = this.addLabeledButton(W / 2 + 180, H / 2 + 110, 320, 76, t(sfx.muted ? 'soundOff' : 'soundOn'), 0x2a3550, 0x4a5c82, () => {
         sfx.setMuted(!sfx.muted);
@@ -1666,6 +1658,7 @@ export class GameScene extends Phaser.Scene {
       this.state = 'playing';
       this.overlay?.destroy();
       this.overlay = null;
+      this.pauseResumeButton = null;
       this.pauseMenuButton = null;
       this.pauseAlmanacButton = null;
       this.pauseSoundButton = null;
@@ -1677,82 +1670,8 @@ export class GameScene extends Phaser.Scene {
 
   // ---------------------------------------------------------------- стресс-сценарий (замер скорости)
 
-  /** 40 башен всех видов (уровни 1–4, мутации выбраны) по свободным клеткам, ≈200 бактерий всех типов по всей сети, скорость ×3. */
-  private setupStress(): void {
-    this.userSpeed = STRESS_SPEED;
-    this.panel.setSpeed(this.userSpeed);
-    const ids = Object.keys(CONFIG.towers) as TowerId[];
-    const free: [number, number][] = [];
-    for (let row = 0; row < LEVEL.rows; row++) {
-      for (let col = 0; col < LEVEL.cols; col++) {
-        const key = cellKey(col, row);
-        if (!PATH_TILES.has(key) && !BLOCKED_TILES.has(key)) free.push([col, row]);
-      }
-    }
-    if (STRESS_FIZZ) {
-      this.setupStressFizz(free);
-      return;
-    }
-    // Клетки берутся равномерно по всему списку, чтобы башни стояли по всей карте
-    const count = Math.min(STRESS_TOWERS, free.length);
-    for (let i = 0; i < count; i++) {
-      const [col, row] = free[Math.floor((i * free.length) / count)];
-      const center = tileCenter(col, row);
-      const tower = new Tower(this, this.towerLayer, ids[i % ids.length], col, row, center.x, center.y);
-      for (let level = 1; level < 1 + (Math.floor(i / ids.length) % MAX_TOWER_LEVEL); level++) tower.upgrade();
-      while (tower.pendingTier !== null) tower.pickMutation(i % 2);
-      this.occupied.add(cellKey(col, row));
-      this.towers.push(tower);
-    }
-    this.placedAny = true;
-    this.updateHint();
-    this.refillStress(STRESS_BACTERIA);
-  }
 
-  /**
-   * Сценарий «Шипучки»: 12 Шипучек 4-го уровня на свободных клетках вплотную к дорожкам (равномерно по их списку — по всей карте), у каждой три мутации: «Быстрая» (чаще взрывы),
-   * «Цепная» (второй взрыв) и «Кислота» (как после слияния: мутации сливаемой башни переходят к новой). Взрывы идут часто и по кучкам бактерий.
-   */
-  private setupStressFizz(free: [number, number][]): void {
-    const nearPath = free.filter(([col, row]) => {
-      for (let dc = -1; dc <= 1; dc++) for (let dr = -1; dr <= 1; dr++) if (PATH_TILES.has(cellKey(col + dc, row + dr))) return true;
-      return false;
-    });
-    const cells = nearPath.length >= STRESS_FIZZ_TOWERS ? nearPath : free;
-    const count = Math.min(STRESS_FIZZ_TOWERS, cells.length);
-    for (let i = 0; i < count; i++) {
-      const [col, row] = cells[Math.floor((i * cells.length) / count)];
-      const center = tileCenter(col, row);
-      const tower = new Tower(this, this.towerLayer, 'fizz', col, row, center.x, center.y);
-      tower.upgrade();
-      tower.upgrade();
-      tower.upgrade(['fizzAcid']);
-      tower.pickMutation(1); // порог 1: «Быстрая» (fizzFast)
-      tower.pickMutation(0); // порог 2: «Цепная» (fizzChain); «Кислота» уже пришла при слиянии
-      this.occupied.add(cellKey(col, row));
-      this.towers.push(tower);
-    }
-    this.placedAny = true;
-    this.updateHint();
-    this.refillStress(STRESS_BACTERIA);
-  }
 
-  /** Добавляет бактерий случайных типов в случайные места сети (не больше `limit` за раз), пока их меньше STRESS_BACTERIA. */
-  private refillStress(limit: number): void {
-    for (let n = 0; n < limit && this.bacteria.length < STRESS_BACTERIA; n++) {
-      const kind = KINDS[Math.floor(Math.random() * KINDS.length)];
-      // Место — случайная точка сети не ближе STRESS_ORGANISM_GAP_TILES клеток к организму (иначе потеря жизни шла бы каждый кадр)
-      let edge = EDGES[0];
-      let s = 0;
-      for (let attempt = 0; attempt < 20; attempt++) {
-        edge = EDGES[Math.floor(Math.random() * EDGES.length)];
-        s = Math.random() * edge.length;
-        if (pointAt(edge, s).x > CONFIG.map.orgW + STRESS_ORGANISM_GAP_TILES * CONFIG.map.tile) break;
-      }
-      this.bacteria.push(new Bacterium(this, this.bacteriaLayer, kind, edge, s, STRESS_FIZZ ? STRESS_FIZZ_HP_MUL : STRESS_HP_MUL));
-      this.spawned++;
-    }
-  }
 
   /** В начале уровня: строка-уведомление о башнях, открывшихся на этом уровне (на 1-м — Таблетка и Сироп), и о бактериях 1-й волны. Игра не останавливается (описания — в альманахе). */
   private announceStart(): void {
@@ -1762,7 +1681,7 @@ export class GameScene extends Phaser.Scene {
       rememberNews(`t:${id}`);
       names.push(t(`tower${id.charAt(0).toUpperCase()}${id.slice(1)}` as TextKey));
     }
-    if (names.length > 0) this.panel.toast(t('newTowerToast', { name: names.join(', ') }), NEWS_MS);
+    if (names.length > 0) this.panel.news(t('newTowerToast', { name: names.join(', ') }), NEWS_MS);
     this.announceWave(0);
   }
 
@@ -1778,7 +1697,7 @@ export class GameScene extends Phaser.Scene {
     }
     if (names.length === 0) return;
     this.phaseTimer += CONFIG.waves.newTypePauseSec;
-    this.panel.toast(t('newBacteriaToast', { name: names.join(', ') }), NEWS_MS);
+    this.panel.news(t('newBacteriaToast', { name: names.join(', ') }), NEWS_MS);
   }
 
   // ---------------------------------------------------------------- конец уровня
@@ -1837,7 +1756,7 @@ export class GameScene extends Phaser.Scene {
     this.addEndButtons(won);
   }
 
-  /** Строка проигрыша: порода, отнявшая больше всего жизней, и открытые у игрока башни, которые бьют её (по таблице альманаха, не больше трёх); null — жизни никто не отнял. */
+  /** Строка проигрыша: порода, отнявшая больше всего жизней; null — жизни никто не отнял. Советов, чем бить, нет: механики игрок изучает в альманахе. */
   private leakLine(): string | null {
     let top: BacteriumKind | null = null;
     let most = 0;
@@ -1852,8 +1771,7 @@ export class GameScene extends Phaser.Scene {
     const cap = (id: string): string => id.charAt(0).toUpperCase() + id.slice(1);
     const kind = t(`bacName${cap(top)}` as TextKey);
     const n = Math.max(1, Math.round(most));
-    const towers = ALMANAC_BEATEN_BY[top].filter((id) => isTowerOpen(id)).slice(0, 3).map((id) => t(`tower${cap(id)}` as TextKey));
-    return towers.length > 0 ? t('loseLeakLine', { kind, n, towers: towers.join(', ') }) : t('loseLeakOnly', { kind, n });
+    return t('loseLeakOnly', { kind, n });
   }
 
   /**
@@ -1971,7 +1889,7 @@ export class GameScene extends Phaser.Scene {
       const key = `${visible}|${danger}`;
       if (key !== this.qaChip) {
         this.qaChip = key;
-        this.qa('chip', { visible, danger, nearest: this.bacteria.length ? Math.min(...this.bacteria.map((b) => b.x - CONFIG.map.orgW)) : null });
+        qaLog(this, 'chip', { visible, danger, nearest: this.bacteria.length ? Math.min(...this.bacteria.map((b) => b.x - CONFIG.map.orgW)) : null });
       }
     }
   }
@@ -1983,164 +1901,4 @@ export class GameScene extends Phaser.Scene {
     return { x: rect.left + (gx / W) * rect.width, y: rect.top + (gy / H) * rect.height };
   }
 
-  private snapshot(): DebugSnapshot {
-    return {
-      state: this.state,
-      coins: this.coins,
-      lives: this.lives,
-      maxLives: this.maxLives(),
-      wave: this.waveIdx,
-      waveTotal: this.waveTotal(),
-      plannedTotal: this.plannedTotal,
-      plannedHp: this.plannedHp,
-      firstWaves: { ...this.firstWaves },
-      spawned: this.spawned,
-      kills: this.kills,
-      leaked: this.leaked,
-      shieldLeft: this.shieldLeft,
-      shieldAbsorbed: this.shieldAbsorbed,
-      towerPrices: Object.fromEntries(Object.keys(CONFIG.towers).map((id) => [id, towerPrice(id as TowerId)])),
-      sellRefundShare: CONFIG.economy.sellRefund + refundBonus(),
-      introduced: [...this.introduced],
-      splits: this.splits,
-      disables: this.disables,
-      slows: this.slows,
-      poisons: this.poisons,
-      absorbs: this.absorbs,
-      leaps: this.leaps,
-      cloudsMade: this.cloudsMade,
-      freezes: this.freezes,
-      trapsMade: this.trapsMade,
-      latches: this.latches,
-      shots: this.shots,
-      speed: this.userSpeed,
-      elapsed: this.elapsed,
-      clock: { frames: this.qaFrames, baseSec: this.qaBaseSec },
-      chip: this.panel.chipState(),
-      events: this.qaEvents.length,
-      lang: document.documentElement.lang,
-      renderer: this.game.renderer.type === Phaser.WEBGL ? 'webgl' : 'canvas',
-      width: W,
-      height: H,
-      viewW: VIEW.w,
-      view: { ...VIEW },
-      map: {
-        cols: LEVEL.cols,
-        rows: LEVEL.rows,
-        tile: CONFIG.map.tile,
-        orgW: CONFIG.map.orgW,
-        worldW: WORLD.w,
-        worldH: WORLD.h,
-      },
-      camera: { zoom: this.rig.zoom, cx: this.rig.cx, cy: this.rig.cy, zoomMin: ZOOM_MIN, zoomMax: CONFIG.camera.zoomMax },
-      level: currentLevel(),
-      endButton: this.endButton ? { ...this.endButton } : null,
-      upgradesButton: this.upgradesButton ? { ...this.upgradesButton } : null,
-      nextButton: this.nextButton ? { ...this.nextButton } : null,
-      menuButton: this.menuButton ? { ...this.menuButton } : null,
-      pauseMenuButton: this.pauseMenuButton ? { ...this.pauseMenuButton } : null,
-      pauseAlmanacButton: this.pauseAlmanacButton ? { ...this.pauseAlmanacButton } : null,
-      pauseSoundButton: this.pauseSoundButton ? { ...this.pauseSoundButton } : null,
-      pauseRestartButton: this.pauseRestartButton ? { ...this.pauseRestartButton } : null,
-      levelGrowth: { level: currentLevel(), ...this.params.growth, hpFactor: this.params.hpFactor, hpScale: CONFIG.waves.hpScale },
-      // сцена могла уже закрыться (снимок запрашивают и после перехода на другой экран): тогда у неё нет камер
-      shake: { ...this.rig.shakeInfo(), cameraShaking: this.cameras?.main?.shakeEffect?.isRunning ?? false, cameraScroll: { x: this.cameras?.main?.scrollX ?? 0, y: this.cameras?.main?.scrollY ?? 0 } },
-      dnaGained: this.dnaGained,
-      stars: this.stars,
-      starDna: this.starDna,
-      dnaParts: { ...this.dnaParts },
-      coinsLeft: this.coinsLeft,
-      overlayBox: { ...this.overlayBox },
-      endDnaLines: [...this.endDnaLines],
-      selected: this.selected,
-      towers: this.towers.map((tw) => ({
-        id: tw.id,
-        col: tw.col,
-        row: tw.row,
-        x: tw.x,
-        y: tw.y,
-        disabled: tw.isDisabled,
-        remaining: tw.remaining,
-        aim: tw.aim,
-        level: tw.level,
-        picks: [...tw.picks],
-        pending: tw.pendingTier,
-        suppressed: tw.isSuppressed,
-        auraMul: tw.auraMul,
-        latchMul: tw.latchMul,
-        stats: {
-          damage: tw.stats.damage,
-          cooldownMs: tw.stats.cooldownMs,
-          range: tw.stats.range,
-          beamPulses: tw.stats.beamPulses,
-          blastRadius: tw.stats.blastRadius,
-          blastFullTargets: tw.stats.blastFullTargets,
-          blastRestMul: tw.stats.blastRestMul,
-          puddleRadius: tw.stats.puddleRadius,
-          puddleSec: tw.stats.puddleSec,
-          slowFactor: tw.stats.slowFactor,
-          beamHalfWidthPx: tw.stats.beamHalfWidthPx,
-          dotPerSec: tw.stats.dotPerSec,
-          dotSec: tw.stats.dotSec,
-          coneDeg: tw.stats.coneDeg,
-          auraMul: tw.stats.auraMul,
-          freezeSec: tw.stats.freezeSec,
-          trapSec: tw.stats.trapSec,
-          trapDps: tw.stats.trapDps,
-        },
-      })),
-      selectedTower: this.selectedTower ? { col: this.selectedTower.col, row: this.selectedTower.row } : null,
-      mergeMode: this.mergeMode,
-      mergeHint: this.mergeHintTowers.map((tower) => ({ col: tower.col, row: tower.row })),
-      maxTowerLevel: MAX_TOWER_LEVEL,
-      mergeRadiusPx: CONFIG.mergeRadiusPx,
-      merges: this.merges,
-      sells: this.sells,
-      mutationsPicked: this.mutationsPicked,
-      puddles: this.puddles.map((p) => ({ x: p.x, y: p.y, r: p.radius, left: p.left })),
-      clouds: this.clouds.map((c) => ({ x: c.x, y: c.y, r: c.radius, left: c.left })),
-      traps: this.traps.map((tr) => ({ x: tr.target.x, y: tr.target.y, left: tr.target.trapLeft })),
-      lifePool: this.lifePool,
-      bacteria: this.bacteria.map((b) => ({
-        id: b.id,
-        x: b.x,
-        y: b.y,
-        r: b.radius,
-        kind: b.kind,
-        hp: b.hp,
-        maxHp: b.maxHp,
-        edge: b.edge.id,
-        s: b.s,
-        dashing: b.dashing,
-        slowed: b.slowed,
-        lit: b.lit,
-        remaining: b.remaining,
-        poisonLeft: b.poisonLeft,
-        hits: b.hits,
-        absorbed: b.absorbed,
-        leaps: b.leaps,
-        freezeLeft: b.frozenFor,
-        trapLeft: b.trapLeft,
-        memory: b.memory,
-        latchedTo: b.latchedTo ? { col: b.latchedTo.col, row: b.latchedTo.row } : null,
-      })),
-      projectiles: this.projectiles.length + this.groundShots.length + this.bursts.length,
-      ui: this.panel.geometry(),
-      pointerListeners: this.input.listenerCount('pointerdown'),
-      effects: {
-        flashes: this.effects.flashes,
-        bursts: this.effects.bursts,
-        popups: this.effects.popups,
-        damageNumbers: this.effects.damageNumbers,
-        placements: this.effects.placements,
-        lifeLosses: this.effects.lifeLosses,
-        zaps: this.effects.zaps,
-        blasts: this.effects.blasts,
-        beams: this.effects.beams,
-        splats: this.effects.splats,
-        frosts: this.effects.frosts,
-      },
-      sound: { state: sfx.state, played: sfx.played, muted: sfx.muted },
-    };
-  }
 }

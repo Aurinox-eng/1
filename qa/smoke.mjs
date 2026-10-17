@@ -150,7 +150,7 @@ if (['stage-1', 'stage-1b', 'stage-1b-qa', 'td-1-mockup', 'tmp'].includes(tag)) 
   process.exit(2);
 }
 
-const SCENARIOS = ['desktop-ru', 'phone-ru', 'desktop-en', 'phone-en', 'rules', 'graph', 'combat', 'dash', 'split', 'spore', 'armored', 'intro', 'lose-ru', 'lose-en', 'win-ru', 'win-en', 'towers', 'card', 'merge', 'mutations', 'sell', 'special', 'danger', 'rotate', 'production', 'fullgame', 'locked', 'strip', 'almanac', 'almanac-pause', 'damage-numbers', 'sell-gap', 'restart-button', 'deflation', 'camera-fit', 'colors', 'meta-save', 'meta-dna', 'meta-shop', 'meta-effects', 'tree-effects', 'tree-shop', 'level-waves', 'progress-save', 'stars', 'menu-flow', 'levels-lock', 'step-dps', 'sound', 'lose-line', 'shake']
+const SCENARIOS = ['desktop-ru', 'phone-ru', 'desktop-en', 'phone-en', 'rules', 'graph', 'combat', 'dash', 'split', 'spore', 'armored', 'intro', 'lose-ru', 'lose-en', 'win-ru', 'win-en', 'towers', 'card', 'merge', 'mutations', 'sell', 'special', 'danger', 'rotate', 'production', 'fullgame', 'locked', 'strip', 'almanac', 'almanac-pause', 'damage-numbers', 'sell-gap', 'restart-button', 'deflation', 'camera-fit', 'colors', 'meta-save', 'meta-dna', 'meta-shop', 'meta-effects', 'tree-effects', 'tree-shop', 'level-waves', 'progress-save', 'stars', 'menu-flow', 'menu-reset', 'levels-lock', 'step-dps', 'sound', 'lose-line', 'toast-queue', 'shake']
 const only = args.only === undefined ? null : String(args.only);
 if (only !== null && !SCENARIOS.includes(only)) {
   console.error(`Неизвестный сценарий --only=${only}. Есть: ${SCENARIOS.join(', ')}`);
@@ -1539,11 +1539,11 @@ async function runLose(browser, baseUrl, lang, deviceKey, full) {
     if (cycle === 1) {
       check(`${p} без башен бактерии доходят до организма: жизни ${CFG.lives} → 0, состояние «проигрыш»`, s.state === 'lost' && s.lives === 0 && lives.join('→').startsWith(`${CFG.lives}`) && lives.every((v, i) => i === 0 || v < lives[i - 1]), `жизни по ходу: ${lives.join(' → ')}, состояние ${s.state}`);
       check(`${p} дошло до организма ≥ ${CFG.lives}, красная вспышка потери жизни сработала, убитых нет`, s.leaked >= CFG.lives && s.effects.lifeLosses >= 1 && s.effects.lifeLosses <= s.leaked && s.kills === 0, `дошло ${s.leaked}, вспышек ${s.effects.lifeLosses}, убито ${s.kills}`);
-      // Строка проигрыша: «Больше всего жизней отняла: <порода> (<число>). Бьют: <открытые башни>» (на уровне 1 открыты Таблетка и Сироп — каждая порода, что выходит в первых волнах, бьётся хотя бы одной из них)
-      const leakTemplate = readI18n('loseLeakLine')[lang === 'ru' ? 0 : 1];
-      const leakRe = new RegExp(`^${leakTemplate.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\\\{kind\\\}/, '(.+)').replace(/\\\{n\\\}/, '(\\d+)').replace(/\\\{towers\\\}/, '(.+)')}$`);
+      // Строка проигрыша: «Больше всего жизней отняла: <порода> (<число>)» — без советов, чем бить (решение владельца 16 октября 2026)
+      const leakTemplate = readI18n('loseLeakOnly')[lang === 'ru' ? 0 : 1];
+      const leakRe = new RegExp(`^${leakTemplate.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\\\{kind\\\}/, '(.+)').replace(/\\\{n\\\}/, '(\\d+)')}$`);
       const leakLine = (s.endDnaLines || []).find((line) => leakRe.test(line));
-      check(`${p} на экране проигрыша есть строка «${leakTemplate}»: порода, число жизней и башни, что её бьют`, Boolean(leakLine), `строки: ${JSON.stringify(s.endDnaLines)}`);
+      check(`${p} на экране проигрыша есть строка «${leakTemplate}»: порода и число жизней`, Boolean(leakLine), `строки: ${JSON.stringify(s.endDnaLines)}`);
     }
     // нажатие «Заново» сразу после проигрыша перезапуск не запускает (блокировка)
     if (!lockChecked || !lockHeld) {
@@ -1877,23 +1877,12 @@ async function runProduction(browser, prodUrl, qaUrl) {
  * и близко к 1000 / пауза. До исправления пауза после выстрела округлялась вверх до целого числа шагов кадра (на ×5 — до 250 мс), и на ×5 башня стреляла заметно реже.
  */
 /** Таблица «какие башни бьют бактерию» из src/almanac.ts: { порода: [башни по порядку] }. */
-function readBeatenBy() {
-  const text = fs.readFileSync(path.join(ROOT, 'src', 'almanac.ts'), 'utf8');
-  const block = text.slice(text.indexOf('export const ALMANAC_BEATEN_BY'));
-  const body = block.slice(block.indexOf('{') + 1, block.indexOf('};'));
-  const table = {};
-  for (const m of body.matchAll(/^\s*(\w+):\s*\[([^\]]*)\]/gm)) table[m[1]] = [...m[2].matchAll(/'(\w+)'/g)].map((x) => x[1]);
-  return table;
-}
-
 /**
- * Строка проигрыша «Больше всего жизней отняла: <порода> (<число>). Бьют: <башни>» называет только башни, ОТКРЫТЫЕ у игрока (levels.towerUnlock ≤ текущий уровень), не больше трёх, в порядке таблицы альманаха;
- * если ни одна из башен, что бьют эту породу, не открыта, остаётся «Больше всего жизней отняла: <порода> (<число>)» без «Бьют». Четыре партии без башен: кокк (бьют Таблетка и Шипучка — открыта только Таблетка), палочка (Таблетка и Сироп — обе),
- * бронированная на уровне 1 (бьют Шприц, Ампула, Пластырь — ни одна не открыта) и бронированная на уровне 3 (открыта Ампула).
+ * Строка проигрыша «Больше всего жизней отняла: <порода> (<число>)» (решение владельца 16 октября 2026: без советов «Бьют: …», механики игрок изучает в альманахе): четыре партии без башен — кокк, палочка,
+ * бронированная на уровне 1 и бронированная на уровне 3; на обоих языках строка называет породу, число жизней и не содержит названий башен и слов «Бьют»/«Countered by».
  */
 async function runLoseLine(browser, baseUrl) {
   const capital = (id) => id.charAt(0).toUpperCase() + id.slice(1);
-  const beaten = readBeatenBy();
   const cases = [
     { lang: 'ru', li: 0, kind: 'coccus', level: 1, n: 12 },
     { lang: 'en', li: 1, kind: 'rod', level: 1, n: 12 },
@@ -1906,24 +1895,56 @@ async function runLoseLine(browser, baseUrl) {
     const cfg = `${wavesOnlyCfg({ [c.kind]: c.n })},waves.firstDelaySec:1,bacteria.baseSpeed:250,lives.start:3`;
     const game = await openGame(context, baseUrl, p, { speed: 4, cfg, query: c.level > 1 ? `&level=${c.level}` : '' });
     const lost = await waitFor(game.page, (x) => x.state === 'lost', WAIT_MS, 'проигрыш без башен');
-    const expectedOpen = (beaten[c.kind] ?? []).filter((id) => unlockOf(id) <= c.level).slice(0, 3);
-    const closed = (beaten[c.kind] ?? []).filter((id) => unlockOf(id) > c.level);
     const kindName = readI18n(`bacName${capital(c.kind)}`)[c.li];
-    const towerNames = expectedOpen.map((id) => readI18n(`tower${capital(id)}`)[c.li]);
-    const closedNames = closed.map((id) => readI18n(`tower${capital(id)}`)[c.li]);
     const escape = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const lineTemplate = readI18n(towerNames.length > 0 ? 'loseLeakLine' : 'loseLeakOnly')[c.li];
-    const re = new RegExp(`^${escape(lineTemplate).replace(/\\\{kind\\\}/, '(.+?)').replace(/\\\{n\\\}/, '(\\d+)').replace(/\\\{towers\\\}/, '(.+)')}$`);
+    const lineTemplate = readI18n('loseLeakOnly')[c.li];
+    const re = new RegExp(`^${escape(lineTemplate).replace(/\\\{kind\\\}/, '(.+?)').replace(/\\\{n\\\}/, '(\\d+)')}$`);
     const found = (lost.endDnaLines || []).map((line) => ({ line, m: re.exec(line) })).find((x) => x.m);
     const gotKind = found ? found.m[1] : null;
-    const gotTowers = found && towerNames.length > 0 ? found.m[3].split(', ') : [];
-    const noClosedNamed = closedNames.every((name) => !(found?.line ?? '').includes(name));
-    check(`${p} строка проигрыша: порода «${kindName}», башни «${towerNames.join(', ') || '— (ни одна не открыта: «Бьют» нет)'}» (все, что бьют породу: ${(beaten[c.kind] ?? []).join(', ')}; закрыты: ${closed.join(', ') || 'нет'})`,
-      Boolean(found) && gotKind === kindName && JSON.stringify(gotTowers) === JSON.stringify(towerNames) && noClosedNamed && gotTowers.length <= 3,
+    const advice = (lost.endDnaLines || []).some((line) => /Бьют|Countered by/.test(line));
+    check(`${p} строка проигрыша: порода «${kindName}», число жизней, без перечня башен («Бьют» нет)`,
+      Boolean(found) && gotKind === kindName && !advice,
       `строки: ${JSON.stringify(lost.endDnaLines)}`);
     await game.page.close();
     await context.close();
   }
+}
+
+/**
+ * Очередь уведомлений (решение владельца 16 октября 2026): на старте уровня 1 «Открыта башня: …» и «Новая бактерия: …» идут по очереди (вторая не стирает первую);
+ * ответ на нажатие (тап по закрытой башне: «откроется на уровне N») очереди не ждёт — показывается сразу, прерванная новость встаёт в начало очереди и возвращается после него.
+ */
+async function runToastQueue(browser, baseUrl) {
+  const p = '[очередь уведомлений]';
+  const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
+  const game = await openGame(context, baseUrl, p, { speed: 2, cfg: 'waves.firstDelaySec:90' });
+  const towerNews = readI18n('newTowerToast')[0].replace('{name}', '');
+  const bacNews = readI18n('newBacteriaToast')[0].replace('{name}', '');
+  const lockedText = readI18n('hintLocked')[0].replace('{n}', '');
+  const s0 = await game.state();
+  check(`${p} на старте уровня 1 сразу показана «${towerNews.trim()}», «${bacNews.trim()}» ждёт в очереди (не стёрла первую)`,
+    s0.toast.news && (s0.toast.text ?? '').startsWith(towerNews) && s0.toast.queued.length === 1 && s0.toast.queued[0].startsWith(bacNews), JSON.stringify(s0.toast));
+  // тап по закрытой башне — ответ на нажатие: показан сразу, новость возвращается в начало очереди
+  await game.selectTower('syringe');
+  const s1 = await game.state();
+  check(`${p} тап по закрытой башне: сообщение «${lockedText.trim()}…» показано сразу, прерванная «${towerNews.trim()}» первая в очереди, «${bacNews.trim()}» за ней`,
+    !s1.toast.news && (s1.toast.text ?? '').startsWith(lockedText.trim()) && s1.toast.queued.length === 2 && s1.toast.queued[0].startsWith(towerNews) && s1.toast.queued[1].startsWith(bacNews), JSON.stringify(s1.toast));
+  // дальше: ответ гаснет, возвращается «Открыта башня», затем «Новая бактерия»; в очереди пусто
+  const seen = [];
+  const started = Date.now();
+  while (Date.now() - started < 40000) {
+    const s = await game.state();
+    const text = s.toast.text;
+    if (text !== null && seen[seen.length - 1] !== text) seen.push(text);
+    if (text !== null && text.startsWith(bacNews)) break;
+    await sleep(60);
+  }
+  const kinds = seen.map((text) => (text.startsWith(towerNews) ? 'башня' : text.startsWith(bacNews) ? 'бактерия' : 'ответ'));
+  check(`${p} порядок на экране: ответ → «Открыта башня» → «Новая бактерия» (ничего не потеряно)`, kinds.join(',') === 'ответ,башня,бактерия', `показано: ${JSON.stringify(seen)}`);
+  const s2 = await game.state();
+  check(`${p} очередь пуста, когда показана последняя новость`, s2.toast.queued.length === 0 && s2.toast.news, JSON.stringify(s2.toast));
+  await game.page.close();
+  await context.close();
 }
 
 /**
@@ -2394,7 +2415,10 @@ async function runSplit(browser, baseUrl) {
   check(`${p} регрессия: ${pairs.length} распадов подряд (башни с дальностью 1400 и уроном 20: убивают с одного выстрела при любом HP), ни в одном кокки не слипаются: наименьшее прямое расстояние ${f1(minChord)} px ≥ 38 (раньше было 25 и 34)`, pairs.length >= 20 && minChord >= 38, `распадов ${pairs.length}, прямые расстояния: ${chords.map((c) => Math.round(c)).join(',')}`);
   check(`${p} регрессия: во всех ${pairs.length} распадах второй кокк ровно на ${gap} px вперёд по дорожке (вдоль дорожки ${f1(Math.min(...alongs))}…${f1(Math.max(...alongs))}, допуск ±8); на следующем ребре оказался в ${crossed} распадах`, pairs.length >= 20 && alongs.every((a) => a !== null && Math.abs(a - gap) <= 8), `вдоль дорожки: ${alongs.map((a) => (a === null ? '—' : Math.round(a))).join(',')}`);
   const orgLimit = MAP.orgW + readConfigNumber('coccus', 'radius') + gap + 20;
-  check(`${p} регрессия: если делящаяся погибла у самого организма (ближе ${gap} px до красной линии), второй кокк сразу доходит до организма — таких распадов ${singles.length}, у всех первый кокк правее линии не дальше x = ${orgLimit}`, singles.every((k) => k.x <= orgLimit), singles.map((k) => Math.round(k.x)).join(','));
+  // одиночный кокк далеко от организма — не ошибка распада, а потерянная опросом пара: башня убила второго кокка в тот же кадр, когда он появился (по журналу убийств игры соседний номер убит)
+  const killedIds = new Set((await game.events('kill')).map((e) => e.id));
+  const lostTwin = (k) => killedIds.has(k.id - 1) || killedIds.has(k.id + 1);
+  check(`${p} регрессия: если делящаяся погибла у самого организма (ближе ${gap} px до красной линии), второй кокк сразу доходит до организма — таких распадов ${singles.length}, у всех первый кокк правее линии не дальше x = ${orgLimit}`, singles.every((k) => k.x <= orgLimit || lostTwin(k)), singles.map((k) => `${Math.round(k.x)}${k.x > orgLimit ? (lostTwin(k) ? ' (пара: второй убит в тот же кадр)' : ' (второго никто не убил)') : ''}`).join(','));
   check(`${p} регрессия: каждый распад виден проверке (${pairs.length} пар + ${singles.length} у организма = ${endC.splits} распадов), партия окончена победой`, endC.state === 'won' && pairs.length + singles.length === endC.splits, `состояние ${endC.state}, распадов ${endC.splits}, убито делящихся не больше ${endC.spawned}`);
   check(`${p} учёт при распадах у организма: убитые + дошедшие = вышедшие + ${count}·распады (${endC.kills} + ${endC.leaked} = ${endC.spawned} + ${count}·${endC.splits})`, endC.kills + endC.leaked === endC.spawned + count * endC.splits, `убито ${endC.kills}, дошло ${endC.leaked}, вышло ${endC.spawned}, распадов ${endC.splits}, лишних ${endC.kills + endC.leaked - endC.spawned - count * endC.splits}`);
   await context.close();
@@ -2639,7 +2663,8 @@ async function runIntro(browser, baseUrl) {
   for (const lang of ['ru', 'en']) {
     const q = `${p} ${lang}`;
     const ctx = await newDeviceContext(browser, VIEWPORTS.desktop, lang);
-    const g = await openGame(ctx, baseUrl, q, { speed: 2, cfg: `${wavesOnlyCfg(only)},waves.intervalStartSec:3,waves.intervalEndSec:3,waves.firstDelaySec:1,${FIXED_BALANCE.join(',')},${NO_LIFE_LOSS}` });
+    const g = await openGame(ctx, baseUrl, q, { speed: 2, cfg: `${wavesOnlyCfg(only)},waves.intervalStartSec:12,waves.intervalEndSec:12,waves.firstDelaySec:1,${FIXED_BALANCE.join(',')},${NO_LIFE_LOSS}` });
+    // интервал выхода 12 игровых секунд (6 с реальных при ×2): сообщения идут по очереди, каждое показывается ≈ 4,6 с реального времени, и при коротком интервале следующее ждало бы своей очереди, а не появлялось при самом выходе типа
     await g.input.tap(g.g(540, 560)); // касание включает звук (как у настоящего игрока)
     let last = await g.state();
     const seen = [];
@@ -6113,7 +6138,7 @@ function cardTexts() {
   const cap = (id) => id.charAt(0).toUpperCase() + id.slice(1);
   const ids = TOWER_IDS.flatMap((tw) => S4.mutations[tw].flat().map((m) => m.id));
   const keys = [
-    'cardLevel', 'cardMerge', 'cardMergeCancel', 'cardNoPair', 'cardMaxLevel', 'cardSell', 'cardPick', 'cardMutations', 'statDamage', 'statDps', 'statCooldown', 'statRange', 'statPuddle', 'statSlow',
+    'cardLevel', 'cardMerge', 'cardMergeCancel', 'cardNoPair', 'cardMaxLevel', 'cardSell', 'cardMutations', 'statDps', 'statCooldown', 'statRange', 'statPuddle', 'statSlow',
     'statBlast', 'blastLimitNote', 'statBeam', 'statBeams', 'statPoison', 'statCone', 'statAura', 'statFreeze', 'statTrap', 'statCooldownLatched', 'statAuraLatched', 'hintMerge', 'toastMerged', 'toastPickMutation', 'toastSold',
     ...ids.flatMap((id) => [`mut${cap(id)}`, `mutd${cap(id)}`]),
   ];
@@ -6131,7 +6156,7 @@ function cardTexts() {
   const bad = rows.filter((r) => r.ok && (!r.ru.trim() || !r.en.trim() || r.ru === r.en || !cyr.test(r.ru) || cyr.test(r.en)));
   check(`${p} русские строки по-русски, английские по-английски, не пустые и различаются`, bad.length === 0, bad.map((r) => `${r.k}: «${r.ru}» / «${r.en}»`).join('; '));
   const holes = {
-    cardLevel: ['{n}', '{max}'], cardSell: ['{n}'], toastMerged: ['{n}'], toastSold: ['{n}'], statDamage: ['{n}'], statDps: ['{n}'], statCooldown: ['{n}'], statRange: ['{n}'], statPuddle: ['{r}', '{s}'], statSlow: ['{n}'], statBlast: ['{r}'], blastLimitNote: ['{n}', '{m}'], statBeam: ['{n}'], statBeams: ['{n}'], statPoison: ['{n}', '{s}'], statCone: ['{a}', '{r}'], statAura: ['{n}'], statFreeze: ['{n}'], statTrap: ['{s}', '{n}'], statCooldownLatched: ['{n}', '{m}'], statAuraLatched: ['{n}'],
+    cardLevel: ['{n}', '{max}'], cardSell: ['{n}'], toastMerged: ['{n}'], toastSold: ['{n}'], statDps: ['{n}'], statCooldown: ['{n}'], statRange: ['{n}'], statPuddle: ['{r}', '{s}'], statSlow: ['{n}'], statBlast: ['{r}'], blastLimitNote: ['{n}', '{m}'], statBeam: ['{n}'], statBeams: ['{n}'], statPoison: ['{n}', '{s}'], statCone: ['{a}', '{r}'], statAura: ['{n}'], statFreeze: ['{n}'], statTrap: ['{s}', '{n}'], statCooldownLatched: ['{n}', '{m}'], statAuraLatched: ['{n}'],
   };
   const noHole = rows.filter((r) => r.ok && holes[r.k] && !holes[r.k].every((h) => r.ru.includes(h) && r.en.includes(h))).map((r) => r.k);
   check(`${p} строки со вставками (${Object.keys(holes).join(', ')}) содержат вставки на обоих языках`, noHole.length === 0, noHole.join(', '));
@@ -8529,7 +8554,75 @@ async function runAlmanacPause(browser, baseUrl) {
     check(`${p} на паузе есть четвёртая кнопка «Заново» слева внизу рядом с «В меню», внутри экрана, не налезает на остальные`, pausedAgain.pauseRestartButton !== null && insideScreen(pausedAgain.pauseRestartButton) && [pausedAgain.pauseAlmanacButton, pausedAgain.pauseSoundButton, pausedAgain.pauseMenuButton].every((b) => !overlaps(pausedAgain.pauseRestartButton, b)) && pausedAgain.pauseRestartButton.x < pausedAgain.pauseMenuButton.x, JSON.stringify(pausedAgain.pauseRestartButton));
     await game.input.tap(game.g(pausedAgain.pauseRestartButton.x, pausedAgain.pauseRestartButton.y));
     const restarted = await waitFor(page, (x) => x.state === 'playing' && x.elapsed < 3 && x.towers.length === 0, 15000, 'партия после «Заново» с паузы');
-    check(`${p} «Заново» на паузе начинает партию сначала: башен было ${withTower.towers.length}, стало ${restarted.towers.length}, монеты ${restarted.coins} (старт ${CFG.startCoins}), время ${f2(restarted.elapsed)} с, волна ${restarted.wave}`, withTower.towers.length === 1 && restarted.towers.length === 0 && restarted.coins === CFG.startCoins && restarted.wave === 0, JSON.stringify({ towers: restarted.towers.length, coins: restarted.coins, wave: restarted.wave }));    await context.close();
+    check(`${p} «Заново» на паузе начинает партию сначала: башен было ${withTower.towers.length}, стало ${restarted.towers.length}, монеты ${restarted.coins} (старт ${CFG.startCoins}), время ${f2(restarted.elapsed)} с, волна ${restarted.wave}`, withTower.towers.length === 1 && restarted.towers.length === 0 && restarted.coins === CFG.startCoins && restarted.wave === 0, JSON.stringify({ towers: restarted.towers.length, coins: restarted.coins, wave: restarted.wave }));
+    // «Продолжить» на паузе: кнопка по центру над остальными, внутри экрана, не налезает на них; одного тапа достаточно, чтобы игра пошла
+    await game.input.tap(game.g(restarted.ui.pauseButton.x, restarted.ui.pauseButton.y));
+    await waitFor(page, (x) => x.state === 'paused', 10000, 'пауза перед «Продолжить»');
+    await sleep(500);
+    const pausedResume = await game.state();
+    const resumeBtn = pausedResume.pauseResumeButton;
+    const menuOthers = [pausedResume.pauseAlmanacButton, pausedResume.pauseSoundButton, pausedResume.pauseRestartButton, pausedResume.pauseMenuButton];
+    check(`${p} на паузе есть кнопка «Продолжить» по центру над остальными четырьмя, внутри экрана, не налезает на них`,
+      resumeBtn !== null && insideScreen(resumeBtn) && menuOthers.every((b) => b !== null && !overlaps(resumeBtn, b) && resumeBtn.y < b.y) && Math.abs(resumeBtn.x - W / 2) < 2, JSON.stringify({ resumeBtn, menuOthers }));
+    const elapsedResume = pausedResume.elapsed;
+    await game.input.tap(game.g(resumeBtn.x, resumeBtn.y));
+    await waitFor(page, (x) => x.state === 'playing', 5000, 'игра продолжилась кнопкой «Продолжить»');
+    await sleep(400);
+    const afterResume = await game.state();
+    check(`${p} тап по «Продолжить» возобновляет игру одним тапом: state 'playing', время идёт (${f2(elapsedResume)} → ${f2(afterResume.elapsed)}), кнопок паузы нет`,
+      afterResume.state === 'playing' && afterResume.elapsed > elapsedResume && afterResume.pauseResumeButton === null && afterResume.pauseMenuButton === null, `state ${afterResume.state}`);
+    await context.close();
+  }
+}
+
+/**
+ * «Сбросить прогресс» в главном меню (решение владельца): кнопка слева вверху, тап открывает окно подтверждения («Да, сбросить» и «Отмена»); «Отмена» ничего не меняет;
+ * «Да, сбросить» обнуляет сохранение (очки ДНК, уровни, звёзды, подсказки), звук и скорость остаются; нижние кнопки меню под окном не нажимаются.
+ */
+async function runMenuReset(browser, baseUrl) {
+  for (const [deviceKey, lang] of [['desktop', 'ru'], ['phone', 'en']]) {
+    const device = VIEWPORTS[deviceKey];
+    const p = `[сброс прогресса, ${device.label}, ${lang}]`;
+    const li = lang === 'ru' ? 0 : 1;
+    const context = await newDeviceContext(browser, device, lang);
+    let app = await openMenu(context, baseUrl, p, { isTouch: device.hasTouch });
+    const { page } = app;
+    // сохранение игрока: 77 очков ДНК, уровень 1 пройден на 2 звезды, звук выключен
+    await page.evaluate(() => {
+      window.localStorage.setItem('pvb.meta', JSON.stringify({ v: 3, dna: 77, levels: { damage: 2 }, progress: { stars: [2], best: [30] }, seen: ['t:pill'] }));
+      window.localStorage.setItem('pvb.sound', '1');
+    });
+    await page.reload({ waitUntil: 'load' });
+    await app.waitUi('menu', 'меню после загрузки сохранения');
+    const balanceText = (n) => readI18n('dnaBalance')[li].replace('{n}', String(n));
+    let u = await app.ui();
+    check(`${p} в меню очки ДНК из сохранения (${balanceText(77)}), кнопка «${readI18n('resetBtn')[li]}» внутри экрана слева вверху, не налезает на «Звук»`,
+      u.texts.includes(balanceText(77)) && u.buttons.reset && insideScreen(u.buttons.reset) && u.buttons.reset.x < W / 2 && !overlaps(u.buttons.reset, u.buttons.sound), JSON.stringify({ texts: u.texts, reset: u.buttons.reset }));
+    await app.tapRect(u.buttons.reset);
+    u = await app.waitUi('menu', 'окно подтверждения');
+    check(`${p} тап открывает окно подтверждения: «${readI18n('resetTitle')[li]}», «${readI18n('resetYes')[li]}» и «${readI18n('resetNo')[li]}» внутри экрана рядом`,
+      u.buttons.resetYes && u.buttons.resetNo && insideScreen(u.buttons.resetYes) && insideScreen(u.buttons.resetNo) && !overlaps(u.buttons.resetYes, u.buttons.resetNo) && u.texts.includes(readI18n('resetTitle')[li]), JSON.stringify({ texts: u.texts, yes: u.buttons.resetYes, no: u.buttons.resetNo }));
+    // под окном нижние кнопки не нажимаются: тап по «Играть» выбор уровня не открывает
+    await app.tapRect(u.buttons.play);
+    await sleep(500);
+    u = await app.ui();
+    check(`${p} пока окно открыто, тап по «Играть» под ним выбор уровня не открывает`, u.scene === 'menu' && Boolean(u.buttons.resetYes), `экран ${u.scene}`);
+    // «Отмена»: окно закрылось, сохранение прежнее
+    await app.tapRect(u.buttons.resetNo);
+    u = await app.waitUi('menu', 'меню после «Отмена»');
+    const afterCancel = await page.evaluate(() => JSON.parse(window.localStorage.getItem('pvb.meta')));
+    check(`${p} «Отмена» закрывает окно и ничего не меняет: очки ДНК ${afterCancel.dna}, звёзды уровня 1: ${afterCancel.progress.stars[0]}`, !u.buttons.resetYes && afterCancel.dna === 77 && afterCancel.progress.stars[0] === 2 && u.texts.includes(balanceText(77)), JSON.stringify(u.texts));
+    // «Да, сбросить»
+    await app.tapRect(u.buttons.reset);
+    u = await app.waitUi('menu', 'окно подтверждения (второй раз)');
+    await app.tapRect(u.buttons.resetYes);
+    await sleep(600);
+    u = await app.waitUi('menu', 'меню после сброса');
+    const after = await page.evaluate(() => ({ meta: JSON.parse(window.localStorage.getItem('pvb.meta')), sound: window.localStorage.getItem('pvb.sound') }));
+    check(`${p} «${readI18n('resetYes')[li]}» обнуляет сохранение: очки ДНК ${after.meta.dna}, звёзды уровня 1: ${after.meta.progress.stars[0]}, лучшая волна ${after.meta.progress.best[0]}, улучшения «damage» ${after.meta.levels.damage ?? 0}, подсказок ${after.meta.seen.length}; окно закрыто, в меню «${balanceText(0)}»`,
+      after.meta.dna === 0 && after.meta.progress.stars[0] === 0 && after.meta.progress.best[0] === 0 && (after.meta.levels.damage ?? 0) === 0 && after.meta.seen.length === 0 && !u.buttons.resetYes && u.texts.includes(balanceText(0)), JSON.stringify({ meta: after.meta, texts: u.texts }));
+    check(`${p} звук после сброса не тронут (в хранилище «${after.sound}», было «1»)`, after.sound === '1', '');
+    await context.close();
   }
 }
 
@@ -8672,9 +8765,11 @@ try {
   if (wants('almanac-pause')) await safe('[альманах с паузы]', () => runAlmanacPause(browser, qaServer.url));
   if (wants('damage-numbers')) await safe('[числа урона]', () => runDamageNumbers(browser, qaServer.url));
   if (wants('sell-gap')) await safe('[зазор Слить и Продать]', () => runSellGap(browser, qaServer.url));
+  if (wants('menu-reset')) await safe('[сброс прогресса]', () => runMenuReset(browser, qaServer.url));
   if (wants('levels-lock')) await safe('[открытие уровней и конец уровня]', () => runLevelsLock(browser, qaServer.url));
   if (wants('sound')) await safe('[звук]', () => runSound(browser, qaServer.url));
   if (wants('lose-line')) await safe('[строка проигрыша]', () => runLoseLine(browser, qaServer.url));
+  if (wants('toast-queue')) await safe('[очередь уведомлений]', () => runToastQueue(browser, qaServer.url));
   if (wants('shake')) await safe('[тряска только карты]', () => runShake(browser, qaServer.url));
   if (wants('step-dps')) await safe('[шаг игры и скорость]', () => runStepDps(browser, qaServer.url));
 } catch (error) {

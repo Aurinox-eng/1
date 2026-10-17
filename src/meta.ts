@@ -45,6 +45,12 @@ function persist(): void {
   if (!noPersist) saveMeta(state);
 }
 
+/** Сбрасывает весь прогресс вне партии (очки ДНК, улучшения, уровни и звёзды, показанные подсказки) и записывает пустое сохранение; звук, скорость и язык хранятся отдельно и не затрагиваются. */
+export function resetProgress(): void {
+  state = emptyMeta();
+  persist();
+}
+
 export function metaDna(): number {
   return state.dna;
 }

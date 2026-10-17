@@ -137,6 +137,7 @@ export interface DebugSnapshot {
   /** «Следующий уровень» (только после победы, не на последнем уровне) и «В меню» на экране конца уровня; «В меню» на паузе (или null). */
   nextButton: { x: number; y: number; w: number; h: number } | null;
   menuButton: { x: number; y: number; w: number; h: number } | null;
+  pauseResumeButton: { x: number; y: number; w: number; h: number } | null;
   pauseMenuButton: { x: number; y: number; w: number; h: number } | null;
   pauseAlmanacButton: { x: number; y: number; w: number; h: number } | null;
   pauseSoundButton: { x: number; y: number; w: number; h: number } | null;
@@ -153,6 +154,8 @@ export interface DebugSnapshot {
   dnaParts: { waves: number; win: number; coins: number; stars: number };
   /** Строки очков ДНК на экране конца уровня (итог; из чего сложился; монеты — только после победы; пометка пройденного уровня) и остаток монет, из которого посчитана добавка. */
   endDnaLines: string[];
+  /** Уведомление сверху окна карты: что показано сейчас (null — ничего), новость это или ответ на нажатие, и какие новости ждут в очереди (по порядку показа). */
+  toast: { text: string | null; news: boolean; queued: string[] };
   coinsLeft: number;
   /** Нижний край и наибольшая ширина текстов на затемнении (конец уровня), пикселей экрана игры. */
   overlayBox: { bottom: number; maxWidth: number };

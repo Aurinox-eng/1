@@ -58,6 +58,14 @@ on:
         description: 'Потолок реального времени одной партии бота, секунд (по умолчанию 7200; при 3600 партии на 25–30-й волне обрывались как timeout и не приносили очков ДНК)'
         type: string
         default: '7200'
+      from_level:
+        description: 'С какого уровня начинать (по умолчанию 1). Больше 1 — нужен state_run: состояние дорожек берётся из вложений ladder-state-L<from_level − 1>-lane<N> того прогона'
+        type: string
+        default: '1'
+      state_run:
+        description: 'Номер прогона (run id), из вложений которого берётся состояние дорожек при from_level больше 1 (его дорожки должны быть теми же профилем и номерами)'
+        type: string
+        default: ''
       max_parallel:
         description: 'Сколько дорожек одной серии идёт одновременно (по умолчанию 7). На аккаунте 20 мест на все задачи: две серии по 7 дорожек занимают 14, и для проверок (smoke) остаётся не меньше 6; больше двух серий одновременно не запускать'
         type: string
@@ -83,6 +91,8 @@ jobs:
       k_total: ${{ steps.plan.outputs.k_total }}
       chunked: ${{ steps.plan.outputs.chunked }}
       max_parallel: ${{ steps.plan.outputs.max_parallel }}
+      from_level: ${{ steps.plan.outputs.from_level }}
+      state_run: ${{ steps.plan.outputs.state_run }}
       sha: ${{ steps.sha.outputs.sha }}
     steps:
       - uses: actions/checkout@v4
@@ -107,6 +117,8 @@ jobs:
           MAX_REAL_SEC: ${{ inputs.max_real_sec }}
           K_TOTAL: ${{ inputs.k_total }}
           MAX_PARALLEL: ${{ inputs.max_parallel }}
+          FROM_LEVEL: ${{ inputs.from_level }}
+          STATE_RUN: ${{ inputs.state_run }}
         run: node .github/scripts/ladder-plan.mjs
       # не больше 14 мест на все длинные серии вместе (лестница и замер баланса): для smoke остаётся не меньше 6 мест из 20
       - name: Сторож мест
@@ -119,10 +131,11 @@ jobs:
   l01:
     name: Уровень 1
     needs: [plan]
-    if: ${{ !cancelled() && needs.plan.result == 'success' && fromJSON(needs.plan.outputs.to_level) >= 1 }}
+    if: ${{ !cancelled() && needs.plan.result == 'success' && fromJSON(needs.plan.outputs.to_level) >= 1 && fromJSON(needs.plan.outputs.from_level) <= 1 }}
     uses: ./.github/workflows/ladder-level.yml
     with:
       level: 1
+      state_run: ${{ needs.plan.outputs.from_level == '1' && needs.plan.outputs.state_run || '' }}
       prev: 0
       sha: ${{ needs.plan.outputs.sha }}
       profile: ${{ needs.plan.outputs.profile }}
@@ -140,10 +153,11 @@ jobs:
   l02:
     name: Уровень 2
     needs: [plan, l01]
-    if: ${{ !cancelled() && needs.plan.result == 'success' && (needs.l01.result == 'success' || needs.l01.result == 'skipped') && fromJSON(needs.plan.outputs.to_level) >= 2 }}
+    if: ${{ !cancelled() && needs.plan.result == 'success' && (needs.l01.result == 'success' || needs.l01.result == 'skipped') && fromJSON(needs.plan.outputs.to_level) >= 2 && fromJSON(needs.plan.outputs.from_level) <= 2 }}
     uses: ./.github/workflows/ladder-level.yml
     with:
       level: 2
+      state_run: ${{ needs.plan.outputs.from_level == '2' && needs.plan.outputs.state_run || '' }}
       prev: 1
       sha: ${{ needs.plan.outputs.sha }}
       profile: ${{ needs.plan.outputs.profile }}
@@ -161,10 +175,11 @@ jobs:
   l03:
     name: Уровень 3
     needs: [plan, l02]
-    if: ${{ !cancelled() && needs.plan.result == 'success' && (needs.l02.result == 'success' || needs.l02.result == 'skipped') && fromJSON(needs.plan.outputs.to_level) >= 3 }}
+    if: ${{ !cancelled() && needs.plan.result == 'success' && (needs.l02.result == 'success' || needs.l02.result == 'skipped') && fromJSON(needs.plan.outputs.to_level) >= 3 && fromJSON(needs.plan.outputs.from_level) <= 3 }}
     uses: ./.github/workflows/ladder-level.yml
     with:
       level: 3
+      state_run: ${{ needs.plan.outputs.from_level == '3' && needs.plan.outputs.state_run || '' }}
       prev: 2
       sha: ${{ needs.plan.outputs.sha }}
       profile: ${{ needs.plan.outputs.profile }}
@@ -182,10 +197,11 @@ jobs:
   l04:
     name: Уровень 4
     needs: [plan, l03]
-    if: ${{ !cancelled() && needs.plan.result == 'success' && (needs.l03.result == 'success' || needs.l03.result == 'skipped') && fromJSON(needs.plan.outputs.to_level) >= 4 }}
+    if: ${{ !cancelled() && needs.plan.result == 'success' && (needs.l03.result == 'success' || needs.l03.result == 'skipped') && fromJSON(needs.plan.outputs.to_level) >= 4 && fromJSON(needs.plan.outputs.from_level) <= 4 }}
     uses: ./.github/workflows/ladder-level.yml
     with:
       level: 4
+      state_run: ${{ needs.plan.outputs.from_level == '4' && needs.plan.outputs.state_run || '' }}
       prev: 3
       sha: ${{ needs.plan.outputs.sha }}
       profile: ${{ needs.plan.outputs.profile }}
@@ -203,10 +219,11 @@ jobs:
   l05:
     name: Уровень 5
     needs: [plan, l04]
-    if: ${{ !cancelled() && needs.plan.result == 'success' && (needs.l04.result == 'success' || needs.l04.result == 'skipped') && fromJSON(needs.plan.outputs.to_level) >= 5 }}
+    if: ${{ !cancelled() && needs.plan.result == 'success' && (needs.l04.result == 'success' || needs.l04.result == 'skipped') && fromJSON(needs.plan.outputs.to_level) >= 5 && fromJSON(needs.plan.outputs.from_level) <= 5 }}
     uses: ./.github/workflows/ladder-level.yml
     with:
       level: 5
+      state_run: ${{ needs.plan.outputs.from_level == '5' && needs.plan.outputs.state_run || '' }}
       prev: 4
       sha: ${{ needs.plan.outputs.sha }}
       profile: ${{ needs.plan.outputs.profile }}
@@ -224,10 +241,11 @@ jobs:
   l06:
     name: Уровень 6
     needs: [plan, l05]
-    if: ${{ !cancelled() && needs.plan.result == 'success' && (needs.l05.result == 'success' || needs.l05.result == 'skipped') && fromJSON(needs.plan.outputs.to_level) >= 6 }}
+    if: ${{ !cancelled() && needs.plan.result == 'success' && (needs.l05.result == 'success' || needs.l05.result == 'skipped') && fromJSON(needs.plan.outputs.to_level) >= 6 && fromJSON(needs.plan.outputs.from_level) <= 6 }}
     uses: ./.github/workflows/ladder-level.yml
     with:
       level: 6
+      state_run: ${{ needs.plan.outputs.from_level == '6' && needs.plan.outputs.state_run || '' }}
       prev: 5
       sha: ${{ needs.plan.outputs.sha }}
       profile: ${{ needs.plan.outputs.profile }}
@@ -245,10 +263,11 @@ jobs:
   l07:
     name: Уровень 7
     needs: [plan, l06]
-    if: ${{ !cancelled() && needs.plan.result == 'success' && (needs.l06.result == 'success' || needs.l06.result == 'skipped') && fromJSON(needs.plan.outputs.to_level) >= 7 }}
+    if: ${{ !cancelled() && needs.plan.result == 'success' && (needs.l06.result == 'success' || needs.l06.result == 'skipped') && fromJSON(needs.plan.outputs.to_level) >= 7 && fromJSON(needs.plan.outputs.from_level) <= 7 }}
     uses: ./.github/workflows/ladder-level.yml
     with:
       level: 7
+      state_run: ${{ needs.plan.outputs.from_level == '7' && needs.plan.outputs.state_run || '' }}
       prev: 6
       sha: ${{ needs.plan.outputs.sha }}
       profile: ${{ needs.plan.outputs.profile }}
@@ -266,10 +285,11 @@ jobs:
   l08:
     name: Уровень 8
     needs: [plan, l07]
-    if: ${{ !cancelled() && needs.plan.result == 'success' && (needs.l07.result == 'success' || needs.l07.result == 'skipped') && fromJSON(needs.plan.outputs.to_level) >= 8 }}
+    if: ${{ !cancelled() && needs.plan.result == 'success' && (needs.l07.result == 'success' || needs.l07.result == 'skipped') && fromJSON(needs.plan.outputs.to_level) >= 8 && fromJSON(needs.plan.outputs.from_level) <= 8 }}
     uses: ./.github/workflows/ladder-level.yml
     with:
       level: 8
+      state_run: ${{ needs.plan.outputs.from_level == '8' && needs.plan.outputs.state_run || '' }}
       prev: 7
       sha: ${{ needs.plan.outputs.sha }}
       profile: ${{ needs.plan.outputs.profile }}
@@ -287,10 +307,11 @@ jobs:
   l09:
     name: Уровень 9
     needs: [plan, l08]
-    if: ${{ !cancelled() && needs.plan.result == 'success' && (needs.l08.result == 'success' || needs.l08.result == 'skipped') && fromJSON(needs.plan.outputs.to_level) >= 9 }}
+    if: ${{ !cancelled() && needs.plan.result == 'success' && (needs.l08.result == 'success' || needs.l08.result == 'skipped') && fromJSON(needs.plan.outputs.to_level) >= 9 && fromJSON(needs.plan.outputs.from_level) <= 9 }}
     uses: ./.github/workflows/ladder-level.yml
     with:
       level: 9
+      state_run: ${{ needs.plan.outputs.from_level == '9' && needs.plan.outputs.state_run || '' }}
       prev: 8
       sha: ${{ needs.plan.outputs.sha }}
       profile: ${{ needs.plan.outputs.profile }}
@@ -308,10 +329,11 @@ jobs:
   l10:
     name: Уровень 10
     needs: [plan, l09]
-    if: ${{ !cancelled() && needs.plan.result == 'success' && (needs.l09.result == 'success' || needs.l09.result == 'skipped') && fromJSON(needs.plan.outputs.to_level) >= 10 }}
+    if: ${{ !cancelled() && needs.plan.result == 'success' && (needs.l09.result == 'success' || needs.l09.result == 'skipped') && fromJSON(needs.plan.outputs.to_level) >= 10 && fromJSON(needs.plan.outputs.from_level) <= 10 }}
     uses: ./.github/workflows/ladder-level.yml
     with:
       level: 10
+      state_run: ${{ needs.plan.outputs.from_level == '10' && needs.plan.outputs.state_run || '' }}
       prev: 9
       sha: ${{ needs.plan.outputs.sha }}
       profile: ${{ needs.plan.outputs.profile }}

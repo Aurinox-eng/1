@@ -1,14 +1,16 @@
 import Phaser from 'phaser';
 import { CONFIG } from '../config';
 import { t } from '../i18n';
-import { metaDna } from '../meta';
+import { metaDna, resetProgress } from '../meta';
+import { setCurrentLevel } from '../progress';
+import { forgetNews } from './GameScene';
 import { sfx } from '../sound';
-import { addButton, setScreenInfo, textStyle } from '../screens';
+import { addButton, setScreenInfo, textStyle, type Rect } from '../screens';
 import { COLORS, TEXT_COLORS } from '../theme';
 
 const { width: W, height: H } = CONFIG.screen;
 
-/** Главное меню (этап 5, docs/stage-5-plan.md): название, очки ДНК, кнопки «Играть» (выбор уровня) и «Улучшения». */
+/** Главное меню (этап 5, docs/stage-5-plan.md): название, очки ДНК, кнопки «Играть» (выбор уровня), «Улучшения», «Альманах», «Звук» и «Сбросить прогресс» (с подтверждением). */
 export class MenuScene extends Phaser.Scene {
   constructor() {
     super('Menu');
@@ -56,12 +58,57 @@ export class MenuScene extends Phaser.Scene {
         this.scene.restart();
       },
     });
+    // «Сбросить прогресс»: маленькая кнопка в левом верхнем углу; по тапу — окно подтверждения поверх меню (нижние кнопки под ним не нажимаются)
+    let dialog: { yes: Rect; no: Rect; texts: string[] } | null = null;
+    const reset = addButton(this, {
+      x: 190,
+      y: 52,
+      w: 340,
+      h: 60,
+      label: t('resetBtn'),
+      fontSize: 26,
+      fill: 0x5a2a2a,
+      line: 0x8a4a4a,
+      onTap: () => {
+        if (!dialog) dialog = this.openResetDialog();
+      },
+    });
+
     // Знак авторского права внизу по центру: ниже кнопки «Альманах» (низ — y 678), над краем экрана остаётся запас
     const copyright = this.add.text(W / 2, H - 18, t('copyright'), textStyle(20, TEXT_COLORS.soft, false)).setOrigin(0.5);
     setScreenInfo(() =>
       this.scene.isActive()
-        ? { scene: 'menu', buttons: { play, upgrades, almanac, sound }, texts: [title.text, balance.text], labels: { copyright: { x: copyright.x, y: copyright.y, w: copyright.width, h: copyright.height } } }
+        ? { scene: 'menu', buttons: { play, upgrades, almanac, sound, reset, ...(dialog ? { resetYes: dialog.yes, resetNo: dialog.no } : {}) }, texts: [title.text, balance.text, ...(dialog ? dialog.texts : [])], labels: { copyright: { x: copyright.x, y: copyright.y, w: copyright.width, h: copyright.height } } }
         : null,
     );
+  }
+
+  /** Окно подтверждения сброса: затемнение на весь экран поверх меню (глушит нажатия под ним), вопрос, пояснение, «Да, сбросить» и «Отмена». Все части создаются после кнопок меню, поэтому лежат над ними. */
+  private openResetDialog(): { yes: Rect; no: Rect; texts: string[] } {
+    this.add.rectangle(W / 2, H / 2, W, H, 0x000000, 0.82);
+    this.add.zone(W / 2, H / 2, W, H).setInteractive();
+    const title = this.add.text(W / 2, H / 2 - 120, t('resetTitle'), textStyle(52, TEXT_COLORS.accent)).setOrigin(0.5);
+    const text = this.add.text(W / 2, H / 2 - 30, t('resetText'), { ...textStyle(30), align: 'center', wordWrap: { width: W - 200 } }).setOrigin(0.5);
+    const close = (): void => {
+      this.scene.restart();
+    };
+    const yes = addButton(this, {
+      x: W / 2 - 180,
+      y: H / 2 + 120,
+      w: 320,
+      h: 84,
+      label: t('resetYes'),
+      fontSize: 34,
+      fill: 0x8a2a2a,
+      line: 0xd86a6a,
+      onTap: () => {
+        resetProgress();
+        forgetNews();
+        setCurrentLevel(1);
+        close();
+      },
+    });
+    const no = addButton(this, { x: W / 2 + 180, y: H / 2 + 120, w: 320, h: 84, label: t('resetNo'), fontSize: 34, fill: 0x2a3550, line: 0x4a5c82, onTap: close });
+    return { yes, no, texts: [title.text, text.text] };
   }
 }

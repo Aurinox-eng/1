@@ -11,6 +11,10 @@ on:
         description: 'Номер предыдущего уровня (его состояние берётся из вложения); у уровня 1 не используется'
         type: number
         required: true
+      state_run:
+        description: 'Номер прогона, из вложений которого берётся состояние дорожек (только у первого уровня серии, начатой не с уровня 1); пусто — вложения этого же прогона'
+        type: string
+        default: ''
       sha:
         type: string
         required: true
@@ -54,6 +58,7 @@ on:
 
 permissions:
   contents: read
+  actions: read # вложения другого прогона (state_run)
 
 jobs:
   lane:
@@ -82,11 +87,19 @@ jobs:
       - name: Собрать тестовую версию игры
         run: npm run build:qa
       - name: Состояние дорожки с прошлого уровня
-        if: ${{ inputs.level > 1 }}
+        if: ${{ inputs.level > 1 && inputs.state_run == '' }}
         uses: actions/download-artifact@v4
         with:
           name: ladder-state-L${{ inputs.prev }}-lane${{ matrix.lane }}${{ inputs.chunked == 'true' && '-b' || '' }}
           path: state-in
+      - name: Состояние дорожки из другого прогона (state_run)
+        if: ${{ inputs.level > 1 && inputs.state_run != '' }}
+        uses: actions/download-artifact@v4
+        with:
+          name: ladder-state-L${{ inputs.prev }}-lane${{ matrix.lane }}
+          path: state-in
+          run-id: ${{ inputs.state_run }}
+          github-token: ${{ github.token }}
       - name: Бот
         env:
           PROFILE: ${{ inputs.profile }}
