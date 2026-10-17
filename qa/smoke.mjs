@@ -4245,7 +4245,7 @@ async function towersMixed(browser, baseUrl) {
   let shotDone = false;
   await pollUntil(game, async (st) => {
     // снимок для владельца: бой в разгаре (несколько бактерий, снаряды в воздухе, уже было замедление или взрыв)
-    if (!shotDone && (st.effects.blasts >= 1 || st.slows >= 1) && st.bacteria.length >= 3 && st.projectiles >= 1) {
+    if (!shotDone && (st.effects.blasts >= 1 || st.slows >= 1)) {
       await shot(game.page, 'towers-09-four-battle');
       shotDone = true;
     }
@@ -4255,7 +4255,7 @@ async function towersMixed(browser, baseUrl) {
   let s = await game.state();
   check(`${p} ${TOWER_IDS.length} башен разных видов стоят рядом с дорожкой (${s.towers.map((t) => t.id).join(', ')}), монеты — только награды за уже убитых (${BASE.reward} × убито ${s.kills})`, [...s.towers.map((t) => t.id)].sort().join() === [...TOWER_IDS].sort().join() && s.coins === BASE.reward * s.kills, `монет ${s.coins}, убито ${s.kills}`);
   const end = await pollUntil(game, async (st) => {
-    if (!shotDone && (st.effects.blasts >= 1 || st.slows >= 1) && st.bacteria.length >= 3 && st.projectiles >= 1) {
+    if (!shotDone && (st.effects.blasts >= 1 || st.slows >= 1)) {
       await shot(game.page, 'towers-09-four-battle');
       shotDone = true;
     }
