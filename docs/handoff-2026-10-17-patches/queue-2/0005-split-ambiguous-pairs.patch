@@ -1,0 +1,97 @@
+From 2b7943b9e10644e6a86f4d3d6ae7c29aa10401c8 Mon Sep 17 00:00:00 2001
+From: Claude <335224071+Aurinox-eng@users.noreply.github.com>
+Date: Sat, 17 Oct 2026 21:19:54 +0000
+Subject: [PATCH 5/7] =?UTF-8?q?smoke:=20=C2=AB=D0=B4=D0=B5=D0=BB=D1=8F?=
+ =?UTF-8?q?=D1=89=D0=B0=D1=8F=D1=81=D1=8F,=20=D1=80=D0=B5=D0=B3=D1=80?=
+ =?UTF-8?q?=D0=B5=D1=81=D1=81=D0=B8=D1=8F=C2=BB=20=E2=80=94=20=D1=80=D0=B0?=
+ =?UTF-8?q?=D1=81=D1=81=D1=82=D0=BE=D1=8F=D0=BD=D0=B8=D0=B5=20=D0=B2=D0=B4?=
+ =?UTF-8?q?=D0=BE=D0=BB=D1=8C=20=D0=B4=D0=BE=D1=80=D0=BE=D0=B6=D0=BA=D0=B8?=
+ =?UTF-8?q?=20=D0=B8=D0=B7=D0=BC=D0=B5=D1=80=D1=8F=D0=B5=D1=82=D1=81=D1=8F?=
+ =?UTF-8?q?=20=D1=82=D0=BE=D0=BB=D1=8C=D0=BA=D0=BE=20=D1=83=20=D0=BF=D0=B0?=
+ =?UTF-8?q?=D1=80=20=D1=81=20=D0=BE=D0=B1=D1=89=D0=B5=D0=B9=20=D0=B4=D0=BE?=
+ =?UTF-8?q?=D1=80=D0=BE=D0=B6=D0=BA=D0=BE=D0=B9;=20=D0=BF=D0=B0=D1=80?=
+ =?UTF-8?q?=D0=B0,=20=D1=80=D0=B0=D0=B7=D0=BE=D1=88=D0=B5=D0=B4=D1=88?=
+ =?UTF-8?q?=D0=B0=D1=8F=D1=81=D1=8F=20=D0=BF=D0=BE=20=D0=B2=D0=B5=D1=82?=
+ =?UTF-8?q?=D0=B2=D1=8F=D0=BC=20=D1=80=D0=B0=D0=B7=D0=B2=D0=B8=D0=BB=D0=BA?=
+ =?UTF-8?q?=D0=B8=20=D0=BA=20=D0=BC=D0=BE=D0=BC=D0=B5=D0=BD=D1=82=D1=83=20?=
+ =?UTF-8?q?=D1=81=D0=BD=D0=B8=D0=BC=D0=BA=D0=B0,=20=D0=BD=D0=B5=D0=BE?=
+ =?UTF-8?q?=D0=B4=D0=BD=D0=BE=D0=B7=D0=BD=D0=B0=D1=87=D0=BD=D0=B0;=20?=
+ =?UTF-8?q?=D0=BC=D0=B8=D0=BD=D0=B8=D0=BC=D1=83=D0=BC=20=D0=B8=D0=B7=D0=BC?=
+ =?UTF-8?q?=D0=B5=D1=80=D0=B5=D0=BD=D0=BD=D1=8B=D1=85=20=E2=80=94=20=D0=BD?=
+ =?UTF-8?q?=D0=B5=20=D0=BC=D0=B5=D0=BD=D1=8C=D1=88=D0=B5=20=D0=BF=D0=BE?=
+ =?UTF-8?q?=D0=BB=D0=BE=D0=B2=D0=B8=D0=BD=D1=8B=20=D0=B8=20=D0=BD=D0=B5=20?=
+ =?UTF-8?q?=D0=BC=D0=B5=D0=BD=D1=8C=D1=88=D0=B5=20=D0=BF=D1=8F=D1=82=D0=B8?=
+ =?UTF-8?q?,=20=D0=B8=D0=BD=D0=B0=D1=87=D0=B5=20=D0=BA=D1=80=D0=B0=D1=81?=
+ =?UTF-8?q?=D0=BD=D0=B0=D1=8F=20=C2=AB=D0=BC=D0=B0=D0=BB=D0=BE=20=D0=B4?=
+ =?UTF-8?q?=D0=B0=D0=BD=D0=BD=D1=8B=D1=85=C2=BB;=20=D0=BF=D0=B0=D1=80?=
+ =?UTF-8?q?=D0=B0=20=D0=B1=D0=B5=D0=B7=20=D0=BE=D0=B1=D1=89=D0=B5=D0=B9=20?=
+ =?UTF-8?q?=D0=B4=D0=BE=D1=80=D0=BE=D0=B6=D0=BA=D0=B8=20=D0=B8=20=D0=B1?=
+ =?UTF-8?q?=D0=B5=D0=B7=20=D1=80=D0=B0=D0=B7=D0=B2=D0=B8=D0=BB=D0=BA=D0=B8?=
+ =?UTF-8?q?=20=E2=80=94=20=D0=BA=D1=80=D0=B0=D1=81=D0=BD=D0=B0=D1=8F=20?=
+ =?UTF-8?q?=D1=81=20=D1=80=D1=91=D0=B1=D1=80=D0=B0=D0=BC=D0=B8=20=D0=B2=20?=
+ =?UTF-8?q?=D0=BE=D0=BF=D0=B8=D1=81=D0=B0=D0=BD=D0=B8=D0=B8?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01PRjKEBt45fDLH3kMXYShp6
+---
+ qa/smoke.mjs | 27 +++++++++++++++++++++++----
+ 1 file changed, 23 insertions(+), 4 deletions(-)
+
+diff --git a/qa/smoke.mjs b/qa/smoke.mjs
+index 978fa25..35ca79d 100644
+--- a/qa/smoke.mjs
++++ b/qa/smoke.mjs
+@@ -2372,14 +2372,23 @@ function splitPair(a, b) {
+   const [k1, k2] = a.id < b.id ? [a, b] : [b, a];
+   const chord = Math.hypot(k1.x - k2.x, k1.y - k2.y);
+   let along = null;
++  // fork: к моменту снимка задний кокк дошёл до развилки и выбрал другую ветвь, чем передний (игра выбирает ветвь каждой бактерии отдельно,
++  // Bacterium.advance), общей дорожки у пары нет, и расстояние «вдоль дорожки» не определено: такой распад неоднозначный
++  let fork = false;
+   if (k1.edge === k2.edge) along = k2.s - k1.s;
+   else {
+     const e1 = GEO.byId.get(k1.edge);
+-    if (e1.to === GEO.byId.get(k2.edge).from) along = e1.length - k1.s + k2.s;
++    const e2 = GEO.byId.get(k2.edge);
++    if (e1.to === e2.from) along = e1.length - k1.s + k2.s;
++    else fork = e1.from === e2.from;
+   }
+-  return { k1, k2, chord, along, crossed: k1.edge !== k2.edge };
++  return { k1, k2, chord, along, fork, crossed: k1.edge !== k2.edge };
+ }
+ 
++/** Минимум измеренных распадов делящейся: не меньше половины и не меньше пяти (как у Таблетки); иначе проверка красная с пометкой «мало данных». */
++const SPLIT_MIN_SHARE = 0.5;
++const SPLIT_MIN_MEASURED = 5;
++
+ async function runSplit(browser, baseUrl) {
+   const p = '[делящаяся]';
+   const count = readConfigNumber('splitter', 'splitCount');
+@@ -2476,9 +2485,19 @@ async function runSplit(browser, baseUrl) {
+   const chords = pairs.map((q) => q.chord);
+   const alongs = pairs.map((q) => q.along);
+   const minChord = Math.min(...chords);
+-  const crossed = pairs.filter((q) => q.crossed).length;
++  // Расстояние вдоль дорожки измеряется, только если у пары есть общая дорожка; пара, разошедшаяся по ветвям развилки к моменту снимка, неоднозначна и не оценивается.
++  // Пара без общей дорожки, но и без развилки в узле (рёбра не связаны), объяснения не имеет: это красная, а не неоднозначность
++  const measured = pairs.filter((q) => q.along !== null);
++  const diverged = pairs.filter((q) => q.along === null && q.fork);
++  const unexplained = pairs.filter((q) => q.along === null && !q.fork);
++  const crossed = measured.filter((q) => q.crossed).length;
++  const splitNeed = Math.max(SPLIT_MIN_MEASURED, Math.ceil(pairs.length * SPLIT_MIN_SHARE));
++  const splitEnough = pairs.length >= 20 && measured.length >= splitNeed;
++  const badAlong = measured.filter((q) => Math.abs(q.along - gap) > 8);
++  const edgeOf = (q) => `#${q.k1.id}: ${q.k1.edge} → #${q.k2.id}: ${q.k2.edge}`;
++  const alongRange = measured.length ? `${f1(Math.min(...measured.map((q) => q.along)))}…${f1(Math.max(...measured.map((q) => q.along)))}` : '—';
+   check(`${p} регрессия: ${pairs.length} распадов подряд (башни с дальностью 1400 и уроном 20: убивают с одного выстрела при любом HP), ни в одном кокки не слипаются: наименьшее прямое расстояние ${f1(minChord)} px ≥ 38 (раньше было 25 и 34)`, pairs.length >= 20 && minChord >= 38, `распадов ${pairs.length}, прямые расстояния: ${chords.map((c) => Math.round(c)).join(',')}`);
+-  check(`${p} регрессия: во всех ${pairs.length} распадах второй кокк ровно на ${gap} px вперёд по дорожке (вдоль дорожки ${f1(Math.min(...alongs))}…${f1(Math.max(...alongs))}, допуск ±8); на следующем ребре оказался в ${crossed} распадах`, pairs.length >= 20 && alongs.every((a) => a !== null && Math.abs(a - gap) <= 8), `вдоль дорожки: ${alongs.map((a) => (a === null ? '—' : Math.round(a))).join(',')}`);
++  check(`${p} регрессия: из ${pairs.length} распадов измерено ${measured.length} (нужно не меньше ${splitNeed}), во всех измеренных второй кокк ровно на ${gap} px вперёд по дорожке (вдоль дорожки ${alongRange}, допуск ±8); на следующем ребре оказался в ${crossed}; неоднозначных (разошлись по ветвям развилки) ${diverged.length}`, splitEnough && badAlong.length === 0 && unexplained.length === 0, !splitEnough ? `мало данных: измерено ${measured.length} из ${pairs.length} распадов, нужно не меньше ${splitNeed}; разошлись по развилке: ${diverged.map(edgeOf).join('; ') || 'нет'}` : unexplained.length ? `расстояние не вычислено, рёбра пары не связаны и не из одного узла: ${unexplained.map(edgeOf).join('; ')}` : `вдоль дорожки: ${alongs.map((a) => (a === null ? '—' : Math.round(a))).join(',')}; разошлись по развилке: ${diverged.map(edgeOf).join('; ') || 'нет'}`);
+   const orgLimit = MAP.orgW + readConfigNumber('coccus', 'radius') + gap + 20;
+   // одиночный кокк далеко от организма — не ошибка распада, а потерянная опросом пара: башня убила второго кокка в тот же кадр, когда он появился (по журналу убийств игры соседний номер убит)
+   const killedIds = new Set((await game.events('kill')).map((e) => e.id));
+-- 
+2.43.0
+
