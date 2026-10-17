@@ -363,6 +363,33 @@ async function waitFor(page, predicate, timeoutMs, label, pollMs = 40) {
   throw new Error(`Не дождались: ${label}`);
 }
 
+/** Номер шага игры (state.clock.frames), до которого партия считается только что начатой: перезапуск и начало уровня обнуляют счётчик кадров (GameScene.create). */
+const FRESH_FRAMES = 3;
+
+/**
+ * Ждёт начало новой партии (после «Заново», «Играть», «Следующий уровень») и возвращает состояние, снятое в первых кадрах партии (clock.frames ≤ FRESH_FRAMES).
+ * Опрос идёт внутри страницы в каждом кадре отрисовки (polling: 'raf'), поэтому снимок не зависит от того, как быстро страница отвечает снаружи, а партия узнаётся по номеру
+ * шага игры, не по секундам реального или игрового времени (раньше условие «elapsed < 2» не выполнялось, если страница отвечала с опозданием). `level` — дополнительное условие.
+ * Не дождались — исключение (проверка красная), а не пропуск; `timeoutMs` ограничивает только ожидание.
+ */
+async function waitFreshRun(page, label, { timeoutMs = 30000, level = null } = {}) {
+  const handle = await page
+    .waitForFunction(
+      ({ level: wantLevel, frames }) => {
+        const s = window.__pvb?.getState();
+        if (!s || s.state !== 'playing' || !s.clock || s.clock.frames > frames) return false;
+        if (wantLevel !== null && s.level !== wantLevel) return false;
+        return s;
+      },
+      { level, frames: FRESH_FRAMES },
+      { polling: 'raf', timeout: timeoutMs },
+    )
+    .catch(() => {
+      throw new Error(`Не дождались: ${label}`);
+    });
+  return handle.jsonValue();
+}
+
 /** Сохраняет скриншот окна и возвращает его содержимое. */
 async function shot(page, name) {
   const file = path.join(shotsDir, `${name}.png`);
@@ -1568,7 +1595,7 @@ async function runLose(browser, baseUrl, lang, deviceKey, full) {
     }
     await sleep(Math.max(0, CFG.restartLockMs + 200 - (Date.now() - detectedAt)));
     await tapToRestart(game);
-    const r = await waitFor(page, (x) => x.state === 'playing', 5000, 'перезапуск кнопкой «Заново»');
+    const r = await waitFreshRun(page, 'перезапуск кнопкой «Заново»');
     const camOk = Math.abs(r.camera.zoom - CFG.zoomStart) < 0.001 && Math.abs(r.camera.cx - startCenterPx().x) < 3 && Math.abs(r.camera.cy - startCenterPx().y) < 3;
     if (cycle === 1) {
       check(`${p} перезапуск кнопкой «Заново» после паузы блокировки: монеты ${CFG.startCoins}, жизни ${CFG.lives}, волна 0, никого нет`, r.coins === CFG.startCoins && r.lives === CFG.lives && r.wave === 0 && r.bacteria.length === 0 && r.towers.length === 0 && r.kills === 0 && r.leaked === 0 && r.shots === 0 && r.selected === null && r.elapsed < 2, `монеты ${r.coins}, жизни ${r.lives}, волна ${r.wave}, время ${f2(r.elapsed)}`);
@@ -1622,7 +1649,7 @@ async function runWin(browser, baseUrl, lang, deviceKey, full) {
   await shot(page, `${name}-10-won`);
   await sleep(Math.max(0, CFG.restartLockMs + 200 - (Date.now() - detectedAt)));
   await tapToRestart(game);
-  const r = await waitFor(page, (x) => x.state === 'playing' && x.elapsed < 2, 5000, 'перезапуск после победы');
+  const r = await waitFreshRun(page, 'перезапуск после победы');
   check(`${p} кнопка «Заново» после победы перезапускает игру: монеты 500, волна 0, башен нет`, r.coins === 500 && r.lives === 3 && r.wave === 0 && r.towers.length === 0 && r.bacteria.length === 0, `монеты ${r.coins}, волна ${r.wave}, башен ${r.towers.length}`);
   check(`${p} обработчики нажатия не копятся`, r.pointerListeners === listeners0, `было ${listeners0}, стало ${r.pointerListeners}`);
   await context.close();
@@ -7160,7 +7187,7 @@ async function runRestartButton(browser, baseUrl) {
       s = await game.state();
       check(`${q} тапы мимо кнопки (над ней, слева, в углах экрана) уровень не перезапускают`, s.state === outcome, `состояние ${s.state}`);
       await tapToRestart(game);
-      s = await waitFor(game.page, (x) => x.state === 'playing' && x.elapsed < 2, 5000, 'перезапуск кнопкой').catch(() => null);
+      s = await waitFreshRun(game.page, 'перезапуск кнопкой').catch(() => null);
       check(`${q} тап по кнопке «Заново» перезапускает уровень (волна 0, башен нет, монеты стартовые)`, s !== null && s.wave === 0 && s.towers.length === 0 && s.endButton === null && s.coins === (outcome === 'won' ? 500 : CFG.startCoins), s ? `волна ${s.wave}, башен ${s.towers.length}, монеты ${s.coins}, endButton ${JSON.stringify(s.endButton)}` : 'не перезапустилась');
       await ctx.close();
     }
@@ -7622,7 +7649,7 @@ async function runLevelsLock(browser, baseUrl) {
   check(`${p} после победы на уровне 1 есть все четыре кнопки («Заново», «Улучшения», «Следующий уровень», «В меню»), внутри экрана и не налезают друг на друга`, btns.every((b) => b && insideScreen(b)) && btns.every((a, i) => btns.every((b, j) => i === j || !overlaps(a, b))), JSON.stringify(btns));
   await shot(win.page, 'levels-win-buttons');
   await win.input.tap(win.g(s.nextButton.x, s.nextButton.y));
-  s = await waitFor(win.page, (x) => x.state === 'playing' && x.level === 2 && x.elapsed < 3, 30000, 'партия уровня 2 после «Следующий уровень»');
+  s = await waitFreshRun(win.page, 'партия уровня 2 после «Следующий уровень»', { level: 2 });
   check(`${p} «Следующий уровень» после победы начинает партию уровня 2`, s.level === 2, `уровень ${s.level}`);
   await win.page.close();
 
@@ -7639,7 +7666,7 @@ async function runLevelsLock(browser, baseUrl) {
     const recommended = meta2.screen.nodes.filter((n) => n.recommended).map((n) => n.id).sort();
     check(`${p} метка «рекомендуем» после партии с двумя Таблетками: «Сильное вещество» (ниже 3-го уровня) и первый узел ветки Таблетки (метки: ${recommended.join(', ')})`, recommended.join() === 'damage,pillPower', recommended.join());
     await win2.input.tap(win2.g(uu.buttons.play.x, uu.buttons.play.y));
-    const next = await waitFor(win2.page, (x) => x.state === 'playing' && x.elapsed < 3, 30000, 'партия после «Улучшения» → «Играть»');
+    const next = await waitFreshRun(win2.page, 'партия после «Улучшения» → «Играть»');
     check(`${p} «Играть» на экране «Улучшения» после победы на уровне 1 начинает уровень ${next.level} (следующий открытый), а не повтор уровня 1`, uu.scene === 'upgrades' && next.level === 2, `экран ${uu && uu.scene}, уровень ${next.level}`);
     await win2.page.close();
     // без партии на странице метка одна — «Сильное вещество»
@@ -7658,7 +7685,7 @@ async function runLevelsLock(browser, baseUrl) {
     await sleep(700);
     const ul = await lose2.page.evaluate(() => window.__pvbUi?.get() ?? null);
     await lose2.input.tap(lose2.g(ul.buttons.play.x, ul.buttons.play.y));
-    const again = await waitFor(lose2.page, (x) => x.state === 'playing' && x.elapsed < 3, 30000, 'партия после проигрыша → «Улучшения» → «Играть»');
+    const again = await waitFreshRun(lose2.page, 'партия после проигрыша → «Улучшения» → «Играть»');
     check(`${p} «Играть» на экране «Улучшения» после проигрыша на уровне 2 начинает тот же уровень ${again.level} заново`, ul.scene === 'upgrades' && again.level === 2, `экран ${ul && ul.scene}, уровень ${again.level}`);
     await lose2.page.close();
   }
@@ -7717,7 +7744,7 @@ async function runMetaDna(browser, baseUrl) {
   check(`${p} победа за 1 волну: 1 × 2 + 7 = 9 очков (начислено ${s.dnaGained}); к ${wantLose} прежним — ${wantLose + 9} на счёте`, s.dnaGained === 9 && m.dna === wantLose + 9, `начислено ${s.dnaGained}, на счёте ${m.dna}`);
   await sleep(CFG.restartLockMs + 250);
   await tapToRestart(win);
-  s = await waitFor(win.page, (x) => x.state === 'playing' && x.elapsed < 2, 5000, 'перезапуск после победы');
+  s = await waitFreshRun(win.page, 'перезапуск после победы');
   m = await metaOf(win.page);
   check(`${p} перезапуск очков не начисляет и не сбрасывает: на счёте по-прежнему ${wantLose + 9}`, m.dna === wantLose + 9 && s.dnaGained === 0, `на счёте ${m.dna}, начислено ${s.dnaGained}`);
 
@@ -8570,7 +8597,7 @@ async function runAlmanacPause(browser, baseUrl) {
     const pausedAgain = await game.state();
     check(`${p} на паузе есть четвёртая кнопка «Заново» слева внизу рядом с «В меню», внутри экрана, не налезает на остальные`, pausedAgain.pauseRestartButton !== null && insideScreen(pausedAgain.pauseRestartButton) && [pausedAgain.pauseAlmanacButton, pausedAgain.pauseSoundButton, pausedAgain.pauseMenuButton].every((b) => !overlaps(pausedAgain.pauseRestartButton, b)) && pausedAgain.pauseRestartButton.x < pausedAgain.pauseMenuButton.x, JSON.stringify(pausedAgain.pauseRestartButton));
     await game.input.tap(game.g(pausedAgain.pauseRestartButton.x, pausedAgain.pauseRestartButton.y));
-    const restarted = await waitFor(page, (x) => x.state === 'playing' && x.elapsed < 3 && x.towers.length === 0, 15000, 'партия после «Заново» с паузы');
+    const restarted = await waitFreshRun(page, 'партия после «Заново» с паузы');
     check(`${p} «Заново» на паузе начинает партию сначала: башен было ${withTower.towers.length}, стало ${restarted.towers.length}, монеты ${restarted.coins} (старт ${CFG.startCoins}), время ${f2(restarted.elapsed)} с, волна ${restarted.wave}`, withTower.towers.length === 1 && restarted.towers.length === 0 && restarted.coins === CFG.startCoins && restarted.wave === 0, JSON.stringify({ towers: restarted.towers.length, coins: restarted.coins, wave: restarted.wave }));
     // «Продолжить» на паузе: кнопка по центру над остальными, внутри экрана, не налезает на них; одного тапа достаточно, чтобы игра пошла
     await game.input.tap(game.g(restarted.ui.pauseButton.x, restarted.ui.pauseButton.y));
