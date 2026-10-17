@@ -5103,16 +5103,26 @@ async function typesToxin(browser, baseUrl) {
   check(`${p} облако заглушает башню в радиусе: облаков за партию ${C.end.cloudsMade} (ждали ≥ 2: убиты первый токсин и ещё один после исчезновения первого облака), кадров с заглушенной башней ${suppressedFrames} (≥ 3), расхождений «центр в облаке ⇔ suppressed» ${mismatch}`, C.end.cloudsMade >= 2 && suppressedFrames >= 3 && mismatch === 0, examples.join('; ') || `облаков ${C.end.cloudsMade}, заглушена ${suppressedFrames}`);
   let shotsWhileMuted = 0;
   let mutedSteps = 0;
+  let candidateSteps = 0;
+  // Шаг между двумя кадрами оценивается, только если башня заглушена в обоих и ОДНО И ТО ЖЕ облако (те же координаты) накрывает её центр в обоих: тогда заглушение не прерывалось,
+  // и выстрел внутри шага — ошибка игры. Если облако за шаг сменилось (первое исчезло, второе появилось) или башню накрывало не оно, шаг неоднозначный и не засчитывается.
+  const coversTower = (s) => s.clouds.filter((c) => Math.hypot(c.x - s.towers[0].x, c.y - s.towers[0].y) <= c.r - 8);
   for (let i = 1; i < framesC.length; i++) {
     const a = framesC[i - 1].towers[0];
     const b = framesC[i].towers[0];
     if (a?.suppressed && b?.suppressed && framesC[i].elapsed - framesC[i - 1].elapsed <= 0.8) {
+      candidateSteps++;
+      const ca = coversTower(framesC[i - 1]);
+      const cb = coversTower(framesC[i]);
+      if (!ca.some((c0) => cb.some((c1) => Math.hypot(c0.x - c1.x, c0.y - c1.y) <= 1))) continue;
       mutedSteps++;
       if (framesC[i].shots !== framesC[i - 1].shots) shotsWhileMuted++;
     }
   }
+  // минимум оценённых шагов: не меньше половины заглушённых шагов и не меньше трёх; иначе красная «мало данных»
+  const mutedNeed = Math.max(3, Math.ceil(candidateSteps * 0.5));
   const targetsWhileMuted = framesC.filter((s) => s.towers[0]?.suppressed && s.bacteria.some((b) => b.kind === 'toxin' && Math.hypot(b.x - t0.x, b.y - t0.y) <= t0.stats.range + b.r - 10)).length;
-  check(`${p} заглушённая башня не стреляет: шагов между кадрами в облаке ${mutedSteps} (≥ 3), из них с выстрелом ${shotsWhileMuted} (ждали 0), при этом в ${targetsWhileMuted} кадрах токсин был в радиусе стрельбы (≥ 1: стрелять было по кому)`, mutedSteps >= 3 && shotsWhileMuted === 0 && targetsWhileMuted >= 1, `шагов ${mutedSteps}, с выстрелом ${shotsWhileMuted}, целей в радиусе ${targetsWhileMuted}`);
+  check(`${p} заглушённая башня не стреляет: оценено шагов между кадрами в одном и том же облаке ${mutedSteps} из ${candidateSteps} заглушённых (нужно ≥ ${mutedNeed}), из них с выстрелом ${shotsWhileMuted} (ждали 0), при этом в ${targetsWhileMuted} кадрах токсин был в радиусе стрельбы (≥ 1: стрелять было по кому)`, mutedSteps >= mutedNeed && shotsWhileMuted === 0 && targetsWhileMuted >= 1, mutedSteps < mutedNeed ? `мало данных: оценено шагов ${mutedSteps} из ${candidateSteps} заглушённых, нужно не меньше ${mutedNeed}` : `шагов ${mutedSteps} из ${candidateSteps} заглушённых, с выстрелом ${shotsWhileMuted}, целей в радиусе ${targetsWhileMuted}`);
   const lastCloud = [...framesC].reverse().find((s) => s.clouds.length > 0);
   const afterAll = framesC.filter((s) => s.elapsed > (lastCloud?.elapsed ?? 0) && s.towers[0]);
   check(`${p} после исчезновения облаков башня снова работает: в кадрах без облаков заглушенных нет (${afterAll.filter((s) => s.towers[0].suppressed).length}), выстрелов за партию ${C.end.shots}`, afterAll.every((s) => !s.towers[0].suppressed) && C.end.shots >= 2, `выстрелов ${C.end.shots}`);
