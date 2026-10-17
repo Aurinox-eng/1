@@ -5220,14 +5220,31 @@ async function towersFrost(browser, baseUrl) {
   const p = '[башни: Холод]';
   const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
   const immune = ['slick', 'giant'];
+  // Замеры «слизень или гигант в радиусе, пока рядом заморожены другие»: по кадрам опроса, как в проверке 3 ниже. Прогон не заканчивается, пока их меньше FROST_MIN_NEAR
+  // (но не дольше FROST_EXTRA_SEC игровых секунд сверх обычного срока), поэтому выборка не зависит от того, как часто страница отвечала на опрос.
+  const FROST_MIN_NEAR = 6;
+  const FROST_EXTRA_SEC = 25;
+  const nearOf = (frames, tw) => {
+    let n = 0;
+    for (const s of frames) {
+      if (!s.bacteria.some((b) => !immune.includes(b.kind) && b.freezeLeft > 0)) continue;
+      for (const b of s.bacteria) if (immune.includes(b.kind) && distTo(tw, b) <= tw.stats.range + b.r - 10) n++;
+    }
+    return n;
+  };
   let firstAt = null;
+  let nearEnough = false;
   const run = await entranceRun(context, baseUrl, p, {
     id: 'frost',
     counts: { coccus: 24, slick: 4, giant: 3 },
     cfg: [...['coccus', 'slick', 'giant'].map((k) => `types.${k}.hp:99999`), ...immune.map((k) => `types.${k}.speedFactor:0.8`)],
     stop: (st, log, tw) => {
       if (firstAt === null && st.freezes >= 1) firstAt = st.elapsed;
-      return st.freezes >= 3 || (firstAt !== null && st.elapsed - firstAt > (tw.stats.cooldownMs / 1000) * 2 + 4);
+      if (firstAt === null) return false;
+      const normalEnd = st.freezes >= 3 || st.elapsed - firstAt > (tw.stats.cooldownMs / 1000) * 2 + 4;
+      if (!normalEnd) return false;
+      if (!nearEnough && log.length % 10 === 0) nearEnough = nearOf(distinctFrames(log), tw) >= FROST_MIN_NEAR;
+      return nearEnough || st.elapsed - firstAt > (tw.stats.cooldownMs / 1000) * 2 + 4 + FROST_EXTRA_SEC;
     },
   });
   const tw = run.tower;
@@ -5261,16 +5278,9 @@ async function towersFrost(browser, baseUrl) {
 
   // ---- 3. слизень и гигант не замерзают
   let immuneFrozen = 0;
-  let immuneNear = 0;
-  for (const s of frames) {
-    const someFrozen = s.bacteria.some((b) => !immune.includes(b.kind) && b.freezeLeft > 0);
-    for (const b of s.bacteria) {
-      if (!immune.includes(b.kind)) continue;
-      if (b.freezeLeft > 0) immuneFrozen++;
-      if (someFrozen && distTo(tw, b) <= range + b.r - 10) immuneNear++;
-    }
-  }
-  check(`${p} слизень и гигант не замерзают: замеров «слизень или гигант в радиусе, пока рядом заморожены другие» ${immuneNear} (≥ 3), из них замороженных ${immuneFrozen} (во всех кадрах партии — тоже 0)`, immuneNear >= 3 && immuneFrozen === 0, `рядом ${immuneNear}, замороженных ${immuneFrozen}`);
+  const immuneNear = nearOf(frames, tw);
+  for (const s of frames) for (const b of s.bacteria) if (immune.includes(b.kind) && b.freezeLeft > 0) immuneFrozen++;
+  check(`${p} слизень и гигант не замерзают: замеров «слизень или гигант в радиусе, пока рядом заморожены другие» ${immuneNear} (≥ 3), из них замороженных ${immuneFrozen} (во всех кадрах партии — тоже 0)`, immuneNear >= 3 && immuneFrozen === 0, immuneNear < 3 ? `мало данных: замеров ${immuneNear}, нужно не меньше 3` : `рядом ${immuneNear}, замороженных ${immuneFrozen}`);
 
   // ---- 4. замороженная бактерия стоит, остаток убывает вместе с игровым временем
   const held = pairsOf(frames, (a, b) => a.freezeLeft > 0 && b.freezeLeft > 0);
