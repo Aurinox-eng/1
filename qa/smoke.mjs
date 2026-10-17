@@ -4086,6 +4086,11 @@ async function syringeBlind(browser, baseUrl) {
 
 // ---------------------------------------------------------------- Таблетка: поведение прежнее
 
+/** Минимум оценённых выстрелов Таблетки: не меньше половины сделанных и не меньше пяти; иначе проверка красная с пометкой «мало данных». */
+const PILL_MIN_SHARE = 0.5;
+const PILL_MIN_JUDGED = 5;
+const PILL_MAX_SHOTS = 40;
+
 /**
  * Таблетка бьёт ту бактерию в радиусе, которой до организма ближе всего (remaining). По каждому выстрелу, где в радиусе было ≥ 2 бактерий
  * и ближайшая к организму опережает остальных на ≥ 12 px (remaining у бактерий убывает со скоростью каждой, порядок за кадр почти не меняется), смотрим, кто потерял HP.
@@ -4125,7 +4130,7 @@ async function towersPill(browser, baseUrl) {
   const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
   const cfg = [
     'waves.total:1',
-    'waves.list.0.coccus:18',
+    'waves.list.0.coccus:40',
     'waves.intervalStartSec:0.4',
     'waves.intervalEndSec:0.4',
     'waves.firstDelaySec:1',
@@ -4142,16 +4147,24 @@ async function towersPill(browser, baseUrl) {
   const tw = { ...placed.towers[0], range: TW.pill.range };
   const log = [];
   const startedAt = Date.now();
+  // Прогон идёт, пока не набрано достаточно оценённых выстрелов (PILL_MIN_SHARE от сделанных и не меньше PILL_MIN_JUDGED); потолок — PILL_MAX_SHOTS выстрелов или конец бактерий
+  let enough = false;
   await pollUntil(game, (st) => {
     log.push(st);
-    return st.state !== 'playing' || (st.shots >= 12 && st.projectiles === 0) || Date.now() - startedAt > 100000;
+    if (st.shots >= 12 && log.length % 20 === 0) {
+      const part = analyzePillTargets(log, tw, TW.pill.damage);
+      enough = part.judged >= PILL_MIN_JUDGED && part.judged >= part.fires * PILL_MIN_SHARE;
+    }
+    return st.state !== 'playing' || (st.projectiles === 0 && ((st.shots >= 12 && enough) || st.shots >= PILL_MAX_SHOTS)) || Date.now() - startedAt > 100000;
   }, 120000, 20);
   await game.page.close();
   const a = analyzePillTargets(log, tw, TW.pill.damage);
+  const pillEnough = a.judged >= PILL_MIN_JUDGED && a.judged >= a.fires * PILL_MIN_SHARE;
+  const pillNeed = Math.max(PILL_MIN_JUDGED, Math.ceil(a.fires * PILL_MIN_SHARE));
   const last = log.at(-1);
   check(`${p} Таблетка поставлена и стреляет (выстрелов ${last.shots})`, placed.towers.length === 1 && placed.towers[0].id === 'pill' && last.shots >= 6, `выстрелов ${last.shots}`);
-  check(`${p} цель Таблетки — бактерия, ближайшая к организму: из ${a.fires} выстрелов оценено ${a.judged} (≥ 2 бактерий в радиусе, лидер впереди на ≥ 12 px; неоднозначных ${a.ambiguous}), ошибок ${a.wrong.length}`, a.judged >= 5 && a.wrong.length === 0, a.wrong.slice(0, 3).join('; ') || `оценено ${a.judged}`);
-  check(`${p} каждый выстрел Таблетки попадает ровно в одну бактерию и снимает ${TW.pill.damage} HP (отклонений ${a.badDamage})`, a.judged >= 5 && a.badDamage === 0);
+  check(`${p} цель Таблетки — бактерия, ближайшая к организму: из ${a.fires} выстрелов оценено ${a.judged} (≥ 2 бактерий в радиусе, лидер впереди на ≥ 12 px; неоднозначных ${a.ambiguous}), ошибок ${a.wrong.length}`, pillEnough && a.wrong.length === 0, pillEnough ? a.wrong.slice(0, 3).join('; ') || `оценено ${a.judged}` : `мало данных: оценено ${a.judged} из ${a.fires} выстрелов, нужно не меньше ${pillNeed}; неоднозначных ${a.ambiguous}`);
+  check(`${p} каждый выстрел Таблетки попадает ровно в одну бактерию и снимает ${TW.pill.damage} HP (отклонений ${a.badDamage})`, pillEnough && a.badDamage === 0, pillEnough ? '' : `мало данных: оценено ${a.judged} из ${a.fires} выстрелов, нужно не меньше ${pillNeed}`);
   await context.close();
 }
 
