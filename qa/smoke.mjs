@@ -1928,22 +1928,32 @@ async function runProduction(browser, prodUrl, qaUrl) {
   const g = (x, y) => ({ x: rect.left + (x * rect.width) / W, y: rect.top + (y * rect.height) / H });
   const towerCell = GEO.center(...FREE.a);
   const cellG = { x: VIEW_CENTER.x + (towerCell.x - startCenterPx().x), y: VIEW_CENTER.y + (towerCell.y - startCenterPx().y) }; // приближение на старте = 1
+  // Появление башни ловим по изменению картинки вокруг клетки, а не по точному цвету рисунка (стиль основания меняется, пустая клетка почти того же цвета, что основание):
+  // точки лежат на светлой кромке основания (радиус 35,5 px мира), до постановки там фон карты. Эталон «до» снимается дважды: если точки менялись сами, проверка красная.
   const ring = [];
-  for (let a = 100; a <= 260; a += 20) ring.push(g(cellG.x + 27 * Math.cos((a * Math.PI) / 180), cellG.y + 27 * Math.sin((a * Math.PI) / 180)));
-  const near = ([r, gg, b], want, tol) => Math.abs(r - want[0]) <= tol && Math.abs(gg - want[1]) <= tol && Math.abs(b - want[2]) <= tol;
-  const beforePx = await samplePixels(play, await play.screenshot(), ring.map((q) => [q.x, q.y]));
+  for (let a = 100; a <= 260; a += 20) ring.push(g(cellG.x + 35.5 * Math.cos((a * Math.PI) / 180), cellG.y + 35.5 * Math.sin((a * Math.PI) / 180)));
+  const sampleRing = async () => samplePixels(play, await play.screenshot(), ring.map((q) => [q.x, q.y]));
+  const delta = (a, b) => Math.abs(a[0] - b[0]) + Math.abs(a[1] - b[1]) + Math.abs(a[2] - b[2]);
+  const beforePx = await sampleRing();
+  await sleep(250);
+  const before2Px = await sampleRing();
+  const stable = beforePx.filter((c, i) => delta(c, before2Px[i]) < 24).length;
   const btn = g(64, 662); // первая карточка башни (Таблетка) в нижней панели
   await play.touchscreen.tap(btn.x, btn.y);
   await sleep(300);
   const cellPt = g(cellG.x, cellG.y);
   await play.touchscreen.tap(cellPt.x, cellPt.y);
-  await sleep(900);
-  const afterPx = await samplePixels(play, await play.screenshot(), ring.map((q) => [q.x, q.y]));
-  // Цвет основания башни (0x2c4a7c). Пустая клетка карты теперь почти того же цвета (≈ 35, 67, 119), поэтому допуск узкий: 3 из 255 на канал
-  const TOWER = [44, 74, 124];
-  const before = beforePx.filter((c) => near(c, TOWER, 3)).length;
-  const after = afterPx.filter((c) => near(c, TOWER, 3)).length;
-  check(`${p} игра работает: выбрать башню на панели и тапнуть по клетке — башня появляется (цвет основания вокруг клетки)`, before === 0 && after >= 6, `точек цвета башни: было ${before}, стало ${after} из ${ring.length}`);
+  // ждём не паузу, а само изменение картинки (до 60 с): башня появилась, когда не меньше 6 из 9 точек заметно изменили цвет
+  let changed = 0;
+  let afterPx = before2Px;
+  const waitStart = Date.now();
+  while (Date.now() - waitStart < 60000) {
+    afterPx = await sampleRing();
+    changed = afterPx.filter((c, i) => delta(c, before2Px[i]) >= 90).length;
+    if (changed >= 6) break;
+    await sleep(150);
+  }
+  check(`${p} игра работает: выбрать башню на панели и тапнуть по клетке — башня появляется (картинка вокруг клетки изменилась)`, stable >= 8 && changed >= 6, `точек до постановки без изменений ${stable} из ${ring.length} (≥ 8), изменилось после ${changed} из ${ring.length} (≥ 6)`);
   await shot(play, 'production-tower');
   await play.close();
 

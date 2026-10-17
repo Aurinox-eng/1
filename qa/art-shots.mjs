@@ -154,6 +154,9 @@ async function battle(browser, key, device, label, { canvas = false, close = tru
   const state = await getState(page);
   const cells = await placePilotTowers(page, state);
   await waitCrowd(page, 8);
+  // какие картинки нарисованы и сколько памяти они занимают (ширина × высота × 4 байта): по этому файлу считается отчёт «до/после»
+  const stats = await page.evaluate(() => window.__pvb.getArtStats(''));
+  fs.writeFileSync(path.join(OUT, `${label}-art-stats${SUFFIX}.json`), JSON.stringify(stats));
   await shot(page, `${label}-1-start-zoom`);
   const c0 = await page.evaluate(([col, row]) => window.__pvb.cellToClient(col, row), [cells[0].col, cells[0].row]);
   if (close) {
