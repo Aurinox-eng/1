@@ -563,8 +563,19 @@ export function buyGreedy({ upgrades, order, unlock, level, levels, dna }) {
   return { levels: next, dna: left, bought };
 }
 
-/** Порядок покупок бота: улучшения этапа 6а, затем остальные по порядку таблицы. */
-export function buyOrder(upgrades) {
+/**
+ * Порядок покупок бота (решение владельца 17 октября 2026): как у профиля тестировщика «урон» — сначала `damage`, затем ветка башни, которую бот ставит чаще всего (у профилей expert, strong, zone, average — Таблетка;
+ * `tower` по умолчанию `pill`), затем остальные улучшения в прежнем порядке (`baseBuyOrder`: coins, lives, reward, далее таблица `meta.upgrades`). До 17 октября 2026 порядок был `baseBuyOrder`: ветка защиты шла раньше
+ * ветки Таблетки, и expert за 7 попыток вложил в урон 3 % очков (docs/balance-history.md, «Проверка серий Д по журналам»).
+ */
+export function buyOrder(upgrades, tower = 'pill') {
+  const own = Object.keys(upgrades).filter((id) => upgrades[id].branch === tower);
+  const first = ['damage', ...own];
+  return [...first, ...baseBuyOrder(upgrades).filter((id) => !first.includes(id))];
+}
+
+/** Прежний порядок покупок (до 17 октября 2026): coins, lives, reward, затем все улучшения в порядке таблицы; `damage` стоит первым. */
+export function baseBuyOrder(upgrades) {
   const first = ['damage', 'coins', 'lives', 'reward'];
   return [...first, ...Object.keys(upgrades).filter((id) => !first.includes(id))];
 }
@@ -575,5 +586,5 @@ export function buyOrder(upgrades) {
  */
 export function buyOrderSolo(upgrades, tower) {
   const own = Object.keys(upgrades).filter((id) => upgrades[id].branch === tower);
-  return [...own, ...buyOrder(upgrades).filter((id) => !own.includes(id))];
+  return [...own, ...baseBuyOrder(upgrades).filter((id) => !own.includes(id))];
 }
