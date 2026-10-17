@@ -73,6 +73,7 @@ import {
   buyGreedy,
   buyOrder,
   createInput,
+  dnaWavesReward,
   GAME_H as H,
   GAME_W as W,
   launchBrowser,
@@ -404,7 +405,7 @@ const emptyLevels = () => Object.fromEntries(Object.keys(META.upgrades).map((id)
 function dnaForGame(game, replay = false) {
   const won = game.result === 'won';
   const cleared = won ? game.waveTotal : Math.max(0, game.wave - 1);
-  const wavesReward = cleared * META.dna.perWave;
+  const wavesReward = dnaWavesReward(META.dna, cleared);
   const coinsRaw = won && META.dna.coinsPerPoint > 0 ? Math.min(Math.floor(Math.max(0, Math.floor(game.coins ?? 0)) / META.dna.coinsPerPoint), Math.floor(wavesReward * META.dna.coinsCapShare)) : 0;
   // повтор пройденного уровня: за волны и за монеты только replayFactor, бонуса за победу нет
   if (replay) return Math.floor(wavesReward * META.dna.replayFactor) + Math.floor(coinsRaw * META.dna.replayFactor);

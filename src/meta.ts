@@ -111,9 +111,10 @@ export interface DnaParts {
  * Повтор пройденного уровня: за волны и за монеты только replayFactor от обычного, бонуса за победу нет.
  */
 export function dnaParts(wavesCleared: number, won: boolean, replay = false, coinsLeft = 0): DnaParts {
-  const { perWave, winBonus, replayFactor, coinsPerPoint, coinsCapShare } = CONFIG.meta.dna;
+  const { waveBase, waveStep, winBonus, replayFactor, coinsPerPoint, coinsCapShare } = CONFIG.meta.dna;
   const waves = Math.max(0, Math.floor(wavesCleared));
-  const wavesReward = waves * perWave;
+  // награда растёт с номером волны: за k пройденных волн waveBase·k + waveStep·k·(k + 1)/2, округление один раз за партию
+  const wavesReward = Math.round(waveBase * waves + (waveStep * waves * (waves + 1)) / 2);
   const coinsRaw = won && coinsPerPoint > 0 ? Math.min(Math.floor(Math.max(0, coinsLeft) / coinsPerPoint), Math.floor(wavesReward * coinsCapShare)) : 0;
   if (replay) return { waves: Math.floor(wavesReward * replayFactor), win: 0, coins: Math.floor(coinsRaw * replayFactor) };
   return { waves: wavesReward, win: won ? winBonus : 0, coins: coinsRaw };

@@ -127,6 +127,7 @@ import {
   readKinds,
   readLevel,
   readMetaTable,
+  dnaWavesReward,
   readTitles,
   readTowerTable,
   readTowerUnlock,
@@ -7419,15 +7420,16 @@ async function runStars(browser, baseUrl) {
   // порог −1: потерь 0 > −1, поэтому тройка недостижима; maxLostFor2 −1 — недостижима и двойка
   let r = await playWin('levels.stars.maxLostFor3:-1,levels.stars.maxLostFor2:-1', 'одна звезда');
   check(`${p} победа выше порогов двух и трёх звёзд: одна звезда, +10 очков ДНК за неё`, r.s.stars === 1 && r.s.starDna === 10 && r.m.progress.stars[0] === 1, `звёзд ${r.s.stars}, очков за звёзды ${r.s.starDna}, сохранено ${r.m.progress.stars[0]}`);
-  const dnaTable = readMetaTable().dna; // награда за волну и бонус за победу — из config.ts (с 14 октября 2026 за волну 10, было 5)
-  const firstWinDna = dnaTable.perWave + dnaTable.winBonus + 10;
-  check(`${p} лучшая волна уровня 1 записана (1 волна), очки: за волну ${dnaTable.perWave} + победа ${dnaTable.winBonus} + звезда 10 = ${firstWinDna}`, r.m.progress.best[0] === 1 && r.m.dna === firstWinDna, `лучшая ${r.m.progress.best[0]}, очков ${r.m.dna}`);
+  const dnaTable = readMetaTable().dna; // награда за волны и бонус за победу — из config.ts (с 17 октября 2026 за n-ю волну waveBase + waveStep·n, до этого 10 за волну)
+  const waves1 = dnaWavesReward(dnaTable, 1); // награда за одну пройденную волну (округление один раз за партию)
+  const firstWinDna = waves1 + dnaTable.winBonus + 10;
+  check(`${p} лучшая волна уровня 1 записана (1 волна), очки: за волну ${waves1} + победа ${dnaTable.winBonus} + звезда 10 = ${firstWinDna}`, r.m.progress.best[0] === 1 && r.m.dna === firstWinDna, `лучшая ${r.m.progress.best[0]}, очков ${r.m.dna}`);
   // экран победы: итог и разбивка очков ДНК (волны + победа + звёзды) в состоянии игры и в строках, которые видит игрок (русский текст); монеты — отдельной строкой
   {
     const parts = r.s.dnaParts;
     const lines = r.s.endDnaLines ?? [];
-    const want = [i18nText('dnaPartWaves', 0, { n: dnaTable.perWave }), i18nText('dnaPartWin', 0, { n: dnaTable.winBonus }), i18nText('dnaPartStars', 0, { n: 10 })];
-    check(`${p} экран победы: разбивка очков ДНК «${want.join(' + ')}» = ${firstWinDna}; строки «${lines.join(' | ')}»`, parts && parts.waves === dnaTable.perWave && parts.win === dnaTable.winBonus && parts.stars === 10 && parts.coins === 0 && parts.waves + parts.win + parts.stars === firstWinDna && lines.length === 2 && lines[0].startsWith(totalPrefix(firstWinDna)) && lines[1] === want.join(' + ') && !lines.includes(i18nText('dnaCoinsLine', 0, { coins: r.s.coinsLeft, n: 0 })), JSON.stringify(parts));
+    const want = [i18nText('dnaPartWaves', 0, { n: waves1 }), i18nText('dnaPartWin', 0, { n: dnaTable.winBonus }), i18nText('dnaPartStars', 0, { n: 10 })];
+    check(`${p} экран победы: разбивка очков ДНК «${want.join(' + ')}» = ${firstWinDna}; строки «${lines.join(' | ')}»`, parts && parts.waves === waves1 && parts.win === dnaTable.winBonus && parts.stars === 10 && parts.coins === 0 && parts.waves + parts.win + parts.stars === firstWinDna && lines.length === 2 && lines[0].startsWith(totalPrefix(firstWinDna)) && lines[1] === want.join(' + ') && !lines.includes(i18nText('dnaCoinsLine', 0, { coins: r.s.coinsLeft, n: 0 })), JSON.stringify(parts));
   }
   r = await playWin('levels.stars.maxLostFor3:-1,levels.stars.maxLostFor2:0', 'две звезды');
   check(`${p} потеряно 0 жизней при пороге двух звёзд 0 и недостижимой тройке: две звезды; за новую вторую звезду +10 (не 20)`, r.s.stars === 2 && r.s.starDna === 10 && r.m.progress.stars[0] === 2, `звёзд ${r.s.stars}, очков за звёзды ${r.s.starDna}`);
@@ -7436,7 +7438,7 @@ async function runStars(browser, baseUrl) {
   const dnaAfter = r.m.dna;
   r = await playWin('', 'повторные три звезды');
   // уровень уже пройден: за волны только replayFactor от награды, бонуса за победу нет (решение владельца 13 октября, правило В)
-  const replayGain = Math.floor(1 * readMetaTable().dna.perWave * readMetaTable().dna.replayFactor);
+  const replayGain = Math.floor(dnaWavesReward(readMetaTable().dna, 1) * readMetaTable().dna.replayFactor);
   check(`${p} повторная победа на три звезды новых звёзд не даёт: очки за звёзды 0, на счёте прибавилось только за волну по доле replayFactor (${replayGain}), бонуса за победу нет`, r.s.stars === 3 && r.s.starDna === 0 && r.m.dna === dnaAfter + replayGain, `очков за звёзды ${r.s.starDna}, счёт ${dnaAfter} → ${r.m.dna}`);
   r = await playWin('levels.stars.maxLostFor3:-1,levels.stars.maxLostFor2:-1', 'худший результат');
   check(`${p} худший результат (одна звезда) звёзды уровня не снижает: в сохранении по-прежнему 3, очков за звёзды 0`, r.s.stars === 1 && r.s.starDna === 0 && r.m.progress.stars[0] === 3, `за партию ${r.s.stars}, в сохранении ${r.m.progress.stars[0]}`);
@@ -7679,9 +7681,9 @@ async function runLevelsLock(browser, baseUrl) {
 async function runMetaDna(browser, baseUrl) {
   const p = '[очки ДНК: начисление]';
   const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
-  const dnaCfg = 'meta.dna.perWave:2,meta.dna.winBonus:7';
+  const dnaCfg = 'meta.dna.waveBase:2,meta.dna.waveStep:0,meta.dna.winBonus:7';
 
-  // ---- проигрыш на волне ≥ 2: очки = (достигнутая волна − 1) × perWave
+  // ---- проигрыш на волне ≥ 2: очки = за (достигнутая волна − 1) пройденных волн по формуле награды (в проверке waveBase 2, waveStep 0)
   const lose = await openGame(context, baseUrl, p, {
     speed: 4,
     cfg: `waves.total:3,waves.pauseSec:0.1,waves.firstDelaySec:1,waves.intervalStartSec:1,waves.intervalEndSec:1,waves.list.0.coccus:2,waves.list.1.coccus:2,waves.list.2.coccus:2,lives.start:1,bacteria.baseSpeed:250,${dnaCfg}`,
@@ -7698,7 +7700,7 @@ async function runMetaDna(browser, baseUrl) {
   await shot(lose.page, 'meta-dna-lost');
   await lose.page.close();
 
-  // ---- победа: волн × perWave + winBonus; очки накапливаются между партиями той же страницы (перезапуск кнопкой)
+  // ---- победа: награда за волны + winBonus; очки накапливаются между партиями той же страницы (перезапуск кнопкой)
   const win = await openGame(context, baseUrl, p, {
     speed: 4,
     cfg: `${wavesOnlyCfg({ coccus: 1 })},waves.firstDelaySec:1,towers.pill.range:900,towers.pill.damage:50,economy.startCoins:500,lives.start:3,${dnaCfg}`,
@@ -7714,7 +7716,7 @@ async function runMetaDna(browser, baseUrl) {
   check(`${p} перезапуск очков не начисляет и не сбрасывает: на счёте по-прежнему ${wantLose + 9}`, m.dna === wantLose + 9 && s.dnaGained === 0, `на счёте ${m.dna}, начислено ${s.dnaGained}`);
 
   // ---- повтор пройденного уровня (&stars=1): за волны только replayFactor от награды, бонуса за победу нет (правило В, решение владельца 13 октября)
-  const replayCfg = 'meta.dna.perWave:20,meta.dna.winBonus:7,meta.dna.replayFactor:0.1';
+  const replayCfg = 'meta.dna.waveBase:20,meta.dna.waveStep:0,meta.dna.winBonus:7,meta.dna.replayFactor:0.1';
   const again = await openGame(context, baseUrl, p, {
     speed: 4,
     query: '&stars=1',
@@ -7737,7 +7739,7 @@ async function runMetaDna(browser, baseUrl) {
 
   // ---- остаток монет → очки ДНК (решение владельца 14 октября 2026, вариант А): 1 очко за coinsPerPoint монет, не больше coinsCapShare награды за волны, только при победе;
   //      на пройденном уровне эта добавка тоже умножается на replayFactor; на экране победы — отдельная строка
-  const coinBase = (extra) => `${wavesOnlyCfg({ coccus: 1 })},waves.firstDelaySec:1,towers.pill.range:900,towers.pill.damage:50,lives.start:3,meta.dna.perWave:20,meta.dna.winBonus:7,meta.dna.replayFactor:0.1,meta.dna.coinsPerPoint:50,${extra}`;
+  const coinBase = (extra) => `${wavesOnlyCfg({ coccus: 1 })},waves.firstDelaySec:1,towers.pill.range:900,towers.pill.damage:50,lives.start:3,meta.dna.waveBase:20,meta.dna.waveStep:0,meta.dna.winBonus:7,meta.dna.replayFactor:0.1,meta.dna.coinsPerPoint:50,${extra}`;
   const playCoins = async (cfgExtra, query = '') => {
     const ctx = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
     const g = await openGame(ctx, baseUrl, p, { speed: 4, query, cfg: coinBase(cfgExtra) });
@@ -7766,7 +7768,16 @@ async function runMetaDna(browser, baseUrl) {
     const D = readMetaTable().dna;
     const calc = await openGame(context, baseUrl, p, { speed: 1, cfg: 'meta.dna.coinsCapShare:0.1' });
     const ask = (waves, won, replay, coins) => calc.page.evaluate(([w, o, r, c]) => window.__pvbMeta.dnaFor(w, o, r, c), [waves, won, replay, coins]);
-    const reward = 30 * D.perWave;
+    // формула `waveBase + waveStep·n` (решение владельца 17 октября 2026): значения для гибели на 4, 8, 12, 15, 19, 20, 25, 27, 30-й волне (пройдено N − 1 волн), сумма за 30 волн равна 300
+    {
+      const deaths = [[4, 9], [8, 28], [12, 56], [15, 82], [19, 124], [20, 136], [25, 203], [27, 233], [30, 283]];
+      const got = [];
+      for (const [death] of deaths) got.push((await ask(death - 1, false, false, 0)).waves);
+      const full = await ask(30, true, false, 0);
+      check(`${p} награда за волны растёт с номером: гибель на ${deaths.map(([d]) => d).join(', ')}-й волне даёт ${deaths.map(([, w]) => w).join(', ')} очков (получено ${got.join(', ')}); за все 30 волн ${full.waves} (ждали 300)`,
+        JSON.stringify(got) === JSON.stringify(deaths.map(([, w]) => w)) && full.waves === 300 && dnaWavesReward(D, 30) === 300 && D.waveBase === 2 && Math.abs(D.waveStep - 240 / 465) < 1e-9, JSON.stringify({ got, full: full.waves, D }));
+    }
+    const reward = dnaWavesReward(D, 30);
     const rawFor = (coins) => Math.min(Math.floor(coins / D.coinsPerPoint), Math.floor(reward * 0.1));
     const first = await ask(30, true, false, 1360);
     const replay = await ask(30, true, true, 1360);
@@ -7798,7 +7809,7 @@ async function runMetaDna(browser, baseUrl) {
   }
   // ---- экран победы на телефоне (844×390, горизонтально): итог, волны + победа + звёзды, монеты, пометка пройденного уровня; текст не налезает на кнопки и не шире экрана; снимки для владельца.
   //      Числа как на уровне 1: «волна» стоит 300 очков (30 волн × 10), на старте 1500 монет, в конце ≈ 1360: первая победа 300 + 15 + 30 (звёзды) + 13 (монеты), повтор 30 + 0 + 20 (две новые звезды) + 1
-  const winCfg = coinBase('economy.startCoins:1500,meta.dna.perWave:300,meta.dna.winBonus:15,meta.dna.coinsPerPoint:100,meta.dna.coinsCapShare:0.1,levels.starDna:10');
+  const winCfg = coinBase('economy.startCoins:1500,meta.dna.waveBase:300,meta.dna.waveStep:0,meta.dna.winBonus:15,meta.dna.coinsPerPoint:100,meta.dna.coinsCapShare:0.1,levels.starDna:10');
   for (const [lang, li, replay] of [['ru', 0, false], ['en', 1, true]]) {
     const ctxP = await newDeviceContext(browser, VIEWPORTS.phone, lang);
     const w = await openGame(ctxP, baseUrl, p, { speed: 4, isTouch: true, query: replay ? '&stars=1' : '', cfg: winCfg });
@@ -7827,7 +7838,7 @@ async function runMetaDna(browser, baseUrl) {
   }
   const loseCoins = await openGame(context, baseUrl, p, {
     speed: 4,
-    cfg: `waves.total:3,waves.pauseSec:0.1,waves.firstDelaySec:1,waves.intervalStartSec:1,waves.intervalEndSec:1,waves.list.0.coccus:2,waves.list.1.coccus:2,waves.list.2.coccus:2,lives.start:1,bacteria.baseSpeed:250,economy.startCoins:500,meta.dna.perWave:20,meta.dna.coinsPerPoint:50,meta.dna.coinsCapShare:0.5`,
+    cfg: `waves.total:3,waves.pauseSec:0.1,waves.firstDelaySec:1,waves.intervalStartSec:1,waves.intervalEndSec:1,waves.list.0.coccus:2,waves.list.1.coccus:2,waves.list.2.coccus:2,lives.start:1,bacteria.baseSpeed:250,economy.startCoins:500,meta.dna.waveBase:20,meta.dna.waveStep:0,meta.dna.coinsPerPoint:50,meta.dna.coinsCapShare:0.5`,
   });
   s = await waitFor(loseCoins.page, (x) => x.state === 'lost', WAIT_MS, 'проигрыш (монеты → ДНК)');
   check(`${p} при проигрыше остаток монет (${Math.floor(s.coins)}) в очки ДНК не переводится: за монеты ${s.dnaParts.coins}, строки «${s.endDnaLines.join(' | ')}» без строки про монеты`, s.dnaParts.coins === 0 && s.endDnaLines.every((x) => !x.startsWith('остаток монет')), JSON.stringify(s.dnaParts));

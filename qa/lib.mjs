@@ -513,8 +513,14 @@ export async function heapMb(cdp) {
   return metrics.find((m) => m.name === 'JSHeapUsedSize').value / 1048576;
 }
 
+/** Очки ДНК за `wavesCleared` пройденных волн по таблице `readMetaTable().dna` (та же формула, что в `src/meta.ts`: waveBase·k + waveStep·k·(k + 1)/2, округление до ближайшего целого). */
+export function dnaWavesReward(dna, wavesCleared) {
+  const k = Math.max(0, Math.floor(wavesCleared));
+  return Math.round(dna.waveBase * k + (dna.waveStep * k * (k + 1)) / 2);
+}
+
 /**
- * Очки ДНК и улучшения вне партии из src/config.ts (раздел meta): { dna: { perWave, winBonus, replayFactor, coinsPerPoint, coinsCapShare }, upgrades: { id: { branch, effect, perLevel, prices: [...] } } }.
+ * Очки ДНК и улучшения вне партии из src/config.ts (раздел meta): { dna: { waveBase, waveStep, winBonus, replayFactor, coinsPerPoint, coinsCapShare }, upgrades: { id: { branch, effect, perLevel, prices: [...] } } }.
  * Порядок ключей — порядок строк в таблице (как на экране «Улучшения»).
  */
 export function readMetaTable() {
@@ -534,7 +540,7 @@ export function readMetaTable() {
     upgrades[m[1]] = { branch: m[2], effect: m[3], perLevel: Number(m[4]), prices: m[5].split(',').map((x) => Number(x.trim())).filter((x) => Number.isFinite(x)), requires: m[6] ? { id: m[6], level: Number(m[7]) } : null };
   }
   if (!Object.keys(upgrades).length) throw new Error('В разделе «meta» config.ts не нашлось улучшений');
-  return { dna: { perWave: num('perWave'), winBonus: num('winBonus'), replayFactor: num('replayFactor'), coinsPerPoint: num('coinsPerPoint'), coinsCapShare: num('coinsCapShare') }, upgrades };
+  return { dna: { waveBase: num('waveBase'), waveStep: num('waveStep'), winBonus: num('winBonus'), replayFactor: num('replayFactor'), coinsPerPoint: num('coinsPerPoint'), coinsCapShare: num('coinsCapShare') }, upgrades };
 }
 
 /**
