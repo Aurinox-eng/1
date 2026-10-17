@@ -2389,13 +2389,22 @@ function splitPair(a, b) {
   const [k1, k2] = a.id < b.id ? [a, b] : [b, a];
   const chord = Math.hypot(k1.x - k2.x, k1.y - k2.y);
   let along = null;
+  // fork: к моменту снимка задний кокк дошёл до развилки и выбрал другую ветвь, чем передний (игра выбирает ветвь каждой бактерии отдельно,
+  // Bacterium.advance), общей дорожки у пары нет, и расстояние «вдоль дорожки» не определено: такой распад неоднозначный
+  let fork = false;
   if (k1.edge === k2.edge) along = k2.s - k1.s;
   else {
     const e1 = GEO.byId.get(k1.edge);
-    if (e1.to === GEO.byId.get(k2.edge).from) along = e1.length - k1.s + k2.s;
+    const e2 = GEO.byId.get(k2.edge);
+    if (e1.to === e2.from) along = e1.length - k1.s + k2.s;
+    else fork = e1.from === e2.from;
   }
-  return { k1, k2, chord, along, crossed: k1.edge !== k2.edge };
+  return { k1, k2, chord, along, fork, crossed: k1.edge !== k2.edge };
 }
+
+/** Минимум измеренных распадов делящейся: не меньше половины и не меньше пяти (как у Таблетки); иначе проверка красная с пометкой «мало данных». */
+const SPLIT_MIN_SHARE = 0.5;
+const SPLIT_MIN_MEASURED = 5;
 
 async function runSplit(browser, baseUrl) {
   const p = '[делящаяся]';
@@ -2493,9 +2502,19 @@ async function runSplit(browser, baseUrl) {
   const chords = pairs.map((q) => q.chord);
   const alongs = pairs.map((q) => q.along);
   const minChord = Math.min(...chords);
-  const crossed = pairs.filter((q) => q.crossed).length;
+  // Расстояние вдоль дорожки измеряется, только если у пары есть общая дорожка; пара, разошедшаяся по ветвям развилки к моменту снимка, неоднозначна и не оценивается.
+  // Пара без общей дорожки, но и без развилки в узле (рёбра не связаны), объяснения не имеет: это красная, а не неоднозначность
+  const measured = pairs.filter((q) => q.along !== null);
+  const diverged = pairs.filter((q) => q.along === null && q.fork);
+  const unexplained = pairs.filter((q) => q.along === null && !q.fork);
+  const crossed = measured.filter((q) => q.crossed).length;
+  const splitNeed = Math.max(SPLIT_MIN_MEASURED, Math.ceil(pairs.length * SPLIT_MIN_SHARE));
+  const splitEnough = pairs.length >= 20 && measured.length >= splitNeed;
+  const badAlong = measured.filter((q) => Math.abs(q.along - gap) > 8);
+  const edgeOf = (q) => `#${q.k1.id}: ${q.k1.edge} → #${q.k2.id}: ${q.k2.edge}`;
+  const alongRange = measured.length ? `${f1(Math.min(...measured.map((q) => q.along)))}…${f1(Math.max(...measured.map((q) => q.along)))}` : '—';
   check(`${p} регрессия: ${pairs.length} распадов подряд (башни с дальностью 1400 и уроном 20: убивают с одного выстрела при любом HP), ни в одном кокки не слипаются: наименьшее прямое расстояние ${f1(minChord)} px ≥ 38 (раньше было 25 и 34)`, pairs.length >= 20 && minChord >= 38, `распадов ${pairs.length}, прямые расстояния: ${chords.map((c) => Math.round(c)).join(',')}`);
-  check(`${p} регрессия: во всех ${pairs.length} распадах второй кокк ровно на ${gap} px вперёд по дорожке (вдоль дорожки ${f1(Math.min(...alongs))}…${f1(Math.max(...alongs))}, допуск ±8); на следующем ребре оказался в ${crossed} распадах`, pairs.length >= 20 && alongs.every((a) => a !== null && Math.abs(a - gap) <= 8), `вдоль дорожки: ${alongs.map((a) => (a === null ? '—' : Math.round(a))).join(',')}`);
+  check(`${p} регрессия: из ${pairs.length} распадов измерено ${measured.length} (нужно не меньше ${splitNeed}), во всех измеренных второй кокк ровно на ${gap} px вперёд по дорожке (вдоль дорожки ${alongRange}, допуск ±8); на следующем ребре оказался в ${crossed}; неоднозначных (разошлись по ветвям развилки) ${diverged.length}`, splitEnough && badAlong.length === 0 && unexplained.length === 0, !splitEnough ? `мало данных: измерено ${measured.length} из ${pairs.length} распадов, нужно не меньше ${splitNeed}; разошлись по развилке: ${diverged.map(edgeOf).join('; ') || 'нет'}` : unexplained.length ? `расстояние не вычислено, рёбра пары не связаны и не из одного узла: ${unexplained.map(edgeOf).join('; ')}` : `вдоль дорожки: ${alongs.map((a) => (a === null ? '—' : Math.round(a))).join(',')}; разошлись по развилке: ${diverged.map(edgeOf).join('; ') || 'нет'}`);
   const orgLimit = MAP.orgW + readConfigNumber('coccus', 'radius') + gap + 20;
   // одиночный кокк далеко от организма — не ошибка распада, а потерянная опросом пара: башня убила второго кокка в тот же кадр, когда он появился (по журналу убийств игры соседний номер убит)
   const killedIds = new Set((await game.events('kill')).map((e) => e.id));
