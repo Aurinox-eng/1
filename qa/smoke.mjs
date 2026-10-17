@@ -1550,7 +1550,16 @@ async function loseWithTowers(context, baseUrl, p, name, device) {
   await sleep(300);
   const later = await game.state();
   await shot(game.page, `${name}-16-lost-with-towers`);
-  check(`${p} при проигрыше (башни стреляют, в воздухе до ${maxShots} снарядов) снарядов в полёте не остаётся`, later.state === 'lost' && maxShots > 0 && s.projectiles === 0 && later.projectiles === 0, `состояние ${later.state}, башен ${later.towers.length}, выстрелов ${later.shots}, снарядов в момент проигрыша ${s.projectiles}, через 0,3 с ${later.projectiles}`);
+  // Сбор данных (критерий проверки не менялся): если снаряды всё же остались, читаем состояние ещё раз через 2 с. Игра при проигрыше убирает снаряды сразу (GameScene.endGame),
+  // поэтому оставшиеся и через 2 с снаряды — вопрос к игре, а не к скорости страницы.
+  let lateProjectiles = null;
+  if (later.projectiles !== 0 || s.projectiles !== 0) {
+    await sleep(2000);
+    const muchLater = await game.state();
+    lateProjectiles = muchLater.projectiles;
+    note(`${p} после проигрыша остались снаряды: в кадре проигрыша ${s.projectiles}, через 0,3 с ${later.projectiles}, через 2,3 с ${muchLater.projectiles} (состояние ${muchLater.state}, игровое время ${f2(muchLater.elapsed)} против ${f2(later.elapsed)})`);
+  }
+  check(`${p} при проигрыше (башни стреляют, в воздухе до ${maxShots} снарядов) снарядов в полёте не остаётся`, later.state === 'lost' && maxShots > 0 && s.projectiles === 0 && later.projectiles === 0, `состояние ${later.state}, башен ${later.towers.length}, выстрелов ${later.shots}, снарядов в момент проигрыша ${s.projectiles}, через 0,3 с ${later.projectiles}${lateProjectiles === null ? '' : `, через 2,3 с ${lateProjectiles}`}`);
   await game.page.close();
 }
 
