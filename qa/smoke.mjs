@@ -3878,7 +3878,10 @@ function beamSpot(state, mode) {
  * «точно на луче» (с запасом 4 px), HP упало ровно на beamPulses × perPulse; у каждой «точно вне луча» — не изменилось.
  */
 /** Сколько реальных секунд ждём, пока на луче накопится нужное число бактерий (медленные бронированные на машине с 3 кадрами/с идут дольше 150 с). */
-const BEAM_WAIT_MS = 420000;
+// Ожидание скопления на луче измеряется ходом игры, а не секундами реального времени: на медленном сервере игровое время идёт в разы медленнее реального (шаг кадра ограничен MAX_FRAME_MS),
+// и 420 с реального времени хватало не всегда. BEAM_GAME_SEC — сколько игровых секунд (без учёта кнопки скорости, state.clock.baseSec) игра может прожить в ожидании; BEAM_REAL_CAP_MS — только защита от зависшей страницы.
+const BEAM_GAME_SEC = 300;
+const BEAM_REAL_CAP_MS = 1800000;
 async function beamBurst(context, baseUrl, p, { wave, mode, needOn, extraCfg = [], shotName = null }) {
   const cfg = [...wave, 'waves.intervalStartSec:0.3', 'waves.intervalEndSec:0.3', 'waves.firstDelaySec:2', ...FIXED_NO_TOWERS, 'bacteria.baseSpeed:20', 'towers.syringe.cooldownMs:60000', `economy.startCoins:${TW.syringe.price}`, NO_LIFE_LOSS, ...extraCfg].join(',');
   const game = await openGame(context, baseUrl, p, { query: ALL_TOWERS, speed: 2, cfg });
@@ -3897,9 +3900,21 @@ async function beamBurst(context, baseUrl, p, { wave, mode, needOn, extraCfg = [
   let pre = null;
   const started = Date.now();
   let lastTrace = 0;
-  while (Date.now() - started < BEAM_WAIT_MS) {
+  let base0 = null;
+  let lived = 0;
+  let why = 'cap'; // cap — реальный потолок вышел раньше игрового бюджета (игра не дошла до условия); budget — игровой бюджет вышел без скопления; ended — партия кончилась
+  while (Date.now() - started < BEAM_REAL_CAP_MS) {
     const st = await game.state();
-    if (st.state !== 'playing') break;
+    if (st.state !== 'playing') {
+      why = 'ended';
+      break;
+    }
+    base0 ??= st.clock.baseSec;
+    lived = st.clock.baseSec - base0;
+    if (lived > BEAM_GAME_SEC) {
+      why = 'budget'; // игра прожила весь бюджет, а нужного скопления на луче не было
+      break;
+    }
     if (process.env.QA_TRACE && Date.now() - lastTrace > 5000) {
       lastTrace = Date.now();
       console.log(`   · ${p}: игровое время ${f1(st.elapsed)}, волна ${st.wave}, вышло ${st.spawned}, бактерий ${st.bacteria.length}, на луче ${st.bacteria.filter((b) => onBeam(b, twPos, spot.k, 4)).length}, башня (${f1(twPos.x)};${f1(twPos.y)}) направление ${spot.k}, первая бактерия ${st.bacteria[0] ? `(${f1(st.bacteria[0].x)};${f1(st.bacteria[0].y)}) ${st.bacteria[0].kind}` : '—'}`);
@@ -3912,7 +3927,7 @@ async function beamBurst(context, baseUrl, p, { wave, mode, needOn, extraCfg = [
   }
   if (!pre) {
     await game.page.close();
-    return { spot, pre: null };
+    return { spot, pre: null, why, lived };
   }
   // тап без паузы после него: первый удар очереди приходится на ближайший кадр, и журнал должен успеть его увидеть
   await game.input.tap(await game.cell(spot.col, spot.row));
@@ -4043,7 +4058,8 @@ async function towersSyringe(browser, baseUrl) {
   const coccusWave = ['waves.total:1', 'waves.list.0.coccus:40'];
   const burstChecks = (q, r, perPulse, { needOn, needOff, far = false }) => {
     if (!r.pre) {
-      check(`${q} на луче накопилось ≥ ${needOn} бактерий и башня поставлена (дождались за ${BEAM_WAIT_MS / 1000} с)`, false, 'не накопилось');
+      // две разные причины красной проверки: условие не наступило за игровой бюджет или партию (условие не выполнено) / реальный потолок вышел раньше (игра не дошла до условия)
+      check(`${q} на луче накопилось ≥ ${needOn} бактерий и башня поставлена (ждали до ${BEAM_GAME_SEC} игровых секунд)`, false, r.why === 'cap' ? `игра не дошла до условия: за ${BEAM_REAL_CAP_MS / 60000} мин реального времени игра прожила ${f1(r.lived)} из ${BEAM_GAME_SEC} игровых секунд` : r.why === 'ended' ? `условие не выполнено: партия кончилась на ${f1(r.lived)} игровой секунде, скопления не было` : `условие не выполнено: за ${BEAM_GAME_SEC} игровых секунд скопления не было`);
       return;
     }
     const aim = r.tw?.aim ?? r.spot.k;
