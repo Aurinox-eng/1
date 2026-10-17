@@ -5631,14 +5631,15 @@ async function towersControls(browser, baseUrl) {
   const w = s.ui.waveButton;
   const before = s.coins;
   await game.input.tap(game.g(w.x, w.y));
-  await settle();
-  s = await game.state();
+  // тап добавляет монеты и обнуляет таймер (GameScene.startWaveNow), а волна начинается в следующем шаге игры: ждём само событие (wave ≥ 1), не паузу
+  s = await waitFor(game.page, (x) => x.wave >= 1, WAIT_MS, 'начало волны после тапа по «Начать волну»', 20);
   const gained = s.coins - before;
   check(`${p} тап по «Начать волну» даёт монеты за пропущенные секунды (на кнопке было +${w.bonus}, получено +${gained}, допуск 12) и волна начинается сразу: волна ${s.wave}, кнопка спрятана (${!s.ui.waveButton.visible})`, gained <= w.bonus && gained >= w.bonus - 12 && s.wave === 1 && !s.ui.waveButton.visible, `получено ${gained}, волна ${s.wave}, кнопка видна ${s.ui.waveButton.visible}`);
   const coins2 = s.coins;
+  const framesBefore = s.clock.frames;
   await game.input.tap(game.g(w.x, w.y));
-  await settle();
-  s = await game.state();
+  // тап обрабатывается в ближайших кадрах игры: ждём несколько шагов игры, а не фиксированную паузу
+  s = await waitFor(game.page, (x) => x.clock.frames >= framesBefore + 4, WAIT_MS, 'несколько кадров игры после повторного тапа', 20);
   check(`${p} повторный тап в том же месте (кнопки уже нет) монет не добавляет: ${coins2} → ${s.coins}`, s.coins === coins2);
   await context.close();
 }
