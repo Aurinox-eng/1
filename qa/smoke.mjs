@@ -3935,7 +3935,7 @@ async function beamBurst(context, baseUrl, p, { wave, mode, needOn, extraCfg = [
   const t1 = Date.now();
   const post = await pollUntil(game, async (st) => {
     log.push(st);
-    if (shotName && st.effects.beams === 1) {
+    if (shotName && st.effects.beams >= 1) { // не «=== 1»: опрос мог пропустить кадр, где счётчик равен ровно 1, и снимка не было бы
       await shot(game.page, shotName);
       shotName = null;
     }
