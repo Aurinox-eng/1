@@ -4449,7 +4449,7 @@ async function poisonRun(context, baseUrl, p, { counts, cfg = [], single = true,
     const poisoned = st.bacteria.some((b) => b.poisonLeft > 0);
     if (poisoned) seen = true;
     if (st.state !== 'playing' || Date.now() - startedAt > 170000) return true;
-    return stop ? stop(st, seen) : seen && !poisoned;
+    return stop ? stop(st, seen, log) : seen && !poisoned;
   }, 190000, 20);
   await game.page.close();
   return { log, end, tower: placed.towers[0], placedCount: placed.towers.length };
@@ -4493,7 +4493,24 @@ async function towersAntibiotic(browser, baseUrl) {
   poisonChecks(`${p} кокк под лекарем (лечение ${healPerSec} HP/с)`, D, 'coccus', { note: ' — лекарь за это время не прибавил ни HP' });
 
   // ---- E. повторные уколы: время яда возвращается к полному, сила не складывается
-  const E = await poisonRun(context, baseUrl, `${p} повторные уколы`, { counts: { coccus: 1 }, cfg: [hp], single: false, stop: (st) => st.poisons >= 4 });
+  // Прогон не кончается, пока не набрано ANTIBIOTIC_MIN_RATES замеров скорости яда (пары кадров с интервалом ≥ 0,04 с): их число зависит от того, как часто страница отвечала на опрос, а не от числа уколов
+  const ANTIBIOTIC_MIN_RATES = 12;
+  const rateSamples = (log) => {
+    const rows = poisonRows(log, 'coccus').filter((r) => r.b.poisonLeft > 0);
+    let n = 0;
+    for (let i = 1; i < rows.length; i++) if (rows[i].e - rows[i - 1].e >= 0.04) n++;
+    return n;
+  };
+  let ratesEnough = false;
+  const E = await poisonRun(context, baseUrl, `${p} повторные уколы`, {
+    counts: { coccus: 1 },
+    cfg: [hp],
+    single: false,
+    stop: (st, seen, log) => {
+      if (st.poisons >= 4 && !ratesEnough && log.length % 10 === 0) ratesEnough = rateSamples(log) >= ANTIBIOTIC_MIN_RATES;
+      return st.poisons >= 4 && ratesEnough;
+    },
+  });
   const st = E.tower?.stats ?? TW.antibiotic;
   const dps = st.dotPerSec;
   const secs = st.dotSec;
@@ -4514,8 +4531,8 @@ async function towersAntibiotic(browser, baseUrl) {
       if (rate < 0.9 * dps || rate > 1.1 * dps) rateBad++;
     }
   }
-  check(`${p} повторные уколы: уколов ${E.end.poisons} (≥ 3); время яда не растёт выше ${secs} с (наибольшее ${f2(maxLeft)}), каждый новый укол возвращает его к полному (возвратов ${refreshes.length} ≥ 2: ${refreshes.map(f2).join(', ')})`, E.end.poisons >= 3 && maxLeft <= secs + 1e-6 && refreshes.length >= 2 && refreshes.every((x) => x >= secs - 0.8), `уколов ${E.end.poisons}, возвратов ${refreshes.length}`);
-  check(`${p} сила яда не складывается: между замерами HP убывает со скоростью ${dps} HP/с (±10 %), замеров ${rates}, вне нормы ${rateBad}`, rates >= 8 && rateBad === 0, `замеров ${rates}, вне нормы ${rateBad}`);
+  check(`${p} повторные уколы: уколов ${E.end.poisons} (≥ 3); время яда не растёт выше ${secs} с (наибольшее ${f2(maxLeft)}), каждый новый укол возвращает его к полному (возвратов ${refreshes.length} ≥ 2: ${refreshes.map(f2).join(', ')})`, E.end.poisons >= 3 && maxLeft <= secs + 1e-6 && refreshes.length >= 2 && refreshes.every((x) => x >= secs - 0.8), E.end.poisons < 3 || refreshes.length < 2 ? `мало данных: уколов ${E.end.poisons} (нужно ≥ 3), возвратов ${refreshes.length} (нужно ≥ 2)` : `уколов ${E.end.poisons}, возвратов ${refreshes.length}`);
+  check(`${p} сила яда не складывается: между замерами HP убывает со скоростью ${dps} HP/с (±10 %), замеров ${rates}, вне нормы ${rateBad}`, rates >= 8 && rateBad === 0, rates < 8 ? `мало данных: замеров ${rates}, нужно не меньше 8` : `замеров ${rates}, вне нормы ${rateBad}`);
   await context.close();
 }
 
