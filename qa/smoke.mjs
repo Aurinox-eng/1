@@ -127,6 +127,7 @@ import {
   readKinds,
   readLevel,
   readMetaTable,
+  dnaWavesReward,
   readTitles,
   readTowerTable,
   readTowerUnlock,
@@ -360,6 +361,58 @@ async function waitFor(page, predicate, timeoutMs, label, pollMs = 40) {
     await sleep(pollMs);
   }
   throw new Error(`Не дождались: ${label}`);
+}
+
+/**
+ * Ждёт события в игре (predicate(state)), измеряя срок не секундами реального времени, а ходом игры: бюджет `gameSec` — игровые секунды без учёта кнопки скорости
+ * (state.clock.baseSec), которые игра может прожить в ожидании. Если за бюджет события не было — исключение «не дождались» (событие не наступает), а не молчаливый пропуск.
+ * `realMs` — только защита от зависшей страницы (игра совсем не продвигается). На медленном сервере игровое время идёт в разы медленнее реального (шаг кадра ограничен MAX_FRAME_MS),
+ * поэтому срок в секундах реального времени (WAIT_MS) для таких ожиданий неверен: игра успевает прожить мало, хотя событие наступило бы.
+ */
+async function waitForGame(page, predicate, label, { gameSec = 120, realMs = 900000, pollMs = 40 } = {}) {
+  const started = Date.now();
+  let base0 = null;
+  let lived = 0;
+  while (Date.now() - started < realMs) {
+    const state = await getState(page);
+    if (state) {
+      if (predicate(state)) return state;
+      if (state.clock) {
+        base0 ??= state.clock.baseSec;
+        lived = state.clock.baseSec - base0;
+        if (lived > gameSec) throw new Error(`Условие не выполнено: ${label} (игра прожила ${gameSec} игровых секунд, события не было)`);
+      }
+    }
+    await sleep(pollMs);
+  }
+  throw new Error(`Игра не дошла до условия: ${label} (за ${Math.round(realMs / 1000)} с реального времени игра прожила ${f1(lived)} из ${gameSec} игровых секунд)`);
+}
+
+/** Номер шага игры (state.clock.frames), до которого партия считается только что начатой: перезапуск и начало уровня обнуляют счётчик кадров (GameScene.create). */
+const FRESH_FRAMES = 3;
+
+/**
+ * Ждёт начало новой партии (после «Заново», «Играть», «Следующий уровень») и возвращает состояние, снятое в первых кадрах партии (clock.frames ≤ FRESH_FRAMES).
+ * Опрос идёт внутри страницы в каждом кадре отрисовки (polling: 'raf'), поэтому снимок не зависит от того, как быстро страница отвечает снаружи, а партия узнаётся по номеру
+ * шага игры, не по секундам реального или игрового времени (раньше условие «elapsed < 2» не выполнялось, если страница отвечала с опозданием). `level` — дополнительное условие.
+ * Не дождались — исключение (проверка красная), а не пропуск; `timeoutMs` ограничивает только ожидание.
+ */
+async function waitFreshRun(page, label, { timeoutMs = 30000, level = null } = {}) {
+  const handle = await page
+    .waitForFunction(
+      ({ level: wantLevel, frames }) => {
+        const s = window.__pvb?.getState();
+        if (!s || s.state !== 'playing' || !s.clock || s.clock.frames > frames) return false;
+        if (wantLevel !== null && s.level !== wantLevel) return false;
+        return s;
+      },
+      { level, frames: FRESH_FRAMES },
+      { polling: 'raf', timeout: timeoutMs },
+    )
+    .catch(() => {
+      throw new Error(`Не дождались: ${label}`);
+    });
+  return handle.jsonValue();
 }
 
 /** Сохраняет скриншот окна и возвращает его содержимое. */
@@ -1507,7 +1560,10 @@ async function runLose(browser, baseUrl, lang, deviceKey, full) {
   const name = `${deviceKey}-${lang}`;
   const context = await newDeviceContext(browser, device, lang);
   const base = 250;
-  const cfg = `waves.firstDelaySec:1,waves.intervalStartSec:2,waves.intervalEndSec:2,${FIXED_BALANCE.filter((x) => !x.startsWith('bacteria.baseSpeed')).join(',')},bacteria.baseSpeed:${base}`;
+  // Блокировка «Заново» считается игрой по реальным часам (performance.now), а страница на сервере отвечает с задержкой в сотни миллисекунд: окно 500 мс проверка не успевает использовать.
+  // В этом сценарии блокировка удлинена (LOCK_MS), смысл правила тот же: внутри окна нажатие не перезапускает, после окна — перезапускает; значение игры (500 мс) остаётся в src/config.ts.
+  const LOCK_MS = 3000;
+  const cfg = `waves.firstDelaySec:1,waves.intervalStartSec:2,waves.intervalEndSec:2,${FIXED_BALANCE.filter((x) => !x.startsWith('bacteria.baseSpeed')).join(',')},bacteria.baseSpeed:${base},gameOver.restartLockMs:${LOCK_MS}`;
   const game = await openGame(context, baseUrl, p, { speed: 4, cfg, isTouch: device.hasTouch });
   const { page } = game;
   const listeners0 = (await game.state()).pointerListeners;
@@ -1549,9 +1605,9 @@ async function runLose(browser, baseUrl, lang, deviceKey, full) {
     if (!lockChecked || !lockHeld) {
       await tapToRestart(game);
       const dt = Date.now() - detectedAt;
-      await sleep(350); // перезапуск сцены выполняется в следующем кадре: даём ему случиться, если тап был принят
+      await frames(page, 6); // перезапуск сцены выполняется в следующем кадре: ждём несколько отрисованных кадров страницы (не секунды), если тап был принят — партия уже началась
       const after = await game.state();
-      if (dt < CFG.restartLockMs - 150) {
+      if (dt < LOCK_MS - 150) {
         lockChecked = true;
         lockHeld = after.state === 'lost';
       }
@@ -1565,9 +1621,9 @@ async function runLose(browser, baseUrl, lang, deviceKey, full) {
       check(`${p} бактерии проходят весь путь по графу от входа до выхода (дошли до выходного ребра: ${a.full}; цепочки рёбер не короче ${minChain})`, a.full >= 2 && exitChains.length >= 1 && exitChains.every((c) => c.length >= minChain), `до выхода ${a.full}, выходы: ${JSON.stringify(a.exits)}, цепочки с самого входа: ${a.entranceChains.map((c) => c.join('→')).join(' | ')}, все записанные: ${a.edgeChain.map((c) => c.join('→')).join(' | ')}`);
       check(`${p} на всём пути: на кривой ребра (≤ 0,5 px), вперёд, переходы только на следующие рёбра, скорость в норме`, a.maxDev <= 0.5 && a.outOfEdge === 0 && a.backwards === 0 && a.badTransition === 0 && a.badSpeed === 0, `отклонение ${f2(a.maxDev)} px, вне ребра ${a.outOfEdge}/${a.samples}, назад ${a.backwards}, неверных переходов ${a.badTransition}, скорость ${f1(a.speedSeen[0])}…${f1(a.speedSeen[1])}, вне нормы ${a.badSpeed}`);
     }
-    await sleep(Math.max(0, CFG.restartLockMs + 200 - (Date.now() - detectedAt)));
+    await sleep(Math.max(0, LOCK_MS + 200 - (Date.now() - detectedAt)));
     await tapToRestart(game);
-    const r = await waitFor(page, (x) => x.state === 'playing', 5000, 'перезапуск кнопкой «Заново»');
+    const r = await waitFreshRun(page, 'перезапуск кнопкой «Заново»');
     const camOk = Math.abs(r.camera.zoom - CFG.zoomStart) < 0.001 && Math.abs(r.camera.cx - startCenterPx().x) < 3 && Math.abs(r.camera.cy - startCenterPx().y) < 3;
     if (cycle === 1) {
       check(`${p} перезапуск кнопкой «Заново» после паузы блокировки: монеты ${CFG.startCoins}, жизни ${CFG.lives}, волна 0, никого нет`, r.coins === CFG.startCoins && r.lives === CFG.lives && r.wave === 0 && r.bacteria.length === 0 && r.towers.length === 0 && r.kills === 0 && r.leaked === 0 && r.shots === 0 && r.selected === null && r.elapsed < 2, `монеты ${r.coins}, жизни ${r.lives}, волна ${r.wave}, время ${f2(r.elapsed)}`);
@@ -1579,7 +1635,7 @@ async function runLose(browser, baseUrl, lang, deviceKey, full) {
     if (full && cycle === 1) heapFirst = await heapMb(game.cdp);
     if (cycle === CYCLES) {
       check(`${p} обработчики нажатия не копятся: было ${listeners0}, после ${CYCLES} перезапусков ${r.pointerListeners}`, r.pointerListeners === listeners0);
-      check(`${p} нажатие «Заново» сразу после проигрыша (в первые ${CFG.restartLockMs} мс) игру не перезапускает`, lockChecked && lockHeld, lockChecked ? '' : 'не успели нажать вовремя: страница отвечала слишком медленно');
+      check(`${p} нажатие «Заново» сразу после проигрыша (в первые ${LOCK_MS} мс блокировки) игру не перезапускает`, lockChecked && lockHeld, lockChecked ? '' : 'не успели нажать вовремя: страница отвечала слишком медленно');
       if (full) {
         const heapLast = await heapMb(game.cdp);
         check(`${p} нет утечки памяти: после ${CYCLES} проигрышей и перезапусков память страницы выросла не больше чем на 30 МБ`, heapLast - heapFirst < 30, `после 1-го перезапуска ${f1(heapFirst)} МБ, после ${CYCLES}-го ${f1(heapLast)} МБ`);
@@ -1621,7 +1677,7 @@ async function runWin(browser, baseUrl, lang, deviceKey, full) {
   await shot(page, `${name}-10-won`);
   await sleep(Math.max(0, CFG.restartLockMs + 200 - (Date.now() - detectedAt)));
   await tapToRestart(game);
-  const r = await waitFor(page, (x) => x.state === 'playing' && x.elapsed < 2, 5000, 'перезапуск после победы');
+  const r = await waitFreshRun(page, 'перезапуск после победы');
   check(`${p} кнопка «Заново» после победы перезапускает игру: монеты 500, волна 0, башен нет`, r.coins === 500 && r.lives === 3 && r.wave === 0 && r.towers.length === 0 && r.bacteria.length === 0, `монеты ${r.coins}, волна ${r.wave}, башен ${r.towers.length}`);
   check(`${p} обработчики нажатия не копятся`, r.pointerListeners === listeners0, `было ${listeners0}, стало ${r.pointerListeners}`);
   await context.close();
@@ -3822,7 +3878,10 @@ function beamSpot(state, mode) {
  * «точно на луче» (с запасом 4 px), HP упало ровно на beamPulses × perPulse; у каждой «точно вне луча» — не изменилось.
  */
 /** Сколько реальных секунд ждём, пока на луче накопится нужное число бактерий (медленные бронированные на машине с 3 кадрами/с идут дольше 150 с). */
-const BEAM_WAIT_MS = 420000;
+// Ожидание скопления на луче измеряется ходом игры, а не секундами реального времени: на медленном сервере игровое время идёт в разы медленнее реального (шаг кадра ограничен MAX_FRAME_MS),
+// и 420 с реального времени хватало не всегда. BEAM_GAME_SEC — сколько игровых секунд (без учёта кнопки скорости, state.clock.baseSec) игра может прожить в ожидании; BEAM_REAL_CAP_MS — только защита от зависшей страницы.
+const BEAM_GAME_SEC = 300;
+const BEAM_REAL_CAP_MS = 1800000;
 async function beamBurst(context, baseUrl, p, { wave, mode, needOn, extraCfg = [], shotName = null }) {
   const cfg = [...wave, 'waves.intervalStartSec:0.3', 'waves.intervalEndSec:0.3', 'waves.firstDelaySec:2', ...FIXED_NO_TOWERS, 'bacteria.baseSpeed:20', 'towers.syringe.cooldownMs:60000', `economy.startCoins:${TW.syringe.price}`, NO_LIFE_LOSS, ...extraCfg].join(',');
   const game = await openGame(context, baseUrl, p, { query: ALL_TOWERS, speed: 2, cfg });
@@ -3841,9 +3900,21 @@ async function beamBurst(context, baseUrl, p, { wave, mode, needOn, extraCfg = [
   let pre = null;
   const started = Date.now();
   let lastTrace = 0;
-  while (Date.now() - started < BEAM_WAIT_MS) {
+  let base0 = null;
+  let lived = 0;
+  let why = 'cap'; // cap — реальный потолок вышел раньше игрового бюджета (игра не дошла до условия); budget — игровой бюджет вышел без скопления; ended — партия кончилась
+  while (Date.now() - started < BEAM_REAL_CAP_MS) {
     const st = await game.state();
-    if (st.state !== 'playing') break;
+    if (st.state !== 'playing') {
+      why = 'ended';
+      break;
+    }
+    base0 ??= st.clock.baseSec;
+    lived = st.clock.baseSec - base0;
+    if (lived > BEAM_GAME_SEC) {
+      why = 'budget'; // игра прожила весь бюджет, а нужного скопления на луче не было
+      break;
+    }
     if (process.env.QA_TRACE && Date.now() - lastTrace > 5000) {
       lastTrace = Date.now();
       console.log(`   · ${p}: игровое время ${f1(st.elapsed)}, волна ${st.wave}, вышло ${st.spawned}, бактерий ${st.bacteria.length}, на луче ${st.bacteria.filter((b) => onBeam(b, twPos, spot.k, 4)).length}, башня (${f1(twPos.x)};${f1(twPos.y)}) направление ${spot.k}, первая бактерия ${st.bacteria[0] ? `(${f1(st.bacteria[0].x)};${f1(st.bacteria[0].y)}) ${st.bacteria[0].kind}` : '—'}`);
@@ -3856,7 +3927,7 @@ async function beamBurst(context, baseUrl, p, { wave, mode, needOn, extraCfg = [
   }
   if (!pre) {
     await game.page.close();
-    return { spot, pre: null };
+    return { spot, pre: null, why, lived };
   }
   // тап без паузы после него: первый удар очереди приходится на ближайший кадр, и журнал должен успеть его увидеть
   await game.input.tap(await game.cell(spot.col, spot.row));
@@ -3864,7 +3935,7 @@ async function beamBurst(context, baseUrl, p, { wave, mode, needOn, extraCfg = [
   const t1 = Date.now();
   const post = await pollUntil(game, async (st) => {
     log.push(st);
-    if (shotName && st.effects.beams === 1) {
+    if (shotName && st.effects.beams >= 1) { // не «=== 1»: опрос мог пропустить кадр, где счётчик равен ровно 1, и снимка не было бы
       await shot(game.page, shotName);
       shotName = null;
     }
@@ -3987,7 +4058,8 @@ async function towersSyringe(browser, baseUrl) {
   const coccusWave = ['waves.total:1', 'waves.list.0.coccus:40'];
   const burstChecks = (q, r, perPulse, { needOn, needOff, far = false }) => {
     if (!r.pre) {
-      check(`${q} на луче накопилось ≥ ${needOn} бактерий и башня поставлена (дождались за ${BEAM_WAIT_MS / 1000} с)`, false, 'не накопилось');
+      // две разные причины красной проверки: условие не наступило за игровой бюджет или партию (условие не выполнено) / реальный потолок вышел раньше (игра не дошла до условия)
+      check(`${q} на луче накопилось ≥ ${needOn} бактерий и башня поставлена (ждали до ${BEAM_GAME_SEC} игровых секунд)`, false, r.why === 'cap' ? `игра не дошла до условия: за ${BEAM_REAL_CAP_MS / 60000} мин реального времени игра прожила ${f1(r.lived)} из ${BEAM_GAME_SEC} игровых секунд` : r.why === 'ended' ? `условие не выполнено: партия кончилась на ${f1(r.lived)} игровой секунде, скопления не было` : `условие не выполнено: за ${BEAM_GAME_SEC} игровых секунд скопления не было`);
       return;
     }
     const aim = r.tw?.aim ?? r.spot.k;
@@ -4058,17 +4130,28 @@ async function syringeBlind(browser, baseUrl) {
 
 // ---------------------------------------------------------------- Таблетка: поведение прежнее
 
+/** Минимум оценённых выстрелов Таблетки: не меньше половины сделанных и не меньше пяти; иначе проверка красная с пометкой «мало данных». */
+const PILL_MIN_SHARE = 0.5;
+const PILL_MIN_JUDGED = 5;
+const PILL_MAX_SHOTS = 40;
+
 /**
  * Таблетка бьёт ту бактерию в радиусе, которой до организма ближе всего (remaining). По каждому выстрелу, где в радиусе было ≥ 2 бактерий
  * и ближайшая к организму опережает остальных на ≥ 12 px (remaining у бактерий убывает со скоростью каждой, порядок за кадр почти не меняется), смотрим, кто потерял HP.
+ * Выстрел случился в кадре между снимками j − 1 и j, а какой был радиус в этот кадр, снимки не говорят: на медленной странице зазор между ними велик, и ближайшая к организму
+ * бактерия успевает выйти из радиуса (тогда в снимке j «ближайшей» оказывается следующая, а башня стреляла в вышедшую). Поэтому оцениваем выстрел, только если ближайшая
+ * к организму в радиусе одна и та же в обоих снимках и в каждом опережает остальных на ≥ 12 px; иначе выстрел неоднозначный.
  */
 function analyzePillTargets(log, tw, damage) {
   const out = { fires: 0, judged: 0, ambiguous: 0, wrong: [], candidates: [], badDamage: 0 };
+  const inRange = (s) => s.bacteria.filter((b) => b.hp > 0 && inReach(tw, b)).sort((a, b) => a.remaining - b.remaining);
+  const clearLeader = (c) => c.length >= 2 && c[1].remaining - c[0].remaining >= 12;
   for (let j = 1; j < log.length; j++) {
     if (log[j].shots <= log[j - 1].shots) continue;
     out.fires++;
-    const cand = log[j].bacteria.filter((b) => b.hp > 0 && inReach(tw, b)).sort((a, b) => a.remaining - b.remaining);
-    if (cand.length < 2 || cand[1].remaining - cand[0].remaining < 12) {
+    const before = inRange(log[j - 1]);
+    const cand = inRange(log[j]);
+    if (!clearLeader(before) || !clearLeader(cand) || before[0].id !== cand[0].id) {
       out.ambiguous++;
       continue;
     }
@@ -4091,7 +4174,7 @@ async function towersPill(browser, baseUrl) {
   const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
   const cfg = [
     'waves.total:1',
-    'waves.list.0.coccus:18',
+    'waves.list.0.coccus:40',
     'waves.intervalStartSec:0.4',
     'waves.intervalEndSec:0.4',
     'waves.firstDelaySec:1',
@@ -4108,16 +4191,24 @@ async function towersPill(browser, baseUrl) {
   const tw = { ...placed.towers[0], range: TW.pill.range };
   const log = [];
   const startedAt = Date.now();
+  // Прогон идёт, пока не набрано достаточно оценённых выстрелов (PILL_MIN_SHARE от сделанных и не меньше PILL_MIN_JUDGED); потолок — PILL_MAX_SHOTS выстрелов или конец бактерий
+  let enough = false;
   await pollUntil(game, (st) => {
     log.push(st);
-    return st.state !== 'playing' || (st.shots >= 12 && st.projectiles === 0) || Date.now() - startedAt > 100000;
+    if (st.shots >= 12 && log.length % 20 === 0) {
+      const part = analyzePillTargets(log, tw, TW.pill.damage);
+      enough = part.judged >= PILL_MIN_JUDGED && part.judged >= part.fires * PILL_MIN_SHARE;
+    }
+    return st.state !== 'playing' || (st.projectiles === 0 && ((st.shots >= 12 && enough) || st.shots >= PILL_MAX_SHOTS)) || Date.now() - startedAt > 100000;
   }, 120000, 20);
   await game.page.close();
   const a = analyzePillTargets(log, tw, TW.pill.damage);
+  const pillEnough = a.judged >= PILL_MIN_JUDGED && a.judged >= a.fires * PILL_MIN_SHARE;
+  const pillNeed = Math.max(PILL_MIN_JUDGED, Math.ceil(a.fires * PILL_MIN_SHARE));
   const last = log.at(-1);
   check(`${p} Таблетка поставлена и стреляет (выстрелов ${last.shots})`, placed.towers.length === 1 && placed.towers[0].id === 'pill' && last.shots >= 6, `выстрелов ${last.shots}`);
-  check(`${p} цель Таблетки — бактерия, ближайшая к организму: из ${a.fires} выстрелов оценено ${a.judged} (≥ 2 бактерий в радиусе, лидер впереди на ≥ 12 px; неоднозначных ${a.ambiguous}), ошибок ${a.wrong.length}`, a.judged >= 5 && a.wrong.length === 0, a.wrong.slice(0, 3).join('; ') || `оценено ${a.judged}`);
-  check(`${p} каждый выстрел Таблетки попадает ровно в одну бактерию и снимает ${TW.pill.damage} HP (отклонений ${a.badDamage})`, a.judged >= 5 && a.badDamage === 0);
+  check(`${p} цель Таблетки — бактерия, ближайшая к организму: из ${a.fires} выстрелов оценено ${a.judged} (≥ 2 бактерий в радиусе, лидер впереди на ≥ 12 px; неоднозначных ${a.ambiguous}), ошибок ${a.wrong.length}`, pillEnough && a.wrong.length === 0, pillEnough ? a.wrong.slice(0, 3).join('; ') || `оценено ${a.judged}` : `мало данных: оценено ${a.judged} из ${a.fires} выстрелов, нужно не меньше ${pillNeed}; неоднозначных ${a.ambiguous}`);
+  check(`${p} каждый выстрел Таблетки попадает ровно в одну бактерию и снимает ${TW.pill.damage} HP (отклонений ${a.badDamage})`, pillEnough && a.badDamage === 0, pillEnough ? '' : `мало данных: оценено ${a.judged} из ${a.fires} выстрелов, нужно не меньше ${pillNeed}`);
   await context.close();
 }
 
@@ -5053,16 +5144,26 @@ async function typesToxin(browser, baseUrl) {
   check(`${p} облако заглушает башню в радиусе: облаков за партию ${C.end.cloudsMade} (ждали ≥ 2: убиты первый токсин и ещё один после исчезновения первого облака), кадров с заглушенной башней ${suppressedFrames} (≥ 3), расхождений «центр в облаке ⇔ suppressed» ${mismatch}`, C.end.cloudsMade >= 2 && suppressedFrames >= 3 && mismatch === 0, examples.join('; ') || `облаков ${C.end.cloudsMade}, заглушена ${suppressedFrames}`);
   let shotsWhileMuted = 0;
   let mutedSteps = 0;
+  let candidateSteps = 0;
+  // Шаг между двумя кадрами оценивается, только если башня заглушена в обоих и ОДНО И ТО ЖЕ облако (те же координаты) накрывает её центр в обоих: тогда заглушение не прерывалось,
+  // и выстрел внутри шага — ошибка игры. Если облако за шаг сменилось (первое исчезло, второе появилось) или башню накрывало не оно, шаг неоднозначный и не засчитывается.
+  const coversTower = (s) => s.clouds.filter((c) => Math.hypot(c.x - s.towers[0].x, c.y - s.towers[0].y) <= c.r - 8);
   for (let i = 1; i < framesC.length; i++) {
     const a = framesC[i - 1].towers[0];
     const b = framesC[i].towers[0];
     if (a?.suppressed && b?.suppressed && framesC[i].elapsed - framesC[i - 1].elapsed <= 0.8) {
+      candidateSteps++;
+      const ca = coversTower(framesC[i - 1]);
+      const cb = coversTower(framesC[i]);
+      if (!ca.some((c0) => cb.some((c1) => Math.hypot(c0.x - c1.x, c0.y - c1.y) <= 1))) continue;
       mutedSteps++;
       if (framesC[i].shots !== framesC[i - 1].shots) shotsWhileMuted++;
     }
   }
+  // минимум оценённых шагов: не меньше половины заглушённых шагов и не меньше трёх; иначе красная «мало данных»
+  const mutedNeed = Math.max(3, Math.ceil(candidateSteps * 0.5));
   const targetsWhileMuted = framesC.filter((s) => s.towers[0]?.suppressed && s.bacteria.some((b) => b.kind === 'toxin' && Math.hypot(b.x - t0.x, b.y - t0.y) <= t0.stats.range + b.r - 10)).length;
-  check(`${p} заглушённая башня не стреляет: шагов между кадрами в облаке ${mutedSteps} (≥ 3), из них с выстрелом ${shotsWhileMuted} (ждали 0), при этом в ${targetsWhileMuted} кадрах токсин был в радиусе стрельбы (≥ 1: стрелять было по кому)`, mutedSteps >= 3 && shotsWhileMuted === 0 && targetsWhileMuted >= 1, `шагов ${mutedSteps}, с выстрелом ${shotsWhileMuted}, целей в радиусе ${targetsWhileMuted}`);
+  check(`${p} заглушённая башня не стреляет: оценено шагов между кадрами в одном и том же облаке ${mutedSteps} из ${candidateSteps} заглушённых (нужно ≥ ${mutedNeed}), из них с выстрелом ${shotsWhileMuted} (ждали 0), при этом в ${targetsWhileMuted} кадрах токсин был в радиусе стрельбы (≥ 1: стрелять было по кому)`, mutedSteps >= mutedNeed && shotsWhileMuted === 0 && targetsWhileMuted >= 1, mutedSteps < mutedNeed ? `мало данных: оценено шагов ${mutedSteps} из ${candidateSteps} заглушённых, нужно не меньше ${mutedNeed}` : `шагов ${mutedSteps} из ${candidateSteps} заглушённых, с выстрелом ${shotsWhileMuted}, целей в радиусе ${targetsWhileMuted}`);
   const lastCloud = [...framesC].reverse().find((s) => s.clouds.length > 0);
   const afterAll = framesC.filter((s) => s.elapsed > (lastCloud?.elapsed ?? 0) && s.towers[0]);
   check(`${p} после исчезновения облаков башня снова работает: в кадрах без облаков заглушенных нет (${afterAll.filter((s) => s.towers[0].suppressed).length}), выстрелов за партию ${C.end.shots}`, afterAll.every((s) => !s.towers[0].suppressed) && C.end.shots >= 2, `выстрелов ${C.end.shots}`);
@@ -5170,14 +5271,31 @@ async function towersFrost(browser, baseUrl) {
   const p = '[башни: Холод]';
   const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
   const immune = ['slick', 'giant'];
+  // Замеры «слизень или гигант в радиусе, пока рядом заморожены другие»: по кадрам опроса, как в проверке 3 ниже. Прогон не заканчивается, пока их меньше FROST_MIN_NEAR
+  // (но не дольше FROST_EXTRA_SEC игровых секунд сверх обычного срока), поэтому выборка не зависит от того, как часто страница отвечала на опрос.
+  const FROST_MIN_NEAR = 6;
+  const FROST_EXTRA_SEC = 25;
+  const nearOf = (frames, tw) => {
+    let n = 0;
+    for (const s of frames) {
+      if (!s.bacteria.some((b) => !immune.includes(b.kind) && b.freezeLeft > 0)) continue;
+      for (const b of s.bacteria) if (immune.includes(b.kind) && distTo(tw, b) <= tw.stats.range + b.r - 10) n++;
+    }
+    return n;
+  };
   let firstAt = null;
+  let nearEnough = false;
   const run = await entranceRun(context, baseUrl, p, {
     id: 'frost',
     counts: { coccus: 24, slick: 4, giant: 3 },
     cfg: [...['coccus', 'slick', 'giant'].map((k) => `types.${k}.hp:99999`), ...immune.map((k) => `types.${k}.speedFactor:0.8`)],
     stop: (st, log, tw) => {
       if (firstAt === null && st.freezes >= 1) firstAt = st.elapsed;
-      return st.freezes >= 3 || (firstAt !== null && st.elapsed - firstAt > (tw.stats.cooldownMs / 1000) * 2 + 4);
+      if (firstAt === null) return false;
+      const normalEnd = st.freezes >= 3 || st.elapsed - firstAt > (tw.stats.cooldownMs / 1000) * 2 + 4;
+      if (!normalEnd) return false;
+      if (!nearEnough && log.length % 10 === 0) nearEnough = nearOf(distinctFrames(log), tw) >= FROST_MIN_NEAR;
+      return nearEnough || st.elapsed - firstAt > (tw.stats.cooldownMs / 1000) * 2 + 4 + FROST_EXTRA_SEC;
     },
   });
   const tw = run.tower;
@@ -5211,16 +5329,9 @@ async function towersFrost(browser, baseUrl) {
 
   // ---- 3. слизень и гигант не замерзают
   let immuneFrozen = 0;
-  let immuneNear = 0;
-  for (const s of frames) {
-    const someFrozen = s.bacteria.some((b) => !immune.includes(b.kind) && b.freezeLeft > 0);
-    for (const b of s.bacteria) {
-      if (!immune.includes(b.kind)) continue;
-      if (b.freezeLeft > 0) immuneFrozen++;
-      if (someFrozen && distTo(tw, b) <= range + b.r - 10) immuneNear++;
-    }
-  }
-  check(`${p} слизень и гигант не замерзают: замеров «слизень или гигант в радиусе, пока рядом заморожены другие» ${immuneNear} (≥ 3), из них замороженных ${immuneFrozen} (во всех кадрах партии — тоже 0)`, immuneNear >= 3 && immuneFrozen === 0, `рядом ${immuneNear}, замороженных ${immuneFrozen}`);
+  const immuneNear = nearOf(frames, tw);
+  for (const s of frames) for (const b of s.bacteria) if (immune.includes(b.kind) && b.freezeLeft > 0) immuneFrozen++;
+  check(`${p} слизень и гигант не замерзают: замеров «слизень или гигант в радиусе, пока рядом заморожены другие» ${immuneNear} (≥ 3), из них замороженных ${immuneFrozen} (во всех кадрах партии — тоже 0)`, immuneNear >= 3 && immuneFrozen === 0, immuneNear < 3 ? `мало данных: замеров ${immuneNear}, нужно не меньше 3` : `рядом ${immuneNear}, замороженных ${immuneFrozen}`);
 
   // ---- 4. замороженная бактерия стоит, остаток убывает вместе с игровым временем
   const held = pairsOf(frames, (a, b) => a.freezeLeft > 0 && b.freezeLeft > 0);
@@ -5581,14 +5692,15 @@ async function towersControls(browser, baseUrl) {
   const w = s.ui.waveButton;
   const before = s.coins;
   await game.input.tap(game.g(w.x, w.y));
-  await settle();
-  s = await game.state();
+  // тап добавляет монеты и обнуляет таймер (GameScene.startWaveNow), а волна начинается в следующем шаге игры: ждём само событие (wave ≥ 1), не паузу
+  s = await waitFor(game.page, (x) => x.wave >= 1, WAIT_MS, 'начало волны после тапа по «Начать волну»', 20);
   const gained = s.coins - before;
   check(`${p} тап по «Начать волну» даёт монеты за пропущенные секунды (на кнопке было +${w.bonus}, получено +${gained}, допуск 12) и волна начинается сразу: волна ${s.wave}, кнопка спрятана (${!s.ui.waveButton.visible})`, gained <= w.bonus && gained >= w.bonus - 12 && s.wave === 1 && !s.ui.waveButton.visible, `получено ${gained}, волна ${s.wave}, кнопка видна ${s.ui.waveButton.visible}`);
   const coins2 = s.coins;
+  const framesBefore = s.clock.frames;
   await game.input.tap(game.g(w.x, w.y));
-  await settle();
-  s = await game.state();
+  // тап обрабатывается в ближайших кадрах игры: ждём несколько шагов игры, а не фиксированную паузу
+  s = await waitFor(game.page, (x) => x.clock.frames >= framesBefore + 4, WAIT_MS, 'несколько кадров игры после повторного тапа', 20);
   check(`${p} повторный тап в том же месте (кнопки уже нет) монет не добавляет: ${coins2} → ${s.coins}`, s.coins === coins2);
   await context.close();
 }
@@ -7153,7 +7265,7 @@ async function runRestartButton(browser, baseUrl) {
       s = await game.state();
       check(`${q} тапы мимо кнопки (над ней, слева, в углах экрана) уровень не перезапускают`, s.state === outcome, `состояние ${s.state}`);
       await tapToRestart(game);
-      s = await waitFor(game.page, (x) => x.state === 'playing' && x.elapsed < 2, 5000, 'перезапуск кнопкой').catch(() => null);
+      s = await waitFreshRun(game.page, 'перезапуск кнопкой').catch(() => null);
       check(`${q} тап по кнопке «Заново» перезапускает уровень (волна 0, башен нет, монеты стартовые)`, s !== null && s.wave === 0 && s.towers.length === 0 && s.endButton === null && s.coins === (outcome === 'won' ? 500 : CFG.startCoins), s ? `волна ${s.wave}, башен ${s.towers.length}, монеты ${s.coins}, endButton ${JSON.stringify(s.endButton)}` : 'не перезапустилась');
       await ctx.close();
     }
@@ -7419,15 +7531,16 @@ async function runStars(browser, baseUrl) {
   // порог −1: потерь 0 > −1, поэтому тройка недостижима; maxLostFor2 −1 — недостижима и двойка
   let r = await playWin('levels.stars.maxLostFor3:-1,levels.stars.maxLostFor2:-1', 'одна звезда');
   check(`${p} победа выше порогов двух и трёх звёзд: одна звезда, +10 очков ДНК за неё`, r.s.stars === 1 && r.s.starDna === 10 && r.m.progress.stars[0] === 1, `звёзд ${r.s.stars}, очков за звёзды ${r.s.starDna}, сохранено ${r.m.progress.stars[0]}`);
-  const dnaTable = readMetaTable().dna; // награда за волну и бонус за победу — из config.ts (с 14 октября 2026 за волну 10, было 5)
-  const firstWinDna = dnaTable.perWave + dnaTable.winBonus + 10;
-  check(`${p} лучшая волна уровня 1 записана (1 волна), очки: за волну ${dnaTable.perWave} + победа ${dnaTable.winBonus} + звезда 10 = ${firstWinDna}`, r.m.progress.best[0] === 1 && r.m.dna === firstWinDna, `лучшая ${r.m.progress.best[0]}, очков ${r.m.dna}`);
+  const dnaTable = readMetaTable().dna; // награда за волны и бонус за победу — из config.ts (с 17 октября 2026 за n-ю волну waveBase + waveStep·n, до этого 10 за волну)
+  const waves1 = dnaWavesReward(dnaTable, 1); // награда за одну пройденную волну (округление один раз за партию)
+  const firstWinDna = waves1 + dnaTable.winBonus + 10;
+  check(`${p} лучшая волна уровня 1 записана (1 волна), очки: за волну ${waves1} + победа ${dnaTable.winBonus} + звезда 10 = ${firstWinDna}`, r.m.progress.best[0] === 1 && r.m.dna === firstWinDna, `лучшая ${r.m.progress.best[0]}, очков ${r.m.dna}`);
   // экран победы: итог и разбивка очков ДНК (волны + победа + звёзды) в состоянии игры и в строках, которые видит игрок (русский текст); монеты — отдельной строкой
   {
     const parts = r.s.dnaParts;
     const lines = r.s.endDnaLines ?? [];
-    const want = [i18nText('dnaPartWaves', 0, { n: dnaTable.perWave }), i18nText('dnaPartWin', 0, { n: dnaTable.winBonus }), i18nText('dnaPartStars', 0, { n: 10 })];
-    check(`${p} экран победы: разбивка очков ДНК «${want.join(' + ')}» = ${firstWinDna}; строки «${lines.join(' | ')}»`, parts && parts.waves === dnaTable.perWave && parts.win === dnaTable.winBonus && parts.stars === 10 && parts.coins === 0 && parts.waves + parts.win + parts.stars === firstWinDna && lines.length === 2 && lines[0].startsWith(totalPrefix(firstWinDna)) && lines[1] === want.join(' + ') && !lines.includes(i18nText('dnaCoinsLine', 0, { coins: r.s.coinsLeft, n: 0 })), JSON.stringify(parts));
+    const want = [i18nText('dnaPartWaves', 0, { n: waves1 }), i18nText('dnaPartWin', 0, { n: dnaTable.winBonus }), i18nText('dnaPartStars', 0, { n: 10 })];
+    check(`${p} экран победы: разбивка очков ДНК «${want.join(' + ')}» = ${firstWinDna}; строки «${lines.join(' | ')}»`, parts && parts.waves === waves1 && parts.win === dnaTable.winBonus && parts.stars === 10 && parts.coins === 0 && parts.waves + parts.win + parts.stars === firstWinDna && lines.length === 2 && lines[0].startsWith(totalPrefix(firstWinDna)) && lines[1] === want.join(' + ') && !lines.includes(i18nText('dnaCoinsLine', 0, { coins: r.s.coinsLeft, n: 0 })), JSON.stringify(parts));
   }
   r = await playWin('levels.stars.maxLostFor3:-1,levels.stars.maxLostFor2:0', 'две звезды');
   check(`${p} потеряно 0 жизней при пороге двух звёзд 0 и недостижимой тройке: две звезды; за новую вторую звезду +10 (не 20)`, r.s.stars === 2 && r.s.starDna === 10 && r.m.progress.stars[0] === 2, `звёзд ${r.s.stars}, очков за звёзды ${r.s.starDna}`);
@@ -7436,7 +7549,7 @@ async function runStars(browser, baseUrl) {
   const dnaAfter = r.m.dna;
   r = await playWin('', 'повторные три звезды');
   // уровень уже пройден: за волны только replayFactor от награды, бонуса за победу нет (решение владельца 13 октября, правило В)
-  const replayGain = Math.floor(1 * readMetaTable().dna.perWave * readMetaTable().dna.replayFactor);
+  const replayGain = Math.floor(dnaWavesReward(readMetaTable().dna, 1) * readMetaTable().dna.replayFactor);
   check(`${p} повторная победа на три звезды новых звёзд не даёт: очки за звёзды 0, на счёте прибавилось только за волну по доле replayFactor (${replayGain}), бонуса за победу нет`, r.s.stars === 3 && r.s.starDna === 0 && r.m.dna === dnaAfter + replayGain, `очков за звёзды ${r.s.starDna}, счёт ${dnaAfter} → ${r.m.dna}`);
   r = await playWin('levels.stars.maxLostFor3:-1,levels.stars.maxLostFor2:-1', 'худший результат');
   check(`${p} худший результат (одна звезда) звёзды уровня не снижает: в сохранении по-прежнему 3, очков за звёзды 0`, r.s.stars === 1 && r.s.starDna === 0 && r.m.progress.stars[0] === 3, `за партию ${r.s.stars}, в сохранении ${r.m.progress.stars[0]}`);
@@ -7614,7 +7727,7 @@ async function runLevelsLock(browser, baseUrl) {
   check(`${p} после победы на уровне 1 есть все четыре кнопки («Заново», «Улучшения», «Следующий уровень», «В меню»), внутри экрана и не налезают друг на друга`, btns.every((b) => b && insideScreen(b)) && btns.every((a, i) => btns.every((b, j) => i === j || !overlaps(a, b))), JSON.stringify(btns));
   await shot(win.page, 'levels-win-buttons');
   await win.input.tap(win.g(s.nextButton.x, s.nextButton.y));
-  s = await waitFor(win.page, (x) => x.state === 'playing' && x.level === 2 && x.elapsed < 3, 30000, 'партия уровня 2 после «Следующий уровень»');
+  s = await waitFreshRun(win.page, 'партия уровня 2 после «Следующий уровень»', { level: 2 });
   check(`${p} «Следующий уровень» после победы начинает партию уровня 2`, s.level === 2, `уровень ${s.level}`);
   await win.page.close();
 
@@ -7631,7 +7744,7 @@ async function runLevelsLock(browser, baseUrl) {
     const recommended = meta2.screen.nodes.filter((n) => n.recommended).map((n) => n.id).sort();
     check(`${p} метка «рекомендуем» после партии с двумя Таблетками: «Сильное вещество» (ниже 3-го уровня) и первый узел ветки Таблетки (метки: ${recommended.join(', ')})`, recommended.join() === 'damage,pillPower', recommended.join());
     await win2.input.tap(win2.g(uu.buttons.play.x, uu.buttons.play.y));
-    const next = await waitFor(win2.page, (x) => x.state === 'playing' && x.elapsed < 3, 30000, 'партия после «Улучшения» → «Играть»');
+    const next = await waitFreshRun(win2.page, 'партия после «Улучшения» → «Играть»');
     check(`${p} «Играть» на экране «Улучшения» после победы на уровне 1 начинает уровень ${next.level} (следующий открытый), а не повтор уровня 1`, uu.scene === 'upgrades' && next.level === 2, `экран ${uu && uu.scene}, уровень ${next.level}`);
     await win2.page.close();
     // без партии на странице метка одна — «Сильное вещество»
@@ -7650,7 +7763,7 @@ async function runLevelsLock(browser, baseUrl) {
     await sleep(700);
     const ul = await lose2.page.evaluate(() => window.__pvbUi?.get() ?? null);
     await lose2.input.tap(lose2.g(ul.buttons.play.x, ul.buttons.play.y));
-    const again = await waitFor(lose2.page, (x) => x.state === 'playing' && x.elapsed < 3, 30000, 'партия после проигрыша → «Улучшения» → «Играть»');
+    const again = await waitFreshRun(lose2.page, 'партия после проигрыша → «Улучшения» → «Играть»');
     check(`${p} «Играть» на экране «Улучшения» после проигрыша на уровне 2 начинает тот же уровень ${again.level} заново`, ul.scene === 'upgrades' && again.level === 2, `экран ${ul && ul.scene}, уровень ${again.level}`);
     await lose2.page.close();
   }
@@ -7679,14 +7792,14 @@ async function runLevelsLock(browser, baseUrl) {
 async function runMetaDna(browser, baseUrl) {
   const p = '[очки ДНК: начисление]';
   const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
-  const dnaCfg = 'meta.dna.perWave:2,meta.dna.winBonus:7';
+  const dnaCfg = 'meta.dna.waveBase:2,meta.dna.waveStep:0,meta.dna.winBonus:7';
 
-  // ---- проигрыш на волне ≥ 2: очки = (достигнутая волна − 1) × perWave
+  // ---- проигрыш на волне ≥ 2: очки = за (достигнутая волна − 1) пройденных волн по формуле награды (в проверке waveBase 2, waveStep 0)
   const lose = await openGame(context, baseUrl, p, {
     speed: 4,
     cfg: `waves.total:3,waves.pauseSec:0.1,waves.firstDelaySec:1,waves.intervalStartSec:1,waves.intervalEndSec:1,waves.list.0.coccus:2,waves.list.1.coccus:2,waves.list.2.coccus:2,lives.start:1,bacteria.baseSpeed:250,${dnaCfg}`,
   });
-  let s = await waitFor(lose.page, (x) => x.state === 'lost', WAIT_MS, 'проигрыш');
+  let s = await waitForGame(lose.page, (x) => x.state === 'lost', 'проигрыш');
   const wantLose = (s.wave - 1) * 2;
   let m = await metaOf(lose.page);
   check(`${p} проигрыш на волне ${s.wave}: начислено (волна − 1) × 2 = ${wantLose} очков, на счёте столько же`, s.wave >= 2 && s.dnaGained === wantLose && m.dna === wantLose, `волна ${s.wave}, начислено ${s.dnaGained}, на счёте ${m.dna}`);
@@ -7698,30 +7811,30 @@ async function runMetaDna(browser, baseUrl) {
   await shot(lose.page, 'meta-dna-lost');
   await lose.page.close();
 
-  // ---- победа: волн × perWave + winBonus; очки накапливаются между партиями той же страницы (перезапуск кнопкой)
+  // ---- победа: награда за волны + winBonus; очки накапливаются между партиями той же страницы (перезапуск кнопкой)
   const win = await openGame(context, baseUrl, p, {
     speed: 4,
     cfg: `${wavesOnlyCfg({ coccus: 1 })},waves.firstDelaySec:1,towers.pill.range:900,towers.pill.damage:50,economy.startCoins:500,lives.start:3,${dnaCfg}`,
   });
   for (const cell of [FREE.a, FREE.b]) await placeSure(win, 'pill', cell);
-  s = await waitFor(win.page, (x) => x.state === 'won', WAIT_MS, 'победа');
+  s = await waitForGame(win.page, (x) => x.state === 'won', 'победа');
   m = await metaOf(win.page);
   check(`${p} победа за 1 волну: 1 × 2 + 7 = 9 очков (начислено ${s.dnaGained}); к ${wantLose} прежним — ${wantLose + 9} на счёте`, s.dnaGained === 9 && m.dna === wantLose + 9, `начислено ${s.dnaGained}, на счёте ${m.dna}`);
   await sleep(CFG.restartLockMs + 250);
   await tapToRestart(win);
-  s = await waitFor(win.page, (x) => x.state === 'playing' && x.elapsed < 2, 5000, 'перезапуск после победы');
+  s = await waitFreshRun(win.page, 'перезапуск после победы');
   m = await metaOf(win.page);
   check(`${p} перезапуск очков не начисляет и не сбрасывает: на счёте по-прежнему ${wantLose + 9}`, m.dna === wantLose + 9 && s.dnaGained === 0, `на счёте ${m.dna}, начислено ${s.dnaGained}`);
 
   // ---- повтор пройденного уровня (&stars=1): за волны только replayFactor от награды, бонуса за победу нет (правило В, решение владельца 13 октября)
-  const replayCfg = 'meta.dna.perWave:20,meta.dna.winBonus:7,meta.dna.replayFactor:0.1';
+  const replayCfg = 'meta.dna.waveBase:20,meta.dna.waveStep:0,meta.dna.winBonus:7,meta.dna.replayFactor:0.1';
   const again = await openGame(context, baseUrl, p, {
     speed: 4,
     query: '&stars=1',
     cfg: `${wavesOnlyCfg({ coccus: 1 })},waves.firstDelaySec:1,towers.pill.range:900,towers.pill.damage:50,economy.startCoins:500,lives.start:3,${replayCfg}`,
   });
   for (const cell of [FREE.a, FREE.b]) await placeSure(again, 'pill', cell);
-  s = await waitFor(again.page, (x) => x.state === 'won', WAIT_MS, 'победа на пройденном уровне');
+  s = await waitForGame(again.page, (x) => x.state === 'won', 'победа на пройденном уровне');
   check(`${p} победа на пройденном уровне за 1 волну: floor(1 × 20 × 0,1) = 2 очка, бонуса за победу нет (начислено ${s.dnaGained})`, s.dnaGained === 2, `начислено ${s.dnaGained}`);
   await again.page.close();
   // новая вкладка-контекст: в прежнем уровень 1 уже записан как пройденный (первая победа выше)
@@ -7731,18 +7844,18 @@ async function runMetaDna(browser, baseUrl) {
     cfg: `${wavesOnlyCfg({ coccus: 1 })},waves.firstDelaySec:1,towers.pill.range:900,towers.pill.damage:50,economy.startCoins:500,lives.start:3,${replayCfg}`,
   });
   for (const cell of [FREE.a, FREE.b]) await placeSure(firstTime, 'pill', cell);
-  s = await waitFor(firstTime.page, (x) => x.state === 'won', WAIT_MS, 'первая победа');
+  s = await waitForGame(firstTime.page, (x) => x.state === 'won', 'первая победа');
   check(`${p} первая победа на непройденном уровне: 1 × 20 + 7 = 27 очков полностью (начислено ${s.dnaGained})`, s.dnaGained === 27, `начислено ${s.dnaGained}`);
   await fresh.close();
 
   // ---- остаток монет → очки ДНК (решение владельца 14 октября 2026, вариант А): 1 очко за coinsPerPoint монет, не больше coinsCapShare награды за волны, только при победе;
   //      на пройденном уровне эта добавка тоже умножается на replayFactor; на экране победы — отдельная строка
-  const coinBase = (extra) => `${wavesOnlyCfg({ coccus: 1 })},waves.firstDelaySec:1,towers.pill.range:900,towers.pill.damage:50,lives.start:3,meta.dna.perWave:20,meta.dna.winBonus:7,meta.dna.replayFactor:0.1,meta.dna.coinsPerPoint:50,${extra}`;
+  const coinBase = (extra) => `${wavesOnlyCfg({ coccus: 1 })},waves.firstDelaySec:1,towers.pill.range:900,towers.pill.damage:50,lives.start:3,meta.dna.waveBase:20,meta.dna.waveStep:0,meta.dna.winBonus:7,meta.dna.replayFactor:0.1,meta.dna.coinsPerPoint:50,${extra}`;
   const playCoins = async (cfgExtra, query = '') => {
     const ctx = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
     const g = await openGame(ctx, baseUrl, p, { speed: 4, query, cfg: coinBase(cfgExtra) });
     for (const cell of [FREE.a, FREE.b]) await placeSure(g, 'pill', cell);
-    const st = await waitFor(g.page, (x) => x.state === 'won', WAIT_MS, 'победа (монеты → ДНК)');
+    const st = await waitForGame(g.page, (x) => x.state === 'won', 'победа (монеты → ДНК)');
     await ctx.close();
     return st;
   };
@@ -7766,7 +7879,16 @@ async function runMetaDna(browser, baseUrl) {
     const D = readMetaTable().dna;
     const calc = await openGame(context, baseUrl, p, { speed: 1, cfg: 'meta.dna.coinsCapShare:0.1' });
     const ask = (waves, won, replay, coins) => calc.page.evaluate(([w, o, r, c]) => window.__pvbMeta.dnaFor(w, o, r, c), [waves, won, replay, coins]);
-    const reward = 30 * D.perWave;
+    // формула `waveBase + waveStep·n` (решение владельца 17 октября 2026): значения для гибели на 4, 8, 12, 15, 19, 20, 25, 27, 30-й волне (пройдено N − 1 волн), сумма за 30 волн равна 300
+    {
+      const deaths = [[4, 9], [8, 28], [12, 56], [15, 82], [19, 124], [20, 136], [25, 203], [27, 233], [30, 283]];
+      const got = [];
+      for (const [death] of deaths) got.push((await ask(death - 1, false, false, 0)).waves);
+      const full = await ask(30, true, false, 0);
+      check(`${p} награда за волны растёт с номером: гибель на ${deaths.map(([d]) => d).join(', ')}-й волне даёт ${deaths.map(([, w]) => w).join(', ')} очков (получено ${got.join(', ')}); за все 30 волн ${full.waves} (ждали 300)`,
+        JSON.stringify(got) === JSON.stringify(deaths.map(([, w]) => w)) && full.waves === 300 && dnaWavesReward(D, 30) === 300 && D.waveBase === 2 && Math.abs(D.waveStep - 240 / 465) < 1e-9, JSON.stringify({ got, full: full.waves, D }));
+    }
+    const reward = dnaWavesReward(D, 30);
     const rawFor = (coins) => Math.min(Math.floor(coins / D.coinsPerPoint), Math.floor(reward * 0.1));
     const first = await ask(30, true, false, 1360);
     const replay = await ask(30, true, true, 1360);
@@ -7792,18 +7914,18 @@ async function runMetaDna(browser, baseUrl) {
     const lv = await openGame(context, baseUrl, p, { speed: 4, cfg: `waves.firstDelaySec:1,waves.total:1,waves.list.0.coccus:6,bacteria.baseSpeed:250,towers.pill.damage:0,lives.start:${REAL_LIVES}` });
     const s0 = await lv.state();
     check(`${p} старт с настоящим числом жизней: жизни ${s0.lives} из ${s0.maxLives}, в верхней полосе «${s0.ui.livesText}» (ждали «${REAL_LIVES} / ${REAL_LIVES}»)`, s0.lives === REAL_LIVES && s0.maxLives === REAL_LIVES && s0.ui.livesText === `${REAL_LIVES} / ${REAL_LIVES}`, `${s0.lives}/${s0.maxLives} «${s0.ui.livesText}»`);
-    const s1 = await waitFor(lv.page, (x) => x.lives <= REAL_LIVES - 3, WAIT_MS, 'потеряно несколько жизней');
+    const s1 = await waitForGame(lv.page, (x) => x.lives <= REAL_LIVES - 3, 'потеряно несколько жизней');
     check(`${p} после потерь число в верхней полосе обновляется: жизни ${s1.lives}, «${s1.ui.livesText}» (ждали «${Math.ceil(s1.lives)} / ${REAL_LIVES}»)`, s1.ui.livesText === `${Math.ceil(s1.lives - 1e-9)} / ${REAL_LIVES}` && s1.lives < REAL_LIVES, `${s1.lives} «${s1.ui.livesText}»`);
     await lv.page.close();
   }
   // ---- экран победы на телефоне (844×390, горизонтально): итог, волны + победа + звёзды, монеты, пометка пройденного уровня; текст не налезает на кнопки и не шире экрана; снимки для владельца.
   //      Числа как на уровне 1: «волна» стоит 300 очков (30 волн × 10), на старте 1500 монет, в конце ≈ 1360: первая победа 300 + 15 + 30 (звёзды) + 13 (монеты), повтор 30 + 0 + 20 (две новые звезды) + 1
-  const winCfg = coinBase('economy.startCoins:1500,meta.dna.perWave:300,meta.dna.winBonus:15,meta.dna.coinsPerPoint:100,meta.dna.coinsCapShare:0.1,levels.starDna:10');
+  const winCfg = coinBase('economy.startCoins:1500,meta.dna.waveBase:300,meta.dna.waveStep:0,meta.dna.winBonus:15,meta.dna.coinsPerPoint:100,meta.dna.coinsCapShare:0.1,levels.starDna:10');
   for (const [lang, li, replay] of [['ru', 0, false], ['en', 1, true]]) {
     const ctxP = await newDeviceContext(browser, VIEWPORTS.phone, lang);
     const w = await openGame(ctxP, baseUrl, p, { speed: 4, isTouch: true, query: replay ? '&stars=1' : '', cfg: winCfg });
     for (const cell of [FREE.a, FREE.b]) await placeSure(w, 'pill', cell);
-    const st = await waitFor(w.page, (x) => x.state === 'won', WAIT_MS, 'победа (экран победы на телефоне)');
+    const st = await waitForGame(w.page, (x) => x.state === 'won', 'победа (экран победы на телефоне)');
     await sleep(500);
     await shot(w.page, `win-screen-phone-${lang}-${replay ? 'replay' : 'first'}`);
     const buttons = [st.endButton, st.upgradesButton, st.nextButton, st.menuButton].filter(Boolean);
@@ -7827,9 +7949,9 @@ async function runMetaDna(browser, baseUrl) {
   }
   const loseCoins = await openGame(context, baseUrl, p, {
     speed: 4,
-    cfg: `waves.total:3,waves.pauseSec:0.1,waves.firstDelaySec:1,waves.intervalStartSec:1,waves.intervalEndSec:1,waves.list.0.coccus:2,waves.list.1.coccus:2,waves.list.2.coccus:2,lives.start:1,bacteria.baseSpeed:250,economy.startCoins:500,meta.dna.perWave:20,meta.dna.coinsPerPoint:50,meta.dna.coinsCapShare:0.5`,
+    cfg: `waves.total:3,waves.pauseSec:0.1,waves.firstDelaySec:1,waves.intervalStartSec:1,waves.intervalEndSec:1,waves.list.0.coccus:2,waves.list.1.coccus:2,waves.list.2.coccus:2,lives.start:1,bacteria.baseSpeed:250,economy.startCoins:500,meta.dna.waveBase:20,meta.dna.waveStep:0,meta.dna.coinsPerPoint:50,meta.dna.coinsCapShare:0.5`,
   });
-  s = await waitFor(loseCoins.page, (x) => x.state === 'lost', WAIT_MS, 'проигрыш (монеты → ДНК)');
+  s = await waitForGame(loseCoins.page, (x) => x.state === 'lost', 'проигрыш (монеты → ДНК)');
   check(`${p} при проигрыше остаток монет (${Math.floor(s.coins)}) в очки ДНК не переводится: за монеты ${s.dnaParts.coins}, строки «${s.endDnaLines.join(' | ')}» без строки про монеты`, s.dnaParts.coins === 0 && s.endDnaLines.every((x) => !x.startsWith('остаток монет')), JSON.stringify(s.dnaParts));
   await loseCoins.page.close();
   await context.close();
@@ -8553,7 +8675,7 @@ async function runAlmanacPause(browser, baseUrl) {
     const pausedAgain = await game.state();
     check(`${p} на паузе есть четвёртая кнопка «Заново» слева внизу рядом с «В меню», внутри экрана, не налезает на остальные`, pausedAgain.pauseRestartButton !== null && insideScreen(pausedAgain.pauseRestartButton) && [pausedAgain.pauseAlmanacButton, pausedAgain.pauseSoundButton, pausedAgain.pauseMenuButton].every((b) => !overlaps(pausedAgain.pauseRestartButton, b)) && pausedAgain.pauseRestartButton.x < pausedAgain.pauseMenuButton.x, JSON.stringify(pausedAgain.pauseRestartButton));
     await game.input.tap(game.g(pausedAgain.pauseRestartButton.x, pausedAgain.pauseRestartButton.y));
-    const restarted = await waitFor(page, (x) => x.state === 'playing' && x.elapsed < 3 && x.towers.length === 0, 15000, 'партия после «Заново» с паузы');
+    const restarted = await waitFreshRun(page, 'партия после «Заново» с паузы');
     check(`${p} «Заново» на паузе начинает партию сначала: башен было ${withTower.towers.length}, стало ${restarted.towers.length}, монеты ${restarted.coins} (старт ${CFG.startCoins}), время ${f2(restarted.elapsed)} с, волна ${restarted.wave}`, withTower.towers.length === 1 && restarted.towers.length === 0 && restarted.coins === CFG.startCoins && restarted.wave === 0, JSON.stringify({ towers: restarted.towers.length, coins: restarted.coins, wave: restarted.wave }));
     // «Продолжить» на паузе: кнопка по центру над остальными, внутри экрана, не налезает на них; одного тапа достаточно, чтобы игра пошла
     await game.input.tap(game.g(restarted.ui.pauseButton.x, restarted.ui.pauseButton.y));
