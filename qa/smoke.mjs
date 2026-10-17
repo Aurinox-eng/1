@@ -1535,7 +1535,10 @@ async function runLose(browser, baseUrl, lang, deviceKey, full) {
   const name = `${deviceKey}-${lang}`;
   const context = await newDeviceContext(browser, device, lang);
   const base = 250;
-  const cfg = `waves.firstDelaySec:1,waves.intervalStartSec:2,waves.intervalEndSec:2,${FIXED_BALANCE.filter((x) => !x.startsWith('bacteria.baseSpeed')).join(',')},bacteria.baseSpeed:${base}`;
+  // Блокировка «Заново» считается игрой по реальным часам (performance.now), а страница на сервере отвечает с задержкой в сотни миллисекунд: окно 500 мс проверка не успевает использовать.
+  // В этом сценарии блокировка удлинена (LOCK_MS), смысл правила тот же: внутри окна нажатие не перезапускает, после окна — перезапускает; значение игры (500 мс) остаётся в src/config.ts.
+  const LOCK_MS = 3000;
+  const cfg = `waves.firstDelaySec:1,waves.intervalStartSec:2,waves.intervalEndSec:2,${FIXED_BALANCE.filter((x) => !x.startsWith('bacteria.baseSpeed')).join(',')},bacteria.baseSpeed:${base},gameOver.restartLockMs:${LOCK_MS}`;
   const game = await openGame(context, baseUrl, p, { speed: 4, cfg, isTouch: device.hasTouch });
   const { page } = game;
   const listeners0 = (await game.state()).pointerListeners;
@@ -1577,9 +1580,9 @@ async function runLose(browser, baseUrl, lang, deviceKey, full) {
     if (!lockChecked || !lockHeld) {
       await tapToRestart(game);
       const dt = Date.now() - detectedAt;
-      await sleep(350); // перезапуск сцены выполняется в следующем кадре: даём ему случиться, если тап был принят
+      await frames(page, 6); // перезапуск сцены выполняется в следующем кадре: ждём несколько отрисованных кадров страницы (не секунды), если тап был принят — партия уже началась
       const after = await game.state();
-      if (dt < CFG.restartLockMs - 150) {
+      if (dt < LOCK_MS - 150) {
         lockChecked = true;
         lockHeld = after.state === 'lost';
       }
@@ -1593,7 +1596,7 @@ async function runLose(browser, baseUrl, lang, deviceKey, full) {
       check(`${p} бактерии проходят весь путь по графу от входа до выхода (дошли до выходного ребра: ${a.full}; цепочки рёбер не короче ${minChain})`, a.full >= 2 && exitChains.length >= 1 && exitChains.every((c) => c.length >= minChain), `до выхода ${a.full}, выходы: ${JSON.stringify(a.exits)}, цепочки с самого входа: ${a.entranceChains.map((c) => c.join('→')).join(' | ')}, все записанные: ${a.edgeChain.map((c) => c.join('→')).join(' | ')}`);
       check(`${p} на всём пути: на кривой ребра (≤ 0,5 px), вперёд, переходы только на следующие рёбра, скорость в норме`, a.maxDev <= 0.5 && a.outOfEdge === 0 && a.backwards === 0 && a.badTransition === 0 && a.badSpeed === 0, `отклонение ${f2(a.maxDev)} px, вне ребра ${a.outOfEdge}/${a.samples}, назад ${a.backwards}, неверных переходов ${a.badTransition}, скорость ${f1(a.speedSeen[0])}…${f1(a.speedSeen[1])}, вне нормы ${a.badSpeed}`);
     }
-    await sleep(Math.max(0, CFG.restartLockMs + 200 - (Date.now() - detectedAt)));
+    await sleep(Math.max(0, LOCK_MS + 200 - (Date.now() - detectedAt)));
     await tapToRestart(game);
     const r = await waitFreshRun(page, 'перезапуск кнопкой «Заново»');
     const camOk = Math.abs(r.camera.zoom - CFG.zoomStart) < 0.001 && Math.abs(r.camera.cx - startCenterPx().x) < 3 && Math.abs(r.camera.cy - startCenterPx().y) < 3;
@@ -1607,7 +1610,7 @@ async function runLose(browser, baseUrl, lang, deviceKey, full) {
     if (full && cycle === 1) heapFirst = await heapMb(game.cdp);
     if (cycle === CYCLES) {
       check(`${p} обработчики нажатия не копятся: было ${listeners0}, после ${CYCLES} перезапусков ${r.pointerListeners}`, r.pointerListeners === listeners0);
-      check(`${p} нажатие «Заново» сразу после проигрыша (в первые ${CFG.restartLockMs} мс) игру не перезапускает`, lockChecked && lockHeld, lockChecked ? '' : 'не успели нажать вовремя: страница отвечала слишком медленно');
+      check(`${p} нажатие «Заново» сразу после проигрыша (в первые ${LOCK_MS} мс блокировки) игру не перезапускает`, lockChecked && lockHeld, lockChecked ? '' : 'не успели нажать вовремя: страница отвечала слишком медленно');
       if (full) {
         const heapLast = await heapMb(game.cdp);
         check(`${p} нет утечки памяти: после ${CYCLES} проигрышей и перезапусков память страницы выросла не больше чем на 30 МБ`, heapLast - heapFirst < 30, `после 1-го перезапуска ${f1(heapFirst)} МБ, после ${CYCLES}-го ${f1(heapLast)} МБ`);
