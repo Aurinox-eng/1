@@ -353,6 +353,15 @@ export class Effects {
     this.layer.bringToTop(a.label);
   }
 
+  /** Облачко у дула пилотной башни при выстреле: два светлых кружка из общего запаса картинок (предел feedback.ringMax) разлетаются вперёд по стволу и гаснут за 120–140 мс. */
+  muzzle(x: number, y: number, angle: number, color: number): void {
+    const ca = Math.cos(angle);
+    const sa = Math.sin(angle);
+    const s0 = 5 / DOT_R / ART_DENSITY;
+    this.spawnFx('fx-dot', Phaser.BlendModes.ADD, color, x, y, x + ca * 15, y + sa * 15, s0 * 1.2, s0 * 2.6, 0.85, 140, cubicOut);
+    this.spawnFx('fx-dot', Phaser.BlendModes.ADD, 0xffffff, x + ca * 3, y + sa * 3, x + ca * 24, y + sa * 24, s0 * 0.8, s0 * 1.5, 0.7, 120, cubicOut);
+  }
+
   /** Башня поставлена: кольцо расходится от клетки. */
   placed(x: number, y: number): void {
     this.placements++;

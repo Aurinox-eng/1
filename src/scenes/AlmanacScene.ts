@@ -4,6 +4,7 @@ import { CONFIG } from '../config';
 import { num, t, type TextKey } from '../i18n';
 import { drawBody } from '../objects/bacteriumArt';
 import { extentOf, type BacteriumKind } from '../objects/Bacterium';
+import { isPilotKind, pilotIcon } from '../objects/pilotArt';
 import { createTowerArt, type TowerId } from '../objects/Tower';
 import { addButton, setScreenInfo, textStyle, type Rect } from '../screens';
 import { COLORS, TEXT_COLORS } from '../theme';
@@ -180,6 +181,8 @@ export class AlmanacScene extends Phaser.Scene {
 
   /** Значок бактерии: тело нужного вида, вписанное в круг радиуса `radius` (по умолчанию — значок для ряда справа). */
   private bacteriumIcon(kind: BacteriumKind, x = 0, y = 0, radius = MARK / 2 - 2): Phaser.GameObjects.Container {
+    // Пилот этапа 8: у кокка, бронированной и Гиганта значок — картинка нового рисунка (первый кадр)
+    if (isPilotKind(kind)) return this.add.container(x, y, [pilotIcon(this, kind, radius)]);
     const hp = CONFIG.types[kind].hp;
     const g = this.add.graphics();
     drawBody(g, kind, { hp, maxHp: hp, spread: 0, seed: 1 });

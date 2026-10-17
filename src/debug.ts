@@ -19,6 +19,8 @@
  *   http://localhost:5173/?qa&meta=lives:1,coins:2,damage:3,reward:0,dna:50 — подменяет уровни улучшений вне партии и очки ДНК (в сохранение ничего не пишется)
  *   http://localhost:5173/?lang=en       — принудительно выбирает язык (проверка переводов)
  *   http://localhost:5173/?qa&best=30,19 — лучшие волны уровней 1, 2, … (открытие уровней «Сильного вещества II»; в сохранение ничего не пишется)
+ *   http://localhost:5173/?qa&pilleyes=0 — Таблетки без глаз (снимки пилота этапа 8, qa/art-shots.mjs); по умолчанию глаза есть (theme.PILL_EYES)
+ *   http://localhost:5173/?qa&artsheet   — лист образцов пилота: новые и прежние рисунки рядом (только режим проверки; в игровую сборку не попадает)
  */
 import type { PerfReport } from './perf';
 
@@ -28,6 +30,12 @@ export const QA_ENABLED: boolean = import.meta.env.DEV || import.meta.env.MODE =
 const params = new URLSearchParams(window.location.search);
 
 export const QA_MODE: boolean = QA_ENABLED && params.has('qa');
+
+/** Только режим проверки: `?qa&pilleyes=0` — Таблетки без глаз (для снимков пилота); в игровой сборке всегда false. */
+export const PILL_EYES_OFF: boolean = QA_MODE && params.get('pilleyes') === '0';
+
+/** Только режим проверки: `?qa&artsheet` — вместо игры показывается лист образцов пилота этапа 8. */
+export const ART_SHEET: boolean = QA_MODE && params.has('artsheet');
 
 /** Не показывать плашки с описанием (только вместе с ?qa): нужно проверкам, которые проверяют не плашки, а бой и интерфейс. */
 
@@ -293,6 +301,8 @@ export interface DebugApi {
   revealTower: (id: string) => void;
   /** Поставить башню вида `id` уровня `level` (1–4) в свободную клетку без оплаты и слияний — для снимков (qa/art-shots.mjs); false — клетка занята, закрыта или на дорожке. */
   placeTower: (id: string, col: number, row: number, level: number) => boolean;
+  /** Сколько картинок нарисовано и сколько памяти они занимают (ширина × высота × 4 байта); prefix — только ключи, начинающиеся с него (qa/art-shots.mjs). */
+  getArtStats: (prefix?: string) => { count: number; bytes: number; keys: Record<string, [number, number]> };
   /** Замер скорости с последнего сброса (reset — начать заново) и сколько объектов сейчас рисуется. */
   /** Журнал событий игры (с номера `from`): см. QaEvent. Сбрасывается при перезапуске уровня. */
   getEvents: (from?: number) => QaEvent[];

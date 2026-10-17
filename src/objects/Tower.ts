@@ -5,7 +5,8 @@ import {
   artImage, bakeArt, glowCircle, glowRing, glowRR, ringImage, setArt, shArc, shBox, shCirc, shEll, shLine, shPath, shPoly, shQuad, shRot, shRR, shStar, squareBox,
   type ArtBox, type Pt,
 } from '../art';
-import { COLORS, TOWER_ART } from '../theme';
+import { COLORS, PILL_EYES, TOWER_ART } from '../theme';
+import { isPilotTower, pilotBarrelKey, pilotBaseKey, pilotEyesKey, pilotPupilKey, PILL_EYE_POS, EYES_BOX, PUPIL_BOX, RECOIL_PX, RECOIL_SEC } from './pilotTowerArt';
 import { computeStats, mutationOptions, unlockedTiers, type TowerKey, type TowerStats } from '../towerStats';
 import type { Bacterium } from './Bacterium';
 
@@ -35,13 +36,18 @@ function artLevel(level: number): 1 | 2 | 3 | 4 {
 }
 
 /** Ствол башни уровня level (он повернут вправо; потом поворачивается на цель) — готовая картинка. */
-function barrelImage(scene: Phaser.Scene, id: TowerId, level: number): Phaser.GameObjects.Image {
-  return artImage(scene, barrelTexture(scene, id, level), BARREL_BOX);
+function barrelImage(scene: Phaser.Scene, id: TowerId, level: number, legacy = false): Phaser.GameObjects.Image {
+  return artImage(scene, barrelTexture(scene, id, level, legacy), BARREL_BOX);
 }
 
-function barrelTexture(scene: Phaser.Scene, id: TowerId, level: number): string {
+/**
+ * Пилот этапа 8: Таблетка 1 и 4 уровня и Сироп 1 уровня рисуются заново (pilotTowerArt.ts, Canvas 2D); legacy — прежний рисунок тех же башен (до утверждения стиля, лист образцов `?qa&artsheet`).
+ */
+function barrelTexture(scene: Phaser.Scene, id: TowerId, level: number, legacy = false): string {
   const lv = artLevel(level);
-  return bakeArt(scene, `tower-barrel-${id}-${lv}`, BARREL_BOX, (g) => drawBarrel(g, id, lv));
+  if (!legacy && isPilotTower(id, lv)) return pilotBarrelKey(scene, id, lv, BARREL_BOX);
+  const suffix = legacy && isPilotTower(id, lv) ? '-old' : '';
+  return bakeArt(scene, `tower-barrel-${id}-${lv}${suffix}`, BARREL_BOX, (g) => drawBarrel(g, id, lv));
 }
 
 /** Рисует ствол башни командами Graphics (один раз, в картинку). */
@@ -958,10 +964,17 @@ function drawTurnArrows(g: Phaser.GameObjects.Graphics): void {
 const LEVEL_COLORS = [COLORS.towerEdge, 0xdfe6f5, 0xffd84d, 0xc78bff];
 
 /** Верхняя неподвижная часть башни id уровня level — одна картинка: втулка над стволом, ядро 4-го уровня, кольцо и точки уровня под башней. */
-function topTexture(scene: Phaser.Scene, id: TowerId, level: number): string {
+function topTexture(scene: Phaser.Scene, id: TowerId, level: number, legacy = false): string {
   const lv = artLevel(level);
-  return bakeArt(scene, `tower-top-${id}-${lv}`, TOP_BOX, (g) => {
-    shCirc(g, 0, 0, 9, COLORS.background, COLORS.towerEdge, 2);
+  const pilot = !legacy && isPilotTower(id, lv);
+  const suffix = legacy && isPilotTower(id, lv) ? '-old' : '';
+  return bakeArt(scene, `tower-top-${id}-${lv}${suffix}`, TOP_BOX, (g) => {
+    // Пилот: тёмной втулки нет — вместо неё маленькая светлая заклёпка (у таблеток между глазами)
+    if (pilot) {
+      shCirc(g, 0, 0, 2.6, 0xe9f1ff, COLORS.towerEdge, 1.2);
+    } else {
+      shCirc(g, 0, 0, 9, COLORS.background, COLORS.towerEdge, 2);
+    }
     if (lv === 4) {
       const core = { pill: COLORS.gold, syrup: COLORS.gold, fizz: COLORS.acid, syringe: COLORS.needle, ampule: A.ampuleLiquid, antibiotic: COLORS.antibiotic, lamp: COLORS.lamp, vitamin: COLORS.vitamin, frost: COLORS.frost, patch: COLORS.patch }[id];
       if (id === 'pill') {
@@ -985,9 +998,11 @@ function topTexture(scene: Phaser.Scene, id: TowerId, level: number): string {
   });
 }
 
-function baseTexture(scene: Phaser.Scene, id: TowerId, level: number): string {
+function baseTexture(scene: Phaser.Scene, id: TowerId, level: number, legacy = false): string {
   const lv = artLevel(level);
-  return bakeArt(scene, `tower-base-${id}-${lv}`, BASE_BOX, (g) => drawBase(g, id, lv));
+  if (!legacy && isPilotTower(id, lv)) return pilotBaseKey(scene, id, lv, BASE_BOX);
+  const suffix = legacy && isPilotTower(id, lv) ? '-old' : '';
+  return bakeArt(scene, `tower-base-${id}-${lv}${suffix}`, BASE_BOX, (g) => drawBase(g, id, lv));
 }
 
 /** Картинки башни: основание, ствол (в контейнере — он поворачивается на цель) и верхняя часть; уровень 1–4 — свой рисунок каждой части. */
@@ -996,28 +1011,73 @@ interface TowerArt {
   barrel: Phaser.GameObjects.Container;
   barrelImg: Phaser.GameObjects.Image;
   top: Phaser.GameObjects.Image;
+  /** Прежний рисунок пилотных башен (лист образцов). */
+  legacy: boolean;
+  /** Глаза Таблетки (пилот): белки и два зрачка, зрачки смотрят на цель; null у остальных башен и при выключенных глазах (theme.PILL_EYES). */
+  eyes: Phaser.GameObjects.Image | null;
+  pupils: Phaser.GameObjects.Image[];
 }
 
 /** Основание, ствол и верхняя часть башни в контейнере. */
-function buildTowerArt(scene: Phaser.Scene, parent: Phaser.GameObjects.Container, id: TowerId, level = 1): TowerArt {
-  const base = artImage(scene, baseTexture(scene, id, level), BASE_BOX);
-  const barrelImg = barrelImage(scene, id, level);
+function buildTowerArt(scene: Phaser.Scene, parent: Phaser.GameObjects.Container, id: TowerId, level = 1, legacy = false, eyes: boolean = PILL_EYES): TowerArt {
+  const base = artImage(scene, baseTexture(scene, id, level, legacy), BASE_BOX);
+  const barrelImg = barrelImage(scene, id, level, legacy);
   const barrel = scene.add.container(0, 0, [barrelImg]);
-  const top = artImage(scene, topTexture(scene, id, level), TOP_BOX);
+  const top = artImage(scene, topTexture(scene, id, level, legacy), TOP_BOX);
   parent.add([base, barrel, top]);
-  return { base, barrel, barrelImg, top };
+  const art: TowerArt = { base, barrel, barrelImg, top, legacy, eyes: null, pupils: [] };
+  // Глаза Таблетки: два белка на верхнем слое (не вращаются) и два зрачка, которые смотрят на цель; видны на уровнях пилота
+  if (id === 'pill' && eyes && !legacy) {
+    art.eyes = artImage(scene, pilotEyesKey(scene, 1), EYES_BOX);
+    art.pupils = [artImage(scene, pilotPupilKey(scene, 1), PUPIL_BOX), artImage(scene, pilotPupilKey(scene, 1), PUPIL_BOX)];
+    parent.add([art.eyes, ...art.pupils]);
+    setEyesLevel(scene, art, artLevel(level));
+  }
+  return art;
+}
+
+/** Показывает глаза на уровнях пилота (1 и 4) и ставит их размер по уровню; на уровнях 2 и 3 (прежний рисунок) глаз нет. */
+function setEyesLevel(scene: Phaser.Scene, art: TowerArt, lv: number): void {
+  if (!art.eyes) return;
+  const show = lv === 1 || lv === 4;
+  art.eyes.setVisible(show);
+  for (const p of art.pupils) p.setVisible(show);
+  if (!show) return;
+  setArt(art.eyes, pilotEyesKey(scene, lv), EYES_BOX);
+  const e = PILL_EYE_POS[lv];
+  art.pupils.forEach((p, i) => {
+    setArt(p, pilotPupilKey(scene, lv), PUPIL_BOX);
+    p.setPosition((i === 0 ? -1 : 1) * e.x, 0);
+  });
+}
+
+/** Зрачки смотрят в сторону angle (радианы): сдвиг от центра белка на `look` пикселей. */
+function lookPupils(art: TowerArt, lv: number, angle: number): void {
+  if (!art.eyes || !art.eyes.visible) return;
+  const e = PILL_EYE_POS[lv];
+  if (!e) return;
+  art.pupils.forEach((p, i) => p.setPosition((i === 0 ? -1 : 1) * e.x + Math.cos(angle) * e.look, Math.sin(angle) * e.look));
 }
 
 /** Меняет все картинки башни на рисунки уровня level. */
 function setTowerArtLevel(scene: Phaser.Scene, art: TowerArt, id: TowerId, level: number): void {
-  setArt(art.base, baseTexture(scene, id, level), BASE_BOX);
-  setArt(art.barrelImg, barrelTexture(scene, id, level), BARREL_BOX);
-  setArt(art.top, topTexture(scene, id, level), TOP_BOX);
+  setArt(art.base, baseTexture(scene, id, level, art.legacy), BASE_BOX);
+  setArt(art.barrelImg, barrelTexture(scene, id, level, art.legacy), BARREL_BOX);
+  setArt(art.top, topTexture(scene, id, level, art.legacy), TOP_BOX);
+  setEyesLevel(scene, art, artLevel(level));
 }
 
 /** Рисует башню (основание и ствол) в контейнере; возвращает ствол — он поворачивается на цель. level (1–4) — уровень слияния, по умолчанию 1. */
 export function createTowerArt(scene: Phaser.Scene, parent: Phaser.GameObjects.Container, id: TowerId = 'pill', level = 1): Phaser.GameObjects.Container {
   return buildTowerArt(scene, parent, id, level).barrel;
+}
+
+/**
+ * Башня для листа образцов режима проверки (`?qa&artsheet`): legacy — прежний рисунок пилотных башен (до утверждения стиля), eyes — глаза у Таблетки независимо от theme.PILL_EYES.
+ * В игре не используется.
+ */
+export function createTowerArtSample(scene: Phaser.Scene, parent: Phaser.GameObjects.Container, id: TowerId, level: number, legacy: boolean, eyes: boolean): Phaser.GameObjects.Container {
+  return buildTowerArt(scene, parent, id, level, legacy, eyes).barrel;
 }
 
 /** Конус света Лампы: готовая картинка (одна на длину и угол); вершина — в центре башни, смотрит вправо. */
@@ -1073,6 +1133,8 @@ export class Tower {
   readonly remaining: number;
   /** Пауза до следующего выстрела, секунды игрового времени. */
   private cooldown = 0;
+  /** Отдача пилотных стволов: сколько секунд ещё идёт (0 — ствол на месте). */
+  private recoilLeft = 0;
   /** На сколько пауза «перетекла» за ноль в последнем шаге игры (секунды паузы): следующая пауза после выстрела на столько короче, поэтому скорострельность не зависит от длины шага
    *  (а значит, от скорости игры ×1/×3/×5 и от кадров в секунду). Не копится, пока башне некуда стрелять: считается только на шаге, где пауза дошла до нуля. */
   private overshoot = 0;
@@ -1375,7 +1437,21 @@ export class Tower {
    * не бросают, если на этом месте уже есть лужа): пауза начинается только после состоявшегося выстрела.
    * С мутацией «Двойной выстрел» башня бьёт ещё `extraTargets` целей за тот же выстрел.
    */
+  /**
+   * Выстрел состоялся (зовёт сцена рядом с отзвуком выстрела): у пилотных стволов запускает отдачу. Возвращает true, если башня пилотная (сцена тогда пускает облачко у дула).
+   */
+  kick(): boolean {
+    if (this.art.legacy || !isPilotTower(this.id, artLevel(this.level))) return false;
+    this.recoilLeft = RECOIL_SEC;
+    return true;
+  }
+
   update(dt: number, bacteria: readonly Bacterium[], fire: (target: Bacterium, muzzleX: number, muzzleY: number) => boolean): void {
+    // Отдача: ствол отъезжает назад по своей оси на RECOIL_PX и возвращается за RECOIL_SEC (ручной таймер, без анимаций Phaser)
+    if (this.recoilLeft > 0) {
+      this.recoilLeft = Math.max(0, this.recoilLeft - dt);
+      this.art.barrelImg.x = -RECOIL_PX * Math.sin(Math.PI * (1 - this.recoilLeft / RECOIL_SEC));
+    }
     // Аура Витамина рядом: пауза короче в auraMul раз (время идёт быстрее); присосавшийся паразит: длиннее в latchMul раз
     const before = this.cooldown;
     this.cooldown = before - dt / (this.auraMul * this.latchMul);
@@ -1421,6 +1497,7 @@ export class Tower {
     const angle = Math.atan2(targets[0].y - this.y, targets[0].x - this.x);
     this.lookAngle = angle;
     this.barrel.setRotation(angle);
+    lookPupils(this.art, artLevel(this.level), angle);
     if (this.cooldown > 0) return;
     const shoot = (target: Bacterium): boolean => {
       const a = Math.atan2(target.y - this.y, target.x - this.x);

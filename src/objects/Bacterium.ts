@@ -6,11 +6,13 @@ import { COLORS, TOWER_MARK } from '../theme';
 import { artDensity, artImage, bakeArt, discImage, ringImage, setArt, squareBox, type ArtBox } from '../art';
 import type { Tower } from './Tower';
 import { bodyHalfSize, crackCount, drawCracks, drawShape, hasRadialCracks, shellWidth, SPLITTER_LOBE_OFFSET } from './bacteriumArt';
+import { BLINK_EVERY_SEC, BLINK_SEC, BREATH_AMP, BREATH_SEC, isPilotKind, pilotBodyBox, pilotBodyKey, pilotFaceBox, pilotFaceKey, type PilotKind } from './pilotArt';
 
 export type BacteriumKind = keyof typeof CONFIG.types;
 
 /** Рамка рисунка тела типа (и трещин у некруглых типов). */
-function bodyBox(kind: BacteriumKind): ArtBox {
+function bodyBox(kind: BacteriumKind, legacy = false): ArtBox {
+  if (!legacy && isPilotKind(kind)) return pilotBodyBox(kind);
   const { hx, hy } = bodyHalfSize(kind);
   return { x: -hx, y: -hy, w: hx * 2, h: hy * 2 };
 }
@@ -50,9 +52,12 @@ const SHELL_STEP_PX = 1;
 const MAXHP_STEP = 0.25;
 
 /** Картинка тела типа с оболочкой толщины sw (рисуется один раз на тип и толщину). */
-function bodyTexture(scene: Phaser.Scene, kind: BacteriumKind, sw: number): string {
+function bodyTexture(scene: Phaser.Scene, kind: BacteriumKind, sw: number, legacy = false): string {
+  if (!legacy && isPilotKind(kind)) return pilotBodyKey(scene, kind, sw);
   const q = Math.round(sw / SHELL_STEP_PX) * SHELL_STEP_PX;
-  return bakeArt(scene, `bact-${kind}-${q}`, bodyBox(kind), (g) => drawShape(g, kind, q));
+  // прежний рисунок пилотных видов (лист образцов): свой ключ, чтобы не смешиваться с новым
+  const suffix = legacy && isPilotKind(kind) ? '-old' : '';
+  return bakeArt(scene, `bact-${kind}-${q}${suffix}`, bodyBox(kind, legacy), (g) => drawShape(g, kind, q));
 }
 
 /** Картинка трещин: у круглых типов — от угла 0 (картинка поворачивается на свой угол у каждой бактерии), у остальных — на месте. */
@@ -62,6 +67,24 @@ function cracksTexture(scene: Phaser.Scene, kind: BacteriumKind, damage: number,
   const q = Math.round(hp / MAXHP_STEP) * MAXHP_STEP;
   const box = radial ? squareBox(CONFIG.types[kind].radius + 4) : bodyBox(kind);
   return { key: bakeArt(scene, `crack-${kind}-${damage}-${q}`, box, (g) => drawCracks(g, kind, damage, q, 0)), box };
+}
+
+/**
+ * Образец бактерии для листа образцов режима проверки (`?qa&artsheet`): тело при заданном HP, трещины и (у пилотных видов) лицо; legacy — прежний рисунок пилотных видов.
+ * Центр образца — (0, 0); в игре не используется.
+ */
+export function bacteriumSample(scene: Phaser.Scene, kind: BacteriumKind, hp: number, maxHp: number, legacy = false): Phaser.GameObjects.Container {
+  const pilot = !legacy && isPilotKind(kind);
+  const parts: Phaser.GameObjects.Image[] = [artImage(scene, bodyTexture(scene, kind, shellWidth(kind, hp), legacy), bodyBox(kind, legacy))];
+  const damage = crackCount(hp, maxHp);
+  if (damage > 0) {
+    const { key, box } = cracksTexture(scene, kind, damage, maxHp);
+    const cracks = artImage(scene, key, box);
+    if (hasRadialCracks(kind)) cracks.setRotation(1);
+    parts.push(cracks);
+  }
+  if (pilot) parts.push(artImage(scene, pilotFaceKey(scene, kind as PilotKind, false), pilotFaceBox(kind as PilotKind)));
+  return scene.add.container(0, 0, parts);
 }
 
 /** Радиус описанного круга типа (от центра до самой дальней точки). */
@@ -155,6 +178,16 @@ export class Bacterium {
   /** Тело и трещины — готовые картинки (см. art.ts); показанные ключи, чтобы не менять картинку без нужды. */
   private readonly body: Phaser.GameObjects.Image;
   private readonly cracks: Phaser.GameObjects.Image;
+  /** Пилотные виды (этап 8): вложенная группа «тело + трещины + лицо» — её масштаб пульсирует (дыхание), внешний контейнер не трогаем: его масштаб использует рывок и прыжок. null у остальных видов. */
+  private readonly artGroup: Phaser.GameObjects.Container | null = null;
+  private readonly face: Phaser.GameObjects.Image | null = null;
+  private breathClock = 0;
+  private readonly breathSec: number;
+  private readonly breathPhase = Math.random() * Math.PI * 2;
+  /** Моргание: через сколько секунд следующее и сколько ещё глаза закрыты (0 — открыты). */
+  private blinkIn = 0;
+  private blinkLeft = 0;
+  private eyesShut = false;
   /** Полоска прочности под телом: появляется, когда бактерию задели (две картинки: подложка и заливка). */
   private barBack: Phaser.GameObjects.Image | null = null;
   private barFill: Phaser.GameObjects.Image | null = null;
@@ -195,7 +228,14 @@ export class Bacterium {
     this.cracks = artImage(scene, bodyTexture(scene, kind, shellWidth(kind, this.hp)), box).setVisible(false);
     // Круглые типы: трещины повёрнуты на свой угол у каждой бактерии (как раньше: от угла seed)
     if (hasRadialCracks(kind)) this.cracks.setRotation(this.seed);
-    this.container = scene.add.container(0, 0, [this.body, this.cracks]);
+    const pilot = isPilotKind(kind);
+    this.breathSec = pilot ? BREATH_SEC[kind as PilotKind][0] + Math.random() * (BREATH_SEC[kind as PilotKind][1] - BREATH_SEC[kind as PilotKind][0]) : 2;
+    if (pilot) {
+      this.blinkIn = BLINK_EVERY_SEC[0] + Math.random() * (BLINK_EVERY_SEC[1] - BLINK_EVERY_SEC[0]);
+      this.face = artImage(scene, pilotFaceKey(scene, kind as PilotKind, false), pilotFaceBox(kind as PilotKind));
+      this.artGroup = scene.add.container(0, 0, [this.body, this.cracks, this.face]);
+    }
+    this.container = scene.add.container(0, 0, this.artGroup ? [this.artGroup] : [this.body, this.cracks]);
     // Лекарь: кольцо-аура радиуса лечения, командир — радиуса ускорения (под телом)
     if (cfg.healRadius > 0) {
       const aura = discImage(scene, cfg.healRadius, COLORS.aura, 0.07, COLORS.aura, 3, 0.38);
@@ -427,6 +467,41 @@ export class Bacterium {
     }
     if (cfg.regenPerSec > 0) this.heal(cfg.regenPerSec * dt);
     if (!held) this.advance(this.baseSpeed * factor * this.haste * dt);
+    if (this.artGroup) this.idle(dt, held);
+  }
+
+  /**
+   * Движение на месте у пилотных видов (только поворот, масштаб и смена картинки по таймеру, без анимаций Phaser): дыхание — пульсация масштаба группы «тело + трещины + лицо»,
+   * моргание — смена картинки лица. Ауры, кольца, лёд и полоска прочности лежат вне группы и не пульсируют. Замороженная и приклеенная бактерия не дышит и не моргает.
+   */
+  private idle(dt: number, held: boolean): void {
+    const group = this.artGroup;
+    if (!group) return;
+    if (held || this.hp <= 0) {
+      if (group.scaleX !== 1) group.setScale(1);
+      this.shutEyes(false);
+      return;
+    }
+    this.breathClock += dt;
+    group.setScale(1 + BREATH_AMP * Math.sin((this.breathClock / this.breathSec) * Math.PI * 2 + this.breathPhase));
+    if (this.blinkLeft > 0) {
+      this.blinkLeft -= dt;
+      if (this.blinkLeft <= 0) this.shutEyes(false);
+    } else {
+      this.blinkIn -= dt;
+      if (this.blinkIn <= 0) {
+        this.shutEyes(true);
+        this.blinkLeft = BLINK_SEC;
+        this.blinkIn = BLINK_EVERY_SEC[0] + Math.random() * (BLINK_EVERY_SEC[1] - BLINK_EVERY_SEC[0]);
+      }
+    }
+  }
+
+  /** Меняет картинку лица: глаза закрыты (моргание) или открыты. */
+  private shutEyes(shut: boolean): void {
+    if (!this.face || shut === this.eyesShut) return;
+    this.eyesShut = shut;
+    setArt(this.face, pilotFaceKey(this.scene, this.kind as PilotKind, shut), pilotFaceBox(this.kind as PilotKind));
   }
 
   /**

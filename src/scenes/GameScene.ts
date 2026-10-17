@@ -19,7 +19,7 @@ import { Cloud } from '../objects/Cloud';
 import { Trap } from '../objects/Trap';
 import { Puddle } from '../objects/Puddle';
 import { beamReach, createTowerArt, defaultAim, drawAimLine, Tower, type TowerId } from '../objects/Tower';
-import { ringImage } from '../art';
+import { artStats, ringImage } from '../art';
 import { pointAt, tileCenter, unitCenter, type Edge } from '../pathing';
 import { sfx } from '../sound';
 import { computeStats, MAX_TOWER_LEVEL, mutationOptions, towerPrice, type TowerStats } from '../towerStats';
@@ -403,6 +403,7 @@ export class GameScene extends Phaser.Scene {
       }),
       gameToClient: (gx, gy) => this.gameToClient(gx, gy),
       placeTower: (id, col, row, level) => placeTowerQa(this, id as TowerId, col, row, level),
+      getArtStats: (prefix) => artStats(prefix),
       getPerf: (reset) => {
         let objects = 0;
         const count = (list: Phaser.GameObjects.GameObject[]): void => {
@@ -691,6 +692,8 @@ export class GameScene extends Phaser.Scene {
     }
     this.shots++;
     sfx.shoot(tower.id);
+    // Пилот этапа 8: отдача ствола и облачко у дула (из общего запаса эффектов, без новых объектов на каждый выстрел)
+    if (tower.kick()) this.effects.muzzle(muzzleX, muzzleY, Math.atan2(muzzleY - tower.y, muzzleX - tower.x), tower.id === 'syrup' ? COLORS.syrup : 0xffffff);
     return true;
   }
 
