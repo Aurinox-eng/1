@@ -1,0 +1,251 @@
+#!/usr/bin/env node
+/**
+ * Снимки и видео для этапа 8 (пилот: кокк, бронированная, Гигант; Таблетка 1 и 4 уровня, Сироп 1 уровня).
+ * Это съёмка, а не проверка: ничего не сравнивает и не падает от «неправильной» картинки. Разрешено запускать локально.
+ *
+ *   npm run build:qa && node qa/art-shots.mjs --tag=before          # снимки «до» → qa/screenshots/art-pilot/before/
+ *   node qa/art-shots.mjs --tag=after                                 # «после» (+ лист образцов ?qa&artsheet)
+ *   node qa/art-shots.mjs --tag=after --query=pilleyes=0 --suffix=-noeyes   # таблетки без глаз
+ *   node qa/art-shots.mjs --tag=before --only=a,b                     # только некоторые сцены
+ *
+ * Сцены: a — компьютер 1280×720 (масштаб карты по умолчанию и наибольшее приближение); b — телефон iPhone 15 горизонтально (852×393, ×3);
+ * c — стресс-сценарий (?qa&stress); d — альманах, вкладка «Бактерии»; e — как a, но рисование через canvas (?qa&canvas, так рисует бот баланса);
+ * v — видео 10 с крупным планом боя; s — лист образцов (только «после», ?qa&artsheet).
+ * Башни ставятся через window.__pvb (placeTower, revealTower, gameToClient, cellToClient), как в qa/smoke.mjs.
+ */
+import fs from 'node:fs';
+import path from 'node:path';
+import { ROOT, createInput, launchBrowser, makeGraphGeometry, parseArgs, readConfigNumber, sleep, startServer } from './lib.mjs';
+
+const args = parseArgs(process.argv.slice(2));
+const TAG = String(args.tag ?? 'before');
+const SUFFIX = String(args.suffix ?? '');
+const EXTRA = args.query ? `&${args.query}` : '';
+const ONLY = args.only ? String(args.only).split(',') : null;
+const OUT = path.join(ROOT, 'qa', 'screenshots', 'art-pilot', TAG);
+const wants = (key) => !ONLY || ONLY.includes(key);
+fs.mkdirSync(OUT, { recursive: true });
+
+/** Состав боя из задания: кокк, бронированная, Гигант, палочка, лекарь, фагоцит, рой (фон толпы). Монет много: башни ставятся без оплаты, но игра их считает. */
+const BATTLE_CFG =
+  'economy.startCoins:20000,waves.list.0.coccus:6,waves.list.0.armored:3,waves.list.0.giant:1,waves.list.0.rod:3,waves.list.0.healer:1,waves.list.0.phago:1,waves.list.0.swarm:6';
+const BATTLE_URL = `?qa&noplaque&lang=ru&level=10&speed=3&cfg=${BATTLE_CFG}`;
+
+const DESKTOP = { viewport: { width: 1280, height: 720 }, deviceScaleFactor: 1.5, isMobile: false, hasTouch: false };
+const PHONE = { viewport: { width: 852, height: 393 }, deviceScaleFactor: 3, isMobile: true, hasTouch: true };
+
+const getState = (page) => page.evaluate(() => window.__pvb?.getState());
+const log = (...a) => console.log('·', ...a);
+
+/** Ждёт условие по состоянию игры (не секундами): возвращает состояние или бросает ошибку. */
+async function waitState(page, pred, label, timeoutMs = 120000) {
+  const t0 = Date.now();
+  while (Date.now() - t0 < timeoutMs) {
+    const s = await getState(page);
+    if (s && pred(s)) return s;
+    await sleep(60);
+  }
+  throw new Error(`Не дождались: ${label}`);
+}
+/** Несколько отрисованных кадров страницы. */
+const frames = (page, n = 4) =>
+  page.evaluate(
+    (k) =>
+      new Promise((resolve) => {
+        let left = k;
+        const tick = () => (--left <= 0 ? resolve() : requestAnimationFrame(tick));
+        requestAnimationFrame(tick);
+      }),
+    n,
+  );
+async function shot(page, name) {
+  const file = path.join(OUT, `${name}${SUFFIX}.png`);
+  await page.screenshot({ path: file, timeout: 120000 });
+  log('снимок', path.relative(ROOT, file));
+  return file;
+}
+
+/** Открывает игру: возвращает страницу, ввод и перевод координат. */
+async function open(browser, device, url, { video = false } = {}) {
+  const ctx = await browser.newContext({
+    ...device,
+    locale: 'ru-RU',
+    ...(video ? { recordVideo: { dir: path.join(OUT, '_video'), size: device.viewport } } : {}),
+  });
+  const page = await ctx.newPage();
+  page.on('pageerror', (e) => console.log('! ошибка страницы:', e.message));
+  await page.goto(url, { waitUntil: 'load', timeout: 120000 });
+  const cdp = await ctx.newCDPSession(page);
+  const input = createInput(page, cdp, device.hasTouch);
+  return { ctx, page, input, cdp };
+}
+
+/** Клетки вокруг центральной развилки: развилка — узел сети с несколькими выходами, ближайший к центру мира; берём свободные клетки по близости к ней. */
+async function forkCells(page, state, count) {
+  const graph = await page.evaluate(() => window.__pvb.getGraph());
+  const map = { ...state.map, pathWidth: readConfigNumber('map', 'pathWidth'), pathUnit: readConfigNumber('map', 'pathUnit') };
+  const geo = makeGraphGeometry(graph, map, map.cols, map.rows);
+  const outDeg = new Map();
+  for (const e of graph.edges) outDeg.set(e.from, (outDeg.get(e.from) ?? 0) + 1);
+  const nodePos = new Map();
+  for (const e of graph.edges) nodePos.set(e.from, { x: e.pts[0][0], y: e.pts[0][1] });
+  const center = { x: map.worldW / 2, y: map.worldH / 2 };
+  const forks = [...outDeg.entries()].filter(([, d]) => d >= 2).map(([n]) => nodePos.get(n));
+  const fork = forks.sort((a, b) => Math.hypot(a.x - center.x, a.y - center.y) - Math.hypot(b.x - center.x, b.y - center.y))[0] ?? center;
+  const cells = [];
+  for (let col = 0; col < map.cols; col++) {
+    for (let row = 0; row < map.rows; row++) {
+      if (geo.isPathCell(col, row)) continue;
+      const c = geo.center(col, row);
+      cells.push({ col, row, d: Math.hypot(c.x - fork.x, c.y - fork.y), c });
+    }
+  }
+  cells.sort((a, b) => a.d - b.d);
+  // раздвигаем башни: не ближе 1,1 клетки друг к другу, чтобы рисунки не наслаивались
+  const picked = [];
+  for (const cell of cells) {
+    if (picked.length >= count) break;
+    if (picked.every((q) => Math.hypot(q.c.x - cell.c.x, q.c.y - cell.c.y) >= map.tile * 1.1)) picked.push(cell);
+  }
+  return { fork, cells: picked };
+}
+
+/** Ставит пилотные башни у развилки: Таблетки 1-го уровня, одну Таблетку 4-го, Сироп 1-го. */
+async function placePilotTowers(page, state) {
+  const { cells } = await forkCells(page, state, 6);
+  const plan = [
+    ['pill', 1],
+    ['pill', 1],
+    ['pill', 4],
+    ['syrup', 1],
+    ['pill', 1],
+    ['syrup', 1],
+  ];
+  let placed = 0;
+  for (let i = 0; i < plan.length && i < cells.length; i++) {
+    const ok = await page.evaluate(([id, c, r, lv]) => window.__pvb.placeTower(id, c, r, lv), [plan[i][0], cells[i].col, cells[i].row, plan[i][1]]);
+    if (ok) placed++;
+  }
+  log('башен поставлено', placed);
+  return cells;
+}
+
+/** Ждёт, пока на поле будет не меньше `n` бактерий (по состоянию игры), и даёт им дойти до башен. */
+async function waitCrowd(page, n) {
+  await waitState(page, (s) => s.bacteria.length >= n, `на поле ≥ ${n} бактерий`, 180000);
+  await frames(page, 6);
+}
+
+/** Приближение: колесо мыши (компьютер) или щипок (телефон). */
+async function zoomIn(input, page, device, point, steps) {
+  if (device.hasTouch) {
+    for (let i = 0; i < steps; i++) await input.pinch(point, 60, 160, { steps: 8, stepMs: 25 });
+  } else {
+    for (let i = 0; i < steps; i++) await input.wheel(point, -400);
+  }
+  await frames(page, 6);
+}
+
+/** Сцены а, б и д: бой с пилотными башнями, кадры при начальном масштабе и (на компьютере) при наибольшем приближении. */
+async function battle(browser, key, device, label, { canvas = false, close = true } = {}) {
+  const url = `${BASE}${BATTLE_URL}${canvas ? '&canvas' : ''}${EXTRA}`;
+  const { ctx, page, input } = await open(browser, device, url);
+  await waitState(page, (s) => s.state === 'playing', 'запуск игры', 60000);
+  const state = await getState(page);
+  const cells = await placePilotTowers(page, state);
+  await waitCrowd(page, 8);
+  await shot(page, `${label}-1-start-zoom`);
+  const c0 = await page.evaluate(([col, row]) => window.__pvb.cellToClient(col, row), [cells[0].col, cells[0].row]);
+  if (close) {
+    await zoomIn(input, page, device, c0, device.hasTouch ? 0 : 8);
+    await waitCrowd(page, 4);
+    await shot(page, `${label}-2-max-zoom`);
+  }
+  await ctx.close();
+}
+
+async function main() {
+  const server = await startServer('dist-qa');
+  BASE = server.url;
+  const browser = await launchBrowser();
+  const run = async (key, title, fn) => {
+    if (!wants(key)) return;
+    log(`сцена ${key}: ${title}`);
+    try {
+      await fn();
+    } catch (e) {
+      console.log(`! сцена ${key} не снята: ${e.message}`);
+    }
+  };
+  await run('a', 'компьютер 1280×720', () => battle(browser, 'a', DESKTOP, 'a-desktop'));
+  await run('b', 'телефон iPhone 15 горизонтально', () => battle(browser, 'b', PHONE, 'b-phone', { close: false }));
+  await run('c', 'стресс-сценарий', async () => {
+    const { ctx, page } = await open(browser, DESKTOP, `${BASE}?qa&noplaque&lang=ru&stress${EXTRA}`);
+    await waitState(page, (s) => s.state === 'playing' && s.bacteria.length >= 60, 'толпа в стресс-сценарии', 180000);
+    await frames(page, 8);
+    await shot(page, 'c-stress');
+    await ctx.close();
+  });
+  await run('d', 'альманах, вкладка «Бактерии»', async () => {
+    const { ctx, page, input } = await open(browser, DESKTOP, `${BASE}?qa&menu&lang=ru&speed=4${EXTRA}`);
+    const ui = () => page.evaluate(() => window.__pvbUi?.get() ?? null);
+    const waitUi = async (scene) => {
+      const t0 = Date.now();
+      while (Date.now() - t0 < 60000) {
+        const u = await ui();
+        if (u && u.scene === scene) return u;
+        await sleep(80);
+      }
+      throw new Error(`нет экрана ${scene}`);
+    };
+    let u = await waitUi('menu');
+    const rect = await page.evaluate(() => {
+      const r = document.querySelector('canvas').getBoundingClientRect();
+      return { left: r.left, top: r.top, width: r.width, height: r.height };
+    });
+    const g = (r) => ({ x: rect.left + (r.x * rect.width) / 1280, y: rect.top + (r.y * rect.height) / 720 });
+    await input.tap(g(u.buttons.almanac));
+    u = await waitUi('almanac');
+    await input.tap(g(u.buttons.bacteria));
+    await frames(page, 8);
+    await shot(page, 'd-almanac-bacteria');
+    await ctx.close();
+  });
+  await run('e', 'компьютер, рисование через canvas', () => battle(browser, 'e', DESKTOP, 'e-desktop-canvas', { canvas: true }));
+  await run('v', 'видео 10 с крупным планом боя', async () => {
+    const { ctx, page, input } = await open(browser, { ...DESKTOP, deviceScaleFactor: 1 }, `${BASE}${BATTLE_URL}${EXTRA}`, { video: true });
+    await waitState(page, (s) => s.state === 'playing', 'запуск игры', 60000);
+    const state = await getState(page);
+    const cells = await placePilotTowers(page, state);
+    await waitCrowd(page, 6);
+    const c0 = await page.evaluate(([col, row]) => window.__pvb.cellToClient(col, row), [cells[0].col, cells[0].row]);
+    await zoomIn(input, page, DESKTOP, c0, 8);
+    // 10 секунд игрового боя: ждём по часам игры (state.clock.baseSec), а не по секундам реального времени
+    const base0 = (await getState(page)).clock.baseSec;
+    await waitState(page, (s) => s.clock.baseSec - base0 >= 10 || s.state !== 'playing', '10 секунд боя', 600000);
+    const video = page.video();
+    await ctx.close();
+    const file = await video.path();
+    const dest = path.join(OUT, `v-battle${SUFFIX}.webm`);
+    fs.copyFileSync(file, dest);
+    fs.rmSync(path.join(OUT, '_video'), { recursive: true, force: true });
+    log('видео', path.relative(ROOT, dest));
+  });
+  if (TAG !== 'before') {
+    await run('s', 'лист образцов', async () => {
+      const { ctx, page } = await open(browser, DESKTOP, `${BASE}?qa&artsheet&lang=ru${EXTRA}`);
+      await frames(page, 12);
+      await shot(page, 's-artsheet');
+      await ctx.close();
+    });
+  }
+  await browser.close();
+  await server.close();
+  log('готово:', path.relative(ROOT, OUT));
+}
+
+let BASE = '';
+main().catch((e) => {
+  console.error(e);
+  process.exit(1);
+});

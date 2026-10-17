@@ -291,6 +291,8 @@ export interface DebugApi {
   cellToClient: (col: number, row: number) => { x: number; y: number };
   /** Сдвинуть список башен в нижней панели так, чтобы карточка этой башни была видна (проверки и бот нажимают на карточки по координатам). */
   revealTower: (id: string) => void;
+  /** Поставить башню вида `id` уровня `level` (1–4) в свободную клетку без оплаты и слияний — для снимков (qa/art-shots.mjs); false — клетка занята, закрыта или на дорожке. */
+  placeTower: (id: string, col: number, row: number, level: number) => boolean;
   /** Замер скорости с последнего сброса (reset — начать заново) и сколько объектов сейчас рисуется. */
   /** Журнал событий игры (с номера `from`): см. QaEvent. Сбрасывается при перезапуске уровня. */
   getEvents: (from?: number) => QaEvent[];

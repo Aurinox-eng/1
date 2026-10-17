@@ -2,7 +2,7 @@ import Phaser from 'phaser';
 import { CameraRig } from '../cameraRig';
 import { CONFIG } from '../config';
 import { exposeDebug, QA_ENTRANCE, QA_MODE, STRESS, STRESS_FIZZ, TIME_SCALE, type QaEvent } from '../debug';
-import { qaLog, qaSnapshot, setupStress, stressFrame } from '../qaTools';
+import { placeTowerQa, qaLog, qaSnapshot, setupStress, stressFrame } from '../qaTools';
 import { Effects } from '../effects';
 import { drawStar, setScreenInfo } from '../screens';
 import { awardDna, dnaParts, coinsBonus, exposeMetaDebug, HIDDEN_SCREEN, isLevelBeaten, livesBonus, markSeen, metaDna, metaSeen, recordResult, refundBonus, rewardMul, shieldCharges, starsForLoss, waveCoinsBonus } from '../meta';
@@ -402,6 +402,7 @@ export class GameScene extends Phaser.Scene {
         }),
       }),
       gameToClient: (gx, gy) => this.gameToClient(gx, gy),
+      placeTower: (id, col, row, level) => placeTowerQa(this, id as TowerId, col, row, level),
       getPerf: (reset) => {
         let objects = 0;
         const count = (list: Phaser.GameObjects.GameObject[]): void => {
