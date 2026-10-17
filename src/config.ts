@@ -232,7 +232,7 @@ export const CONFIG = {
      *  Известные по прошлым уровням типы выходят с 1–6-й волны подряд, новый тип этого уровня — после них. Названия уровней — в `src/i18n.ts`. */
     specs: [
       {},
-      { intro: { coccus: 1, rod: 2, swarm: 3, runner: 4, splitter: 5, armored: 6, spore: 8 }, hpBudget: [10, 1093], growth: { perWave: 0.08, fromWave: 8, latePerWave: 0.6, lateFromWave: 16 } },
+      { intro: { coccus: 1, rod: 2, swarm: 3, runner: 4, splitter: 5, armored: 6, spore: 8 }, hpBudget: [10, 1093], growth: { perWave: 0.08, fromWave: 8, latePerWave: 1.15, lateFromWave: 16 } }, // уровень 2: форма Д (решение владельца 17 октября 2026): начало прежнее, поздний рост 1,15 вместо 0,6 (прочность к прежней: 18-я волна ×1,37, 20-я ×1,50, 30-я ×1,69)
       { intro: { coccus: 1, rod: 2, swarm: 3, runner: 4, splitter: 5, armored: 6, spore: 7, slick: 9 }, hpBudget: [10, 1174], growth: { perWave: 0.08, fromWave: 8, latePerWave: 0.95, lateFromWave: 16 } },
       { intro: { coccus: 1, rod: 2, swarm: 3, runner: 4, splitter: 5, armored: 6, spore: 7, slick: 8, regen: 10, leaper: 14 }, hpBudget: [10, 1255], growth: { perWave: 0.08, fromWave: 8, latePerWave: 1.6, lateFromWave: 16 } },
       { intro: { coccus: 1, rod: 2, swarm: 3, runner: 4, splitter: 5, armored: 6, spore: 7, slick: 8, regen: 9, leaper: 10, healer: 11, stealth: 15 }, hpBudget: [10, 1336], growth: { perWave: 0.08, fromWave: 8, latePerWave: 2.6, lateFromWave: 16 } },
