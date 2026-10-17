@@ -8688,8 +8688,7 @@ async function runAlmanacPause(browser, baseUrl) {
     // Тап по экрану (мимо кнопок) возобновляет игру
     await game.input.tap(game.g(500, 300));
     s = await waitFor(page, (x) => x.state === 'playing', 5000, 'игра продолжилась тапом по экрану');
-    await sleep(400);
-    const run = await game.state();
+    const run = await waitForGame(page, (x) => x.state === 'playing' && x.elapsed > elapsed0, 'игровое время пошло после тапа по экрану', { gameSec: 20 });
     check(`${p} тап по экрану после альманаха возобновляет игру: state 'playing', время идёт (${f2(elapsed0)} → ${f2(run.elapsed)})`, run.state === 'playing' && run.elapsed > elapsed0, `state ${run.state}, время ${f2(run.elapsed)}`);
     // «Заново» на паузе: ставим башню, снова пауза, тап по «Заново» — партия начинается сначала (монеты и время с нуля, башен нет), игра идёт
     await game.towerButton();
