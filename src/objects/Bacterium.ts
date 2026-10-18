@@ -84,6 +84,8 @@ export class Bacterium {
   readonly id = Bacterium.nextId++;
   readonly kind: BacteriumKind;
   readonly maxHp: number;
+  /** Множитель прочности, с которым бактерия вышла (волны, в которой она родилась): дети делящейся и матки берут его, а не множитель текущей волны. */
+  readonly hpMul: number;
   hp: number;
   x = 0;
   y = 0;
@@ -179,6 +181,7 @@ export class Bacterium {
   ) {
     this.scene = scene;
     this.kind = kind;
+    this.hpMul = hpMul;
     const cfg = CONFIG.types[kind];
     this.maxHp = cfg.hp * hpMul;
     this.hp = this.maxHp;

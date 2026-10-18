@@ -2459,6 +2459,64 @@ function splitPair(a, b) {
 const SPLIT_MIN_SHARE = 0.5;
 const SPLIT_MIN_MEASURED = 5;
 
+/**
+ * Дети делящейся и матки берут множитель прочности родителя, а не текущей волны (по рецензии 18 октября 2026): делящаяся, вышедшая в 1-й волне и убитая во 2-й, давала кокков прочнее
+ * в (множитель 2-й волны / множитель 1-й) раз. Рост по волнам здесь крутой (HP × (1 + волна)): 1-я волна ×2, 2-я ×3. Родитель с множителем 2 → дети кокк 2 HP × 2 = 4 (по прежнему — 6);
+ * матка (1-я волна) рожает рой, пока идёт 2-я: рой 2 HP × 2 = 4 (по прежнему — 6). Награда за убитых по-прежнему считается по текущей волне (её эта проверка не трогает).
+ */
+async function runChildMul(browser, baseUrl) {
+  const p = '[дети делящейся и матки]';
+  const ctx = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
+  const twoWaves = (first, second) => {
+    const out = ['waves.total:2', 'waves.pauseSec:0.1', 'waves.firstDelaySec:1', 'waves.hpGrowthPerWave:1', 'waves.hpGrowthFromWave:0', 'waves.hpGrowthLatePerWave:0'];
+    for (const k of KINDS) out.push(`waves.list.0.${k}:${first[k] ?? 0}`, `waves.list.1.${k}:${second[k] ?? 0}`);
+    return out.join(',');
+  };
+  const coccusHp = readConfigNumber('coccus', 'hp');
+  const swarmHp = readConfigNumber('swarm', 'hp');
+  // ---- делящаяся: убита уже во 2-й волне
+  {
+    const cfg = `${twoWaves({ splitter: 1 }, { rod: 1 })},bacteria.baseSpeed:20,towers.pill.damage:100,towers.pill.range:3000,economy.startCoins:500,${NO_LIFE_LOSS}`;
+    const game = await openGame(ctx, baseUrl, `${p} делящаяся`, { speed: 4, cfg });
+    let parent = null;
+    await pollUntil(game, (st) => {
+      const b = st.bacteria.find((x) => x.kind === 'splitter');
+      if (b && !parent) parent = { maxHp: b.maxHp, wave: st.wave };
+      return st.wave >= 2 && Boolean(b);
+    }, WAIT_MS, 30);
+    await placeSure(game, 'pill', FREE.a);
+    let kids = [];
+    let waveAtKill = 0;
+    await pollUntil(game, (st) => {
+      kids = st.bacteria.filter((x) => x.kind === 'coccus');
+      waveAtKill = st.wave;
+      return kids.length >= 2 || st.state !== 'playing';
+    }, WAIT_MS, 30).catch(() => null);
+    const want = coccusHp * (parent ? parent.maxHp / readConfigNumber('splitter', 'hp') : NaN);
+    check(`${p} делящаяся вышла в волне ${parent?.wave} (HP ${parent?.maxHp}), убита в волне ${waveAtKill}: дети-кокки ${kids.map((k) => k.maxHp).join(', ')} HP = ${want} (кокк ${coccusHp} × множитель родителя), а не × множитель текущей волны`, kids.length >= 2 && waveAtKill >= 2 && kids.every((k) => Math.abs(k.maxHp - want) < 1e-6), JSON.stringify({ parent, waveAtKill, kids: kids.map((k) => k.maxHp) }));
+    await game.page.close();
+  }
+  // ---- матка: рой рождается во 2-й волне
+  {
+    const cfg = `${twoWaves({ brood: 1 }, { rod: 1 })},bacteria.baseSpeed:20,types.brood.brewEverySec:8,${NO_LIFE_LOSS}`;
+    const game = await openGame(ctx, baseUrl, `${p} матка`, { speed: 4, cfg });
+    let mother = null;
+    let swarm = [];
+    let waveAtBirth = 0;
+    await pollUntil(game, (st) => {
+      const b = st.bacteria.find((x) => x.kind === 'brood');
+      if (b && !mother) mother = { maxHp: b.maxHp, wave: st.wave };
+      swarm = st.bacteria.filter((x) => x.kind === 'swarm');
+      waveAtBirth = st.wave;
+      return swarm.length >= 1 || st.state !== 'playing';
+    }, WAIT_MS, 30).catch(() => null);
+    const want = swarmHp * (mother ? mother.maxHp / readConfigNumber('brood', 'hp') : NaN);
+    check(`${p} матка вышла в волне ${mother?.wave} (HP ${mother?.maxHp}), рой рождён в волне ${waveAtBirth}: рой ${swarm.map((k) => k.maxHp).join(', ')} HP = ${want} (рой ${swarmHp} × множитель матки), а не × множитель текущей волны`, swarm.length >= 1 && waveAtBirth >= 2 && swarm.every((k) => Math.abs(k.maxHp - want) < 1e-6), JSON.stringify({ mother, waveAtBirth, swarm: swarm.map((k) => k.maxHp) }));
+    await game.page.close();
+  }
+  await ctx.close();
+}
+
 async function runSplit(browser, baseUrl) {
   const p = '[делящаяся]';
   const count = readConfigNumber('splitter', 'splitCount');
@@ -9195,6 +9253,7 @@ try {
   if (wants('combat')) await safe('[бой]', () => runCombat(browser, qaServer.url));
   if (wants('dash')) await safe('[рывки палочки]', () => runDash(browser, qaServer.url));
   if (wants('split')) await safe('[делящаяся]', () => runSplit(browser, qaServer.url));
+  if (wants('split')) await safe('[дети делящейся и матки]', () => runChildMul(browser, qaServer.url));
   if (wants('spore')) await safe('[спора]', () => runSpore(browser, qaServer.url));
   if (wants('armored')) await safe('[бронированная]', () => runArmored(browser, qaServer.url));
   if (wants('intro')) await safe('[появление типов]', () => runIntro(browser, qaServer.url));

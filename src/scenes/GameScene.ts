@@ -916,7 +916,7 @@ export class GameScene extends Phaser.Scene {
       if (mother.brewClock < brewEverySec) continue;
       mother.brewClock -= brewEverySec;
       for (let i = 0; i < brewCount; i++) {
-        const child = new Bacterium(this, this.bacteriaLayer, BREWS_INTO, mother.edge, mother.s, this.waveHpMul());
+        const child = new Bacterium(this, this.bacteriaLayer, BREWS_INTO, mother.edge, mother.s, mother.hpMul);
         child.moveForward(i * CONFIG.types[BREWS_INTO].radius * 2);
         this.bacteria.push(child);
       }
@@ -1095,7 +1095,7 @@ export class GameScene extends Phaser.Scene {
     this.splits++;
     sfx.split();
     for (let i = 0; i < splitCount; i++) {
-      const child = new Bacterium(this, this.bacteriaLayer, SPLITS_INTO, parent.edge, parent.s, this.waveHpMul());
+      const child = new Bacterium(this, this.bacteriaLayer, SPLITS_INTO, parent.edge, parent.s, parent.hpMul);
       child.moveForward(i * splitGapPx);
       this.bacteria.push(child);
     }
