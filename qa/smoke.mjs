@@ -8879,7 +8879,8 @@ async function runAlmanacPause(browser, baseUrl) {
     const elapsedResume = pausedResume.elapsed;
     await game.input.tap(game.g(resumeBtn.x, resumeBtn.y));
     await waitFor(page, (x) => x.state === 'playing', 5000, 'игра продолжилась кнопкой «Продолжить»');
-    await sleep(400);
+    // игровое время ждём по росту, а не фиксированные 400 мс: на медленной машине кадры идут реже (плавающая проверка: «0,15 → 0,15», 5bd43d0 и 29f756a)
+    await waitFor(page, (x) => x.elapsed > elapsedResume, 15000, 'игровое время пошло после «Продолжить»').catch(() => null);
     const afterResume = await game.state();
     check(`${p} тап по «Продолжить» возобновляет игру одним тапом: state 'playing', время идёт (${f2(elapsedResume)} → ${f2(afterResume.elapsed)}), кнопок паузы нет`,
       afterResume.state === 'playing' && afterResume.elapsed > elapsedResume && afterResume.pauseResumeButton === null && afterResume.pauseMenuButton === null, `state ${afterResume.state}`);
