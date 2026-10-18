@@ -1,0 +1,144 @@
+# Сборки веток по своим ссылкам, отдельно от основной (решение владельца 18 октября 2026, п. 7).
+# Собирает игровую версию (`npm run build`, без ?qa; ?fps работает) и кладёт её в ветку gh-pages:
+#   main                      → https://aurinox-eng.github.io/1/        (корень)
+#   claude/pvb-work-*         → https://aurinox-eng.github.io/1/work/   (рабочая ветка)
+#   claude/art-style-*        → https://aurinox-eng.github.io/1/style/  (ветка стиля)
+#   другая claude/…           → https://aurinox-eng.github.io/1/b-<имя>/
+# Сайт читается из ветки gh-pages (Settings → Pages → Source → Deploy from a branch → gh-pages / root): шаги — docs/process-speedup-2026-10-18.md, раздел 3.
+# Первая публикация ветки идёт при первом push без [skip ci]: workflow_dispatch нового файла возможен только после его слияния в main.
+# Срабатывает при push (кроме правок только в docs/ и *.md; push с [skip ci] не срабатывает — тогда запуск вручную: Actions → «Сборки веток» → Run workflow
+# или actions_run_trigger, поле ref — ветка или хеш). Нужны только права GITHUB_TOKEN этого файла, новых ключей нет.
+name: Сборки веток
+run-name: Сборка ветки · ${{ inputs.ref || github.ref_name }}
+
+on:
+  push:
+    branches: [main, 'claude/**']
+    paths-ignore:
+      - 'docs/**'
+      - '**.md'
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Ветка или коммит для сборки (пусто — та ветка, с которой запущено)'
+        type: string
+        default: ''
+
+permissions:
+  contents: write # запись в ветку gh-pages
+  pages: write # просьба пересобрать сайт Pages после записи
+
+# Новая сборка той же ветки отменяет идущую; разные ветки публикуются параллельно (запись в gh-pages — с повтором при гонке)
+concurrency:
+  group: preview-${{ inputs.ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  publish:
+    name: Собрать и выложить
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Куда выкладывать
+        id: where
+        env:
+          REF_NAME: ${{ inputs.ref || github.ref_name }}
+        run: |
+          case "$REF_NAME" in
+            main) slug="" ;;
+            claude/pvb-work-*) slug="work" ;;
+            claude/art-style-*) slug="style" ;;
+            *) slug="b-$(echo "$REF_NAME" | tr '/_' '--' | tr -cd 'A-Za-z0-9-' | cut -c1-40)" ;;
+          esac
+          echo "slug=$slug" >> "$GITHUB_OUTPUT"
+          echo "Ветка: $REF_NAME → подпапка: '${slug}'"
+
+      - name: Установить зависимости
+        run: npm ci
+        env:
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+
+      - name: Собрать игровую версию
+        run: npm run build
+
+      - name: Записать версию
+        env:
+          REF_NAME: ${{ inputs.ref || github.ref_name }}
+        run: |
+          {
+            echo "commit: $(git rev-parse HEAD)"
+            echo "branch: ${REF_NAME}"
+            echo "built:  $(date -u '+%Y-%m-%d %H:%M:%S') UTC"
+            echo "run:    ${GITHUB_RUN_NUMBER}"
+          } > dist/version.txt
+
+      - name: Выложить в gh-pages
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SLUG: ${{ steps.where.outputs.slug }}
+        run: |
+          bash .github/scripts/publish-pages.sh "$SLUG" dist "Сборка ${SLUG:-корня} $(git rev-parse --short HEAD)"
+
+      # Корня сайта ещё нет (первая публикация): положить туда сборку main, иначе после переключения Pages на gh-pages основная ссылка не откроется.
+      - name: Корень сайта есть?
+        id: root
+        run: |
+          if git ls-remote --exit-code --heads origin gh-pages >/dev/null 2>&1 && git fetch --quiet --depth=1 origin gh-pages && git cat-file -e FETCH_HEAD:index.html 2>/dev/null; then
+            echo "missing=0" >> "$GITHUB_OUTPUT"
+          else
+            echo "missing=1" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Взять main для корня
+        if: steps.root.outputs.missing == '1' && steps.where.outputs.slug != ''
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: main-src
+
+      - name: Собрать и выложить корень (main)
+        if: steps.root.outputs.missing == '1' && steps.where.outputs.slug != ''
+        working-directory: main-src
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+        run: |
+          npm ci
+          npm run build
+          {
+            echo "commit: $(git rev-parse HEAD)"
+            echo "branch: main"
+            echo "built:  $(date -u '+%Y-%m-%d %H:%M:%S') UTC"
+            echo "run:    ${GITHUB_RUN_NUMBER}"
+          } > dist/version.txt
+          bash ../.github/scripts/publish-pages.sh "" dist "Сборка корня: main $(git rev-parse --short HEAD)"
+
+      # Если источник Pages уже переключён на ветку gh-pages, просим пересобрать сайт (на случай, если запись токеном рабочего процесса его не запустила).
+      - name: Пересобрать Pages
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if gh api -X POST "repos/${GITHUB_REPOSITORY}/pages/builds" --silent; then
+            echo "Сборка Pages запрошена"
+          else
+            echo "Источник Pages не переключён на gh-pages или запрос не принят - это допустимо"
+          fi
+
+      - name: Ссылка
+        env:
+          SLUG: ${{ steps.where.outputs.slug }}
+        run: |
+          base="https://aurinox-eng.github.io/${GITHUB_REPOSITORY#*/}/"
+          [ -n "$SLUG" ] && base="${base}${SLUG}/"
+          { echo "Игра: ${base}"; echo "Счётчик кадров: ${base}?fps"; echo "Версия: ${base}version.txt"; } >> "$GITHUB_STEP_SUMMARY"
+          echo "$base"
