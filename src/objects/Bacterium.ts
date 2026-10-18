@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import { CONFIG } from '../config';
 import { EDGES_FROM } from '../level';
 import { pointAt, type Edge } from '../pathing';
+import { NO_BREATH, NO_FACE } from '../debug';
 import { COLORS, TOWER_MARK } from '../theme';
 import { artDensity, artImage, bakeArt, discImage, ringImage, setArt, squareBox, type ArtBox } from '../art';
 import type { Tower } from './Tower';
@@ -228,8 +229,8 @@ export class Bacterium {
     if (hasRadialCracks(kind)) this.cracks.setRotation(this.seed);
     this.breathSec = BREATH_SEC[kind][0] + Math.random() * (BREATH_SEC[kind][1] - BREATH_SEC[kind][0]);
     this.blinkIn = BLINK_EVERY_SEC[0] + Math.random() * (BLINK_EVERY_SEC[1] - BLINK_EVERY_SEC[0]);
-    this.face = artImage(scene, styleFaceKey(scene, kind, false), styleFaceBox(kind));
-    this.artGroup = scene.add.container(0, 0, [this.body, this.cracks, this.face]);
+    this.face = NO_FACE ? null : artImage(scene, styleFaceKey(scene, kind, false), styleFaceBox(kind));
+    this.artGroup = scene.add.container(0, 0, this.face ? [this.body, this.cracks, this.face] : [this.body, this.cracks]);
     this.container = scene.add.container(0, 0, this.artGroup ? [this.artGroup] : [this.body, this.cracks]);
     // Лекарь: кольцо-аура радиуса лечения, командир — радиуса ускорения (под телом)
     if (cfg.healRadius > 0) {
@@ -478,7 +479,7 @@ export class Bacterium {
       return;
     }
     this.breathClock += dt;
-    group.setScale(1 + BREATH_AMP * Math.sin((this.breathClock / this.breathSec) * Math.PI * 2 + this.breathPhase));
+    if (!NO_BREATH) group.setScale(1 + BREATH_AMP * Math.sin((this.breathClock / this.breathSec) * Math.PI * 2 + this.breathPhase));
     if (this.blinkLeft > 0) {
       this.blinkLeft -= dt;
       if (this.blinkLeft <= 0) this.shutEyes(false);

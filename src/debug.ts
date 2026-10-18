@@ -34,6 +34,13 @@ export const QA_MODE: boolean = QA_ENABLED && params.has('qa');
 /** Только режим проверки: `?qa&pilleyes=0` — Таблетки без глаз (для снимков пилота); в игровой сборке всегда false. */
 export const PILL_EYES_OFF: boolean = QA_MODE && params.get('pilleyes') === '0';
 
+/**
+ * Только режим проверки (разбор удорожания отрисовки ветки стиля, замер `perf`): `?qa&noface` — бактерии без картинки лица, `?qa&nobreath` — без «дыхания» (пульсации масштаба).
+ * В игровой сборке всегда false.
+ */
+export const NO_FACE: boolean = QA_MODE && params.has('noface');
+export const NO_BREATH: boolean = QA_MODE && params.has('nobreath');
+
 /** Только режим проверки: `?qa&artsheet` — вместо игры показывается лист образцов пилота этапа 8. */
 export const ART_SHEET: boolean = QA_MODE && params.has('artsheet');
 /** Страница листа образцов: пусто — пилот (новое рядом с прежним), `b1`, `b2` — все 19 бактерий, `t1`, `t2` — все 10 башен по уровням. */
