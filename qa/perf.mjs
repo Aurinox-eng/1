@@ -5,7 +5,7 @@
  * Идёт на сервере (`.github/workflows/perf.yml`); локально в контейнере агента не запускать (машина слабая, числа неверные).
  *
  * Запуск (сначала `npm run build:qa` в каждой сравниваемой папке):
- *   node qa/perf.mjs [--roots=.,base] [--names=после,до] [--renderers=webgl,canvas] [--scenario=stress,fizz] [--rounds=2] [--warmup=8] [--seconds=20] [--tag=имя]
+ *   node qa/perf.mjs [--noshots] [--variants=имя:запрос,…] [--roots=.,base] [--names=после,до] [--renderers=webgl,canvas] [--scenario=stress,fizz] [--rounds=2] [--warmup=8] [--seconds=20] [--tag=имя]
  *     --roots      папки проектов, чьи сборки dist-qa сравниваются (по умолчанию только текущая);
  *     --names      как подписать каждую папку в таблице;
  *     --scenario   какие сценарии мерить (по умолчанию оба: stress,fizz). Сборка, в которой сценария нет (например, «до» не знает `stress=fizz`), по ответу
@@ -74,6 +74,7 @@ async function measure(browser, url, renderer, scenario, shotName, extra = '') {
   const report = await page.evaluate(() => window.__pvb.getPerf());
   // Снимки: при очень медленных кадрах снимок может не успеть — замер от этого не портится
   const shot = async (name) => {
+    if (args.noshots) return; // без снимков: в canvas на сервере снимок не снимается за 120 с и съедает по ≈ 4 минуты на замер
     try {
       await page.screenshot({ path: path.join(shotsDir, `${name}.png`), timeout: 120000 });
     } catch (e) {
