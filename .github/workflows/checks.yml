@@ -59,9 +59,9 @@ jobs:
           - group: 'Карточка, слияние, мутации (card, merge, mutations, sell, special, strip, sell-gap)'
             key: card
             scenarios: 'card merge mutations sell special strip sell-gap'
-          - group: 'Альманах, числа урона, строка проигрыша, очередь уведомлений, тряска (almanac, almanac-pause, damage-numbers, lose-line, toast-queue, shake)'
+          - group: 'Альманах, числа урона, строка проигрыша, строка итога, очередь уведомлений, тряска (almanac, almanac-pause, damage-numbers, lose-line, attempt-line, toast-queue, shake)'
             key: almanac
-            scenarios: 'almanac almanac-pause damage-numbers lose-line toast-queue shake'
+            scenarios: 'almanac almanac-pause damage-numbers lose-line attempt-line toast-queue shake'
           - group: 'Конец уровня, экономика, игровая сборка (lose, win, restart-button, deflation, camera-fit, colors, locked, production)'
             key: end
             scenarios: 'lose-ru lose-en win-ru win-en restart-button deflation camera-fit colors locked production'

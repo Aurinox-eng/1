@@ -1407,6 +1407,8 @@ async function playGame(browser, baseUrl, profile, run, metaLevels = null, salt 
       wave: last.wave,
       waveTotal: last.waveTotal,
       dnaGained: last.dnaGained ?? null,
+      // строка итога попытки, как у человека (src/attempt.ts); улучшения бот задаёт адресом (&meta=), сохранение не пишется, поэтому номер попытки в строке всегда «п.1» — номер попытки лестницы в журнале бота
+      attemptLine: last.attemptLine ?? null,
       lives: last.lives,
       maxLives: last.maxLives,
       shieldAbsorbed: last.shieldAbsorbed ?? 0,
@@ -1642,6 +1644,7 @@ async function ladderLane(profile, run) {
       rec.treeLeftAfter.push(treeLeft(lane.levels, level));
       rec.dnaGained.push(gained);
       console.log(`[${tag}, уровень ${level}, партия ${n}] ${RESULT_RU[game.result]} · волна ${game.wave}/${game.waveTotal} · жизни ${game.lives}/${game.maxLives}${stars ? ` · звёзд ${stars}` : ''} · очков ДНК +${gained} (остаток ${lane.dna}) · куплено ${buy.bought.length ? buy.bought.join(', ') : '—'} · древа не куплено ${rec.treeLeftAfter.at(-1).all} (в открытых ветках ${rec.treeLeftAfter.at(-1).open}) · слияний ${game.merges} (мимо ${game.mergeMisses}) · игра ${game.gameSec} с, реал. ${game.realSec} с`);
+      if (game.attemptLine) console.log(`    итог: ${game.attemptLine}`);
       for (const a of game.anomalies ?? []) console.log(`      ⚠ ${a}`);
       saveResults();
       if (game.result === 'won') {

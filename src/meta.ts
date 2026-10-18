@@ -8,7 +8,7 @@
  */
 import { CONFIG, type UpgradeBranch, type UpgradeEffect } from './config';
 import { QA_MODE } from './debug';
-import { emptyMeta, loadMeta, maxLevel, saveMeta, UPGRADE_IDS, type MetaSave, type UpgradeId } from './save';
+import { emptyMeta, loadMeta, MAX_LOG, maxLevel, saveMeta, UPGRADE_IDS, type MetaSave, type UpgradeId } from './save';
 import { setLevelReachedCheck, unlockLevel } from './progress';
 
 function readOverride(): MetaSave | null {
@@ -128,9 +128,34 @@ export function canBuy(id: UpgradeId): boolean {
 export function buyUpgrade(id: UpgradeId): boolean {
   const price = nextPrice(id);
   if (price === null || state.dna < price || !isNodeOpen(id) || state.levels[id] >= levelCap(id)) return false;
-  state = { ...state, dna: state.dna - price, levels: { ...state.levels, [id]: state.levels[id] + 1 } };
+  state = { ...state, dna: state.dna - price, levels: { ...state.levels, [id]: state.levels[id] + 1 }, bought: [...state.bought, id] };
   persist();
   return true;
+}
+
+/** Номер текущей попытки на уровне (1 — первая): сыгранные попытки + 1. */
+export function attemptNumber(level: number): number {
+  return (state.attempts[level - 1] ?? 0) + 1;
+}
+
+/** Улучшения, купленные после конца прошлой попытки: id → сколько уровней (в порядке первой покупки). */
+export function boughtSinceLast(): [UpgradeId, number][] {
+  const out = new Map<UpgradeId, number>();
+  for (const id of state.bought) out.set(id, (out.get(id) ?? 0) + 1);
+  return [...out];
+}
+
+/** Конец попытки: счётчик попыток уровня +1, строка итога — в журнал (последние MAX_LOG), список покупок с прошлой попытки очищается. */
+export function finishAttempt(level: number, line: string): void {
+  const attempts = [...state.attempts];
+  attempts[level - 1] = (attempts[level - 1] ?? 0) + 1;
+  state = { ...state, attempts, log: [...state.log, line].slice(-MAX_LOG), bought: [] };
+  persist();
+}
+
+/** Строки итога последних попыток (старые первыми). */
+export function attemptLog(): string[] {
+  return [...state.log];
 }
 
 /** Из чего складываются очки ДНК партии (звёзды считаются отдельно: `recordResult`). */

@@ -5,7 +5,8 @@ import { exposeDebug, QA_ENTRANCE, QA_MODE, STRESS, STRESS_FIZZ, TIME_SCALE, typ
 import { qaLog, qaSnapshot, setupStress, stressFrame } from '../qaTools';
 import { Effects } from '../effects';
 import { drawStar, setScreenInfo } from '../screens';
-import { awardDna, dnaParts, coinsBonus, exposeMetaDebug, HIDDEN_SCREEN, isLevelBeaten, livesBonus, markSeen, metaDna, metaSeen, recordResult, refundBonus, rewardMul, shieldCharges, starsForLoss, waveCoinsBonus } from '../meta';
+import { attemptNumber, awardDna, boughtSinceLast, dnaParts, coinsBonus, exposeMetaDebug, finishAttempt, HIDDEN_SCREEN, isLevelBeaten, livesBonus, markSeen, metaDna, metaLevels, metaSeen, recordResult, refundBonus, rewardMul, shieldCharges, starsForLoss, waveCoinsBonus } from '../meta';
+import { attemptLine, copyText } from '../attempt';
 import { num, t, type TextKey } from '../i18n';
 import { aimAngle, BLOCKED_TILES, EDGES, ENTRANCE_EDGES, LEVEL, PATH_TILES, WORLD, cellKey, worldToCell } from '../level';
 import { isPortraitPhone } from '../orientation';
@@ -165,6 +166,14 @@ export class GameScene extends Phaser.Scene {
   private merges = 0;
   private sells = 0;
   private mutationsPicked = 0;
+  /** Для строки итога попытки (src/attempt.ts): сколько башен построено, игровые секунды на каждой скорости, монеты на старте волн 10, 20, …, улучшения на старте партии. */
+  private builds = 0;
+  private speedSec: Record<number, number> = {};
+  private coinsAtWave = new Map<number, number>();
+  private entryLevels: [string, number][] = [];
+  /** (читает снимок режима проверки, qaTools) */ attemptText = '';
+  /** Кнопка «Скопировать итог» на экране конца уровня (или null). */
+  /** (читает снимок режима проверки, qaTools) */ copyButton: { x: number; y: number; w: number; h: number } | null = null;
 
   // Волны
   private phase: WavePhase = 'countdown';
@@ -280,6 +289,7 @@ export class GameScene extends Phaser.Scene {
     this.rewardPool = 0;
     this.endButton = null;
     this.upgradesButton = null;
+    this.copyButton = null;
     this.nextButton = null;
     this.menuButton = null;
     this.pauseResumeButton = null;
@@ -313,6 +323,12 @@ export class GameScene extends Phaser.Scene {
     this.merges = 0;
     this.sells = 0;
     this.mutationsPicked = 0;
+    this.builds = 0;
+    this.speedSec = {};
+    this.coinsAtWave = new Map();
+    this.entryLevels = Object.entries(metaLevels()).filter(([, n]) => n > 0);
+    this.attemptText = '';
+    this.copyButton = null;
     this.phase = 'countdown';
     this.phaseTimer = CONFIG.waves.firstDelaySec;
     this.waveIdx = 0;
@@ -459,6 +475,7 @@ export class GameScene extends Phaser.Scene {
     const dt = frameDt / steps;
     for (let i = 0; i < steps; i++) {
       this.elapsed += dt;
+      this.speedSec[this.userSpeed] = (this.speedSec[this.userSpeed] ?? 0) + dt;
       if (!this.step(dt)) return;
       if (this.state !== 'playing') break;
     }
@@ -585,6 +602,7 @@ export class GameScene extends Phaser.Scene {
     this.waveQueue = [...queue, ...blocks.flat()];
     this.waveCount = this.waveQueue.length;
     this.waveIdx++;
+    if (this.waveIdx % 10 === 0) this.coinsAtWave.set(this.waveIdx, this.coins);
     this.waveSpawned = 0;
     this.spawnTimer = 0;
     this.phase = 'spawning';
@@ -1486,6 +1504,7 @@ export class GameScene extends Phaser.Scene {
     this.coins -= price;
     this.occupied.add(key);
     this.towers.push(new Tower(this, this.towerLayer, id, col, row, center.x, center.y));
+    this.builds++;
     this.effects.placed(center.x, center.y);
     sfx.place();
     this.panel.setCoins(this.coins);
@@ -1706,6 +1725,32 @@ export class GameScene extends Phaser.Scene {
       this.starDna = recordResult(currentLevel(), cleared, this.stars).starDna;
       this.dnaParts = { ...parts, stars: this.starDna };
       this.coinsLeft = coinsLeft;
+      // Строка итога попытки: номер попытки — до записи этой, покупки — с конца прошлой; после записи счётчик попыток уровня +1, строка — в журнал меню
+      const level = currentLevel();
+      const waves: [number, number | null][] = [];
+      for (let w = 10; w <= this.waveTotal(); w += 10) waves.push([w, this.coinsAtWave.get(w) ?? null]);
+      this.attemptText = attemptLine({
+        level,
+        attempt: attemptNumber(level),
+        won,
+        wave: this.waveIdx,
+        waveTotal: this.waveTotal(),
+        stars: this.stars,
+        livesLeft: this.lives,
+        livesMax: this.maxLives(),
+        speedSec: this.speedSec,
+        elapsedSec: this.elapsed,
+        towers: this.towers.map((tower) => ({ id: tower.id, level: tower.level })),
+        merges: this.merges,
+        mutations: this.mutationsPicked,
+        builds: this.builds,
+        sells: this.sells,
+        coinsAtWave: waves,
+        dna: this.dnaGained + this.starDna,
+        entry: this.entryLevels,
+        bought: boughtSinceLast(),
+      });
+      finishAttempt(level, this.attemptText);
     }
     // Экран конца уровня: итог, из чего он сложился (волны + победа + звёзды; нулевые слагаемые, кроме волн, не показываются), монеты отдельной строкой (только после победы), пометка пройденного уровня
     const pieces = [t('dnaPartWaves', { n: this.dnaParts.waves })];
@@ -1773,6 +1818,12 @@ export class GameScene extends Phaser.Scene {
     });
     this.endButton = restart;
     this.upgradesButton = upgrades;
+    // «Скопировать итог» — в правом верхнем углу экрана конца уровня; после нажатия надпись сообщает, получилось ли
+    const copyW = 340;
+    const copy = this.addLabeledButton(W - copyW / 2 - 24, 56, copyW, 60, t('copyAttempt'), 0x2a3550, 0x4a5c82, () => {
+      void copyText(this.attemptText).then((ok) => copy.label.setText(t(ok ? 'copyAttemptDone' : 'copyAttemptFail')));
+    }, 26);
+    this.copyButton = copy.rect;
   }
 
   private addEndButton(x: number, y: number, w: number, h: number, label: string, fill: number, line: number, onTap: () => void, fontSize = 34): { x: number; y: number; w: number; h: number } {

@@ -152,7 +152,7 @@ if (['stage-1', 'stage-1b', 'stage-1b-qa', 'td-1-mockup', 'tmp'].includes(tag)) 
   process.exit(2);
 }
 
-const SCENARIOS = ['desktop-ru', 'phone-ru', 'desktop-en', 'phone-en', 'rules', 'graph', 'combat', 'dash', 'split', 'spore', 'armored', 'intro', 'lose-ru', 'lose-en', 'win-ru', 'win-en', 'towers', 'card', 'merge', 'mutations', 'sell', 'special', 'danger', 'rotate', 'production', 'fullgame', 'locked', 'strip', 'almanac', 'almanac-pause', 'damage-numbers', 'sell-gap', 'restart-button', 'deflation', 'camera-fit', 'colors', 'meta-save', 'meta-dna', 'meta-shop', 'meta-effects', 'tree-effects', 'tree-shop', 'level-waves', 'progress-save', 'stars', 'menu-flow', 'menu-reset', 'levels-lock', 'step-dps', 'sound', 'lose-line', 'toast-queue', 'shake']
+const SCENARIOS = ['desktop-ru', 'phone-ru', 'desktop-en', 'phone-en', 'rules', 'graph', 'combat', 'dash', 'split', 'spore', 'armored', 'intro', 'lose-ru', 'lose-en', 'win-ru', 'win-en', 'towers', 'card', 'merge', 'mutations', 'sell', 'special', 'danger', 'rotate', 'production', 'fullgame', 'locked', 'strip', 'almanac', 'almanac-pause', 'damage-numbers', 'sell-gap', 'restart-button', 'deflation', 'camera-fit', 'colors', 'meta-save', 'meta-dna', 'meta-shop', 'meta-effects', 'tree-effects', 'tree-shop', 'level-waves', 'progress-save', 'stars', 'menu-flow', 'menu-reset', 'levels-lock', 'step-dps', 'sound', 'lose-line', 'attempt-line', 'toast-queue', 'shake']
 const only = args.only === undefined ? null : String(args.only);
 if (only !== null && !SCENARIOS.includes(only)) {
   console.error(`Неизвестный сценарий --only=${only}. Есть: ${SCENARIOS.join(', ')}`);
@@ -8072,7 +8072,7 @@ async function runMetaDna(browser, baseUrl) {
   m = await metaOf(lose.page);
   check(`${p} очки за партию начисляются один раз (через 1,5 с на счёте по-прежнему ${wantLose})`, m.dna === wantLose, `на счёте ${m.dna}`);
   const stored = await lose.page.evaluate(() => JSON.parse(window.localStorage.getItem('pvb.meta') ?? 'null'));
-  check(`${p} очки записаны в хранилище браузера (pvb.meta)`, stored !== null && stored.dna === wantLose && stored.v === 3, JSON.stringify(stored));
+  check(`${p} очки записаны в хранилище браузера (pvb.meta)`, stored !== null && stored.dna === wantLose && stored.v === 4, JSON.stringify(stored));
   await shot(lose.page, 'meta-dna-lost');
   await lose.page.close();
 
@@ -8874,6 +8874,54 @@ function almanacRows(tab, li) {
 }
 const rowsMatch = (texts, rows) => texts.length === rows.length && rows.every((r, i) => texts[i].startsWith(`${r.name}: `) && texts[i].length > r.name.length + 2);
 
+/**
+ * Строка итога попытки (решение владельца 18 октября 2026, ответ 7; src/attempt.ts): после быстрого проигрыша на уровне 1 строка начинается с «ТПБ <версия> | У1 | п.1 | гибель N/30 | жизни 0/M»,
+ * содержит поля скорости, времени, башен, решений, ДНК, улучшений на старте («вход damage 2») и покупок с прошлой попытки («—»); сохранение версии 3 читается и записывается версией 4
+ * со счётчиком попыток 1 и строкой в журнале; «Скопировать итог» внутри экрана, не налезает на кнопки конца уровня, кладёт в буфер ту же строку; после «Заново» и второго проигрыша — «п.2», в журнале две строки.
+ */
+async function runAttemptLine(browser, baseUrl) {
+  const p = '[строка итога]';
+  const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
+  await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: new URL(baseUrl).origin });
+  // сохранение прежней версии 3 (полей попыток в нём нет): «Сильное вещество» 2 — поле «вход»; записывается один раз до загрузки страницы
+  await context.addInitScript(() => {
+    if (window.sessionStorage.getItem('qa-attempt-init')) return;
+    window.sessionStorage.setItem('qa-attempt-init', '1');
+    window.localStorage.setItem('pvb.meta', JSON.stringify({ v: 3, dna: 5, levels: { damage: 2 }, progress: { stars: [0], best: [0] }, seen: ['t:pill'] }));
+  });
+  const game = await openGame(context, baseUrl, p, { speed: 4, cfg: 'lives.start:1,waves.firstDelaySec:1,bacteria.baseSpeed:250' });
+  const readMeta = () => game.page.evaluate(() => JSON.parse(window.localStorage.getItem('pvb.meta') ?? 'null'));
+  let s = await waitFor(game.page, (x) => x.state === 'lost', WAIT_MS, 'проигрыш 1');
+  const line = s.attemptLine ?? '';
+  const head = /^ТПБ [0-9a-z]{3,12} \| У1 \| п\.1 \| гибель (\d+)\/(\d+) \| жизни 0\/1 \| /.exec(line);
+  check(`${p} начало строки: версия, уровень 1, попытка 1, «гибель N/30», «жизни 0/1» — «${line.slice(0, 70)}…»`, Boolean(head) && Number(head[1]) === s.wave && Number(head[2]) === 30, line);
+  const fields = line.split(' | ');
+  const want = [/^ск ×\d+ \d+ %/, /^\d+:\d\d$/, /^башни /, /^слияний \d+, мутаций \d+, постройки \d+, продажи \d+$/, /^ДНК \+\d+$/, /^вход damage 2$/, /^куплено после прошлой: —$/];
+  for (const re of want) check(`${p} есть поле ${re}`, fields.some((f) => re.test(f)), JSON.stringify(fields));
+  check(`${p} строка — одна, поля через « | », без переводов строки (${fields.length} полей)`, !line.includes('\n') && fields.length >= 12, String(fields.length));
+  let meta = await readMeta();
+  check(`${p} сохранение версии 3 записано версией 4: попыток на уровне 1 — 1, в журнале одна строка, равная строке экрана, покупок с прошлой попытки нет`,
+    meta?.v === 4 && meta.attempts?.[0] === 1 && meta.log?.length === 1 && meta.log[0] === line && Array.isArray(meta.bought) && meta.bought.length === 0, JSON.stringify(meta));
+  const b = s.copyButton;
+  const others = [s.endButton, s.upgradesButton, s.nextButton, s.menuButton].filter(Boolean);
+  check(`${p} кнопка «Скопировать итог» внутри экрана и не налезает на кнопки конца уровня`, Boolean(b) && insideScreen(b) && others.every((o) => !overlaps(b, o)), JSON.stringify({ b, others }));
+  await sleep(CFG.restartLockMs + 250);
+  if (b) {
+    await game.input.tap(game.g(b.x, b.y));
+    await sleep(500);
+  }
+  const clip = await game.page.evaluate(() => navigator.clipboard.readText()).catch((e) => `ошибка: ${e}`);
+  check(`${p} «Скопировать итог» кладёт в буфер обмена ту же строку`, clip === line, clip.slice(0, 120));
+  await tapToRestart(game);
+  await waitFreshRun(game.page, 'перезапуск «Заново»');
+  s = await waitFor(game.page, (x) => x.state === 'lost', WAIT_MS, 'проигрыш 2');
+  meta = await readMeta();
+  check(`${p} вторая попытка: в строке «п.2», в сохранении попыток 2 и две строки журнала (последняя — эта)`,
+    / \| п\.2 \| /.test(s.attemptLine ?? '') && meta?.attempts?.[0] === 2 && meta.log?.length === 2 && meta.log[1] === s.attemptLine, JSON.stringify({ line: s.attemptLine, attempts: meta?.attempts, log: meta?.log?.length }));
+  await game.page.close();
+  await context.close();
+}
+
 /** Экран «Альманах» из главного меню: вкладки «Башни» (строка на башню таблицы `towers`: 10) и «Бактерии» (строка на тип таблицы `types`: 19), «Назад» → меню. Компьютер ru, телефон ru; en — один раз на компьютере. */
 async function runAlmanac(browser, baseUrl) {
   // ---- состав записей (по рецензии 18 октября 2026): Таблетка бьёт Бронированную первой в строке бактерии и не слаба против неё; Лампа сильна против Скрытной;
@@ -9322,6 +9370,7 @@ try {
   if (wants('levels-lock')) await safe('[открытие уровней и конец уровня]', () => runLevelsLock(browser, qaServer.url));
   if (wants('sound')) await safe('[звук]', () => runSound(browser, qaServer.url));
   if (wants('lose-line')) await safe('[строка проигрыша]', () => runLoseLine(browser, qaServer.url));
+  if (wants('attempt-line')) await safe('[строка итога]', () => runAttemptLine(browser, qaServer.url));
   if (wants('toast-queue')) await safe('[очередь уведомлений]', () => runToastQueue(browser, qaServer.url));
   if (wants('shake')) await safe('[тряска только карты]', () => runShake(browser, qaServer.url));
   if (wants('step-dps')) await safe('[шаг игры и скорость]', () => runStepDps(browser, qaServer.url));

@@ -101,6 +101,7 @@ export function qaSnapshot(s: GameSceneInternals): DebugSnapshot {
     upgradesButton: s.upgradesButton ? { ...s.upgradesButton } : null,
     nextButton: s.nextButton ? { ...s.nextButton } : null,
     menuButton: s.menuButton ? { ...s.menuButton } : null,
+    copyButton: s.copyButton ? { ...s.copyButton } : null,
     pauseResumeButton: s.pauseResumeButton ? { ...s.pauseResumeButton } : null,
     pauseMenuButton: s.pauseMenuButton ? { ...s.pauseMenuButton } : null,
     pauseAlmanacButton: s.pauseAlmanacButton ? { ...s.pauseAlmanacButton } : null,
@@ -116,6 +117,7 @@ export function qaSnapshot(s: GameSceneInternals): DebugSnapshot {
     coinsLeft: s.coinsLeft,
     overlayBox: { ...s.overlayBox },
     endDnaLines: [...s.endDnaLines],
+    attemptLine: s.attemptText,
     toast: s.panel.toastInfo(),
     selected: s.selected,
     towers: s.towers.map((tw: any) => ({
