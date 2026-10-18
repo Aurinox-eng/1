@@ -59,9 +59,9 @@ jobs:
       - name: "Замер (оба сценария: stress и fizz)"
         run: |
           if [ -d base ]; then
-            node qa/perf.mjs --roots=base,. --names=до,после --tag=ci
+            node qa/perf.mjs --roots=base,. --names=до,после --rounds=5 --tag=ci
           else
-            node qa/perf.mjs --roots=. --names=после --tag=ci
+            node qa/perf.mjs --roots=. --names=после --rounds=5 --tag=ci
           fi
       - name: Снимки и числа
         if: always()

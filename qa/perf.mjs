@@ -31,7 +31,7 @@ const renderers = String(args.renderers ?? 'webgl,canvas').split(',');
 const scenarios = String(args.scenario ?? 'stress,fizz').split(',');
 /** Цель: 95-й процентиль работы кадра, мс (60 кадров в секунду). */
 const GOAL_MS = 16.7;
-const rounds = Number(args.rounds ?? 2);
+const rounds = Number(args.rounds ?? 3);
 const warmupSec = Number(args.warmup ?? 8);
 const seconds = Number(args.seconds ?? 20);
 const tag = String(args.tag ?? 'perf');
@@ -124,10 +124,16 @@ try {
 
 fs.writeFileSync(path.join(resultsDir, `${tag}.json`), JSON.stringify(results, null, 2));
 
-// Итоговая таблица: среднее по кругам для каждой версии и способа рисования
-const avg = (list, key) => Math.round((list.reduce((a, r) => a + r[key], 0) / list.length) * 10) / 10;
+// Итоговая таблица: медиана по кругам для каждой версии и способа рисования (круги шумные; для медианы нужно не менее трёх)
+const med = (list, key) => {
+  const v = list.map((r) => r[key]).sort((a, b) => a - b);
+  const m = v.length >> 1;
+  return Math.round((v.length % 2 ? v[m] : (v[m - 1] + v[m]) / 2) * 10) / 10;
+};
+/** Допуск «после» к «до» по медиане 95-го процентиля и работы кадра. */
+const TOLERANCE = 0.1;
 const lines = [
-  `| Сценарий | Версия | Рисование | Работа кадра, мс (среднее) | из неё расчёт, мс | из неё рисование, мс | **95-й процентиль работы кадра, мс (цель ≤ ${GOAL_MS})** | Цель | Самый медленный кадр, мс | Вызовов рисования за кадр | Вершин за кадр | Объектов на экране | Ошибки |`,
+  `| Сценарий | Версия | Рисование | Работа кадра, мс (медиана) | из неё расчёт, мс | из неё рисование, мс | **95-й процентиль работы кадра, мс (цель ≤ ${GOAL_MS})** | Цель | Самый медленный кадр, мс | Вызовов рисования за кадр | Вершин за кадр | Объектов на экране | Ошибки |`,
   '|---|---|---|---|---|---|---|---|---|---|---|---|---|',
 ];
 for (const scenario of scenarios) {
@@ -136,15 +142,28 @@ for (const scenario of scenarios) {
       const list = results.filter((r) => r.scenario === scenario && r.version === name && r.renderer === renderer);
       if (!list.length) continue;
       const errors = list.reduce((a, r) => a + r.errors.length, 0);
-      const p95 = avg(list, 'workP95');
+      const p95 = med(list, 'workP95');
       const max = Math.max(...list.map((r) => r.workMax));
       lines.push(
-        `| ${scenario} | ${name} | ${renderer} | ${avg(list, 'workMs')} | ${avg(list, 'updateMs')} | ${avg(list, 'renderMs')} | **${p95}** | ${p95 <= GOAL_MS ? 'да' : 'нет'} | ${max} | ${avg(list, 'drawCalls')} | ${avg(list, 'vertices')} | ${avg(list, 'objects')} | ${errors} |`,
+        `| ${scenario} | ${name} | ${renderer} | ${med(list, 'workMs')} | ${med(list, 'updateMs')} | ${med(list, 'renderMs')} | **${p95}** | ${p95 <= GOAL_MS ? 'да' : 'нет'} | ${max} | ${med(list, 'drawCalls')} | ${med(list, 'vertices')} | ${med(list, 'objects')} | ${errors} |`,
       );
+    }
+  }
+}
+// Сравнение двух версий (первая в --names — «до», вторая — «после»): отношение медиан, допуск +10 %
+if (names.length === 2) {
+  lines.push('', `| Сценарий | Рисование | Кругов (до/после) | 95-й процентиль до → после, мс | Отношение | Работа кадра до → после, мс | Отношение | В допуске +${TOLERANCE * 100} % |`, '|---|---|---|---|---|---|---|---|');
+  for (const scenario of scenarios) {
+    for (const renderer of renderers) {
+      const [a, b] = names.map((n) => results.filter((r) => r.scenario === scenario && r.version === n && r.renderer === renderer));
+      if (!a.length || !b.length) continue;
+      const [p95a, p95b, wa, wb] = [med(a, 'workP95'), med(b, 'workP95'), med(a, 'workMs'), med(b, 'workMs')];
+      const [rp, rw] = [p95b / p95a, wb / wa];
+      lines.push(`| ${scenario} | ${renderer} | ${a.length}/${b.length} | ${p95a} → ${p95b} | ${rp.toFixed(2)} | ${wa} → ${wb} | ${rw.toFixed(2)} | ${rp <= 1 + TOLERANCE && rw <= 1 + TOLERANCE ? 'да' : 'нет'} |`);
     }
   }
 }
 const table = lines.join('\n');
 console.log('\n' + table);
-if (process.env.GITHUB_STEP_SUMMARY) fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `### Замер скорости (сценарии stress и fizz): сравнение «до/после» на одной машине\n\n${table}\n\nЦель — 95-й процентиль работы кадра ≤ ${GOAL_MS} мс. Сценарий fizz мерится только там, где он есть (у версии «до» его может не быть). Кадры в секунду на сервере не результат (нет видеокарты); итог — замер владельца по ?fps.\n`);
+if (process.env.GITHUB_STEP_SUMMARY) fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `### Замер скорости (сценарии stress и fizz): сравнение «до/после» на одной машине, медиана по кругам\n\n${table}\n\nЦель — 95-й процентиль работы кадра ≤ ${GOAL_MS} мс. Сценарий fizz мерится только там, где он есть (у версии «до» его может не быть). Кадры в секунду на сервере не результат (нет видеокарты); итог — замер владельца по ?fps.\n`);
 if (results.some((r) => r.errors.length)) process.exitCode = 1;
