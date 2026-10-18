@@ -7,7 +7,7 @@ import { COLORS, TOWER_MARK } from '../theme';
 import { artDensity, artImage, bakeArt, discImage, ringImage, setArt, squareBox, type ArtBox } from '../art';
 import type { Tower } from './Tower';
 import { bodyHalfSize, crackCount, drawCracks, drawShape, hasRadialCracks, shellWidth, SPLITTER_LOBE_OFFSET } from './bacteriumArt';
-import { BLINK_EVERY_SEC, BLINK_SEC, BREATH_AMP, BREATH_SEC, styleBodyBox, styleBodyKey, styleFaceBox, styleFaceKey } from './styleArt';
+import { BLINK_EVERY_SEC, BLINK_SEC, BREATH_AMP, BREATH_SEC, type Eyes, styleBodyBox, styleBodyKey } from './styleArt';
 
 export type BacteriumKind = keyof typeof CONFIG.types;
 
@@ -52,9 +52,9 @@ const SHELL_STEP_PX = 1;
 /** Полное HP в ключе картинки трещин округляется до четверти (от него зависит, где идут трещины у палочки и шаг между трещинами у круглых). */
 const MAXHP_STEP = 0.25;
 
-/** Картинка тела типа с оболочкой толщины sw (рисуется один раз на тип и толщину). */
-function bodyTexture(scene: Phaser.Scene, kind: BacteriumKind, sw: number, legacy = false): string {
-  if (!legacy) return styleBodyKey(scene, kind, sw);
+/** Картинка тела типа с оболочкой толщины sw и лицом (рисуется один раз на тип, толщину и состояние глаз). */
+function bodyTexture(scene: Phaser.Scene, kind: BacteriumKind, sw: number, legacy = false, eyes: Eyes = 'open', smallFace = false): string {
+  if (!legacy) return styleBodyKey(scene, kind, sw, eyes, smallFace);
   // прежний рисунок (лист образцов): свой ключ, чтобы не смешиваться с новым
   const q = Math.round(sw / SHELL_STEP_PX) * SHELL_STEP_PX;
   return bakeArt(scene, `bact-${kind}-${q}`, bodyBox(kind, true), (g) => drawShape(g, kind, q));
@@ -74,7 +74,7 @@ function cracksTexture(scene: Phaser.Scene, kind: BacteriumKind, damage: number,
  * Центр образца — (0, 0); в игре не используется.
  */
 export function bacteriumSample(scene: Phaser.Scene, kind: BacteriumKind, hp: number, maxHp: number, legacy = false, smallFace = false): Phaser.GameObjects.Container {
-  const parts: Phaser.GameObjects.Image[] = [artImage(scene, bodyTexture(scene, kind, shellWidth(kind, hp, maxHp), legacy), bodyBox(kind, legacy))];
+  const parts: Phaser.GameObjects.Image[] = [artImage(scene, bodyTexture(scene, kind, shellWidth(kind, hp, maxHp), legacy, 'open', smallFace), bodyBox(kind, legacy))];
   const damage = crackCount(hp, maxHp);
   if (damage > 0) {
     const { key, box } = cracksTexture(scene, kind, damage, maxHp);
@@ -82,7 +82,6 @@ export function bacteriumSample(scene: Phaser.Scene, kind: BacteriumKind, hp: nu
     if (hasRadialCracks(kind)) cracks.setRotation(1);
     parts.push(cracks);
   }
-  if (!legacy) parts.push(artImage(scene, styleFaceKey(scene, kind, false, smallFace), styleFaceBox(kind)));
   return scene.add.container(0, 0, parts);
 }
 
@@ -177,9 +176,8 @@ export class Bacterium {
   /** Тело и трещины — готовые картинки (см. art.ts); показанные ключи, чтобы не менять картинку без нужды. */
   private readonly body: Phaser.GameObjects.Image;
   private readonly cracks: Phaser.GameObjects.Image;
-  /** Пилотные виды (этап 8): вложенная группа «тело + трещины + лицо» — её масштаб пульсирует (дыхание), внешний контейнер не трогаем: его масштаб использует рывок и прыжок. null у остальных видов. */
-  private readonly artGroup: Phaser.GameObjects.Container | null = null;
-  private readonly face: Phaser.GameObjects.Image | null = null;
+  /** Вложенная группа «тело с лицом + трещины» — её масштаб пульсирует (дыхание), внешний контейнер не трогаем: его масштаб использует рывок и прыжок. */
+  private readonly artGroup: Phaser.GameObjects.Container;
   private breathClock = 0;
   private readonly breathSec: number;
   private readonly breathPhase = Math.random() * Math.PI * 2;
@@ -223,15 +221,14 @@ export class Bacterium {
     this.s = Math.max(0, Math.min(edge.length, s));
 
     const box = bodyBox(kind);
-    this.body = artImage(scene, bodyTexture(scene, kind, shellWidth(kind, this.hp, this.maxHp)), box);
-    this.cracks = artImage(scene, bodyTexture(scene, kind, shellWidth(kind, this.hp, this.maxHp)), box).setVisible(false);
+    this.body = artImage(scene, bodyTexture(scene, kind, shellWidth(kind, this.hp, this.maxHp), false, this.eyes()), box);
+    this.cracks = artImage(scene, bodyTexture(scene, kind, shellWidth(kind, this.hp, this.maxHp), false, this.eyes()), box).setVisible(false);
     // Круглые типы: трещины повёрнуты на свой угол у каждой бактерии (как раньше: от угла seed)
     if (hasRadialCracks(kind)) this.cracks.setRotation(this.seed);
     this.breathSec = BREATH_SEC[kind][0] + Math.random() * (BREATH_SEC[kind][1] - BREATH_SEC[kind][0]);
     this.blinkIn = BLINK_EVERY_SEC[0] + Math.random() * (BLINK_EVERY_SEC[1] - BLINK_EVERY_SEC[0]);
-    this.face = NO_FACE ? null : artImage(scene, styleFaceKey(scene, kind, false), styleFaceBox(kind));
-    this.artGroup = scene.add.container(0, 0, this.face ? [this.body, this.cracks, this.face] : [this.body, this.cracks]);
-    this.container = scene.add.container(0, 0, this.artGroup ? [this.artGroup] : [this.body, this.cracks]);
+    this.artGroup = scene.add.container(0, 0, [this.body, this.cracks]);
+    this.container = scene.add.container(0, 0, [this.artGroup]);
     // Лекарь: кольцо-аура радиуса лечения, командир — радиуса ускорения (под телом)
     if (cfg.healRadius > 0) {
       const aura = discImage(scene, cfg.healRadius, COLORS.aura, 0.07, COLORS.aura, 3, 0.38);
@@ -463,16 +460,15 @@ export class Bacterium {
     }
     if (cfg.regenPerSec > 0) this.heal(cfg.regenPerSec * dt);
     if (!held) this.advance(this.baseSpeed * factor * this.haste * dt);
-    if (this.artGroup) this.idle(dt, held);
+    this.idle(dt, held);
   }
 
   /**
-   * Движение на месте у всех видов (только поворот, масштаб и смена картинки по таймеру, без анимаций Phaser): дыхание — пульсация масштаба группы «тело + трещины + лицо»,
-   * моргание — смена картинки лица. Ауры, кольца, лёд и полоска прочности лежат вне группы и не пульсируют. Замороженная и приклеенная бактерия не дышит и не моргает.
+   * Движение на месте у всех видов (только поворот, масштаб и смена картинки по таймеру, без анимаций Phaser): дыхание — пульсация масштаба группы «тело с лицом + трещины»,
+   * моргание — смена картинки тела на такую же с закрытыми глазами. Ауры, кольца, лёд и полоска прочности лежат вне группы и не пульсируют. Замороженная и приклеенная бактерия не дышит и не моргает.
    */
   private idle(dt: number, held: boolean): void {
     const group = this.artGroup;
-    if (!group) return;
     if (held || this.hp <= 0) {
       if (group.scaleX !== 1) group.setScale(1);
       this.shutEyes(false);
@@ -493,11 +489,24 @@ export class Bacterium {
     }
   }
 
-  /** Меняет картинку лица: глаза закрыты (моргание) или открыты. */
+  /** Состояние глаз для картинки тела: без лица (режим проверки), открыты или закрыты (моргание). */
+  private eyes(): Eyes {
+    return NO_FACE ? 'none' : this.eyesShut ? 'shut' : 'open';
+  }
+
+  /** Глаза закрываются (моргание) или открываются: меняется картинка тела. */
   private shutEyes(shut: boolean): void {
-    if (!this.face || shut === this.eyesShut) return;
+    if (NO_FACE || shut === this.eyesShut) return;
     this.eyesShut = shut;
-    setArt(this.face, styleFaceKey(this.scene, this.kind, shut), styleFaceBox(this.kind));
+    this.applyBody();
+  }
+
+  /** Ставит на тело картинку по текущей толщине оболочки и состоянию глаз (если она изменилась). */
+  private applyBody(): void {
+    const bodyKey = bodyTexture(this.scene, this.kind, shellWidth(this.kind, this.hp, this.maxHp), false, this.eyes());
+    if (bodyKey === this.bodyKey) return;
+    this.bodyKey = bodyKey;
+    setArt(this.body, bodyKey, bodyBox(this.kind));
   }
 
   /**
@@ -658,11 +667,7 @@ export class Bacterium {
 
   private redraw(): void {
     this.drawnHp = this.hp;
-    const bodyKey = bodyTexture(this.scene, this.kind, shellWidth(this.kind, this.hp, this.maxHp));
-    if (bodyKey !== this.bodyKey) {
-      this.bodyKey = bodyKey;
-      setArt(this.body, bodyKey, bodyBox(this.kind));
-    }
+    this.applyBody();
     const damage = crackCount(this.hp, this.maxHp);
     if (damage === 0) {
       this.cracks.setVisible(false);

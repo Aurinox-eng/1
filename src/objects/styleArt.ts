@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { artImage, bakeCanvasArt, squareBox, type ArtBox } from '../art';
+import { artImage, bakeCanvasArt, type ArtBox } from '../art';
 import { CONFIG } from '../config';
 import { COLORS } from '../theme';
 import { bodyHalfSize, shellWidth, SPLITTER_LOBE_OFFSET } from './bacteriumArt';
@@ -46,17 +46,6 @@ const SHADOW_PAD = 14;
 export function styleBodyBox(kind: StyleKind): ArtBox {
   const { hx, hy } = bodyHalfSize(kind);
   return { x: -(hx + SHADOW_PAD), y: -(hy + SHADOW_PAD), w: (hx + SHADOW_PAD) * 2, h: (hy + SHADOW_PAD) * 2 };
-}
-
-/** Рамка картинки лица (глаза, рот, брови и знаки на лице): у круглых видов квадрат со стороной около 1,6 радиуса, у палочки, бегуна и делящейся — вся голова. */
-export function styleFaceBox(kind: StyleKind): ArtBox {
-  const { radius: r, length: l } = CONFIG.types[kind];
-  if (kind === 'rod' || kind === 'runner') return { x: -r - 2, y: -l / 2 - 2, w: 2 * r + 4, h: l + 4 };
-  if (kind === 'splitter') {
-    const hx = Math.ceil(r * SPLITTER_LOBE_OFFSET + r);
-    return { x: -hx, y: -Math.ceil(r), w: hx * 2, h: Math.ceil(r) * 2 };
-  }
-  return squareBox(Math.ceil(r * 0.8));
 }
 
 // ---------------------------------------------------------------- тело
@@ -483,10 +472,28 @@ function isCoreKind(kind: StyleKind): boolean {
   return kind === 'coccus' || kind === 'armored' || kind === 'giant';
 }
 
-/** Картинка тела с оболочкой толщины sw (одна на вид и толщину; кадры анимации на толщины не умножаются — глаза отдельно). */
-export function styleBodyKey(scene: Phaser.Scene, kind: StyleKind, sw: number): string {
+/** Лицо на картинке тела: нет лица, глаза открыты, глаза закрыты (моргание). */
+export type Eyes = 'none' | 'open' | 'shut';
+
+/**
+ * Картинка тела с оболочкой толщины sw и лицом: одна на вид, толщину и состояние глаз. Лицо нарисовано прямо на теле, поэтому у бактерии на экране один объект вместо двух
+ * (отдельная картинка лица удваивала число объектов и смену картинок при моргании, это главная часть роста стоимости кадра в ветке стиля); моргание — смена картинки тела
+ * на такую же с закрытыми глазами. Картинка с закрытыми глазами рисуется при первом моргании вида и толщины. `small` — упрощённое лицо кокка для мелкого размера (лист образцов).
+ */
+export function styleBodyKey(scene: Phaser.Scene, kind: StyleKind, sw: number, eyes: Eyes = 'open', small = false): string {
   const q = Math.round(sw);
-  return bakeCanvasArt(scene, `style-body-${kind}-${q}`, styleBodyBox(kind), (ctx, d) => (isCoreKind(kind) ? drawBodyCanvas(ctx, d, kind, q) : drawBodyStyle(ctx, d, kind, q)));
+  const faceTag = eyes === 'none' ? '' : `-${eyes === 'open' ? 'o' : 'b'}${small ? '-s' : ''}`;
+  return bakeCanvasArt(scene, `style-body-${kind}-${q}${faceTag}`, styleBodyBox(kind), (ctx, d) => {
+    ctx.save();
+    if (isCoreKind(kind)) drawBodyCanvas(ctx, d, kind, q);
+    else drawBodyStyle(ctx, d, kind, q);
+    ctx.restore();
+    if (eyes === 'none') return;
+    ctx.save();
+    if (isCoreKind(kind)) drawFaceCore(ctx, kind, eyes === 'shut', small);
+    else drawFaceStyle(ctx, kind, eyes === 'shut');
+    ctx.restore();
+  });
 }
 
 // ---------------------------------------------------------------- лицо
@@ -977,11 +984,6 @@ function drawFaceStyle(ctx: CanvasRenderingContext2D, kind: StyleKind, blink: bo
   }
 }
 
-/** Картинка лица вида (открытые глаза или моргание): маленькая, поверх тела; одна на вид и кадр, на толщину оболочки не умножается. `small` — упрощённое лицо кокка (лист образцов). */
-export function styleFaceKey(scene: Phaser.Scene, kind: StyleKind, blink: boolean, small = false): string {
-  return bakeCanvasArt(scene, `style-face-${kind}-${blink ? 'b' : 'o'}${small ? '-s' : ''}`, styleFaceBox(kind), (ctx) => (isCoreKind(kind) ? drawFaceCore(ctx, kind, blink, small) : drawFaceStyle(ctx, kind, blink)));
-}
-
 // ---------------------------------------------------------------- движение на месте
 
 /** Дыхание: пульсация масштаба ±3 %; период — у каждой бактерии свой в этих границах, секунд (у Гиганта медленнее). */
@@ -1013,12 +1015,11 @@ export const BLINK_SEC = 0.12;
 
 // ---------------------------------------------------------------- значок альманаха
 
-/** Значок вида для альманаха: картинка нового тела (полное HP) и лицо с открытыми глазами (первый кадр), вписанные в круг радиуса `radius`. */
+/** Значок вида для альманаха: картинка нового тела (полное HP) с лицом (глаза открыты, первый кадр), вписанная в круг радиуса `radius`. */
 export function styleIcon(scene: Phaser.Scene, kind: StyleKind, radius: number): Phaser.GameObjects.Container {
   const sw = shellWidth(kind, CONFIG.types[kind].hp);
   const body = artImage(scene, styleBodyKey(scene, kind, sw), styleBodyBox(kind));
-  const face = artImage(scene, styleFaceKey(scene, kind, false), styleFaceBox(kind));
-  const holder = scene.add.container(0, 0, [body, face]);
+  const holder = scene.add.container(0, 0, [body]);
   const { radius: r, length: l } = CONFIG.types[kind];
   const extent = kind === 'rod' || kind === 'runner' ? l / 2 : kind === 'splitter' ? r * (1 + SPLITTER_LOBE_OFFSET) : r;
   holder.setScale(radius / extent); // как прежний значок: тело вписано по наибольшему размеру (шипы Гиганта выходят за круг)
