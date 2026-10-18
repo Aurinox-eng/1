@@ -1673,7 +1673,8 @@ export class GameScene extends Phaser.Scene {
       const parts = dnaParts(cleared, won, this.dnaReplay, coinsLeft);
       this.dnaGained = awardDna(cleared, won, this.dnaReplay, coinsLeft);
       // Звёзды по потерянным жизням (docs/stage-5-plan.md, раздел 4) и лучшая волна уровня; за новые звёзды — очки ДНК
-      this.stars = won ? starsForLoss(Math.max(0, this.maxLives() - this.lives) + this.shieldAbsorbed) : 0;
+      // Потеря = целые списанные жизни + накопленный дробной остаток (рой отнимает по 0,25) + погашенное щитом: дробные потери учитываются как есть (config.ts, levels.stars)
+      this.stars = won ? starsForLoss(Math.max(0, this.maxLives() - this.lives) + this.lifePool + this.shieldAbsorbed) : 0;
       this.starDna = recordResult(currentLevel(), cleared, this.stars).starDna;
       this.dnaParts = { ...parts, stars: this.starDna };
       this.coinsLeft = coinsLeft;

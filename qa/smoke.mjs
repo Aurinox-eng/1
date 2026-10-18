@@ -7670,6 +7670,28 @@ async function runStars(browser, baseUrl) {
   const lm = await metaOf(lose.page);
   check(`${p} проигрыш: звёзд 0, очков за звёзды 0; сохранённые звёзды (3) и лучшая волна (1 и выше) не уменьшились`, ls.stars === 0 && ls.starDna === 0 && lm.progress.stars[0] === 3 && lm.progress.best[0] >= 1, `звёзд ${ls.stars}, в сохранении ${lm.progress.stars[0]}, лучшая ${lm.progress.best[0]}`);
   await lose.page.close();
+
+  // ---- дробные потери (рой отнимает по 0,25): звёзды считаются по настоящей потере, включая остаток, который ещё не списан целой жизнью (исправлено 18 октября 2026: прежде остаток терялся,
+  // 9 роёв = 2,25 давали три звезды вместо двух, 25 роёв = 6,25 — две вместо одной). Пороги настоящие: ★★★ — не больше 2, ★★ — не больше 6; ни одна башня не стоит, все бактерии доходят.
+  {
+    const maxLostFor3 = readConfigNumber('levels', 'maxLostFor3');
+    const maxLostFor2 = readConfigNumber('levels', 'maxLostFor2');
+    const perSwarm = readConfigNumber('swarm', 'lifeDamage');
+    const swarmRun = async (count, shield) => {
+      const game = await openGame(context, baseUrl, p, { speed: 4, cfg: `${wavesOnlyCfg({ swarm: count })},waves.firstDelaySec:1,bacteria.baseSpeed:250,lives.start:20`, query: `&meta=dna:0${shield ? `,shield:${shield}` : ''}` });
+      const s = await waitFor(game.page, (x) => x.state === 'won' || x.state === 'lost', WAIT_MS, `конец партии: ${count} роёв, щит ${shield}`);
+      await game.page.close();
+      return s;
+    };
+    // [роёв, щит на столько бактерий, ждём звёзд]: 8 роёв = ровно 2 (граница ★★★ включена), 9 = 2,25, 24 = ровно 6 (граница ★★ включена), 25 = 6,25; то же со щитом (погашенные щитом считаются потерянными)
+    const cases = [[8, 0, 3], [9, 0, 2], [24, 0, 2], [25, 0, 1], [9, 2, 2], [25, 4, 1]];
+    for (const [count, shield, want] of cases) {
+      const s = await swarmRun(count, shield);
+      const lost = count * perSwarm;
+      const wantLost = `потеря ${f2(lost)} (порог ★★★ ≤ ${maxLostFor3}, ★★ ≤ ${maxLostFor2})`;
+      check(`${p} дошли ${count} роёв${shield ? ` при щите на ${shield}` : ''}: ${wantLost} → ${want} зв.`, s.state === 'won' && s.leaked === count && s.stars === want, `состояние ${s.state}, дошло ${s.leaked}, жизни ${s.lives}, погашено щитом ${s.shieldAbsorbed}, звёзд ${s.stars}`);
+    }
+  }
   await context.close();
 
   // ---- вид: три звезды на экране победы (снимок для глаз)
