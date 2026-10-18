@@ -1465,11 +1465,14 @@ async function runDanger(browser, baseUrl) {
       await sleep(40);
       continue;
     }
+    // Кадр, в котором первая бактерия уже дошла до организма (leaked > 0), не замеряем: бактерия исчезла из списка, плашка обновится только в начале следующего кадра и ещё показывает
+    // тревогу, а ближайшей стала бактерия следующей волны (в двух прогонах: 635,6 и 620,7 px на 30-й секунде игры при тревоге плашки)
+    if (s.leaked > 0) break;
     // запас 100 px на шаг кадра: плашка считается в начале кадра, бактерии в опросе — уже после движения
     const nearest = Math.min(...s.bacteria.map((b) => b.x - MAP.orgW));
     if (nearest > danger + 100) {
       calm.push(s.chip);
-      if (!s.chip.visible || s.chip.danger || red(s.chip.fill) > 120) calmBad.push(`на ${f2(s.elapsed)} с до организма ${f1(nearest)} px: ${JSON.stringify(s.chip)}`);
+      if (!s.chip.visible || s.chip.danger || red(s.chip.fill) > 120) calmBad.push(`на ${f2(s.elapsed)} с до организма ${f1(nearest)} px, бактерий на карте ${s.bacteria.length}, дошло до организма ${s.leaked}: ${JSON.stringify(s.chip)}`);
     } else if (nearest < danger - 100 && nearest > 60) {
       alarmSamples++;
       if (!s.chip.visible || !s.chip.danger || red(s.chip.fill) < 150) alarmBad.push(`на ${f2(s.elapsed)} с до организма ${f1(nearest)} px: ${JSON.stringify(s.chip)}`);
