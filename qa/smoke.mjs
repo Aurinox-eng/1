@@ -2551,7 +2551,7 @@ async function runSplit(browser, baseUrl) {
   const diverged = pairs.filter((q) => q.along === null && q.fork);
   const unexplained = pairs.filter((q) => q.along === null && !q.fork);
   const crossed = measured.filter((q) => q.crossed).length;
-  const splitNeed = Math.max(SPLIT_MIN_MEASURED, Math.ceil(pairs.length * SPLIT_MIN_SHARE));
+  const splitNeed = Math.max(SPLIT_MIN_MEASURED, Math.ceil(endC.splits * SPLIT_MIN_SHARE));
   const splitEnough = pairs.length >= 20 && measured.length >= splitNeed;
   const badAlong = measured.filter((q) => Math.abs(q.along - gap) > 8);
   const edgeOf = (q) => `#${q.k1.id}: ${q.k1.edge} → #${q.k2.id}: ${q.k2.edge}`;
@@ -2560,10 +2560,16 @@ async function runSplit(browser, baseUrl) {
   check(`${p} регрессия: из ${pairs.length} распадов измерено ${measured.length} (нужно не меньше ${splitNeed}), во всех измеренных второй кокк ровно на ${gap} px вперёд по дорожке (вдоль дорожки ${alongRange}, допуск ±8); на следующем ребре оказался в ${crossed}; неоднозначных (разошлись по ветвям развилки) ${diverged.length}`, splitEnough && badAlong.length === 0 && unexplained.length === 0, !splitEnough ? `мало данных: измерено ${measured.length} из ${pairs.length} распадов, нужно не меньше ${splitNeed}; разошлись по развилке: ${diverged.map(edgeOf).join('; ') || 'нет'}` : unexplained.length ? `расстояние не вычислено, рёбра пары не связаны и не из одного узла: ${unexplained.map(edgeOf).join('; ')}` : `вдоль дорожки: ${alongs.map((a) => (a === null ? '—' : Math.round(a))).join(',')}; разошлись по развилке: ${diverged.map(edgeOf).join('; ') || 'нет'}`);
   const orgLimit = MAP.orgW + readConfigNumber('coccus', 'radius') + gap + 20;
   // одиночный кокк далеко от организма — не ошибка распада, а потерянная опросом пара: башня убила второго кокка в тот же кадр, когда он появился (по журналу убийств игры соседний номер убит)
-  const killedIds = new Set((await game.events('kill')).map((e) => e.id));
+  const killEvents = await game.events('kill');
+  const killedIds = new Set(killEvents.map((e) => e.id));
   const lostTwin = (k) => killedIds.has(k.id - 1) || killedIds.has(k.id + 1);
   check(`${p} регрессия: если делящаяся погибла у самого организма (ближе ${gap} px до красной линии), второй кокк сразу доходит до организма — таких распадов ${singles.length}, у всех первый кокк правее линии не дальше x = ${orgLimit}`, singles.every((k) => k.x <= orgLimit || lostTwin(k)), singles.map((k) => `${Math.round(k.x)}${k.x > orgLimit ? (lostTwin(k) ? ' (пара: второй убит в тот же кадр)' : ' (второго никто не убил)') : ''}`).join(','));
-  check(`${p} регрессия: каждый распад виден проверке (${pairs.length} пар + ${singles.length} у организма = ${endC.splits} распадов), партия окончена победой`, endC.state === 'won' && pairs.length + singles.length === endC.splits, `состояние ${endC.state}, распадов ${endC.splits}, убито делящихся не больше ${endC.spawned}`);
+  // Игра считает несколько шагов в одном кадре, а опрос видит только состояние между кадрами: если оба кокка распада убиты в тот же кадр, где появились, опрос их не застаёт.
+  // Такой распад неоднозначный (не оценивается), но он должен подтверждаться журналом игры: убитые кокки, которых опрос не видел, покрывают недостающие распады (по два на распад)
+  const missing = endC.splits - pairs.length - singles.length;
+  const unseenKilled = killEvents.filter((e) => e.kind === 'coccus' && !seenC.has(e.id)).map((e) => e.id);
+  const missingExplained = missing >= 0 && unseenKilled.length >= 2 * missing;
+  check(`${p} регрессия: каждый распад учтён (${pairs.length} пар + ${singles.length} у организма + ${Math.max(missing, 0)} не застигнутых опросом = ${endC.splits} распадов), не застигнутые подтверждены журналом убийств, партия окончена победой`, endC.state === 'won' && missingExplained && pairs.length + singles.length >= Math.max(20, splitNeed), `состояние ${endC.state}, распадов ${endC.splits}, не застигнуто ${missing}, убитых кокков, которых опрос не видел, ${unseenKilled.length} (${unseenKilled.join(',') || '—'}), убито делящихся не больше ${endC.spawned}`);
   check(`${p} учёт при распадах у организма: убитые + дошедшие = вышедшие + ${count}·распады (${endC.kills} + ${endC.leaked} = ${endC.spawned} + ${count}·${endC.splits})`, endC.kills + endC.leaked === endC.spawned + count * endC.splits, `убито ${endC.kills}, дошло ${endC.leaked}, вышло ${endC.spawned}, распадов ${endC.splits}, лишних ${endC.kills + endC.leaked - endC.spawned - count * endC.splits}`);
   await context.close();
 }
