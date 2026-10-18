@@ -63,10 +63,10 @@ function bodyTexture(scene: Phaser.Scene, kind: BacteriumKind, sw: number, legac
 /** Картинка трещин: у круглых типов — от угла 0 (картинка поворачивается на свой угол у каждой бактерии), у остальных — на месте. */
 function cracksTexture(scene: Phaser.Scene, kind: BacteriumKind, damage: number, maxHp: number): { key: string; box: ArtBox } {
   const radial = hasRadialCracks(kind);
-  const hp = radial ? Math.max(3, Math.min(9, maxHp)) : kind === 'rod' ? maxHp : 0;
+  const hp = radial ? Math.max(3, Math.min(9, maxHp)) : kind === 'rod' ? Math.min(9, maxHp) : 0; // у палочки больше девяти мест не нужно: трещин не больше девяти
   const q = Math.round(hp / MAXHP_STEP) * MAXHP_STEP;
   const box = radial ? squareBox(CONFIG.types[kind].radius + 4) : bodyBox(kind, true);
-  return { key: bakeArt(scene, `crack-${kind}-${damage}-${q}`, box, (g) => drawCracks(g, kind, damage, q, 0)), box };
+  return { key: bakeArt(scene, `crack-${kind}-${damage}-${q}`, box, (g) => drawCracks(g, kind, damage, q, 0, true)), box };
 }
 
 /**
