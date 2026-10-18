@@ -25,13 +25,13 @@
  *   split                  делящаяся: при гибели 2 кокка на том же ребре в 64 px друг от друга, награда 8 и 10+10, без убийства не делится
  *   spore                  спора: глушит башню при подходе ближе 150 px на 3 с (выстрелы стоят), один раз; дальняя башня не глушится
  *   armored                бронированная: броня (урон − броня, не меньше доли armorMinShare от удара: удары 5, 3 и 1), 20 HP, награда, без башен отнимает 2 жизни
- *   intro                  порядок появления типов по таблице волн (уровень 1 — шесть типов; новый тип один и первым); сообщение «Новая бактерия!» и звук для
+ *   intro                  порядок появления типов по таблице волн (уровень 1 — шесть типов; новый тип один и первым); сообщение «Новая бактерия: <название>» и звук для
  *                          каждого нового типа, кроме кокка (ru и en), текст целиком в окне
  *   lose-ru, lose-en       потеря жизней, проигрыш (в том числе при работающих башнях: снарядов в полёте не остаётся), блокировка
  *                          перезапуска, перезапуск кнопкой «Заново», утечки (lose-ru — компьютер, lose-en — телефон)
  *   win-ru, win-en         победа (снарядов в полёте не остаётся) и перезапуск кнопкой «Заново» (win-ru — компьютер, win-en — телефон)
  *   towers                 все башни таблицы `towers` (с 9 октября 2026 — десять) и новые бактерии; размеры таблиц config.ts (10 башен, 19 типов, 49 узлов дерева). Башни: тексты i18n; панель на компьютере и телефоне, ru и en (кнопки по порядку таблицы, выбор и снятие
- *                          выбора, цвет цен (кнопки по 38 px, одна строка: значок, название, справа цена; подписи способа стрельбы на кнопках нет), нижняя подсказка целиком в окне — у Шприца она шире окна, это известная ошибка игры); кнопки скорости ×1/×2/×3 и
+ *                          выбора, цвет цен (кнопки по 38 px, одна строка: значок, название, справа цена; подписи способа стрельбы на кнопках нет), при выборе башни внизу подсказки нет (решение владельца 18 октября 2026); кнопки скорости ×1/×2/×3 и
  *                          «Начать волну»; цены (списывается ровно price, при нехватке не ставится); Сироп — ЛУЖА (капля летит в точку дорожки впереди бактерии,
  *                          лужа живёт puddleSec, в ней идут ×slowFactor, после выхода ещё slowSec, поверх старой лужи новая не кладётся, слизень не замедляется);
  *                          Шипучка (малый взрыв: задевает всех в круге blastRadius и никого дальше, 1 взрыв за выстрел, монеты; с 11 октября 2026 полный урон только первым blastFullTargets целям круга (ближайшим к центру), остальным × blastRestMul — по журналу `blast`: поля full, rest, acid, fullDealt, restDealt); Шприц — ЛУЧ (range 0, первый тап по башне выбирает её, поворот —
@@ -127,6 +127,7 @@ import {
   readKinds,
   readLevel,
   readMetaTable,
+  waveOpenCap,
   dnaWavesReward,
   readTitles,
   readTowerTable,
@@ -481,6 +482,16 @@ const newDeviceContext = (browser, device, lang) =>
 async function openGame(context, baseUrl, prefix, { speed = 1, cfg = '', isTouch = false, query = '', canvas = false } = {}) {
   const page = await context.newPage();
   watchConsole(page, prefix);
+  // Журнал касаний на стороне страницы (время начала и конца касания, мс): по нему видно, почему тап не принят — игра считает тапом касание не дольше camera.tapMaxMs
+  await page.addInitScript(() => {
+    const taps = (window.__qaTaps = []);
+    const record = (e) => {
+      const t = e.changedTouches?.[0] ?? e;
+      taps.push({ type: e.type, t: performance.now(), x: Math.round(t.clientX), y: Math.round(t.clientY) });
+      if (taps.length > 60) taps.shift();
+    };
+    for (const type of ['touchstart', 'touchend', 'touchcancel', 'mousedown', 'mouseup']) window.addEventListener(type, record, { capture: true, passive: true });
+  });
   // QA_EXTRA_CFG нужна только для проверки самих проверок: подмешивает «поломку» (например camera.tapMaxMovePx:14) — соответствующая проверка обязана покраснеть
   // `meta.dna.coinsCapShare:0` — остаток монет не превращается в очки ДНК (иначе ожидаемые суммы очков в других проверках зависели бы от монет в конце партии); сценарий «монеты → ДНК» включает его своим числом
   // `levels.starDna:0` идёт первым: очки за звёзды не мешают проверкам очков ДНК; сценарий звёзд подменяет это число своим (позднее в списке — главнее)
@@ -547,6 +558,39 @@ async function openGame(context, baseUrl, prefix, { speed = 1, cfg = '', isTouch
     async placeTowers(cells) {
       await game.towerButton();
       for (const [col, row] of cells) await game.tapCell(col, row);
+      return getState(page);
+    },
+    /**
+     * Тап по клетке, где должна встать башня, с подтверждением по состоянию игры: ждём, пока счётчик постановок (effects.placements) вырастет (до 3 с реального времени);
+     * не вырос — тап не принят, повторяем (всего до трёх тапов). Каждый непринятый тап пишется в заметку: сколько длилось касание в браузере (игра принимает тап не дольше
+     * camera.tapMaxMs), монеты, башни и выбор на панели, чтобы причину (долгое касание, пустая панель, нехватка монет, занятая клетка) было видно по журналу. Возвращает номер принятого тапа, 0 — ни один не принят.
+     */
+    async tapCellUntilPlaced(col, row) {
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        const before = (await getState(page)).effects.placements;
+        await game.tapCell(col, row);
+        const started = Date.now();
+        while (Date.now() - started < 3000) {
+          if ((await getState(page)).effects.placements > before) return attempt;
+          await sleep(40);
+        }
+        const [s, tap] = await Promise.all([
+          getState(page),
+          page.evaluate(() => {
+            const taps = window.__qaTaps ?? [];
+            const end = taps.findLastIndex((e) => e.type === 'touchend' || e.type === 'touchcancel' || e.type === 'mouseup');
+            const start = end < 0 ? -1 : taps.findLastIndex((e, i) => i < end && (e.type === 'touchstart' || e.type === 'mousedown'));
+            return end < 0 || start < 0 ? null : { type: taps[end].type, dt: Math.round(taps[end].t - taps[start].t), x: taps[end].x, y: taps[end].y };
+          }),
+        ]);
+        note(`${prefix} тап ${attempt} по клетке ${col};${row} не поставил башню за 3 с: касание в браузере ${tap ? `${tap.type}, длилось ${tap.dt} мс (порог игры ${readConfigNumber('camera', 'tapMaxMs')} мс), точка ${tap.x};${tap.y}` : 'не записано'}; монеты ${s.coins}, башен ${s.towers.length}, на панели ${JSON.stringify(s.selected)}, состояние ${s.state}, подсказка ${JSON.stringify(s.ui.hint)}`);
+      }
+      return 0;
+    },
+    /** Выбирает башню и ставит её на клетки по очереди, каждую с подтверждением по состоянию игры (tapCellUntilPlaced). */
+    async placeTowersConfirmed(cells) {
+      await game.towerButton();
+      for (const [col, row] of cells) await game.tapCellUntilPlaced(col, row);
       return getState(page);
     },
   };
@@ -764,7 +808,7 @@ async function profileLoadAndCamera(c) {
   });
   check(`${p} старт: «ствол» на экране в (${f1(zScreen.x)}; ${f1(zScreen.y)}) — правее плашки «◀ Организм» (x 0…${CHIP.x1}) не меньше чем на 150 px, в окне карты`, zScreen.x >= CHIP.x1 + 150 && zScreen.y > winTop && zScreen.y < winBottom, `ствол (${f1(zScreen.x)}; ${f1(zScreen.y)})`);
   check(`${p} старт: все 12 клеток, достающих всех бактерий (${reachAll.routes} маршрутов, радиус 225 px), целиком в окне карты и не под плашкой — видно ${reachAll.cells.length - hiddenReach.length} из ${reachAll.cells.length}`, reachAll.routes === 18 && reachAll.cells.length === 12 && hiddenReach.length === 0, `маршрутов ${reachAll.routes}, клеток ${reachAll.cells.length}, скрыты: ${hiddenReach.join(' ') || 'нет'}; клетки ${reachAll.cells.map(([c, r]) => `${c};${r}`).join(' ')}`);
-  check(`${p} старт: внизу подсказка «${readI18n('hintJunction')[lang === 'ru' ? 0 : 1]}», пока нет ни одной башни`, s0.ui.hint === readI18n('hintJunction')[lang === 'ru' ? 0 : 1], `подсказка: ${JSON.stringify(s0.ui.hint)}`);
+  check(`${p} старт: внизу подсказки нет (игра во время партии не объясняет и не советует)`, s0.ui.hint === null, `подсказка: ${JSON.stringify(s0.ui.hint)}`);
   const rot0 = await rotateInfo(page);
   check(`${p} подсказка «Поверните телефон» в горизонтальном положении (и на компьютере) не показана`, rot0.display === 'none', `display=${rot0.display}, pointer:coarse=${rot0.coarse}`);
   const btn = s0.ui.towerButton;
@@ -1139,7 +1183,7 @@ async function profileBattle(c) {
   const { prefix: p, isTouch, name, full } = c;
   const game = await openGame(c.context, c.baseUrl, p, { speed: 4, isTouch, cfg: `waves.firstDelaySec:1,${FIXED_BALANCE.join(',')},towers.pill.range:450` });
   const { page, input } = game;
-  let s = await game.placeTowers([FREE.a, FREE.b]);
+  let s = await game.placeTowersConfirmed([FREE.a, FREE.b]);
   check(`${p} бой: две башни поставлены, монет ${CFG.startCoins - 2 * BASE.price}`, s.towers.length === 2 && s.coins <= CFG.startCoins - 2 * BASE.price + s.kills * BASE.reward, `башен ${s.towers.length}, монет ${s.coins}`);
   let maxProjectiles = 0;
   let maxBacteria = 0;
@@ -1156,7 +1200,7 @@ async function profileBattle(c) {
     if (s.kills >= 2 && shotTaken) break;
     await sleep(40);
   }
-  check(`${p} подсказка про сходящиеся дорожки после постановки башен пропала (внизу уже не «${readI18n('hintJunction')[0]}»; две Таблетки рядом — подсказка о слиянии)`, s.ui.hint !== readI18n('hintJunction')[0], `подсказка: ${JSON.stringify(s.ui.hint)}`);
+  check(`${p} после постановки башен внизу только подсказка слияния (две Таблетки рядом) или ничего`, s.ui.hint === null || readI18n('hintMergePair').includes(s.ui.hint), `подсказка: ${JSON.stringify(s.ui.hint)}`);
   check(`${p} бой: башни стреляют, бактерии гибнут, за каждую — монеты`, s.shots > 0 && s.kills >= 1 && s.coins === CFG.startCoins - 2 * BASE.price + s.kills * BASE.reward, `выстрелов ${s.shots}, убито ${s.kills}, монет ${s.coins}`);
   check(`${p} бой: звук запущен по касанию и играет`, s.sound.state === 'running' && s.sound.played > 0, JSON.stringify(s.sound));
   check(`${p} бой: отклик — «+монеты» и частицы на каждое убийство`, s.effects.bursts === s.kills && s.effects.popups === s.kills, `частицы ${s.effects.bursts}, «+монеты» ${s.effects.popups}, убито ${s.kills}`);
@@ -1465,11 +1509,14 @@ async function runDanger(browser, baseUrl) {
       await sleep(40);
       continue;
     }
+    // Кадр, в котором первая бактерия уже дошла до организма (leaked > 0), не замеряем: бактерия исчезла из списка, плашка обновится только в начале следующего кадра и ещё показывает
+    // тревогу, а ближайшей стала бактерия следующей волны (в двух прогонах: 635,6 и 620,7 px на 30-й секунде игры при тревоге плашки)
+    if (s.leaked > 0) break;
     // запас 100 px на шаг кадра: плашка считается в начале кадра, бактерии в опросе — уже после движения
     const nearest = Math.min(...s.bacteria.map((b) => b.x - MAP.orgW));
     if (nearest > danger + 100) {
       calm.push(s.chip);
-      if (!s.chip.visible || s.chip.danger || red(s.chip.fill) > 120) calmBad.push(`на ${f2(s.elapsed)} с до организма ${f1(nearest)} px: ${JSON.stringify(s.chip)}`);
+      if (!s.chip.visible || s.chip.danger || red(s.chip.fill) > 120) calmBad.push(`на ${f2(s.elapsed)} с до организма ${f1(nearest)} px, бактерий на карте ${s.bacteria.length}, дошло до организма ${s.leaked}: ${JSON.stringify(s.chip)}`);
     } else if (nearest < danger - 100 && nearest > 60) {
       alarmSamples++;
       if (!s.chip.visible || !s.chip.danger || red(s.chip.fill) < 150) alarmBad.push(`на ${f2(s.elapsed)} с до организма ${f1(nearest)} px: ${JSON.stringify(s.chip)}`);
@@ -1541,16 +1588,39 @@ async function loseWithTowers(context, baseUrl, p, name, device) {
   if (retries > 0) note(`${p} в проверке «проигрыш с башнями» башни пришлось ставить повторно (попыток ${retries}): первый тап по кнопке башни на только что открытой странице не дошёл до игры`);
   check(`${p} проигрыш с башнями: обе башни поставлены до появления бактерий у организма`, s.towers.length === 2 && s.state === 'playing', `башен ${s.towers.length}, состояние ${s.state}, монет ${s.coins}, выстрелов ${s.shots}`);
   let maxShots = 0;
-  const started = Date.now();
-  while (Date.now() - started < WAIT_MS && s.state !== 'lost') {
+  // Проигрыша ждём ходом игры (до 120 игровых секунд, state.clock.baseSec), а не 90 секундами реального времени: на медленном сервере игра за 90 с не доживала до проигрыша
+  // (в журнале: состояние playing, игровое время 15,5 с, снаряды в воздухе), и проверка краснела, хотя о снарядах после проигрыша данных не было
+  let reachedLoss = true;
+  let lossWhy = '';
+  try {
+    s = await waitForGame(game.page, (x) => {
+      maxShots = Math.max(maxShots, x.projectiles);
+      return x.state === 'lost';
+    }, 'проигрыш');
+  } catch (e) {
+    reachedLoss = false;
+    lossWhy = e.message;
     s = await game.state();
-    maxShots = Math.max(maxShots, s.projectiles);
-    await sleep(40);
   }
   await sleep(300);
   const later = await game.state();
   await shot(game.page, `${name}-16-lost-with-towers`);
-  check(`${p} при проигрыше (башни стреляют, в воздухе до ${maxShots} снарядов) снарядов в полёте не остаётся`, later.state === 'lost' && maxShots > 0 && s.projectiles === 0 && later.projectiles === 0, `состояние ${later.state}, башен ${later.towers.length}, выстрелов ${later.shots}, снарядов в момент проигрыша ${s.projectiles}, через 0,3 с ${later.projectiles}`);
+  if (!reachedLoss) {
+    // Отдельно: «игра не дошла до условия» (реальный потолок) и «условие не выполнено» (игра прожила бюджет игровых секунд без проигрыша) — о снарядах в этих случаях ничего не сказано
+    check(`${p} при проигрыше (башни стреляют, в воздухе до ${maxShots} снарядов) снарядов в полёте не остаётся`, false, `${lossWhy}; снарядов сейчас ${later.projectiles}, состояние ${later.state}`);
+    await game.page.close();
+    return;
+  }
+  // Сбор данных (критерий проверки не менялся): если снаряды всё же остались, читаем состояние ещё раз через 2 с. Игра при проигрыше убирает снаряды сразу (GameScene.endGame),
+  // поэтому оставшиеся и через 2 с снаряды — вопрос к игре, а не к скорости страницы.
+  let lateProjectiles = null;
+  if (later.projectiles !== 0 || s.projectiles !== 0) {
+    await sleep(2000);
+    const muchLater = await game.state();
+    lateProjectiles = muchLater.projectiles;
+    note(`${p} после проигрыша остались снаряды: в кадре проигрыша ${s.projectiles}, через 0,3 с ${later.projectiles}, через 2,3 с ${muchLater.projectiles} (состояние ${muchLater.state}, игровое время ${f2(muchLater.elapsed)} против ${f2(later.elapsed)})`);
+  }
+  check(`${p} при проигрыше (башни стреляют, в воздухе до ${maxShots} снарядов) снарядов в полёте не остаётся`, later.state === 'lost' && maxShots > 0 && s.projectiles === 0 && later.projectiles === 0, `состояние ${later.state}, башен ${later.towers.length}, выстрелов ${later.shots}, снарядов в момент проигрыша ${s.projectiles}, через 0,3 с ${later.projectiles}${lateProjectiles === null ? '' : `, через 2,3 с ${lateProjectiles}`}`);
   await game.page.close();
 }
 
@@ -1950,7 +2020,11 @@ async function runLoseLine(browser, baseUrl) {
     const context = await newDeviceContext(browser, VIEWPORTS.desktop, c.lang);
     const cfg = `${wavesOnlyCfg({ [c.kind]: c.n })},waves.firstDelaySec:1,bacteria.baseSpeed:250,lives.start:3`;
     const game = await openGame(context, baseUrl, p, { speed: 4, cfg, query: c.level > 1 ? `&level=${c.level}` : '' });
-    const lost = await waitFor(game.page, (x) => x.state === 'lost', WAIT_MS, 'проигрыш без башен');
+    let toastBeforeLoss = false;
+    const lost = await waitFor(game.page, (x) => {
+      if (x.toast.text !== null) toastBeforeLoss = true;
+      return x.state === 'lost';
+    }, WAIT_MS, 'проигрыш без башен');
     const kindName = readI18n(`bacName${capital(c.kind)}`)[c.li];
     const escape = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const lineTemplate = readI18n('loseLeakOnly')[c.li];
@@ -1961,6 +2035,8 @@ async function runLoseLine(browser, baseUrl) {
     check(`${p} строка проигрыша: порода «${kindName}», число жизней, без перечня башен («Бьют» нет)`,
       Boolean(found) && gotKind === kindName && !advice,
       `строки: ${JSON.stringify(lost.endDnaLines)}`);
+    check(`${p} на экране проигрыша уведомление («Новая бактерия: …») погасло и очередь пуста (до проигрыша уведомление показывалось: ${toastBeforeLoss ? 'да' : 'нет'})`,
+      lost.toast.text === null && lost.toast.queued.length === 0, JSON.stringify(lost.toast));
     await game.page.close();
     await context.close();
   }
@@ -1978,15 +2054,18 @@ async function runToastQueue(browser, baseUrl) {
   const bacNews = readI18n('newBacteriaToast')[0].replace('{name}', '');
   const lockedText = readI18n('hintLocked')[0].replace('{n}', '');
   const s0 = await game.state();
-  check(`${p} на старте уровня 1 сразу показана «${towerNews.trim()}», «${bacNews.trim()}» ждёт в очереди (не стёрла первую)`,
-    s0.toast.news && (s0.toast.text ?? '').startsWith(towerNews) && s0.toast.queued.length === 1 && s0.toast.queued[0].startsWith(bacNews), JSON.stringify(s0.toast));
+  check(`${p} на старте уровня 1 показана «${towerNews.trim()}», очередь пуста: «${bacNews.trim()}» появится в момент выхода бактерии, а не перед волной`,
+    s0.toast.news && (s0.toast.text ?? '').startsWith(towerNews) && s0.toast.queued.length === 0, JSON.stringify(s0.toast));
   // тап по закрытой башне — ответ на нажатие: показан сразу, новость возвращается в начало очереди
   await game.selectTower('syringe');
   const s1 = await game.state();
-  check(`${p} тап по закрытой башне: сообщение «${lockedText.trim()}…» показано сразу, прерванная «${towerNews.trim()}» первая в очереди, «${bacNews.trim()}» за ней`,
-    !s1.toast.news && (s1.toast.text ?? '').startsWith(lockedText.trim()) && s1.toast.queued.length === 2 && s1.toast.queued[0].startsWith(towerNews) && s1.toast.queued[1].startsWith(bacNews), JSON.stringify(s1.toast));
+  check(`${p} тап по закрытой башне: сообщение «${lockedText.trim()}…» показано сразу, прерванная «${towerNews.trim()}» первая в очереди`,
+    !s1.toast.news && (s1.toast.text ?? '').startsWith(lockedText.trim()) && s1.toast.queued.length === 1 && s1.toast.queued[0].startsWith(towerNews), JSON.stringify(s1.toast));
+  // кнопка «Начать волну»: первый кокк выходит сразу, его «Новая бактерия» встаёт в очередь за уведомлениями, которые ещё на экране
+  const startButton = s1.ui.waveButton;
+  await game.input.tap(game.g(startButton.x, startButton.y));
   // дальше: ответ гаснет, возвращается «Открыта башня», затем «Новая бактерия»; в очереди пусто
-  const seen = [];
+  const seen = [s1.toast.text];
   const started = Date.now();
   while (Date.now() - started < 40000) {
     const s = await game.state();
@@ -2363,13 +2442,22 @@ function splitPair(a, b) {
   const [k1, k2] = a.id < b.id ? [a, b] : [b, a];
   const chord = Math.hypot(k1.x - k2.x, k1.y - k2.y);
   let along = null;
+  // fork: к моменту снимка задний кокк дошёл до развилки и выбрал другую ветвь, чем передний (игра выбирает ветвь каждой бактерии отдельно,
+  // Bacterium.advance), общей дорожки у пары нет, и расстояние «вдоль дорожки» не определено: такой распад неоднозначный
+  let fork = false;
   if (k1.edge === k2.edge) along = k2.s - k1.s;
   else {
     const e1 = GEO.byId.get(k1.edge);
-    if (e1.to === GEO.byId.get(k2.edge).from) along = e1.length - k1.s + k2.s;
+    const e2 = GEO.byId.get(k2.edge);
+    if (e1.to === e2.from) along = e1.length - k1.s + k2.s;
+    else fork = e1.from === e2.from;
   }
-  return { k1, k2, chord, along, crossed: k1.edge !== k2.edge };
+  return { k1, k2, chord, along, fork, crossed: k1.edge !== k2.edge };
 }
+
+/** Минимум измеренных распадов делящейся: не меньше половины и не меньше пяти (как у Таблетки); иначе проверка красная с пометкой «мало данных». */
+const SPLIT_MIN_SHARE = 0.5;
+const SPLIT_MIN_MEASURED = 5;
 
 async function runSplit(browser, baseUrl) {
   const p = '[делящаяся]';
@@ -2467,15 +2555,31 @@ async function runSplit(browser, baseUrl) {
   const chords = pairs.map((q) => q.chord);
   const alongs = pairs.map((q) => q.along);
   const minChord = Math.min(...chords);
-  const crossed = pairs.filter((q) => q.crossed).length;
+  // Расстояние вдоль дорожки измеряется, только если у пары есть общая дорожка; пара, разошедшаяся по ветвям развилки к моменту снимка, неоднозначна и не оценивается.
+  // Пара без общей дорожки, но и без развилки в узле (рёбра не связаны), объяснения не имеет: это красная, а не неоднозначность
+  const measured = pairs.filter((q) => q.along !== null);
+  const diverged = pairs.filter((q) => q.along === null && q.fork);
+  const unexplained = pairs.filter((q) => q.along === null && !q.fork);
+  const crossed = measured.filter((q) => q.crossed).length;
+  const splitNeed = Math.max(SPLIT_MIN_MEASURED, Math.ceil(endC.splits * SPLIT_MIN_SHARE));
+  const splitEnough = pairs.length >= 20 && measured.length >= splitNeed;
+  const badAlong = measured.filter((q) => Math.abs(q.along - gap) > 8);
+  const edgeOf = (q) => `#${q.k1.id}: ${q.k1.edge} → #${q.k2.id}: ${q.k2.edge}`;
+  const alongRange = measured.length ? `${f1(Math.min(...measured.map((q) => q.along)))}…${f1(Math.max(...measured.map((q) => q.along)))}` : '—';
   check(`${p} регрессия: ${pairs.length} распадов подряд (башни с дальностью 1400 и уроном 20: убивают с одного выстрела при любом HP), ни в одном кокки не слипаются: наименьшее прямое расстояние ${f1(minChord)} px ≥ 38 (раньше было 25 и 34)`, pairs.length >= 20 && minChord >= 38, `распадов ${pairs.length}, прямые расстояния: ${chords.map((c) => Math.round(c)).join(',')}`);
-  check(`${p} регрессия: во всех ${pairs.length} распадах второй кокк ровно на ${gap} px вперёд по дорожке (вдоль дорожки ${f1(Math.min(...alongs))}…${f1(Math.max(...alongs))}, допуск ±8); на следующем ребре оказался в ${crossed} распадах`, pairs.length >= 20 && alongs.every((a) => a !== null && Math.abs(a - gap) <= 8), `вдоль дорожки: ${alongs.map((a) => (a === null ? '—' : Math.round(a))).join(',')}`);
+  check(`${p} регрессия: из ${pairs.length} распадов измерено ${measured.length} (нужно не меньше ${splitNeed}), во всех измеренных второй кокк ровно на ${gap} px вперёд по дорожке (вдоль дорожки ${alongRange}, допуск ±8); на следующем ребре оказался в ${crossed}; неоднозначных (разошлись по ветвям развилки) ${diverged.length}`, splitEnough && badAlong.length === 0 && unexplained.length === 0, !splitEnough ? `мало данных: измерено ${measured.length} из ${pairs.length} распадов, нужно не меньше ${splitNeed}; разошлись по развилке: ${diverged.map(edgeOf).join('; ') || 'нет'}` : unexplained.length ? `расстояние не вычислено, рёбра пары не связаны и не из одного узла: ${unexplained.map(edgeOf).join('; ')}` : `вдоль дорожки: ${alongs.map((a) => (a === null ? '—' : Math.round(a))).join(',')}; разошлись по развилке: ${diverged.map(edgeOf).join('; ') || 'нет'}`);
   const orgLimit = MAP.orgW + readConfigNumber('coccus', 'radius') + gap + 20;
   // одиночный кокк далеко от организма — не ошибка распада, а потерянная опросом пара: башня убила второго кокка в тот же кадр, когда он появился (по журналу убийств игры соседний номер убит)
-  const killedIds = new Set((await game.events('kill')).map((e) => e.id));
+  const killEvents = await game.events('kill');
+  const killedIds = new Set(killEvents.map((e) => e.id));
   const lostTwin = (k) => killedIds.has(k.id - 1) || killedIds.has(k.id + 1);
   check(`${p} регрессия: если делящаяся погибла у самого организма (ближе ${gap} px до красной линии), второй кокк сразу доходит до организма — таких распадов ${singles.length}, у всех первый кокк правее линии не дальше x = ${orgLimit}`, singles.every((k) => k.x <= orgLimit || lostTwin(k)), singles.map((k) => `${Math.round(k.x)}${k.x > orgLimit ? (lostTwin(k) ? ' (пара: второй убит в тот же кадр)' : ' (второго никто не убил)') : ''}`).join(','));
-  check(`${p} регрессия: каждый распад виден проверке (${pairs.length} пар + ${singles.length} у организма = ${endC.splits} распадов), партия окончена победой`, endC.state === 'won' && pairs.length + singles.length === endC.splits, `состояние ${endC.state}, распадов ${endC.splits}, убито делящихся не больше ${endC.spawned}`);
+  // Игра считает несколько шагов в одном кадре, а опрос видит только состояние между кадрами: если оба кокка распада убиты в тот же кадр, где появились, опрос их не застаёт.
+  // Такой распад неоднозначный (не оценивается), но он должен подтверждаться журналом игры: убитые кокки, которых опрос не видел, покрывают недостающие распады (по два на распад)
+  const missing = endC.splits - pairs.length - singles.length;
+  const unseenKilled = killEvents.filter((e) => e.kind === 'coccus' && !seenC.has(e.id)).map((e) => e.id);
+  const missingExplained = missing >= 0 && unseenKilled.length >= 2 * missing;
+  check(`${p} регрессия: каждый распад учтён (${pairs.length} пар + ${singles.length} у организма + ${Math.max(missing, 0)} не застигнутых опросом = ${endC.splits} распадов), не застигнутые подтверждены журналом убийств, партия окончена победой`, endC.state === 'won' && missingExplained && pairs.length + singles.length >= Math.max(20, splitNeed), `состояние ${endC.state}, распадов ${endC.splits}, не застигнуто ${missing}, убитых кокков, которых опрос не видел, ${unseenKilled.length} (${unseenKilled.join(',') || '—'}), убито делящихся не больше ${endC.spawned}`);
   check(`${p} учёт при распадах у организма: убитые + дошедшие = вышедшие + ${count}·распады (${endC.kills} + ${endC.leaked} = ${endC.spawned} + ${count}·${endC.splits})`, endC.kills + endC.leaked === endC.spawned + count * endC.splits, `убито ${endC.kills}, дошло ${endC.leaked}, вышло ${endC.spawned}, распадов ${endC.splits}, лишних ${endC.kills + endC.leaked - endC.spawned - count * endC.splits}`);
   await context.close();
 }
@@ -2655,7 +2759,7 @@ async function runArmored(browser, baseUrl) {
   await context.close();
 }
 
-// ================================================================== порядок появления типов и сообщения «Новая бактерия!»
+// ================================================================== порядок появления типов и сообщения «Новая бактерия: <название>»
 
 /** Сколько «жёлтых» точек текста сообщения вверху экрана и где он начинается и кончается по горизонтали (экран игры, px). */
 async function toastPixels(game, png) {
@@ -2713,7 +2817,7 @@ async function runIntro(browser, baseUrl) {
   check(`${p} состав волн из config.ts: вышло ${end.spawned} бактерий (ждали ${planned}), волн ${end.wave} из ${end.waveTotal}, партия окончена победой (без башен все дошли до организма: дошло ${end.leaked}, у матки рождённые на ходу не входят в «вышли»)`, end.spawned === planned && end.wave === TOTAL && end.waveTotal === TOTAL && end.state === 'won' && end.kills === 0 && end.leaked >= planned, `вышло ${end.spawned}, дошло ${end.leaked}, убито ${end.kills}, состояние ${end.state}`);
   await context.close();
 
-  // ---- B. сообщение «Новая бактерия!» и звук при первом появлении (ru и en): все типы, кроме кокка, подряд
+  // ---- B. сообщение «Новая бактерия: <название>» и звук при первом появлении (ru и en): все типы, кроме кокка, подряд
   const toastKinds = INTRO_ORDER.filter((k) => k !== 'coccus');
   const only = Object.fromEntries(toastKinds.map((k) => [k, 1]));
   for (const lang of ['ru', 'en']) {
@@ -2734,7 +2838,7 @@ async function runIntro(browser, baseUrl) {
       last = s;
       return seen.length >= toastKinds.length;
     }, 150000, 25);
-    check(`${q} при первом появлении каждого из ${toastKinds.length} новых типов вверху сообщение «Новая бактерия!…» (жёлтые точки текста: ${seen.map((x) => `${x.kind} ${x.t.count}`).join(', ')})`, seen.length === toastKinds.length && seen.every((x) => x.t.count >= 120), seen.map((x) => `${x.kind}: ${x.t.count}`).join(', '));
+    check(`${q} при первом появлении каждого из ${toastKinds.length} новых типов вверху сообщение «Новая бактерия: …» (жёлтые точки текста: ${seen.map((x) => `${x.kind} ${x.t.count}`).join(', ')})`, seen.length === toastKinds.length && seen.every((x) => x.t.count >= 120), seen.map((x) => `${x.kind}: ${x.t.count}`).join(', '));
     check(`${q} текст каждого сообщения целиком в окне карты (от ${Math.min(...seen.map((x) => x.t.minX))} до ${Math.max(...seen.map((x) => x.t.maxX))} px из 1280)`, seen.length === toastKinds.length && seen.every((x) => x.t.minX >= 10 && x.t.maxX <= 1274), seen.map((x) => `${x.kind}: ${x.t.minX}…${x.t.maxX}`).join('; '));
     check(`${q} при первом появлении нового типа играет звук (аудио запущено, sound.played растёт на каждом появлении)`, seen.length === toastKinds.length && seen.every((x) => x.soundState === 'running' && x.playedDelta >= 1), seen.map((x) => `${x.kind}: +${x.playedDelta}`).join(', '));
     await ctx.close();
@@ -3161,39 +3265,13 @@ async function priceColors(game, png, btn) {
   return { gold, red, kind: gold >= 12 && red < 4 ? 'gold' : red >= 12 && gold < 4 ? 'red' : 'unclear' };
 }
 
-/** Подсказка внизу окна карты: сколько белых точек текста и где он начинается и кончается по горизонтали (экран игры, px). Сканируется только окно карты
- *  (весь экран по ширине; по высоте — над нижней панелью). */
-async function hintExtent(game, png) {
-  const points = [];
-  const xs = [];
-  for (let gy = 548; gy <= 596; gy += 2) {
-    for (let gx = 0; gx <= 1278; gx += 3) {
-      const c = game.screen.g2c(gx, gy);
-      points.push([c.x, c.y]);
-      xs.push(gx);
-    }
-  }
-  const px = await samplePixels(game.page, png, points);
-  let count = 0;
-  let minX = Infinity;
-  let maxX = -Infinity;
-  px.forEach(([r, g, b], i) => {
-    if (r >= 215 && g >= 215 && b >= 215) {
-      count++;
-      minX = Math.min(minX, xs[i]);
-      maxX = Math.max(maxX, xs[i]);
-    }
-  });
-  return { count, minX, maxX };
-}
-
 // ---------------------------------------------------------------- тексты (i18n)
 
 function towersTexts() {
   const p = '[башни: тексты]';
   const cap1 = (id) => id.charAt(0).toUpperCase() + id.slice(1);
-  // названия и нижние подсказки — по всем башням таблицы (у Таблетки нижней подсказки нет); подпись способа стрельбы с кнопок панели убрана (пачка 3), её строки не проверяются
-  const keys = [...TOWER_IDS.map((id) => `tower${cap1(id)}`), ...TOWER_IDS.filter((id) => id !== 'pill').map((id) => `info${cap1(id)}`), 'hintRotate', 'startWave'];
+  // названия — по всем башням таблицы; описаний действия башен и нижних подсказок в партии нет (решение владельца 18 октября 2026: описания — в Альманахе)
+  const keys = [...TOWER_IDS.map((id) => `tower${cap1(id)}`), 'startWave'];
   const rows = keys.map((k) => {
     try {
       const [ru, en] = readI18n(k);
@@ -3207,15 +3285,13 @@ function towersTexts() {
   const cyr = /[А-Яа-яЁё]/;
   const bad = rows.filter((r) => r.ok && (!r.ru.trim() || !r.en.trim() || r.ru === r.en || !cyr.test(r.ru) || cyr.test(r.en)));
   check(`${p} русские строки по-русски, английские по-английски, обе не пустые и различаются`, bad.length === 0, bad.map((r) => `${r.k}: «${r.ru}» / «${r.en}»`).join('; '));
-  const syrup = rows.find((r) => r.k === 'infoSyrup');
-  check(`${p} подсказка Сиропа на обоих языках содержит вставку {pct} (на сколько процентов лужа замедляет — из config.ts)`, Boolean(syrup?.ok) && ['ru', 'en'].every((l) => syrup[l].includes('{pct}')), syrup ? `${syrup.ru} / ${syrup.en}` : '');
   const names = rows.filter((r) => r.k.startsWith('tower') && r.ok).map((r) => r.ru);
   check(`${p} названия ${TOWER_IDS.length} башен различаются: ${names.join(', ')}`, names.length === TOWER_IDS.length && new Set(names).size === TOWER_IDS.length);
 }
 
 // ---------------------------------------------------------------- панель: кнопки всех башен
 
-/** Панель на одном экране: порядок и размещение кнопок, выбор и снятие выбора, цвет цен, подсказка внизу целиком в окне. */
+/** Панель на одном экране: порядок и размещение кнопок, выбор и снятие выбора, цвет цен, при выборе башни подсказки внизу нет. */
 async function towersPanel(browser, baseUrl, deviceKey, lang, { full = false } = {}) {
   const device = VIEWPORTS[deviceKey];
   const p = `[башни: панель, ${device.label}, ${lang}]`;
@@ -3255,18 +3331,18 @@ async function towersPanel(browser, baseUrl, deviceKey, lang, { full = false } =
   // выбор: тап по каждой кнопке выбирает именно её; повторный тап снимает; тап по другой кнопке переключает
   const picked = [];
   const reTap = [];
-  const hints = [];
+  const hintsAt = [];
   for (const id of TOWER_IDS) {
     await game.selectTower(id);
     s = await game.state();
     picked.push(s.selected === id);
+    hintsAt.push({ id, hint: s.ui.hint });
     if (!device.hasTouch) {
       await input.hover(await game.cell(...FREE.d));
       await sleep(250);
     }
     await sleep(150);
-    const png = await shot(page, `towers-02-selected-${id}-${name}`);
-    hints.push({ id, ...(await hintExtent(game, png)) });
+    await shot(page, `towers-02-selected-${id}-${name}`);
     await game.selectTower(id);
     s = await game.state();
     reTap.push(s.selected === null);
@@ -3279,10 +3355,8 @@ async function towersPanel(browser, baseUrl, deviceKey, lang, { full = false } =
   s = await game.state();
   check(`${p} тап по другой кнопке переключает выбор (Сироп → Шипучка: selected = ${s.selected})`, s.selected === 'fizz');
   await game.selectTower('fizz');
-  // подсказка внизу есть у каждой башни и целиком внутри окна карты (не залезает на панель)
-  for (const h of hints) {
-    check(`${p} нижняя подсказка при выборе башни «${h.id}» видна и целиком в окне карты (текст от ${h.minX} до ${h.maxX} px из 1280, точек текста ${h.count})`, h.count >= 100 && h.minX >= 8 && h.maxX <= 1274, `точек ${h.count}, ${h.minX}…${h.maxX}`);
-  }
+  // при выборе башни внизу подсказки нет ни у одной башни (решение владельца 18 октября 2026: игра во время партии не объясняет и не советует)
+  check(`${p} при выборе любой из ${TOWER_IDS.length} башен внизу подсказки нет (hint = null)`, hintsAt.every((h) => h.hint === null), hintsAt.map((h) => `${h.id}: ${JSON.stringify(h.hint)}`).join('; '));
   // тап по пустой клетке без башни по-прежнему ничего не ставит
   await game.tapCell(...FREE.a);
   s = await game.state();
@@ -4245,7 +4319,7 @@ async function towersMixed(browser, baseUrl) {
   let shotDone = false;
   await pollUntil(game, async (st) => {
     // снимок для владельца: бой в разгаре (несколько бактерий, снаряды в воздухе, уже было замедление или взрыв)
-    if (!shotDone && (st.effects.blasts >= 1 || st.slows >= 1) && st.bacteria.length >= 3 && st.projectiles >= 1) {
+    if (!shotDone && (st.effects.blasts >= 1 || st.slows >= 1)) {
       await shot(game.page, 'towers-09-four-battle');
       shotDone = true;
     }
@@ -4255,7 +4329,7 @@ async function towersMixed(browser, baseUrl) {
   let s = await game.state();
   check(`${p} ${TOWER_IDS.length} башен разных видов стоят рядом с дорожкой (${s.towers.map((t) => t.id).join(', ')}), монеты — только награды за уже убитых (${BASE.reward} × убито ${s.kills})`, [...s.towers.map((t) => t.id)].sort().join() === [...TOWER_IDS].sort().join() && s.coins === BASE.reward * s.kills, `монет ${s.coins}, убито ${s.kills}`);
   const end = await pollUntil(game, async (st) => {
-    if (!shotDone && (st.effects.blasts >= 1 || st.slows >= 1) && st.bacteria.length >= 3 && st.projectiles >= 1) {
+    if (!shotDone && (st.effects.blasts >= 1 || st.slows >= 1)) {
       await shot(game.page, 'towers-09-four-battle');
       shotDone = true;
     }
@@ -4290,6 +4364,11 @@ async function towersNewStats(browser, baseUrl) {
 }
 
 // ---------------------------------------------------------------- Ампула: снайпер
+
+/** Минимум оценённых выстрелов Ампулы — как у Таблетки: не меньше половины сделанных и не меньше пяти; иначе проверка красная с пометкой «мало данных». Прогон идёт, пока данных не хватит (потолок — AMPULE_MAX_SHOTS выстрелов). */
+const AMPULE_MIN_SHARE = 0.5;
+const AMPULE_MIN_JUDGED = 5;
+const AMPULE_MAX_SHOTS = 14;
 
 /**
  * Ампула бьёт самую прочную (по текущему HP) бактерию в радиусе, а не ближайшую к организму. По каждому выстрелу, где в радиусе «точно» (с запасом 60 px) было ≥ 2 бактерий,
@@ -4332,7 +4411,7 @@ function analyzeSnipeTargets(log, tw, damage) {
 /**
  * Ампула: (1) цель — самая прочная по текущему HP из находящихся в радиусе (три бактерии с разным HP; радиус для этой проверки подменён на 3000 px, чтобы все были в радиусе: так порядок
  * целей не зависит от того, с какого входа они вышли; число башни из таблицы проверяет towersNewStats); (2) каждый выстрел бьёт одну бактерию и снимает урон башни; (3) пауза между выстрелами —
- * из таблицы (игровое время; допуск на шаг кадра). Бактерии медленные, чтобы партия шла дольше семи выстрелов.
+ * из таблицы (игровое время; допуск на шаг кадра). Бактерии медленные, чтобы партия шла дольше четырнадцати выстрелов (потолок прогона AMPULE_MAX_SHOTS).
  */
 async function towersAmpule(browser, baseUrl) {
   const p = '[башни: Ампула]';
@@ -4358,19 +4437,27 @@ async function towersAmpule(browser, baseUrl) {
   const tw = { ...placed.towers[0], range: placed.towers[0]?.stats.range ?? 0 }; // радиус — из чисел башни в игре (подменён на 3000 в cfg выше)
   const log = [];
   const startedAt = Date.now();
+  // Прогон идёт, пока не набрано достаточно оценённых выстрелов (AMPULE_MIN_SHARE от сделанных, не меньше AMPULE_MIN_JUDGED, не меньше двух разных целей); потолок — AMPULE_MAX_SHOTS выстрелов или конец бактерий
+  let enough = false;
   await pollUntil(game, (st) => {
     log.push(st);
-    return st.state !== 'playing' || (st.shots >= 7 && st.projectiles === 0) || Date.now() - startedAt > 170000;
+    if (st.shots >= 7 && log.length % 20 === 0) {
+      const part = analyzeSnipeTargets(log, tw, damage);
+      enough = part.judged >= AMPULE_MIN_JUDGED && part.judged >= part.fires * AMPULE_MIN_SHARE && part.victims.size >= 2;
+    }
+    return st.state !== 'playing' || (st.projectiles === 0 && ((st.shots >= 7 && enough) || st.shots >= AMPULE_MAX_SHOTS)) || Date.now() - startedAt > 170000;
   }, 190000, 20);
   await game.page.close();
   const last = log.at(-1);
   const a = analyzeSnipeTargets(log, tw, damage);
+  const ampEnough = a.judged >= AMPULE_MIN_JUDGED && a.judged >= a.fires * AMPULE_MIN_SHARE;
+  const ampNeed = Math.max(AMPULE_MIN_JUDGED, Math.ceil(a.fires * AMPULE_MIN_SHARE));
   const fireAt = [];
   for (let j = 1; j < log.length; j++) for (let k = log[j - 1].shots; k < log[j].shots; k++) fireAt.push(log[j].elapsed);
   const gaps = fireAt.slice(1).map((e, i) => e - fireAt[i]);
   check(`${p} Ампула поставлена и стреляет: башен ${placed.towers.length} (${tw?.id}), выстрелов ${last.shots} (ждали ≥ 6)`, placed.towers.length === 1 && tw?.id === 'ampule' && last.shots >= 6, `выстрелов ${last.shots}, состояние ${last.state}`);
-  check(`${p} цель — самая прочная по текущему HP из бактерий в радиусе (HP ${Object.entries(hps).map(([k, v]) => `${k} ${v}`).join(', ')}): из ${a.fires} выстрелов оценено ${a.judged} (самая прочная впереди второй на ≥ 4 HP, неоднозначных ${a.ambiguous}, не долетело ${a.unlanded}), ошибок ${a.wrong.length}; разных целей: ${[...a.victims].join(', ') || 'нет'}`, a.judged >= 3 && a.wrong.length === 0 && a.victims.size >= 2, a.wrong.slice(0, 3).join('; ') || `оценено ${a.judged}, целей ${a.victims.size}`);
-  check(`${p} каждый выстрел Ампулы попадает ровно в одну бактерию и снимает ${damage} HP (из таблицы; отклонений ${a.badDamage})`, a.judged >= 3 && a.badDamage === 0);
+  check(`${p} цель — самая прочная по текущему HP из бактерий в радиусе (HP ${Object.entries(hps).map(([k, v]) => `${k} ${v}`).join(', ')}): из ${a.fires} выстрелов оценено ${a.judged} (самая прочная впереди второй на ≥ 4 HP, неоднозначных ${a.ambiguous}, не долетело ${a.unlanded}), ошибок ${a.wrong.length}; разных целей: ${[...a.victims].join(', ') || 'нет'}`, ampEnough && a.wrong.length === 0 && a.victims.size >= 2, !ampEnough ? `мало данных: оценено ${a.judged} из ${a.fires} выстрелов, нужно не меньше ${ampNeed}; неоднозначных ${a.ambiguous}, не долетело ${a.unlanded}` : a.wrong.slice(0, 3).join('; ') || `оценено ${a.judged}, целей ${a.victims.size}`);
+  check(`${p} каждый выстрел Ампулы попадает ровно в одну бактерию и снимает ${damage} HP (из таблицы; отклонений ${a.badDamage})`, ampEnough && a.badDamage === 0, ampEnough ? '' : `мало данных: оценено ${a.judged} из ${a.fires} выстрелов, нужно не меньше ${ampNeed}`);
   check(`${p} пауза между выстрелами — ${cd} с из таблицы (игровое время; допуск 0,6 с на шаг кадра вниз и 0,8 с вверх у медианы): выстрелов ${fireAt.length}, промежутки ${gaps.map(f2).join(', ')}`, gaps.length >= 4 && Math.min(...gaps) >= cd - 0.6 && medianOf(gaps) <= cd + 0.8, gaps.map(f2).join(', '));
   await context.close();
 }
@@ -4449,7 +4536,7 @@ async function poisonRun(context, baseUrl, p, { counts, cfg = [], single = true,
     const poisoned = st.bacteria.some((b) => b.poisonLeft > 0);
     if (poisoned) seen = true;
     if (st.state !== 'playing' || Date.now() - startedAt > 170000) return true;
-    return stop ? stop(st, seen) : seen && !poisoned;
+    return stop ? stop(st, seen, log) : seen && !poisoned;
   }, 190000, 20);
   await game.page.close();
   return { log, end, tower: placed.towers[0], placedCount: placed.towers.length };
@@ -4493,7 +4580,24 @@ async function towersAntibiotic(browser, baseUrl) {
   poisonChecks(`${p} кокк под лекарем (лечение ${healPerSec} HP/с)`, D, 'coccus', { note: ' — лекарь за это время не прибавил ни HP' });
 
   // ---- E. повторные уколы: время яда возвращается к полному, сила не складывается
-  const E = await poisonRun(context, baseUrl, `${p} повторные уколы`, { counts: { coccus: 1 }, cfg: [hp], single: false, stop: (st) => st.poisons >= 4 });
+  // Прогон не кончается, пока не набрано ANTIBIOTIC_MIN_RATES замеров скорости яда (пары кадров с интервалом ≥ 0,04 с): их число зависит от того, как часто страница отвечала на опрос, а не от числа уколов
+  const ANTIBIOTIC_MIN_RATES = 12;
+  const rateSamples = (log) => {
+    const rows = poisonRows(log, 'coccus').filter((r) => r.b.poisonLeft > 0);
+    let n = 0;
+    for (let i = 1; i < rows.length; i++) if (rows[i].e - rows[i - 1].e >= 0.04) n++;
+    return n;
+  };
+  let ratesEnough = false;
+  const E = await poisonRun(context, baseUrl, `${p} повторные уколы`, {
+    counts: { coccus: 1 },
+    cfg: [hp],
+    single: false,
+    stop: (st, seen, log) => {
+      if (st.poisons >= 4 && !ratesEnough && log.length % 10 === 0) ratesEnough = rateSamples(log) >= ANTIBIOTIC_MIN_RATES;
+      return st.poisons >= 4 && ratesEnough;
+    },
+  });
   const st = E.tower?.stats ?? TW.antibiotic;
   const dps = st.dotPerSec;
   const secs = st.dotSec;
@@ -4514,8 +4618,8 @@ async function towersAntibiotic(browser, baseUrl) {
       if (rate < 0.9 * dps || rate > 1.1 * dps) rateBad++;
     }
   }
-  check(`${p} повторные уколы: уколов ${E.end.poisons} (≥ 3); время яда не растёт выше ${secs} с (наибольшее ${f2(maxLeft)}), каждый новый укол возвращает его к полному (возвратов ${refreshes.length} ≥ 2: ${refreshes.map(f2).join(', ')})`, E.end.poisons >= 3 && maxLeft <= secs + 1e-6 && refreshes.length >= 2 && refreshes.every((x) => x >= secs - 0.8), `уколов ${E.end.poisons}, возвратов ${refreshes.length}`);
-  check(`${p} сила яда не складывается: между замерами HP убывает со скоростью ${dps} HP/с (±10 %), замеров ${rates}, вне нормы ${rateBad}`, rates >= 8 && rateBad === 0, `замеров ${rates}, вне нормы ${rateBad}`);
+  check(`${p} повторные уколы: уколов ${E.end.poisons} (≥ 3); время яда не растёт выше ${secs} с (наибольшее ${f2(maxLeft)}), каждый новый укол возвращает его к полному (возвратов ${refreshes.length} ≥ 2: ${refreshes.map(f2).join(', ')})`, E.end.poisons >= 3 && maxLeft <= secs + 1e-6 && refreshes.length >= 2 && refreshes.every((x) => x >= secs - 0.8), E.end.poisons < 3 || refreshes.length < 2 ? `мало данных: уколов ${E.end.poisons} (нужно ≥ 3), возвратов ${refreshes.length} (нужно ≥ 2)` : `уколов ${E.end.poisons}, возвратов ${refreshes.length}`);
+  check(`${p} сила яда не складывается: между замерами HP убывает со скоростью ${dps} HP/с (±10 %), замеров ${rates}, вне нормы ${rateBad}`, rates >= 8 && rateBad === 0, rates < 8 ? `мало данных: замеров ${rates}, нужно не меньше 8` : `замеров ${rates}, вне нормы ${rateBad}`);
   await context.close();
 }
 
@@ -4640,7 +4744,7 @@ async function typesPhago(browser, baseUrl) {
 // Всё считается по игровому времени (elapsed) и состоянию игры (clouds, cloudsMade, towers[].suppressed / auraMul, stats.coneDeg / auraMul), а не по реальным секундам: сервер медленный.
 
 /** Размеры таблиц config.ts после пачки 3 (docs/stage-7-plan.md): с каждой новой пачкой числа здесь обновляются (проверка заодно ловит случай, когда читалка таблиц молча пропустила строки). */
-const STAGE7 = { towers: ['pill', 'syrup', 'fizz', 'syringe', 'ampule', 'antibiotic', 'lamp', 'vitamin', 'frost', 'patch'], kinds: 19, nodes: 49, unlock: { lamp: 5, vitamin: 7, frost: 8, patch: 9 }, intro: { stealth: 5, toxin: 7, parasite: 8, mutant: 9 } };
+const STAGE7 = { towers: ['pill', 'syrup', 'fizz', 'syringe', 'ampule', 'antibiotic', 'lamp', 'vitamin', 'frost', 'patch'], kinds: 19, nodes: 50, unlock: { lamp: 5, vitamin: 7, frost: 8, patch: 9 }, intro: { stealth: 5, toxin: 7, parasite: 8, mutant: 9 } };
 function tablesSizes() {
   const p = '[таблицы config.ts: размеры]';
   const towers = Object.keys(readTowerTable());
@@ -4649,7 +4753,7 @@ function tablesSizes() {
   const unlock = readTowerUnlock();
   check(`${p} башен ${towers.length}: ${towers.join(', ')} (ждали ${STAGE7.towers.join(', ')}; Лампа и Витамин — пачка 2, Холод и Пластырь — пачка 3)`, towers.join() === STAGE7.towers.join(), towers.join(', '));
   check(`${p} типов бактерий ${kinds.length} (ждали ${STAGE7.kinds}, с «stealth», «toxin», «mutant» и «parasite»)`, kinds.length === STAGE7.kinds && ['stealth', 'toxin', 'mutant', 'parasite'].every((k) => kinds.includes(k)), kinds.join(', '));
-  check(`${p} узлов дерева улучшений ${nodes.length} (ждали ${STAGE7.nodes}: 33 + по 4 у Лампы, Витамина, Холода и Пластыря), у Лампы ${nodes.filter((id) => id.startsWith('lamp')).length}, у Витамина ${nodes.filter((id) => id.startsWith('vitamin')).length}, у Холода ${nodes.filter((id) => id.startsWith('frost')).length}, у Пластыря ${nodes.filter((id) => id.startsWith('patch')).length}`, nodes.length === STAGE7.nodes, nodes.join(', '));
+  check(`${p} узлов дерева улучшений ${nodes.length} (ждали ${STAGE7.nodes}: 33 + по 4 у Лампы, Витамина, Холода и Пластыря + «Сильное вещество II»), у Лампы ${nodes.filter((id) => id.startsWith('lamp')).length}, у Витамина ${nodes.filter((id) => id.startsWith('vitamin')).length}, у Холода ${nodes.filter((id) => id.startsWith('frost')).length}, у Пластыря ${nodes.filter((id) => id.startsWith('patch')).length}`, nodes.length === STAGE7.nodes, nodes.join(', '));
   check(`${p} открытие башен по уровням: Лампа с ${STAGE7.unlock.lamp}, Витамин с ${STAGE7.unlock.vitamin}, Холод с ${STAGE7.unlock.frost}, Пластырь с ${STAGE7.unlock.patch} (в таблице ${unlock.lamp}, ${unlock.vitamin}, ${unlock.frost} и ${unlock.patch})`, Object.entries(STAGE7.unlock).every(([id, level]) => unlock[id] === level));
   const t = readTowerTable();
   check(`${p} Витамин в таблице не стреляет (damage ${t.vitamin?.damage}, cooldownMs ${t.vitamin?.cooldownMs}, способ «${t.vitamin?.targeting}»), Лампа — конус (coneDeg ${t.lamp?.coneDeg}, способ «${t.lamp?.targeting}»)`, t.vitamin?.damage === 0 && t.vitamin?.cooldownMs === 0 && t.vitamin?.targeting === 'aura' && t.lamp?.targeting === 'cone' && t.lamp?.coneDeg > 0);
@@ -5655,7 +5759,7 @@ const MAX_FRAME_MS = (() => {
 async function towersControls(browser, baseUrl) {
   const p = '[башни: кнопки скорости и «Начать волну»]';
   const WAIT = 60;
-  // В первой волне выходит новый тип (кокк): игра при старте прибавляет к ожиданию waves.newTypePauseSec секунд (GameScene.announceWave), и кнопка «Начать волну» обещает монеты за ВСЕ оставшиеся секунды
+  // В первой волне выходит новый тип (кокк): игра при старте прибавляет к ожиданию waves.newTypePauseSec секунд (GameScene.extendPauseForNewKinds), и кнопка «Начать волну» обещает монеты за ВСЕ оставшиеся секунды
   const NEW_TYPE_PAUSE = readConfigNumber('waves', 'newTypePauseSec');
   const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
   const game = await openGame(context, baseUrl, p, { query: ALL_TOWERS, speed: 1, cfg: `waves.firstDelaySec:${WAIT},${FIXED_NO_TOWERS.join(',')}` });
@@ -7373,15 +7477,16 @@ async function raiseNode(app, id, level) {
  * Какие узлы должны быть открыты (правила src/meta.ts): ветка башни открыта, когда на карте уровней открыт уровень, с которого башня доступна (`levels.towerUnlock`; «Организм» и «Защита» — всегда),
  * и родитель куплен до нужного уровня. `levels` — уровни улучшений в игре, `stars` — звёзды уровней 1, 2, 3… (уровень открыт, когда предыдущий пройден).
  */
-function expectedOpen(UP, levels, stars) {
+function expectedOpen(UP, levels, stars, waveCap = 0) {
   const unlock = readTowerUnlock();
   const levelOpen = (n) => n <= 1 || (stars[n - 2] ?? 0) >= 1;
   const branchOpen = (b) => b === 'body' || b === 'defense' || levelOpen(unlock[b] ?? 1);
-  return Object.fromEntries(Object.keys(UP).map((id) => [id, branchOpen(UP[id].branch) && (!UP[id].requires || (levels[UP[id].requires.id] ?? 0) >= UP[id].requires.level)]));
+  // узел, уровни которого открываются лучшими волнами на уровнях (`meta.waveOpen`), открыт, когда открыт хотя бы один уровень
+  return Object.fromEntries(Object.keys(UP).map((id) => [id, branchOpen(UP[id].branch) && (!UP[id].requires || (levels[UP[id].requires.id] ?? 0) >= UP[id].requires.level) && (!UP[id].waveOpen || waveCap > 0)]));
 }
 /** Узлы, у которых открытость на экране не совпала с правилами (пустой список — всё сошлось). */
 function openMismatch(UP, m) {
-  const want = expectedOpen(UP, m.levels, m.progress.stars);
+  const want = expectedOpen(UP, m.levels, m.progress.stars, m.waveOpenCap);
   return m.screen.nodes.filter((n) => n.open !== want[n.id]).map((n) => `${n.id}: на экране ${n.open}, по правилам ${want[n.id]}`);
 }
 
@@ -7506,7 +7611,12 @@ async function runProgressSave(browser, baseUrl) {
   let s = await g2.state();
   check(`${p} в начале уровня игра не встаёт на паузу (state 'playing', уведомления идут строкой сверху)`, s.state === 'playing', `состояние ${s.state}`);
   m = await metaOf(g2.page);
-  check(`${p} показанные уведомления записаны: башни t:pill и t:syrup, бактерия b:coccus`, ['t:pill', 't:syrup', 'b:coccus'].every((k) => m.seen.includes(k)), m.seen.join());
+  check(`${p} при старте записаны уведомления о башнях t:pill и t:syrup; бактерия b:coccus ещё не записана (её уведомление — при выходе)`, ['t:pill', 't:syrup'].every((k) => m.seen.includes(k)) && !m.seen.includes('b:coccus'), m.seen.join());
+  const waveBtn = s.ui.waveButton;
+  await g2.input.tap(g2.g(waveBtn.x, waveBtn.y));
+  await waitFor(g2.page, (x) => x.introduced.includes('coccus'), 20000, 'выход первого кокка после тапа по «Начать волну»', 20);
+  m = await metaOf(g2.page);
+  check(`${p} после выхода первого кокка записана бактерия b:coccus`, m.seen.includes('b:coccus'), m.seen.join());
   await g2.page.reload({ waitUntil: 'load', timeout: 90000 });
   await waitFor(g2.page, (x) => x.state === 'playing', 20000, 'запуск после обновления');
   s = await g2.state();
@@ -8284,6 +8394,43 @@ async function runTreeShop(browser, baseUrl) {
     await shot(app.page, `tree-shop-max-${deviceKey}-${lang}`);
     const problemsB = await checkAllNodes(app);
     check(`${p} все ${ids.length} узлов, ветки башен открыты: тексты помещаются в карточку, у открытых узлов условия нет, у закрытых есть, сырых ключей нет`, problemsB.length === 0, problemsB.slice(0, 4).join(' || '));
+
+    // ================= часть Г: «Сильное вещество II» (решение владельца 18 октября 2026): уровни узла открываются лучшей волной на уровнях 2–10, уровень 1 их не открывает
+    const wo = readMetaTable().waveOpen;
+    const X = wo.node;
+    const reqX = UP[X].requires;
+    const capOf = (best) => wo.quota.reduce((sum, q, k) => sum + Math.floor(q * Math.min(1, Math.max(0, ((best[k] ?? 0) - wo.fromWave) / (wo.toWave - wo.fromWave))) + 1e-9), 0);
+    const waveLine = (n) => i18nText('upgWaves', li, { n, max: UP[X].prices.length });
+    check(`${p} «${X}»: уровень 1 уровней узла не открывает (квота ${wo.quota[0]}), всего уровней по квотам ${wo.quota.reduce((a, b) => a + b, 0)} = числу цен ${UP[X].prices.length}`, wo.quota[0] === 0 && wo.quota.reduce((a, b) => a + b, 0) === UP[X].prices.length, JSON.stringify(wo));
+    // только уровень 1 пройден до конца: открыто 0 уровней, узел закрыт, в карточке строка про волны, купить нельзя
+    app = await openScreen(`&meta=dna:500,${reqX.id}:${reqX.level}&best=30`);
+    m = await waitMeta(app.page, (x) => x.screen.visible, 5000);
+    m = await selectNode(app, X);
+    check(`${p} лучшая волна уровня 1 — 30: «${X}» закрыт (открыто ${m.waveOpenCap} уровней узла), в карточке «${waveLine(0)}», кнопка «${i18nText('upgClosed', li)}»`, m.waveOpenCap === 0 && !nodeOf(m, X).open && !nodeOf(m, X).canBuy && m.screen.detail.texts[3] === waveLine(0) && m.screen.detail.texts[4] === i18nText('upgClosed', li), JSON.stringify([m.waveOpenCap, nodeOf(m, X), m.screen.detail.texts]));
+    await app.page.close();
+    // уровень 2: лучшая волна 19 открывает ⌊квота × (19 − from) / (to − from)⌋ уровней; их можно купить за цены таблицы, следующий — нет
+    const best2 = [30, 19];
+    const cap2 = capOf(best2);
+    app = await openScreen(`&meta=dna:500,${reqX.id}:${reqX.level}&best=${best2.join()}`);
+    m = await waitMeta(app.page, (x) => x.screen.visible, 5000);
+    m = await selectNode(app, X);
+    check(`${p} лучшие волны ${best2.join(', ')}: открыто ${m.waveOpenCap} уровней узла «${X}» (по формуле квота × (волна − ${wo.fromWave}) / ${wo.toWave - wo.fromWave}, ждали ${cap2}), узел открыт и его можно купить`, m.waveOpenCap === cap2 && cap2 > 0 && nodeOf(m, X).open && nodeOf(m, X).canBuy && m.screen.detail.texts[3] === '', JSON.stringify([m.waveOpenCap, nodeOf(m, X), m.screen.detail.texts]));
+    let rr = null;
+    let spentX = 0;
+    let okX = true;
+    for (let k = 1; k <= cap2; k++) {
+      rr = await buyNode(app, X);
+      spentX += UP[X].prices[k - 1];
+      if (rr.after.levels[X] !== k || rr.after.dna !== 500 - spentX) okX = false;
+    }
+    check(`${p} покупка ${cap2} открытых уровней «${X}» за цены таблицы (${UP[X].prices.slice(0, cap2).join(' + ')} = ${spentX}): уровень ${rr.after.levels[X]}, очки ${rr.after.dna}`, okX && rr.after.levels[X] === cap2, `уровень ${rr.after.levels[X]}, очки ${rr.after.dna}`);
+    m = await selectNode(app, X);
+    check(`${p} открытые волнами уровни куплены: следующий не купить даже при очках ${m.dna}; в карточке «${waveLine(cap2)}», кнопка «${i18nText('upgClosed', li)}»`, !nodeOf(m, X).canBuy && m.screen.detail.texts[3] === waveLine(cap2) && m.screen.detail.texts[4] === i18nText('upgClosed', li), JSON.stringify([nodeOf(m, X), m.screen.detail.texts]));
+    const noBuy = await buyNode(app, X, { expectBuy: false });
+    check(`${p} покупка сверх открытых уровней не проходит: очки ${noBuy.after.dna} и уровень ${cap2} прежние`, noBuy.after.dna === m.dna && noBuy.after.levels[X] === cap2, `очки ${noBuy.after.dna}, уровень ${noBuy.after.levels[X]}`);
+    const mismatchX = openMismatch(UP, noBuy.after);
+    check(`${p} открытость узлов совпадает с правилами и при открытых волнами уровнях`, mismatchX.length === 0, mismatchX.join('; '));
+    await app.page.close();
     await context.close();
   }
 
@@ -8662,8 +8809,7 @@ async function runAlmanacPause(browser, baseUrl) {
     // Тап по экрану (мимо кнопок) возобновляет игру
     await game.input.tap(game.g(500, 300));
     s = await waitFor(page, (x) => x.state === 'playing', 5000, 'игра продолжилась тапом по экрану');
-    await sleep(400);
-    const run = await game.state();
+    const run = await waitForGame(page, (x) => x.state === 'playing' && x.elapsed > elapsed0, 'игровое время пошло после тапа по экрану', { gameSec: 20 });
     check(`${p} тап по экрану после альманаха возобновляет игру: state 'playing', время идёт (${f2(elapsed0)} → ${f2(run.elapsed)})`, run.state === 'playing' && run.elapsed > elapsed0, `state ${run.state}, время ${f2(run.elapsed)}`);
     // «Заново» на паузе: ставим башню, снова пауза, тап по «Заново» — партия начинается сначала (монеты и время с нуля, башен нет), игра идёт
     await game.towerButton();
@@ -8686,6 +8832,11 @@ async function runAlmanacPause(browser, baseUrl) {
     const menuOthers = [pausedResume.pauseAlmanacButton, pausedResume.pauseSoundButton, pausedResume.pauseRestartButton, pausedResume.pauseMenuButton];
     check(`${p} на паузе есть кнопка «Продолжить» по центру над остальными четырьмя, внутри экрана, не налезает на них`,
       resumeBtn !== null && insideScreen(resumeBtn) && menuOthers.every((b) => b !== null && !overlaps(resumeBtn, b) && resumeBtn.y < b.y) && Math.abs(resumeBtn.x - W / 2) < 2, JSON.stringify({ resumeBtn, menuOthers }));
+    // цвета: зелёной остаётся только «Продолжить», «Заново» — того же цвета, что «В меню» (заливка у левого края кнопки, вне надписи)
+    const pausePng = await shot(page, `pause-colors-${deviceKey}-${lang}`);
+    const pauseEdge = (r) => game.g(r.x - r.w / 2 + 14, r.y);
+    const [resumeFill, restartFill, menuFill] = await samplePixels(page, pausePng, [resumeBtn, pausedResume.pauseRestartButton, pausedResume.pauseMenuButton].map((r) => [pauseEdge(r).x, pauseEdge(r).y]));
+    check(`${p} на паузе зелёная только «Продолжить»: «Заново» того же цвета, что «В меню»`, restartFill.every((v, i) => Math.abs(v - menuFill[i]) <= 6) && resumeFill[1] > resumeFill[0] + 40 && resumeFill[1] > restartFill[1] + 40, `продолжить ${resumeFill.slice(0, 3)}, заново ${restartFill.slice(0, 3)}, в меню ${menuFill.slice(0, 3)}`);
     const elapsedResume = pausedResume.elapsed;
     await game.input.tap(game.g(resumeBtn.x, resumeBtn.y));
     await waitFor(page, (x) => x.state === 'playing', 5000, 'игра продолжилась кнопкой «Продолжить»');
@@ -8709,6 +8860,19 @@ async function runMenuReset(browser, baseUrl) {
     const context = await newDeviceContext(browser, device, lang);
     let app = await openMenu(context, baseUrl, p, { isTouch: device.hasTouch });
     const { page } = app;
+    // без прогресса кнопки нет; с любым из трёх видов прогресса (очки ДНК, купленный узел, звезда) она есть
+    const bare = await app.ui();
+    check(`${p} без прогресса в меню нет кнопки «${readI18n('resetBtn')[li]}»`, !bare.buttons.reset, JSON.stringify(Object.keys(bare.buttons)));
+    for (const [what, save] of [
+      ['очки ДНК', { v: 3, dna: 5, levels: {}, progress: { stars: [0], best: [0] }, seen: [] }],
+      ['купленный узел', { v: 3, dna: 0, levels: { damage: 1 }, progress: { stars: [0], best: [0] }, seen: [] }],
+      ['звезда', { v: 3, dna: 0, levels: {}, progress: { stars: [1], best: [30] }, seen: [] }],
+    ]) {
+      await page.evaluate((value) => window.localStorage.setItem('pvb.meta', JSON.stringify(value)), save);
+      await page.reload({ waitUntil: 'load' });
+      const withOne = await app.waitUi('menu', `меню с прогрессом: ${what}`);
+      check(`${p} с прогрессом «${what}» в меню есть кнопка «${readI18n('resetBtn')[li]}»`, Boolean(withOne.buttons.reset), JSON.stringify(Object.keys(withOne.buttons)));
+    }
     // сохранение игрока: 77 очков ДНК, уровень 1 пройден на 2 звезды, звук выключен
     await page.evaluate(() => {
       window.localStorage.setItem('pvb.meta', JSON.stringify({ v: 3, dna: 77, levels: { damage: 2 }, progress: { stars: [2], best: [30] }, seen: ['t:pill'] }));
@@ -8720,8 +8884,21 @@ async function runMenuReset(browser, baseUrl) {
     let u = await app.ui();
     check(`${p} в меню очки ДНК из сохранения (${balanceText(77)}), кнопка «${readI18n('resetBtn')[li]}» внутри экрана слева вверху, не налезает на «Звук»`,
       u.texts.includes(balanceText(77)) && u.buttons.reset && insideScreen(u.buttons.reset) && u.buttons.reset.x < W / 2 && !overlaps(u.buttons.reset, u.buttons.sound), JSON.stringify({ texts: u.texts, reset: u.buttons.reset }));
+    // цвет кнопки «Сбросить прогресс» — как у «Альманаха» (заливка у левого края кнопки, вне надписи)
+    const menuPng = await shot(page, `reset-menu-${deviceKey}-${lang}`);
+    const edge = (r) => app.g(r.x - r.w / 2 + 14, r.y);
+    const [resetFill, almanacFill] = await samplePixels(page, menuPng, [edge(u.buttons.reset), edge(u.buttons.almanac)].map((q) => [q.x, q.y]));
+    check(`${p} кнопка «${readI18n('resetBtn')[li]}» того же цвета, что «${readI18n('almanacBtn')[li]}»`, resetFill.every((v, i) => Math.abs(v - almanacFill[i]) <= 6), `сброс ${resetFill.slice(0, 3)}, альманах ${almanacFill.slice(0, 3)}`);
     await app.tapRect(u.buttons.reset);
     u = await app.waitUi('menu', 'окно подтверждения');
+    // подложка под заголовком, текстом и кнопками непрозрачная: в точках, где под ней лежат кнопки меню («Играть», «Улучшения»), виден цвет подложки
+    const dialogPng = await shot(page, `reset-dialog-${deviceKey}-${lang}`);
+    const plate = u.labels.resetPlate;
+    const probes = [[W / 2 - 210, 412], [W / 2 + 210, 412], [W / 2, 500]].map(([gx, gy]) => app.g(gx, gy));
+    const plateFill = await samplePixels(page, dialogPng, probes.map((q) => [q.x, q.y]));
+    const wantFill = [0x0d, 0x16, 0x2b];
+    check(`${p} под окном подтверждения непрозрачная подложка: в трёх точках над кнопками «Играть» и «Улучшения» цвет подложки (${wantFill.join(', ')} ± 6)`,
+      Boolean(plate) && plate.x - plate.w / 2 <= u.buttons.resetYes.x - u.buttons.resetYes.w / 2 && plate.x + plate.w / 2 >= u.buttons.resetNo.x + u.buttons.resetNo.w / 2 && plate.y + plate.h / 2 >= u.buttons.resetYes.y + u.buttons.resetYes.h / 2 && plateFill.every((px) => wantFill.every((v, i) => Math.abs(px[i] - v) <= 6)), `подложка ${JSON.stringify(plate)}, точки ${plateFill.map((px) => px.slice(0, 3).join('/')).join('; ')}`);
     check(`${p} тап открывает окно подтверждения: «${readI18n('resetTitle')[li]}», «${readI18n('resetYes')[li]}» и «${readI18n('resetNo')[li]}» внутри экрана рядом`,
       u.buttons.resetYes && u.buttons.resetNo && insideScreen(u.buttons.resetYes) && insideScreen(u.buttons.resetNo) && !overlaps(u.buttons.resetYes, u.buttons.resetNo) && u.texts.includes(readI18n('resetTitle')[li]), JSON.stringify({ texts: u.texts, yes: u.buttons.resetYes, no: u.buttons.resetNo }));
     // под окном нижние кнопки не нажимаются: тап по «Играть» выбор уровня не открывает
@@ -8734,7 +8911,33 @@ async function runMenuReset(browser, baseUrl) {
     u = await app.waitUi('menu', 'меню после «Отмена»');
     const afterCancel = await page.evaluate(() => JSON.parse(window.localStorage.getItem('pvb.meta')));
     check(`${p} «Отмена» закрывает окно и ничего не меняет: очки ДНК ${afterCancel.dna}, звёзды уровня 1: ${afterCancel.progress.stars[0]}`, !u.buttons.resetYes && afterCancel.dna === 77 && afterCancel.progress.stars[0] === 2 && u.texts.includes(balanceText(77)), JSON.stringify(u.texts));
+    // уведомление «Новая бактерия» — один раз для игрока (решение владельца 18 октября 2026): до сброса, когда о кокке уже известно (b:coccus в сохранении), оно при выходе кокка не показывается
+    const bacNews = readI18n('newBacteriaToast')[li].replace('{name}', '');
+    const startAndSpawn = async (label) => {
+      const g = await openGame(context, baseUrl, `${p} ${label}`, { speed: 2, cfg: 'waves.firstDelaySec:600', query: '&persistseen', isTouch: device.hasTouch });
+      const s0 = await g.state();
+      const wb = s0.ui.waveButton;
+      await g.input.tap(g.g(wb.x, wb.y));
+      await waitFor(g.page, (x) => x.introduced.includes('coccus'), WAIT_MS, 'выход первого кокка после тапа по «Начать волну»', 20);
+      // уведомление, если оно есть, в очереди или на экране сразу после выхода; ждём несколько кадров и смотрим всё, что было показано
+      const shownTexts = new Set();
+      for (let i = 0; i < 25; i++) {
+        const x = await g.state();
+        if (x.toast.text !== null) shownTexts.add(x.toast.text);
+        for (const q of x.toast.queued) shownTexts.add(q);
+        await sleep(60);
+      }
+      const startToast = s0.toast.text;
+      await g.page.close();
+      return { startToast, shown: [...shownTexts] };
+    };
+    await page.evaluate(() => window.localStorage.setItem('pvb.meta', JSON.stringify({ v: 3, dna: 77, levels: { damage: 2 }, progress: { stars: [2], best: [30] }, seen: ['t:pill', 't:syrup', 'b:coccus'] })));
+    const beforeReset = await startAndSpawn('до сброса');
+    check(`${p} до сброса о кокке уже известно: при его выходе «${bacNews.trim()}» не показывается (показано: ${JSON.stringify(beforeReset.shown)})`, !beforeReset.shown.some((text) => text.startsWith(bacNews)), JSON.stringify(beforeReset));
     // «Да, сбросить»
+    await page.evaluate(() => window.localStorage.setItem('pvb.meta', JSON.stringify({ v: 3, dna: 77, levels: { damage: 2 }, progress: { stars: [2], best: [30] }, seen: ['t:pill'] })));
+    await page.reload({ waitUntil: 'load' });
+    u = await app.waitUi('menu', 'меню перед сбросом');
     await app.tapRect(u.buttons.reset);
     u = await app.waitUi('menu', 'окно подтверждения (второй раз)');
     await app.tapRect(u.buttons.resetYes);
@@ -8744,6 +8947,18 @@ async function runMenuReset(browser, baseUrl) {
     check(`${p} «${readI18n('resetYes')[li]}» обнуляет сохранение: очки ДНК ${after.meta.dna}, звёзды уровня 1: ${after.meta.progress.stars[0]}, лучшая волна ${after.meta.progress.best[0]}, улучшения «damage» ${after.meta.levels.damage ?? 0}, подсказок ${after.meta.seen.length}; окно закрыто, в меню «${balanceText(0)}»`,
       after.meta.dna === 0 && after.meta.progress.stars[0] === 0 && after.meta.progress.best[0] === 0 && (after.meta.levels.damage ?? 0) === 0 && after.meta.seen.length === 0 && !u.buttons.resetYes && u.texts.includes(balanceText(0)), JSON.stringify({ meta: after.meta, texts: u.texts }));
     check(`${p} звук после сброса не тронут (в хранилище «${after.sound}», было «1»)`, after.sound === '1', '');
+    // после сброса игрок снова «новый»: уведомление об открытой башне при старте и «Новая бактерия» при выходе кокка показываются снова
+    await page.evaluate(() => window.localStorage.setItem('pvb.meta', JSON.stringify({ v: 3, dna: 77, levels: { damage: 2 }, progress: { stars: [2], best: [30] }, seen: ['t:pill', 't:syrup', 'b:coccus'] })));
+    await page.reload({ waitUntil: 'load' });
+    u = await app.waitUi('menu', 'меню перед вторым сбросом');
+    await app.tapRect(u.buttons.reset);
+    u = await app.waitUi('menu', 'окно подтверждения (третий раз)');
+    await app.tapRect(u.buttons.resetYes);
+    await sleep(600);
+    await app.waitUi('menu', 'меню после второго сброса');
+    const towerNewsText = readI18n('newTowerToast')[li].replace('{name}', '');
+    const afterReset = await startAndSpawn('после сброса');
+    check(`${p} после «${readI18n('resetYes')[li]}» уведомления показываются снова, как у нового игрока: при старте «${towerNewsText.trim()}», при выходе кокка «${bacNews.trim()}» (показано: ${JSON.stringify(afterReset.shown)})`, (afterReset.startToast ?? '').startsWith(towerNewsText) && afterReset.shown.some((text) => text.startsWith(bacNews)), JSON.stringify(afterReset));
     await context.close();
   }
 }

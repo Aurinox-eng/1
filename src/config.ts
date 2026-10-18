@@ -948,6 +948,9 @@ export const CONFIG = {
       damage: { branch: 'body', effect: 'damage', perLevel: 0.1, prices: [15, 20, 25, 35, 45, 55, 70, 95, 120, 160] },
       coins: { branch: 'body', effect: 'coins', perLevel: 50, prices: [10, 10, 15, 20, 25, 30, 40, 50, 65, 85], requires: ['damage', 2] },
       reward: { branch: 'body', effect: 'reward', perLevel: 0.05, prices: [10, 15, 15, 20, 30, 35, 50, 65, 80, 105], requires: ['damage', 2] },
+      /** «Сильное вещество II» (решение владельца 18 октября 2026, docs/meta-progression-recalc-2026-10-18.md): продолжение `damage`, +0,45 к множителю урона за уровень (у `damage` +0,10), 31 уровень по 20, 25, … 170 очков (всего 2 945);
+       *  требует `damage` 5. Уровни открываются не покупкой родителя, а лучшей волной на уровнях 2–10 (`waveOpen` ниже); на уровне 1 узел недоступен. */
+      damageX: { branch: 'body', effect: 'damage', perLevel: 0.45, prices: [20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95, 100, 105, 110, 115, 120, 125, 130, 135, 140, 145, 150, 155, 160, 165, 170], requires: ['damage', 5] },
       lives: { branch: 'defense', effect: 'lives', perLevel: 1, prices: [40, 50, 70], requires: ['coins', 3] },
       shield: { branch: 'defense', effect: 'shield', perLevel: 1, prices: [35, 45, 60, 75, 100], requires: ['lives', 1] },
       recycle: { branch: 'defense', effect: 'sellRefund', perLevel: 0.03, prices: [25, 30, 40, 55, 70], requires: ['coins', 5] },
@@ -995,11 +998,15 @@ export const CONFIG = {
       patchRange: { branch: 'patch', effect: 'range', perLevel: 0.03, prices: [20, 25, 35, 45, 55, 75], requires: ['patchPower', 2] },
       patchCheap: { branch: 'patch', effect: 'price', perLevel: -0.03, prices: [25, 35, 40, 55, 70, 95], requires: ['patchRate', 2] },
     } as Record<string, UpgradeSpec>,
+    /** Открытие уровней узла лучшей волной на уровне (решение владельца 18 октября 2026): на уровне N по числу пройденных волн b открывается ⌊quota[N − 1] · clamp((b − fromWave) / (toWave − fromWave), 0, 1)⌋ уровней узла `node`;
+     *  открытые на разных уровнях складываются. Уровень 1 (quota[0] = 0) узел не открывает и не затрагивает. Всего 6 + 4 + 3 × 7 = 31 уровень. Лучшая волна — число пройденных волн (победа — 30, `progress.best`). */
+    waveOpen: { node: 'damageX', fromWave: 10, toWave: 30, quota: [0, 6, 4, 3, 3, 3, 3, 3, 3, 3] } as { node: string; fromWave: number; toWave: number; quota: number[] },
     /** Положение узлов на экране «Улучшения» (дерево): [колонка, ряд] в клетках дерева; линия идёт от узла к тому, что указан в `requires`. Только вид, на баланс не влияет. */
     treePos: {
       damage: [0, 2.5],
       coins: [1, 0.5],
       reward: [1, 2.0],
+      damageX: [1, 3.0],
       lives: [2, 0.0],
       shield: [3, 0.0],
       recycle: [2, 1.0],

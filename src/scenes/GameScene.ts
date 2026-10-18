@@ -57,27 +57,6 @@ const SIM_STEP_SEC = 1 / 30;
 const MAX_SPAWNS_PER_FRAME = 10;
 /** Все типы бактерий в порядке появления в игре. */
 const KINDS = Object.keys(CONFIG.types) as BacteriumKind[];
-/** Сообщение при первом появлении типа (у кокка нет: он с первой волны). */
-const NEW_TYPE_TEXT: Partial<Record<BacteriumKind, TextKey>> = {
-  rod: 'newTypeRod',
-  splitter: 'newTypeSplitter',
-  armored: 'newTypeArmored',
-  spore: 'newTypeSpore',
-  swarm: 'newTypeSwarm',
-  runner: 'newTypeRunner',
-  healer: 'newTypeHealer',
-  slick: 'newTypeSlick',
-  regen: 'newTypeRegen',
-  commander: 'newTypeCommander',
-  brood: 'newTypeBrood',
-  giant: 'newTypeGiant',
-  leaper: 'newTypeLeaper',
-  phago: 'newTypePhago',
-  stealth: 'newTypeStealth',
-  toxin: 'newTypeToxin',
-  mutant: 'newTypeMutant',
-  parasite: 'newTypeParasite',
-};
 /** Сколько миллисекунд держится сообщение о новом типе. */
 const NEW_TYPE_TOAST_MS = 4200;
 /** Цепной взрыв: пауза до второго взрыва, секунд; радиус поиска бактерии для него, пикселей. */
@@ -184,10 +163,6 @@ export class GameScene extends Phaser.Scene {
   private merges = 0;
   private sells = 0;
   private mutationsPicked = 0;
-  /** Подсказка «тапните по Шприцу — повернуть» уже показана в этой партии. */
-  private rotateHinted = false;
-  /** Поставлена ли уже хоть одна башня (после этого общая подсказка «Выберите башню…» больше не нужна). */
-  private placedAny = false;
 
   // Волны
   private phase: WavePhase = 'countdown';
@@ -335,8 +310,6 @@ export class GameScene extends Phaser.Scene {
     this.merges = 0;
     this.sells = 0;
     this.mutationsPicked = 0;
-    this.placedAny = false;
-    this.rotateHinted = false;
     this.phase = 'countdown';
     this.phaseTimer = CONFIG.waves.firstDelaySec;
     this.waveIdx = 0;
@@ -551,7 +524,7 @@ export class GameScene extends Phaser.Scene {
       } else {
         this.phase = 'pause';
         this.phaseTimer = CONFIG.waves.pauseSec;
-        this.announceWave(this.waveIdx);
+        this.extendPauseForNewKinds(this.waveIdx);
       }
     }
   }
@@ -655,13 +628,12 @@ export class GameScene extends Phaser.Scene {
     this.bacteria.push(born);
     this.spawned++;
     if (QA_MODE) qaLog(this, 'spawn', { id: born.id, kind, edge: edge.id });
-    if (!this.introduced.includes(kind)) {
-      this.introduced.push(kind);
-      const text = NEW_TYPE_TEXT[kind];
-      if (text) {
-        this.panel.news(t(text), NEW_TYPE_TOAST_MS);
-        sfx.newType();
-      }
+    if (!this.introduced.includes(kind)) this.introduced.push(kind);
+    // Уведомление о новой бактерии — одно, в момент её выхода и на всех уровнях (решение владельца 18 октября 2026); тип, о котором игрок уже узнал, не повторяется
+    if (!seenNews.has(`b:${kind}`)) {
+      rememberNews(`b:${kind}`);
+      this.panel.news(t('newBacteriaToast', { name: t(`bacName${kind.charAt(0).toUpperCase()}${kind.slice(1)}` as TextKey) }), NEW_TYPE_TOAST_MS);
+      sfx.newType();
     }
   }
 
@@ -1197,7 +1169,7 @@ export class GameScene extends Phaser.Scene {
     this.updateHint();
   }
 
-  /** Нижняя подсказка: у новых башен — как они бьют; у таблетки и до первой башни — «выберите башню и тапните по клетке». */
+  /** Нижняя подсказка: только разовая подсказка о слиянии (решение владельца 18 октября 2026: во время партии игра не объясняет и не советует). */
   private updateHint(): void {
     if (this.mergeMode) {
       this.panel.setHint(null); // подсказка слияния — в узкой полосе карточки (иначе плашка над карточкой закрывала бы кандидатов)
@@ -1207,8 +1179,7 @@ export class GameScene extends Phaser.Scene {
     this.mergeHintTowers = this.mergeHintPair();
     for (const tower of this.towers) tower.setMergeCandidate(this.mergeHintTowers.includes(tower));
     const mergeLine = this.mergeHintTowers.length > 0 && !this.selectedTower ? t('hintMergePair') : null;
-    const info = this.selected ? this.towerInfo(this.selected) : null;
-    this.panel.setHint(info ?? mergeLine ?? (this.placedAny || this.selectedTower ? null : t('hintJunction')));
+    this.panel.setHint(mergeLine);
   }
 
   /** Первая пара одинаковых башен в радиусе слияния, пока игрок ни разу не включал «Слить» (запоминается как `h:merge` вместе с показанными уведомлениями); иначе пусто. */
@@ -1219,20 +1190,6 @@ export class GameScene extends Phaser.Scene {
       if (other) return [tower, other];
     }
     return [];
-  }
-
-  private towerInfo(id: TowerId): string | null {
-    const cfg = computeStats(id, 1, []);
-    if (id === 'syrup') return t('infoSyrup', { pct: Math.round((1 - cfg.slowFactor) * 100) });
-    if (id === 'fizz') return t('infoFizz');
-    if (id === 'syringe') return t('infoSyringe');
-    if (id === 'ampule') return t('infoAmpule');
-    if (id === 'antibiotic') return t('infoAntibiotic');
-    if (id === 'lamp') return t('infoLamp');
-    if (id === 'vitamin') return t('infoVitamin');
-    if (id === 'frost') return t('infoFrost', { n: num(Math.round(cfg.freezeSec * 10) / 10) });
-    if (id === 'patch') return t('infoPatch', { n: num(Math.round(cfg.trapSec * 10) / 10) });
-    return null;
   }
 
   /** Башня, стоящая в клетке (или null). */
@@ -1472,7 +1429,6 @@ export class GameScene extends Phaser.Scene {
       level: tower.level,
       maxLevel: MAX_TOWER_LEVEL,
       stats: this.cardStats(tower),
-      note: tower.stats.targeting === 'area' && tower.stats.blastFullTargets > 0 ? t('blastLimitNote', { n: tower.stats.blastFullTargets, m: num(tower.stats.blastRestMul) }) : null,
       pending: tier === null ? null : mutationOptions(tower.id, tier).map((m) => label(m.id)),
       picked: [...new Map(tower.picks.map((id) => [id, tower.picks.filter((p) => p === id).length] as const))].map(([id, n]) => {
         const l = label(id);
@@ -1505,14 +1461,9 @@ export class GameScene extends Phaser.Scene {
     this.effects.placed(center.x, center.y);
     sfx.place();
     this.panel.setCoins(this.coins);
-    this.placedAny = true;
     this.updateHint();
     this.ghost.setVisible(false);
     this.refreshCard();
-    if (CONFIG.towers[id].targeting === 'beam' && !this.rotateHinted) {
-      this.rotateHinted = true;
-      this.panel.news(t('hintRotate'), 3200);
-    }
   }
 
   private deny(message: string): void {
@@ -1650,7 +1601,7 @@ export class GameScene extends Phaser.Scene {
         sound.label.setText(t(sfx.muted ? 'soundOff' : 'soundOn'));
       }, 30);
       this.pauseSoundButton = sound.rect;
-      this.pauseRestartButton = this.addEndButton(W / 2 - 180, H / 2 + 200, 320, 76, t('restart'), 0x2a8a4a, COLORS.merge, () => {
+      this.pauseRestartButton = this.addEndButton(W / 2 - 180, H / 2 + 200, 320, 76, t('restart'), 0x2a3550, 0x4a5c82, () => {
         if (performance.now() >= this.resumeAllowedAt) this.scene.restart();
       });
       this.pauseMenuButton = this.addEndButton(W / 2 + 180, H / 2 + 200, 320, 76, t('toMenu'), 0x2a3550, 0x4a5c82, () => this.leaveToMenu());
@@ -1682,22 +1633,14 @@ export class GameScene extends Phaser.Scene {
       names.push(t(`tower${id.charAt(0).toUpperCase()}${id.slice(1)}` as TextKey));
     }
     if (names.length > 0) this.panel.news(t('newTowerToast', { name: names.join(', ') }), NEWS_MS);
-    this.announceWave(0);
+    this.extendPauseForNewKinds(0);
   }
 
-  /** Перед волной с номером `index` (с нуля): строка-уведомление о типах бактерий, которых игрок ещё не видел; пауза перед такой волной длиннее. */
-  private announceWave(index: number): void {
+  /** Перед волной с номером `index` (с нуля): если в ней выходит тип бактерий, о котором игрок ещё не узнал, пауза перед ней длиннее; уведомление о типе показывается при его выходе (`spawnBacterium`). */
+  private extendPauseForNewKinds(index: number): void {
     if (index >= this.waveTotal()) return;
-    const present = new Set(this.waveKinds(index));
-    const names: string[] = [];
-    for (const kind of KINDS) {
-      if (!present.has(kind) || seenNews.has(`b:${kind}`)) continue;
-      rememberNews(`b:${kind}`);
-      names.push(t(`bacName${kind.charAt(0).toUpperCase()}${kind.slice(1)}` as TextKey));
-    }
-    if (names.length === 0) return;
-    this.phaseTimer += CONFIG.waves.newTypePauseSec;
-    this.panel.news(t('newBacteriaToast', { name: names.join(', ') }), NEWS_MS);
+    const fresh = this.waveKinds(index).some((kind) => !seenNews.has(`b:${kind}`));
+    if (fresh) this.phaseTimer += CONFIG.waves.newTypePauseSec;
   }
 
   // ---------------------------------------------------------------- конец уровня
@@ -1706,6 +1649,7 @@ export class GameScene extends Phaser.Scene {
     this.state = won ? 'won' : 'lost';
     this.restartAllowedAt = performance.now() + CONFIG.gameOver.restartLockMs;
     this.ghost.setVisible(false);
+    this.panel.clearToasts(); // уведомление (например, «Новая бактерия») гаснет, когда показывается экран победы или проигрыша
     // Снаряды в полёте не должны «зависать» под экраном конца уровня
     for (const projectile of this.projectiles) projectile.destroy();
     this.projectiles = [];

@@ -12,8 +12,6 @@ export interface CardModel {
   maxLevel: number;
   /** До трёх строк чисел башни. */
   stats: string[];
-  /** Короткое пояснение под числами (Шипучка: сколько целей взрыва получают полный урон); рисуется, только если для него осталось место. */
-  note: string | null;
   /** Два варианта мутации на выбор (если выбор ждёт) или null. */
   pending: { name: string; desc: string }[] | null;
   /** Уже выбранные мутации. */
@@ -81,7 +79,6 @@ export class TowerCard {
   private readonly pickNames: Phaser.GameObjects.Text[];
   private readonly pickDescs: Phaser.GameObjects.Text[];
   private readonly listText: Phaser.GameObjects.Text;
-  private readonly noteText: Phaser.GameObjects.Text;
   private readonly hintText: Phaser.GameObjects.Text;
   private readonly mergeText: Phaser.GameObjects.Text;
   private readonly mergeSub: Phaser.GameObjects.Text;
@@ -116,7 +113,6 @@ export class TowerCard {
     this.pickNames = [0, 1].map(() => this.text(0, 0, '', 17, TEXT_COLORS.main, 0));
     this.pickDescs = [0, 1].map(() => this.text(0, 0, '', 13, TEXT_COLORS.soft, 0).setFontStyle('normal').setWordWrapWidth(PICK_W - 20));
     this.listText = this.text(0, 0, '', 13, TEXT_COLORS.main, 0).setFontStyle('normal').setWordWrapWidth(330);
-    this.noteText = this.text(0, 0, '', 12, TEXT_COLORS.soft, 0).setFontStyle('normal').setWordWrapWidth(330);
     this.hintText = this.text(0, 0, '', 18, TEXT_COLORS.accent, 0).setFontStyle('normal').setVisible(false);
     this.mergeText = this.text(0, 0, '', 24, TEXT_COLORS.main);
     this.mergeSub = this.text(0, 0, '', 14, TEXT_COLORS.main).setFontStyle('normal');
@@ -224,7 +220,6 @@ export class TowerCard {
       this.pickDescs[i].setVisible(false);
     }
     this.statTexts.forEach((text) => text.setVisible(false));
-    this.noteText.setVisible(false);
     if (m.pending) {
       // у башни с лучом справа от вариантов стоят кнопки поворота: варианты уже, чтобы не налезать на них
       const pickW = Math.min(PICK_W, Math.floor((midRight - midX - 8) / 2));
@@ -244,16 +239,8 @@ export class TowerCard {
       this.statTexts.forEach((text, i) => {
         text.setVisible(i < m.stats.length).setText(m.stats[i] ?? '').setPosition(midX, y + 9 + i * 18);
       });
-      let ty = y + 9 + Math.max(1, m.stats.length) * 18 + 2;
-      if (m.picked.length > 0) {
-        this.listText.setVisible(true).setText(`${t('cardMutations')} ${m.picked.map((p) => p.name).join(', ')}`).setPosition(midX, ty);
-        ty += this.listText.height + 2;
-      }
-      if (m.note) {
-        this.noteText.setText(m.note);
-        // пояснение рисуется, только если для него остаётся место в карточке
-        if (ty + this.noteText.height <= y + h - 4) this.noteText.setVisible(true).setPosition(midX, ty);
-      }
+      const ty = y + 9 + Math.max(1, m.stats.length) * 18 + 2;
+      if (m.picked.length > 0) this.listText.setVisible(true).setText(`${t('cardMutations')} ${m.picked.map((p) => p.name).join(', ')}`).setPosition(midX, ty);
     }
     this.applyEnabled();
 
@@ -328,7 +315,7 @@ export class TowerCard {
     this.pickVisible = [false, false];
     this.rotVisible = false;
     this.rects.sell = { x: 0, y: 0, w: 0, h: 0 };
-    for (const text of [...this.statTexts, ...this.pickNames, ...this.pickDescs, this.listText, this.noteText, this.sellText, this.sellSub]) text.setVisible(false);
+    for (const text of [...this.statTexts, ...this.pickNames, ...this.pickDescs, this.listText, this.sellText, this.sellSub]) text.setVisible(false);
     const hintX = nameX + 180;
     const hintW = cancelX - BTN_W / 2 - 14 - hintX;
     this.hintText.setWordWrapWidth(hintW).setText(m.mergeHint ?? '').setPosition(hintX, cy - this.hintText.height / 2).setVisible(true);
@@ -391,7 +378,7 @@ export class TowerCard {
   private setShown(on: boolean): void {
     this.shown = on;
     for (const item of this.all) (item as unknown as { setVisible(v: boolean): unknown }).setVisible(on);
-    for (const text of [this.nameText, this.levelText, ...this.statTexts, ...this.pickNames, ...this.pickDescs, this.listText, this.noteText, this.mergeText, this.mergeSub, this.sellText, this.sellSub, this.closeText]) {
+    for (const text of [this.nameText, this.levelText, ...this.statTexts, ...this.pickNames, ...this.pickDescs, this.listText, this.mergeText, this.mergeSub, this.sellText, this.sellSub, this.closeText]) {
       text.setVisible(on);
     }
     this.hintText.setVisible(on && this.compact);
