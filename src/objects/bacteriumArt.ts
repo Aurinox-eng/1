@@ -9,6 +9,11 @@ type Kind = keyof typeof CONFIG.types;
  *  пикселей за каждое HP, и у бронированной с 14 HP радиус тела выходил отрицательным — режим canvas на этом падал). */
 const SHELL_MAX_SHARE: Record<Kind, number> = { coccus: 0, rod: 0.45, splitter: 0.4, armored: 0.45, spore: 0, swarm: 0, runner: 0.4, healer: 0.3, slick: 0.25, regen: 0.3, commander: 0.3, brood: 0.3, giant: 0.4, leaper: 0.3, phago: 0.35, stealth: 0.2, toxin: 0.3, mutant: 0.3, parasite: 0.3 };
 const SHELL_BASE = 4;
+/** Самая тонкая и самая толстая оболочка вида, пикселей (при 1 HP и при полном HP): по ним картинки тела округляются до немногих толщин (`styleBodyKey`). */
+export function shellRange(kind: Kind): [number, number] {
+  const top = Math.max(SHELL_BASE, CONFIG.types[kind].radius * SHELL_MAX_SHARE[kind]);
+  return [SHELL_BASE, top];
+}
 /** Расстояние от центра делящейся до центра каждой доли, в радиусах доли (чем больше, тем глубже перетяжка). */
 export const SPLITTER_LOBE_OFFSET = 0.95;
 

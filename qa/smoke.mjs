@@ -8665,7 +8665,7 @@ async function runCameraFit(browser, baseUrl) {
 /**
  * Оболочка здоровья считается от настоящего максимума HP (по рецензии 18 октября 2026): у бактерии, усиленной в 3 раза (прочность волны), после попадания примерно на половину оболочка тоньше, чем у целой.
  * Прежний расчёт брал прочность вида из таблицы типов: оболочка оставалась полной, пока HP не падало ниже неё (на 30-й волне уровня 6 — до потери 99 %).
- * Палочка 5 HP × 3 = 15; Таблетка бьёт один раз на 7: осталось 8 из 15. Толщина — число в ключе картинки тела (`style-body-rod-<толщина>`, с лицом — `-o` или `-b` в конце).
+ * Палочка 5 HP × 3 = 15; Таблетка бьёт один раз на 7: осталось 8 из 15. Толщина — число в ключе картинки тела (`style-body-rod-<толщина>`, с лицом — `-o` или `-b` в конце; толщина округлена до сетки с шагом 2 px от самой тонкой оболочки, у палочки наибольшая — 9,9).
  */
 async function runShell(browser, baseUrl) {
   const p = '[оболочка здоровья]';
@@ -8673,7 +8673,7 @@ async function runShell(browser, baseUrl) {
   const cfg = `${wavesOnlyCfg({ rod: 1 })},waves.firstDelaySec:1,waves.hpScale:3,waves.level1HpFactor:1,types.rod.hp:5,types.rod.speedFactor:0.3,towers.pill.damage:7,towers.pill.cooldownMs:60000,economy.startCoins:500,${NO_LIFE_LOSS}`;
   const game = await openGame(ctx, baseUrl, p, { speed: 2, cfg });
   await placeSure(game, 'pill', FREE.a);
-  const width = (key) => Number(/style-body-rod-(\d+)(?:-[ob])?$/.exec(key ?? '')?.[1] ?? NaN);
+  const width = (key) => Number(/style-body-rod-(\d+(?:\.\d+)?)(?:-[ob])?$/.exec(key ?? '')?.[1] ?? NaN);
   let full = null;
   let hit = null;
   await pollUntil(game, (st) => {

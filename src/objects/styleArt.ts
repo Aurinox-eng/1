@@ -2,7 +2,7 @@ import Phaser from 'phaser';
 import { artImage, bakeCanvasArt, type ArtBox } from '../art';
 import { CONFIG } from '../config';
 import { COLORS } from '../theme';
-import { bodyHalfSize, shellWidth, SPLITTER_LOBE_OFFSET } from './bacteriumArt';
+import { bodyHalfSize, shellRange, shellWidth, SPLITTER_LOBE_OFFSET } from './bacteriumArt';
 
 /**
  * Новый рисунок бактерий этапа 8 (стиль утверждён владельцем 18 октября 2026, docs/art-style.md; пилот — кокк, бронированная, Гигант, перенос — все 19 видов):
@@ -472,6 +472,18 @@ function isCoreKind(kind: StyleKind): boolean {
   return kind === 'coccus' || kind === 'armored' || kind === 'giant';
 }
 
+/** Толщина оболочки в ключе картинки тела округляется до сетки от самой тонкой оболочки вида: шаг 2 px, у крупных видов (Гигант, Бронированная) — столько толщин, сколько указано здесь
+ *  (иначе картинок тела слишком много: решение владельца 18 октября 2026, память картинок в стресс-сценарии не больше +35 % к прежней). */
+const SHELL_STEP_PX = 2;
+const SHELL_LEVELS_BIG: Partial<Record<StyleKind, number>> = { giant: 5, armored: 6 };
+function shellQuant(kind: StyleKind, sw: number): number {
+  const [lo, hi] = shellRange(kind);
+  const levels = SHELL_LEVELS_BIG[kind];
+  const step = levels ? Math.max(SHELL_STEP_PX, (hi - lo) / (levels - 1)) : SHELL_STEP_PX;
+  const q = Math.min(hi, lo + Math.round(Math.max(0, sw - lo) / step) * step);
+  return Math.round(q * 10) / 10;
+}
+
 /** Лицо на картинке тела: нет лица, глаза открыты, глаза закрыты (моргание). */
 export type Eyes = 'none' | 'open' | 'shut';
 
@@ -481,7 +493,7 @@ export type Eyes = 'none' | 'open' | 'shut';
  * на такую же с закрытыми глазами. Картинка с закрытыми глазами рисуется при первом моргании вида и толщины. `small` — упрощённое лицо кокка для мелкого размера (лист образцов).
  */
 export function styleBodyKey(scene: Phaser.Scene, kind: StyleKind, sw: number, eyes: Eyes = 'open', small = false): string {
-  const q = Math.round(sw);
+  const q = shellQuant(kind, sw);
   const faceTag = eyes === 'none' ? '' : `-${eyes === 'open' ? 'o' : 'b'}${small ? '-s' : ''}`;
   return bakeCanvasArt(scene, `style-body-${kind}-${q}${faceTag}`, styleBodyBox(kind), (ctx, d) => {
     ctx.save();
