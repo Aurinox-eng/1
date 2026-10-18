@@ -74,7 +74,9 @@ async function measure(browser, url, renderer, scenario, shotName, extra = '') {
   const report = await page.evaluate(() => window.__pvb.getPerf());
   // Снимки: при очень медленных кадрах снимок может не успеть — замер от этого не портится
   const shot = async (name) => {
-    if (args.noshots) return; // без снимков: в canvas на сервере снимок не снимается за 120 с и съедает по ≈ 4 минуты на замер
+    if (args.noshots) return; // без снимков совсем
+    // в canvas снимок на сервере не снимается за 120 с (каждый замер теряет ≈ 4 минуты, полный замер не укладывается в 90 минут — run 39172097468): снимки только в WebGL
+    if (renderer === 'canvas' && process.env.CI) return;
     try {
       await page.screenshot({ path: path.join(shotsDir, `${name}.png`), timeout: 120000 });
     } catch (e) {
