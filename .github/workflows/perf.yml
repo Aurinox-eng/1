@@ -1,5 +1,5 @@
 # Замер скорости в двух стресс-сценариях: qa/perf.mjs.
-# ВРЕМЕННО (ветка стиля, 18 октября 2026): только fizz, только WebGL, 5 кругов — stress уже снят прогоном 39129401730, а canvas-снимки не снимаются за 120 с и съедают ≈ 4 минуты на замер.
+# ВРЕМЕННО (ветка стиля, 18 октября 2026): разбор роста по частям — только fizz, только WebGL, 5 кругов, варианты с отключёнными лицами, «дыханием» и глазами башен — stress уже снят прогоном 39129401730, а canvas-снимки не снимаются за 120 с и съедают ≈ 4 минуты на замер.
 #   stress — ?qa&stress (40 башен, ≈200 бактерий, ×3);
 #   fizz   — ?qa&stress=fizz (12 Шипучек 4-го уровня с мутациями «Цепная» и «Кислота», ≈200 бактерий, ×3: частые взрывы).
 # Цель: 95-й процентиль «работы кадра» (расчёт + рисование) ≤ 16,7 мс; он стоит отдельным столбцом итоговой таблицы.
@@ -30,7 +30,7 @@ jobs:
   perf:
     name: Стресс-сценарии, до и после
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 75
     steps:
       - uses: actions/checkout@v4
         with:
@@ -60,9 +60,9 @@ jobs:
       - name: "Замер (оба сценария: stress и fizz)"
         run: |
           if [ -d base ]; then
-            node qa/perf.mjs --roots=base,. --names=до,после --scenario=fizz --renderers=webgl --rounds=5 --tag=ci
+            node qa/perf.mjs --roots=base,. --names=до,после --scenario=fizz --renderers=webgl --rounds=5 --variants='без-лиц:noface,без-дыхания:nobreath,без-глаз:pilleyes=0,без-всего:noface&nobreath&pilleyes=0' --tag=ci
           else
-            node qa/perf.mjs --roots=. --names=после --scenario=fizz --renderers=webgl --rounds=5 --tag=ci
+            node qa/perf.mjs --roots=. --names=после --scenario=fizz --renderers=webgl --rounds=5 --variants='без-лиц:noface,без-дыхания:nobreath,без-глаз:pilleyes=0,без-всего:noface&nobreath&pilleyes=0' --tag=ci
           fi
       - name: Снимки и числа
         if: always()

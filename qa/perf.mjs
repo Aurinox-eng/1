@@ -51,13 +51,13 @@ async function serve(root) {
   return { url: server.resolvedUrls?.local?.[0], close: () => server.close() };
 }
 
-async function measure(browser, url, renderer, scenario, shotName) {
+async function measure(browser, url, renderer, scenario, shotName, extra = '') {
   const context = await browser.newContext({ ...VIEWPORTS.desktop });
   const page = await context.newPage();
   const errors = [];
   page.on('pageerror', (e) => errors.push(String(e)));
   page.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
-  const query = `?qa&stress${scenario === 'fizz' ? '=fizz' : ''}&fps&noplaque${renderer === 'canvas' ? '&canvas' : ''}`;
+  const query = `?qa&stress${scenario === 'fizz' ? '=fizz' : ''}&fps&noplaque${renderer === 'canvas' ? '&canvas' : ''}${extra ? `&${extra}` : ''}`;
   await page.goto(url + query);
   await page.waitForFunction(() => Boolean(window.__pvb?.getPerf), null, { timeout: 60000 });
   // Версия без этого сценария (старый код не знает `stress=fizz` и запустил бы обычный стресс-сценарий) не мерится
@@ -94,23 +94,30 @@ const browser = await launchBrowser();
 const servers = [];
 for (const root of roots) servers.push(await serve(root));
 const results = [];
+// Цели замера: версии (--roots/--names) и варианты текущей версии (--variants=имя:запрос,имя:запрос — тот же код с флагами режима проверки, например noface&nobreath&pilleyes=0)
+const targets = roots.map((_, i) => ({ name: names[i], server: i, extra: '' }));
+for (const v of String(args.variants ?? '').split(',').filter(Boolean)) {
+  const [vname, ...rest] = v.split(':');
+  targets.push({ name: vname, server: roots.length - 1, extra: rest.join(':') });
+}
 try {
   for (const scenario of scenarios) {
     for (let round = 0; round < rounds; round++) {
       for (const renderer of renderers) {
         // чередуем порядок версий от круга к кругу
-        const order = roots.map((_, i) => i);
+        const order = targets.map((_, i) => i);
         if (round % 2 === 1) order.reverse();
         for (const i of order) {
-          const shotName = `${scenario}-${names[i]}-${renderer}-${round + 1}`;
-          const report = await measure(browser, servers[i].url, renderer, scenario, shotName);
+          const t = targets[i];
+          const shotName = `${scenario}-${t.name}-${renderer}-${round + 1}`;
+          const report = await measure(browser, servers[t.server].url, renderer, scenario, shotName, t.extra);
           if (!report) {
-            console.log(`${scenario} ${names[i]} ${renderer} круг ${round + 1}: в этой версии сценария нет — пропущено`);
+            console.log(`${scenario} ${t.name} ${renderer} круг ${round + 1}: в этой версии сценария нет — пропущено`);
             continue;
           }
-          results.push({ scenario, version: names[i], renderer, round: round + 1, ...report });
+          results.push({ scenario, version: t.name, renderer, round: round + 1, ...report });
           console.log(
-            `${scenario} ${names[i]} ${renderer} круг ${round + 1}: работа кадра ${report.workMs} мс (расчёт ${report.updateMs}, рисование ${report.renderMs}; 95 % — до ${report.workP95}, максимум ${report.workMax}; цель 95 % ≤ ${GOAL_MS}), вызовов рисования ${report.drawCalls}, вершин ${report.vertices}, ` +
+            `${scenario} ${t.name} ${renderer} круг ${round + 1}: работа кадра ${report.workMs} мс (расчёт ${report.updateMs}, рисование ${report.renderMs}; 95 % — до ${report.workP95}, максимум ${report.workMax}; цель 95 % ≤ ${GOAL_MS}), вызовов рисования ${report.drawCalls}, вершин ${report.vertices}, ` +
               `объектов ${report.objects}, бактерий ${report.bacteria}, башен ${report.towers}${report.errors.length ? `, ОШИБКИ: ${report.errors.join(' | ')}` : ''}`,
           );
         }
@@ -138,7 +145,7 @@ const lines = [
 ];
 for (const scenario of scenarios) {
   for (const renderer of renderers) {
-    for (const name of names) {
+    for (const name of targets.map((t) => t.name)) {
       const list = results.filter((r) => r.scenario === scenario && r.version === name && r.renderer === renderer);
       if (!list.length) continue;
       const errors = list.reduce((a, r) => a + r.errors.length, 0);
@@ -160,6 +167,27 @@ if (names.length === 2) {
       const [p95a, p95b, wa, wb] = [med(a, 'workP95'), med(b, 'workP95'), med(a, 'workMs'), med(b, 'workMs')];
       const [rp, rw] = [p95b / p95a, wb / wa];
       lines.push(`| ${scenario} | ${renderer} | ${a.length}/${b.length} | ${p95a} → ${p95b} | ${rp.toFixed(2)} | ${wa} → ${wb} | ${rw.toFixed(2)} | ${rp <= 1 + TOLERANCE && rw <= 1 + TOLERANCE ? 'да' : 'нет'} |`);
+    }
+  }
+}
+// Разбор роста по частям (если есть варианты): доля части = (после − вариант без неё) / (после − до); доли могут не складываться в 100 %, остаток — прочие отличия (тела, тени, рамки)
+if (names.length === 2 && targets.length > 2) {
+  lines.push('', '| Сценарий | Рисование | Вариант | Работа кадра, мс | Доля в росте работы кадра | 95-й процентиль, мс | Доля в росте 95-го процентиля | Объектов | Вызовов рисования |', '|---|---|---|---|---|---|---|---|---|');
+  for (const scenario of scenarios) {
+    for (const renderer of renderers) {
+      const of = (n) => results.filter((r) => r.scenario === scenario && r.version === n && r.renderer === renderer);
+      const base = of(names[0]);
+      const full = of(names[1]);
+      if (!base.length || !full.length) continue;
+      const growthW = med(full, 'workMs') - med(base, 'workMs');
+      const growthP = med(full, 'workP95') - med(base, 'workP95');
+      for (const t of targets.slice(2)) {
+        const v = of(t.name);
+        if (!v.length) continue;
+        const shareW = growthW > 0 ? Math.round(((med(full, 'workMs') - med(v, 'workMs')) / growthW) * 100) : 'н/д';
+        const shareP = growthP > 0 ? Math.round(((med(full, 'workP95') - med(v, 'workP95')) / growthP) * 100) : 'н/д';
+        lines.push(`| ${scenario} | ${renderer} | ${t.name} (${t.extra}) | ${med(v, 'workMs')} | ${shareW} % | ${med(v, 'workP95')} | ${shareP} % | ${med(v, 'objects')} | ${med(v, 'drawCalls')} |`);
+      }
     }
   }
 }
