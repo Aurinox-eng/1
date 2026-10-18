@@ -8662,6 +8662,35 @@ async function runCameraFit(browser, baseUrl) {
 }
 
 /** Снимок поля для глаз: делящаяся (оранжевая), бегун (малиновый), лекарь, спора и лужа Сиропа рядом — различимы ли по цвету. */
+/**
+ * Оболочка здоровья считается от настоящего максимума HP (по рецензии 18 октября 2026): у бактерии, усиленной в 3 раза (прочность волны), после попадания примерно на половину оболочка тоньше, чем у целой.
+ * Прежний расчёт брал прочность вида из таблицы типов: оболочка оставалась полной, пока HP не падало ниже неё (на 30-й волне уровня 6 — до потери 99 %).
+ * Палочка 5 HP × 3 = 15; Таблетка бьёт один раз на 7: осталось 8 из 15. Толщина — число в ключе картинки тела (`style-body-rod-<толщина>`).
+ */
+async function runShell(browser, baseUrl) {
+  const p = '[оболочка здоровья]';
+  const ctx = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
+  const cfg = `${wavesOnlyCfg({ rod: 1 })},waves.firstDelaySec:1,waves.hpScale:3,waves.level1HpFactor:1,types.rod.hp:5,types.rod.speedFactor:0.3,towers.pill.damage:7,towers.pill.cooldownMs:60000,economy.startCoins:500,${NO_LIFE_LOSS}`;
+  const game = await openGame(ctx, baseUrl, p, { speed: 2, cfg });
+  await placeSure(game, 'pill', FREE.a);
+  const width = (key) => Number(/style-body-rod-(\d+)$/.exec(key ?? '')?.[1] ?? NaN);
+  let full = null;
+  let hit = null;
+  await pollUntil(game, (st) => {
+    const b = st.bacteria.find((x) => x.kind === 'rod');
+    if (!b) return st.state !== 'playing';
+    if (!full && b.hp === b.maxHp) full = { hp: b.hp, maxHp: b.maxHp, key: b.bodyKey };
+    if (full && b.hp < b.maxHp) {
+      hit = { hp: b.hp, maxHp: b.maxHp, key: b.bodyKey };
+      return true;
+    }
+    return st.state !== 'playing';
+  }, WAIT_MS, 30).catch(() => null);
+  check(`${p} палочка 5 HP × 3 = 15: целая — оболочка ${width(full?.key)} px, после попадания (${hit ? `${f1(hit.hp)} из ${hit.maxHp}` : 'нет'}) — ${width(hit?.key)} px, не меньше чем на 2 px тоньше`, Boolean(full && hit) && full.maxHp === 15 && hit.hp < hit.maxHp && width(full.key) - width(hit.key) >= 2, `${JSON.stringify(full)} → ${JSON.stringify(hit)}`);
+  await game.page.close();
+  await ctx.close();
+}
+
 async function runColors(browser, baseUrl) {
   const p = '[цвета бактерий]';
   const kinds = ['splitter', 'runner', 'healer', 'spore'];
@@ -9098,6 +9127,7 @@ try {
   if (wants('deflation')) await safe('[дефляция]', () => runDeflation(browser, qaServer.url));
   if (wants('camera-fit')) await safe('[отдаление камеры]', () => runCameraFit(browser, qaServer.url));
   if (wants('colors')) await safe('[цвета бактерий]', () => runColors(browser, qaServer.url));
+  if (wants('colors')) await safe('[оболочка здоровья]', () => runShell(browser, qaServer.url));
   if (wants('meta-save')) await safe('[очки ДНК: сохранение]', () => runMetaSave(browser, qaServer.url));
   if (wants('meta-dna')) await safe('[очки ДНК: начисление]', () => runMetaDna(browser, qaServer.url));
   if (wants('meta-shop')) await safe('[улучшения]', () => runMetaShop(browser, qaServer.url));

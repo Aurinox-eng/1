@@ -12,9 +12,13 @@ const SHELL_BASE = 4;
 /** Расстояние от центра делящейся до центра каждой доли, в радиусах доли (чем больше, тем глубже перетяжка). */
 export const SPLITTER_LOBE_OFFSET = 0.95;
 
-/** Толщина оболочки: чем больше осталось HP, тем толще (от SHELL_BASE при 1 HP до доли радиуса при полном HP). Так здоровье видно без текста. */
-export function shellWidth(kind: Kind, hp: number): number {
-  const { hp: maxHp, radius } = CONFIG.types[kind];
+/**
+ * Толщина оболочки: чем больше осталось HP, тем толще (от SHELL_BASE при 1 HP до доли радиуса при полном HP). Так здоровье видно без текста.
+ * `maxHp` — настоящий максимум этой бактерии (прочность вида × множитель волны и уровня): без него (по умолчанию — прочность вида из таблицы) оболочка у усиленных бактерий
+ * оставалась бы полной, пока не потеряно почти всё HP (на 30-й волне уровня 6 — до потери 99 %).
+ */
+export function shellWidth(kind: Kind, hp: number, maxHp: number = CONFIG.types[kind].hp): number {
+  const { radius } = CONFIG.types[kind];
   const share = SHELL_MAX_SHARE[kind];
   if (maxHp <= 1 || share <= 0) return SHELL_BASE;
   const top = Math.max(SHELL_BASE, radius * share);
@@ -75,7 +79,7 @@ export function bodyHalfSize(kind: Kind): { hx: number; hy: number } {
  */
 export function drawBody(g: Phaser.GameObjects.Graphics, kind: Kind, state: BodyState): void {
   g.clear();
-  drawShape(g, kind, shellWidth(kind, state.hp), state.spread);
+  drawShape(g, kind, shellWidth(kind, state.hp, state.maxHp), state.spread);
   drawCracks(g, kind, crackCount(state.hp, state.maxHp), state.maxHp, state.seed);
 }
 

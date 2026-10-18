@@ -74,7 +74,7 @@ function cracksTexture(scene: Phaser.Scene, kind: BacteriumKind, damage: number,
  * Центр образца — (0, 0); в игре не используется.
  */
 export function bacteriumSample(scene: Phaser.Scene, kind: BacteriumKind, hp: number, maxHp: number, legacy = false, smallFace = false): Phaser.GameObjects.Container {
-  const parts: Phaser.GameObjects.Image[] = [artImage(scene, bodyTexture(scene, kind, shellWidth(kind, hp), legacy), bodyBox(kind, legacy))];
+  const parts: Phaser.GameObjects.Image[] = [artImage(scene, bodyTexture(scene, kind, shellWidth(kind, hp, maxHp), legacy), bodyBox(kind, legacy))];
   const damage = crackCount(hp, maxHp);
   if (damage > 0) {
     const { key, box } = cracksTexture(scene, kind, damage, maxHp);
@@ -223,8 +223,8 @@ export class Bacterium {
     this.s = Math.max(0, Math.min(edge.length, s));
 
     const box = bodyBox(kind);
-    this.body = artImage(scene, bodyTexture(scene, kind, shellWidth(kind, this.hp)), box);
-    this.cracks = artImage(scene, bodyTexture(scene, kind, shellWidth(kind, this.hp)), box).setVisible(false);
+    this.body = artImage(scene, bodyTexture(scene, kind, shellWidth(kind, this.hp, this.maxHp)), box);
+    this.cracks = artImage(scene, bodyTexture(scene, kind, shellWidth(kind, this.hp, this.maxHp)), box).setVisible(false);
     // Круглые типы: трещины повёрнуты на свой угол у каждой бактерии (как раньше: от угла seed)
     if (hasRadialCracks(kind)) this.cracks.setRotation(this.seed);
     this.breathSec = BREATH_SEC[kind][0] + Math.random() * (BREATH_SEC[kind][1] - BREATH_SEC[kind][0]);
@@ -658,7 +658,7 @@ export class Bacterium {
 
   private redraw(): void {
     this.drawnHp = this.hp;
-    const bodyKey = bodyTexture(this.scene, this.kind, shellWidth(this.kind, this.hp));
+    const bodyKey = bodyTexture(this.scene, this.kind, shellWidth(this.kind, this.hp, this.maxHp));
     if (bodyKey !== this.bodyKey) {
       this.bodyKey = bodyKey;
       setArt(this.body, bodyKey, bodyBox(this.kind));

@@ -181,6 +181,7 @@ export function qaSnapshot(s: GameSceneInternals): DebugSnapshot {
       hits: b.hits,
       absorbed: b.absorbed,
       leaps: b.leaps,
+      bodyKey: b.bodyKey,
       freezeLeft: b.frozenFor,
       trapLeft: b.trapLeft,
       memory: b.memory,
