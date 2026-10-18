@@ -71,6 +71,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {
   buyGreedy,
+  waveOpenCap,
   buyOrder,
   createInput,
   dnaWavesReward,
@@ -425,8 +426,10 @@ function treeLeft(levels, level) {
 }
 
 /** Жадная покупка очков ДНК между партиями (`buyGreedy`): первое по порядку BUY_ORDER улучшение, на следующий уровень которого хватает очков; ветка башни — если башня открыта на уровне партии. */
-function buyUpgrades(levels, dna, level = LEVEL) {
-  return buyGreedy({ upgrades: META.upgrades, order: BUY_ORDER, unlock: TOWER_UNLOCK, level, levels, dna });
+function buyUpgrades(levels, dna, level = LEVEL, best = null) {
+  // уровни узла «Сильное вещество II» открываются лучшими волнами на уровнях 2–10 (`meta.waveOpen`); без `best` узел не покупается
+  const caps = META.waveOpen ? { [META.waveOpen.node]: waveOpenCap(META.waveOpen, best) } : null;
+  return buyGreedy({ upgrades: META.upgrades, order: BUY_ORDER, unlock: TOWER_UNLOCK, level, levels, dna, caps });
 }
 
 
@@ -1548,8 +1551,8 @@ async function ladderLane(profile, run) {
   const key = `${profile}:${run}`;
   const saved = STATE_IN ? JSON.parse(fs.readFileSync(path.resolve(STATE_IN), 'utf8')).lanes?.[key] : null;
   const lane = saved
-    ? { ...saved, levels: { ...emptyLevels(), ...saved.levels }, stars: [...saved.stars], perLevel: [...saved.perLevel] }
-    : { profile, run, dna: 0, levels: emptyLevels(), stars: Array(10).fill(0), nextLevel: 1, stuckAt: null, perLevel: [] };
+    ? { ...saved, levels: { ...emptyLevels(), ...saved.levels }, stars: [...saved.stars], best: [...(saved.best ?? Array(10).fill(0))], perLevel: [...saved.perLevel] }
+    : { profile, run, dna: 0, levels: emptyLevels(), stars: Array(10).fill(0), best: Array(10).fill(0), nextLevel: 1, stuckAt: null, perLevel: [] };
   ladderLanes.push(lane);
   ladderState.lanes[key] = lane;
   const tag = `${PROFILE_TITLES[profile]} дорожка ${run}`;
@@ -1604,7 +1607,9 @@ async function ladderLane(profile, run) {
       if (stars > lane.stars[level - 1]) lane.stars[level - 1] = stars;
       const gained = dnaForGame(game) + newStars * STARS_RULE.dna;
       lane.dna += gained;
-      const buy = buyUpgrades(lane.levels, lane.dna, game.result === 'won' ? Math.min(10, level + 1) : level);
+      // лучшая волна уровня — число пройденных волн (как `progress.best` в игре): победа — все волны, проигрыш — без текущей
+      lane.best[level - 1] = Math.max(lane.best[level - 1] ?? 0, game.result === 'won' ? game.waveTotal : Math.max(0, game.wave - 1));
+      const buy = buyUpgrades(lane.levels, lane.dna, game.result === 'won' ? Math.min(10, level + 1) : level, lane.best);
       lane.levels = buy.levels;
       lane.dna = buy.dna;
       rec.waves.push(game.result === 'won' ? game.waveTotal : game.wave);
@@ -1675,6 +1680,7 @@ try {
       if (CAMPAIGN) {
         // ---- серия партий: очки ДНК копятся, улучшения покупаются между партиями; серия кончается первой победой или после CAMPAIGN партий
         let levels = emptyLevels();
+        const bestWaves = Array(10).fill(0);
         let dna = 0;
         const entry = { profile, run, games: 0, firstWin: null, waves: [], bought: [], error: null };
         for (let n = 1; n <= CAMPAIGN; n++) {
@@ -1704,7 +1710,8 @@ try {
           entry.waves.push(game.result === 'won' ? game.waveTotal : game.wave);
           const gained = dnaForGame(game);
           dna += gained;
-          const buy = buyUpgrades(levels, dna);
+          bestWaves[LEVEL - 1] = Math.max(bestWaves[LEVEL - 1] ?? 0, game.result === 'won' ? game.waveTotal : Math.max(0, game.wave - 1));
+          const buy = buyUpgrades(levels, dna, LEVEL, bestWaves);
           levels = buy.levels;
           dna = buy.dna;
           entry.bought.push(buy.bought);

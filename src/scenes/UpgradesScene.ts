@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { CONFIG, type UpgradeEffect } from '../config';
-import { exposeMetaDebug, branchUnlockLevel, buyUpgrade, canBuy, isBranchOpen, isLevelBeaten, isLevelOpen, isNodeOpen, metaDna, metaLevel, nextPrice, requirementMet, requirementOf, type MetaScreenInfo } from '../meta';
+import { exposeMetaDebug, branchUnlockLevel, buyUpgrade, canBuy, isBranchOpen, isLevelBeaten, isLevelOpen, isNodeOpen, levelCap, metaDna, metaLevel, nextPrice, requirementMet, requirementOf, waveOpenCap, type MetaScreenInfo } from '../meta';
 import { num, t, type TextKey } from '../i18n';
 import { maxLevel, UPGRADE_IDS, type UpgradeId } from '../save';
 import { sfx } from '../sound';
@@ -304,13 +304,15 @@ export class UpgradesScene extends Phaser.Scene {
     if (!isBranchOpen(spec.branch)) lines.push(t('upgLocked', { n: branchUnlockLevel(spec.branch) }));
     const req = requirementOf(id);
     if (req && !requirementMet(id)) lines.push(t('upgRequires', { name: t(nameKey(req.id)), n: req.level }));
+    // узел, уровни которого открываются волнами уровней (`meta.waveOpen`): сколько открыто, когда новых уровней пока нет
+    if (id === CONFIG.meta.waveOpen.node && level >= levelCap(id) && price !== null) lines.push(t('upgWaves', { n: waveOpenCap(), max: maxLevel(id) }));
     this.detailNeed.setText(lines.join('\n'));
     const open = isNodeOpen(id);
     const enabled = canBuy(id);
     this.buyBg.clear();
     this.buyBg.fillStyle(enabled ? 0x2a8a4a : 0x2a3550, 1).fillRoundedRect(BUY_CENTER.x - BUY.w / 2, BUY_CENTER.y - BUY.h / 2, BUY.w, BUY.h, 14);
     this.buyBg.lineStyle(3, enabled ? COLORS.merge : 0x4a5c82, 1).strokeRoundedRect(BUY_CENTER.x - BUY.w / 2, BUY_CENTER.y - BUY.h / 2, BUY.w, BUY.h, 14);
-    const label = price === null ? t('upgMax') : !open ? t('upgClosed') : t('upgBuy', { n: price });
+    const label = price === null ? t('upgMax') : !open || level >= levelCap(id) ? t('upgClosed') : t('upgBuy', { n: price });
     this.buyLabel.setText(label).setColor(enabled ? TEXT_COLORS.main : TEXT_COLORS.dim);
     let size = 26;
     this.buyLabel.setFontSize(size);

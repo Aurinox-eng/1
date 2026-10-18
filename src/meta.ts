@@ -34,12 +34,22 @@ function readStarsOverride(): number[] | null {
   return raw.split(',').map((x) => Math.max(0, Math.min(3, Math.floor(Number(x)) || 0)));
 }
 
+/** `?qa&best=30,19` — лучшие волны (число пройденных волн) уровней 1, 2, …; остальные — 0. Нужна проверкам открытия уровней узла по волнам (`waveOpenCap`). */
+function readBestOverride(): number[] | null {
+  if (!QA_MODE) return null;
+  const raw = new URLSearchParams(window.location.search).get('best');
+  if (raw === null) return null;
+  return raw.split(',').map((x) => Math.max(0, Math.min(1000, Math.floor(Number(x)) || 0)));
+}
+
 const override = readOverride();
 const starsOverride = readStarsOverride();
+const bestOverride = readBestOverride();
 let state: MetaSave = override ?? loadMeta();
 if (starsOverride) starsOverride.forEach((n, i) => { if (i < state.progress.stars.length) state.progress.stars[i] = n; });
-/** С подменой из адреса (`&meta=`, `&stars=`) в сохранение ничего не пишется. */
-const noPersist = override !== null || starsOverride !== null;
+if (bestOverride) bestOverride.forEach((n, i) => { if (i < state.progress.best.length) state.progress.best[i] = n; });
+/** С подменой из адреса (`&meta=`, `&stars=`, `&best=`) в сохранение ничего не пишется. */
+const noPersist = override !== null || starsOverride !== null || bestOverride !== null;
 
 function persist(): void {
   if (!noPersist) saveMeta(state);
@@ -85,20 +95,39 @@ export function requirementMet(id: UpgradeId): boolean {
   return !req || (state.levels[req.id] ?? 0) >= req.level;
 }
 
+/**
+ * Сколько уровней узла `waveOpen.node` открыто лучшими волнами на уровнях (решение владельца 18 октября 2026): по каждому уровню ⌊quota · clamp((лучшая волна − fromWave) / (toWave − fromWave), 0, 1)⌋,
+ * уровни складываются; уровень 1 (quota 0) ничего не открывает. `best` — лучшие волны по уровням (индекс 0 — уровень 1); без аргумента — из сохранения.
+ */
+export function waveOpenCap(best: readonly number[] = state.progress.best): number {
+  const { fromWave, toWave, quota } = CONFIG.meta.waveOpen;
+  let sum = 0;
+  quota.forEach((q, i) => {
+    const share = Math.min(1, Math.max(0, ((best[i] ?? 0) - fromWave) / (toWave - fromWave)));
+    sum += Math.floor(q * share + 1e-9);
+  });
+  return sum;
+}
+
+/** Наибольший уровень узла, который можно купить сейчас: у узла `waveOpen.node` — по лучшим волнам уровней, у остальных — все уровни таблицы. */
+export function levelCap(id: UpgradeId): number {
+  return id === CONFIG.meta.waveOpen.node ? Math.min(maxLevel(id), waveOpenCap()) : maxLevel(id);
+}
+
 /** Узел доступен для покупки по структуре дерева и по картам уровней (ветка башни открыта, родитель куплен); очки не учитываются. */
 export function isNodeOpen(id: UpgradeId): boolean {
-  return isBranchOpen(CONFIG.meta.upgrades[id].branch) && requirementMet(id);
+  return isBranchOpen(CONFIG.meta.upgrades[id].branch) && requirementMet(id) && levelCap(id) > 0;
 }
 
 export function canBuy(id: UpgradeId): boolean {
   const price = nextPrice(id);
-  return price !== null && state.dna >= price && isNodeOpen(id);
+  return price !== null && state.dna >= price && isNodeOpen(id) && state.levels[id] < levelCap(id);
 }
 
 /** Покупает следующий уровень улучшения; false, если куплен наибольший уровень или не хватает очков. */
 export function buyUpgrade(id: UpgradeId): boolean {
   const price = nextPrice(id);
-  if (price === null || state.dna < price || !isNodeOpen(id)) return false;
+  if (price === null || state.dna < price || !isNodeOpen(id) || state.levels[id] >= levelCap(id)) return false;
   state = { ...state, dna: state.dna - price, levels: { ...state.levels, [id]: state.levels[id] + 1 } };
   persist();
   return true;
@@ -270,6 +299,8 @@ export interface MetaDebugSnapshot {
   progress: { stars: number[]; best: number[] };
   seen: string[];
   screen: MetaScreenInfo;
+  /** Сколько уровней узла `waveOpen.node` открыто лучшими волнами уровней сейчас. */
+  waveOpenCap: number;
 }
 
 declare global {
@@ -280,7 +311,7 @@ declare global {
 
 /** Делает состояние очков и улучшений доступным проверкам (`window.__pvbMeta`); `screen` отдаёт описание экрана «Улучшения» (или «не показан»). */
 export function exposeMetaDebug(screen: () => MetaScreenInfo): void {
-  if (QA_MODE) window.__pvbMeta = { getMeta: () => ({ dna: state.dna, levels: metaLevels(), progress: { stars: [...state.progress.stars], best: [...state.progress.best] }, seen: [...state.seen], screen: screen() }), dnaFor: dnaParts, starsFor: starsForLoss };
+  if (QA_MODE) window.__pvbMeta = { getMeta: () => ({ dna: state.dna, levels: metaLevels(), progress: { stars: [...state.progress.stars], best: [...state.progress.best] }, seen: [...state.seen], waveOpenCap: waveOpenCap(), screen: screen() }), dnaFor: dnaParts, starsFor: starsForLoss };
 }
 
 export const HIDDEN_SCREEN: MetaScreenInfo = { visible: false, balance: '', selected: '', scroll: 0, view: { x: 0, y: 0, w: 0, h: 0 }, nodes: [], detail: null, play: null };

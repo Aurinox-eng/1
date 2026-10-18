@@ -127,6 +127,7 @@ import {
   readKinds,
   readLevel,
   readMetaTable,
+  waveOpenCap,
   dnaWavesReward,
   readTitles,
   readTowerTable,
@@ -4743,7 +4744,7 @@ async function typesPhago(browser, baseUrl) {
 // Всё считается по игровому времени (elapsed) и состоянию игры (clouds, cloudsMade, towers[].suppressed / auraMul, stats.coneDeg / auraMul), а не по реальным секундам: сервер медленный.
 
 /** Размеры таблиц config.ts после пачки 3 (docs/stage-7-plan.md): с каждой новой пачкой числа здесь обновляются (проверка заодно ловит случай, когда читалка таблиц молча пропустила строки). */
-const STAGE7 = { towers: ['pill', 'syrup', 'fizz', 'syringe', 'ampule', 'antibiotic', 'lamp', 'vitamin', 'frost', 'patch'], kinds: 19, nodes: 49, unlock: { lamp: 5, vitamin: 7, frost: 8, patch: 9 }, intro: { stealth: 5, toxin: 7, parasite: 8, mutant: 9 } };
+const STAGE7 = { towers: ['pill', 'syrup', 'fizz', 'syringe', 'ampule', 'antibiotic', 'lamp', 'vitamin', 'frost', 'patch'], kinds: 19, nodes: 50, unlock: { lamp: 5, vitamin: 7, frost: 8, patch: 9 }, intro: { stealth: 5, toxin: 7, parasite: 8, mutant: 9 } };
 function tablesSizes() {
   const p = '[таблицы config.ts: размеры]';
   const towers = Object.keys(readTowerTable());
@@ -4752,7 +4753,7 @@ function tablesSizes() {
   const unlock = readTowerUnlock();
   check(`${p} башен ${towers.length}: ${towers.join(', ')} (ждали ${STAGE7.towers.join(', ')}; Лампа и Витамин — пачка 2, Холод и Пластырь — пачка 3)`, towers.join() === STAGE7.towers.join(), towers.join(', '));
   check(`${p} типов бактерий ${kinds.length} (ждали ${STAGE7.kinds}, с «stealth», «toxin», «mutant» и «parasite»)`, kinds.length === STAGE7.kinds && ['stealth', 'toxin', 'mutant', 'parasite'].every((k) => kinds.includes(k)), kinds.join(', '));
-  check(`${p} узлов дерева улучшений ${nodes.length} (ждали ${STAGE7.nodes}: 33 + по 4 у Лампы, Витамина, Холода и Пластыря), у Лампы ${nodes.filter((id) => id.startsWith('lamp')).length}, у Витамина ${nodes.filter((id) => id.startsWith('vitamin')).length}, у Холода ${nodes.filter((id) => id.startsWith('frost')).length}, у Пластыря ${nodes.filter((id) => id.startsWith('patch')).length}`, nodes.length === STAGE7.nodes, nodes.join(', '));
+  check(`${p} узлов дерева улучшений ${nodes.length} (ждали ${STAGE7.nodes}: 33 + по 4 у Лампы, Витамина, Холода и Пластыря + «Сильное вещество II»), у Лампы ${nodes.filter((id) => id.startsWith('lamp')).length}, у Витамина ${nodes.filter((id) => id.startsWith('vitamin')).length}, у Холода ${nodes.filter((id) => id.startsWith('frost')).length}, у Пластыря ${nodes.filter((id) => id.startsWith('patch')).length}`, nodes.length === STAGE7.nodes, nodes.join(', '));
   check(`${p} открытие башен по уровням: Лампа с ${STAGE7.unlock.lamp}, Витамин с ${STAGE7.unlock.vitamin}, Холод с ${STAGE7.unlock.frost}, Пластырь с ${STAGE7.unlock.patch} (в таблице ${unlock.lamp}, ${unlock.vitamin}, ${unlock.frost} и ${unlock.patch})`, Object.entries(STAGE7.unlock).every(([id, level]) => unlock[id] === level));
   const t = readTowerTable();
   check(`${p} Витамин в таблице не стреляет (damage ${t.vitamin?.damage}, cooldownMs ${t.vitamin?.cooldownMs}, способ «${t.vitamin?.targeting}»), Лампа — конус (coneDeg ${t.lamp?.coneDeg}, способ «${t.lamp?.targeting}»)`, t.vitamin?.damage === 0 && t.vitamin?.cooldownMs === 0 && t.vitamin?.targeting === 'aura' && t.lamp?.targeting === 'cone' && t.lamp?.coneDeg > 0);
@@ -7476,15 +7477,16 @@ async function raiseNode(app, id, level) {
  * Какие узлы должны быть открыты (правила src/meta.ts): ветка башни открыта, когда на карте уровней открыт уровень, с которого башня доступна (`levels.towerUnlock`; «Организм» и «Защита» — всегда),
  * и родитель куплен до нужного уровня. `levels` — уровни улучшений в игре, `stars` — звёзды уровней 1, 2, 3… (уровень открыт, когда предыдущий пройден).
  */
-function expectedOpen(UP, levels, stars) {
+function expectedOpen(UP, levels, stars, waveCap = 0) {
   const unlock = readTowerUnlock();
   const levelOpen = (n) => n <= 1 || (stars[n - 2] ?? 0) >= 1;
   const branchOpen = (b) => b === 'body' || b === 'defense' || levelOpen(unlock[b] ?? 1);
-  return Object.fromEntries(Object.keys(UP).map((id) => [id, branchOpen(UP[id].branch) && (!UP[id].requires || (levels[UP[id].requires.id] ?? 0) >= UP[id].requires.level)]));
+  // узел, уровни которого открываются лучшими волнами на уровнях (`meta.waveOpen`), открыт, когда открыт хотя бы один уровень
+  return Object.fromEntries(Object.keys(UP).map((id) => [id, branchOpen(UP[id].branch) && (!UP[id].requires || (levels[UP[id].requires.id] ?? 0) >= UP[id].requires.level) && (!UP[id].waveOpen || waveCap > 0)]));
 }
 /** Узлы, у которых открытость на экране не совпала с правилами (пустой список — всё сошлось). */
 function openMismatch(UP, m) {
-  const want = expectedOpen(UP, m.levels, m.progress.stars);
+  const want = expectedOpen(UP, m.levels, m.progress.stars, m.waveOpenCap);
   return m.screen.nodes.filter((n) => n.open !== want[n.id]).map((n) => `${n.id}: на экране ${n.open}, по правилам ${want[n.id]}`);
 }
 
@@ -8392,6 +8394,43 @@ async function runTreeShop(browser, baseUrl) {
     await shot(app.page, `tree-shop-max-${deviceKey}-${lang}`);
     const problemsB = await checkAllNodes(app);
     check(`${p} все ${ids.length} узлов, ветки башен открыты: тексты помещаются в карточку, у открытых узлов условия нет, у закрытых есть, сырых ключей нет`, problemsB.length === 0, problemsB.slice(0, 4).join(' || '));
+
+    // ================= часть Г: «Сильное вещество II» (решение владельца 18 октября 2026): уровни узла открываются лучшей волной на уровнях 2–10, уровень 1 их не открывает
+    const wo = readMetaTable().waveOpen;
+    const X = wo.node;
+    const reqX = UP[X].requires;
+    const capOf = (best) => wo.quota.reduce((sum, q, k) => sum + Math.floor(q * Math.min(1, Math.max(0, ((best[k] ?? 0) - wo.fromWave) / (wo.toWave - wo.fromWave))) + 1e-9), 0);
+    const waveLine = (n) => i18nText('upgWaves', li, { n, max: UP[X].prices.length });
+    check(`${p} «${X}»: уровень 1 уровней узла не открывает (квота ${wo.quota[0]}), всего уровней по квотам ${wo.quota.reduce((a, b) => a + b, 0)} = числу цен ${UP[X].prices.length}`, wo.quota[0] === 0 && wo.quota.reduce((a, b) => a + b, 0) === UP[X].prices.length, JSON.stringify(wo));
+    // только уровень 1 пройден до конца: открыто 0 уровней, узел закрыт, в карточке строка про волны, купить нельзя
+    app = await openScreen(`&meta=dna:500,${reqX.id}:${reqX.level}&best=30`);
+    m = await waitMeta(app.page, (x) => x.screen.visible, 5000);
+    m = await selectNode(app, X);
+    check(`${p} лучшая волна уровня 1 — 30: «${X}» закрыт (открыто ${m.waveOpenCap} уровней узла), в карточке «${waveLine(0)}», кнопка «${i18nText('upgClosed', li)}»`, m.waveOpenCap === 0 && !nodeOf(m, X).open && !nodeOf(m, X).canBuy && m.screen.detail.texts[3] === waveLine(0) && m.screen.detail.texts[4] === i18nText('upgClosed', li), JSON.stringify([m.waveOpenCap, nodeOf(m, X), m.screen.detail.texts]));
+    await app.page.close();
+    // уровень 2: лучшая волна 19 открывает ⌊квота × (19 − from) / (to − from)⌋ уровней; их можно купить за цены таблицы, следующий — нет
+    const best2 = [30, 19];
+    const cap2 = capOf(best2);
+    app = await openScreen(`&meta=dna:500,${reqX.id}:${reqX.level}&best=${best2.join()}`);
+    m = await waitMeta(app.page, (x) => x.screen.visible, 5000);
+    m = await selectNode(app, X);
+    check(`${p} лучшие волны ${best2.join(', ')}: открыто ${m.waveOpenCap} уровней узла «${X}» (по формуле квота × (волна − ${wo.fromWave}) / ${wo.toWave - wo.fromWave}, ждали ${cap2}), узел открыт и его можно купить`, m.waveOpenCap === cap2 && cap2 > 0 && nodeOf(m, X).open && nodeOf(m, X).canBuy && m.screen.detail.texts[3] === '', JSON.stringify([m.waveOpenCap, nodeOf(m, X), m.screen.detail.texts]));
+    let rr = null;
+    let spentX = 0;
+    let okX = true;
+    for (let k = 1; k <= cap2; k++) {
+      rr = await buyNode(app, X);
+      spentX += UP[X].prices[k - 1];
+      if (rr.after.levels[X] !== k || rr.after.dna !== 500 - spentX) okX = false;
+    }
+    check(`${p} покупка ${cap2} открытых уровней «${X}» за цены таблицы (${UP[X].prices.slice(0, cap2).join(' + ')} = ${spentX}): уровень ${rr.after.levels[X]}, очки ${rr.after.dna}`, okX && rr.after.levels[X] === cap2, `уровень ${rr.after.levels[X]}, очки ${rr.after.dna}`);
+    m = await selectNode(app, X);
+    check(`${p} открытые волнами уровни куплены: следующий не купить даже при очках ${m.dna}; в карточке «${waveLine(cap2)}», кнопка «${i18nText('upgClosed', li)}»`, !nodeOf(m, X).canBuy && m.screen.detail.texts[3] === waveLine(cap2) && m.screen.detail.texts[4] === i18nText('upgClosed', li), JSON.stringify([nodeOf(m, X), m.screen.detail.texts]));
+    const noBuy = await buyNode(app, X, { expectBuy: false });
+    check(`${p} покупка сверх открытых уровней не проходит: очки ${noBuy.after.dna} и уровень ${cap2} прежние`, noBuy.after.dna === m.dna && noBuy.after.levels[X] === cap2, `очки ${noBuy.after.dna}, уровень ${noBuy.after.levels[X]}`);
+    const mismatchX = openMismatch(UP, noBuy.after);
+    check(`${p} открытость узлов совпадает с правилами и при открытых волнами уровнях`, mismatchX.length === 0, mismatchX.join('; '));
+    await app.page.close();
     await context.close();
   }
 

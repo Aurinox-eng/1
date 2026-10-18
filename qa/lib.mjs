@@ -540,7 +540,25 @@ export function readMetaTable() {
     upgrades[m[1]] = { branch: m[2], effect: m[3], perLevel: Number(m[4]), prices: m[5].split(',').map((x) => Number(x.trim())).filter((x) => Number.isFinite(x)), requires: m[6] ? { id: m[6], level: Number(m[7]) } : null };
   }
   if (!Object.keys(upgrades).length) throw new Error('В разделе «meta» config.ts не нашлось улучшений');
-  return { dna: { waveBase: num('waveBase'), waveStep: num('waveStep'), winBonus: num('winBonus'), replayFactor: num('replayFactor'), coinsPerPoint: num('coinsPerPoint'), coinsCapShare: num('coinsCapShare') }, upgrades };
+  // уровни узла `waveOpen.node` открываются лучшими волнами на уровнях (решение владельца 18 октября 2026): таблица квот и границы волн
+  const wo = /waveOpen:\s*\{\s*node:\s*'(\w+)',\s*fromWave:\s*(\d+),\s*toWave:\s*(\d+),\s*quota:\s*\[([^\]]*)\]/.exec(body);
+  const waveOpen = wo ? { node: wo[1], fromWave: Number(wo[2]), toWave: Number(wo[3]), quota: wo[4].split(',').map((x) => Number(x.trim())) } : null;
+  if (waveOpen && upgrades[waveOpen.node]) upgrades[waveOpen.node].waveOpen = true;
+  return { waveOpen, dna: { waveBase: num('waveBase'), waveStep: num('waveStep'), winBonus: num('winBonus'), replayFactor: num('replayFactor'), coinsPerPoint: num('coinsPerPoint'), coinsCapShare: num('coinsCapShare') }, upgrades };
+}
+
+/**
+ * Сколько уровней узла `waveOpen.node` открыто лучшими волнами (как `waveOpenCap` в `src/meta.ts`): по каждому уровню ⌊квота · clamp((лучшая волна − fromWave) / (toWave − fromWave), 0, 1)⌋, сумма.
+ * `best` — число пройденных волн по уровням (индекс 0 — уровень 1; победа — число волн уровня).
+ */
+export function waveOpenCap(waveOpen, best) {
+  if (!waveOpen) return 0;
+  let sum = 0;
+  waveOpen.quota.forEach((q, i) => {
+    const share = Math.min(1, Math.max(0, ((best?.[i] ?? 0) - waveOpen.fromWave) / (waveOpen.toWave - waveOpen.fromWave)));
+    sum += Math.floor(q * share + 1e-9);
+  });
+  return sum;
 }
 
 /**
@@ -549,12 +567,12 @@ export function readMetaTable() {
  * на уровне `level` (`unlock` — таблица «башня → с какого уровня»; ветки «Организм» и «Защита» — всегда).
  * `upgrades` — таблица из `readMetaTable().upgrades`, `levels` — текущие уровни улучшений ({id: число}). Возвращает новые уровни, остаток очков и список покупок.
  */
-export function buyGreedy({ upgrades, order, unlock, level, levels, dna }) {
+export function buyGreedy({ upgrades, order, unlock, level, levels, dna, caps = null }) {
   const next = { ...levels };
   const bought = [];
   let left = dna;
   for (;;) {
-    const id = order.find((x) => upgrades[x] && (unlock[upgrades[x].branch] ?? 1) <= level && upgrades[x].prices[next[x] ?? 0] !== undefined && upgrades[x].prices[next[x] ?? 0] <= left && (!upgrades[x].requires || (next[upgrades[x].requires.id] ?? 0) >= upgrades[x].requires.level));
+    const id = order.find((x) => upgrades[x] && (unlock[upgrades[x].branch] ?? 1) <= level && upgrades[x].prices[next[x] ?? 0] !== undefined && upgrades[x].prices[next[x] ?? 0] <= left && (!upgrades[x].requires || (next[upgrades[x].requires.id] ?? 0) >= upgrades[x].requires.level) && (next[x] ?? 0) < (upgrades[x].waveOpen ? (caps?.[x] ?? 0) : Infinity));
     if (!id) break;
     left -= upgrades[id].prices[next[id] ?? 0];
     next[id] = (next[id] ?? 0) + 1;
@@ -570,7 +588,7 @@ export function buyGreedy({ upgrades, order, unlock, level, levels, dna }) {
  */
 export function buyOrder(upgrades, tower = 'pill') {
   const own = Object.keys(upgrades).filter((id) => upgrades[id].branch === tower);
-  const first = ['damage', ...own];
+  const first = ['damage', ...Object.keys(upgrades).filter((id) => upgrades[id].waveOpen), ...own];
   return [...first, ...baseBuyOrder(upgrades).filter((id) => !first.includes(id))];
 }
 
