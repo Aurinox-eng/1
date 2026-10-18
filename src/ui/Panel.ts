@@ -361,6 +361,16 @@ export class Panel {
     this.newsQueue.push({ message, ms });
   }
 
+  /** Убирает показанное уведомление и очередь новостей сразу (экран проигрыша закрывает собой всё). */
+  clearToasts(): void {
+    this.toastTween?.stop();
+    this.toastTween = null;
+    this.toastCurrent = null;
+    this.newsQueue.length = 0;
+    this.toastText.setAlpha(0);
+    this.toastPlate.setAlpha(0);
+  }
+
   /** Состояние уведомлений для проверок: текст на экране (null — ничего не показано), число новостей в очереди. */
   toastInfo(): { text: string | null; news: boolean; queued: string[] } {
     return { text: this.toastCurrent?.message ?? null, news: this.toastCurrent?.news ?? false, queued: this.newsQueue.map((item) => item.message) };

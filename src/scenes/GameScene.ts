@@ -1603,7 +1603,7 @@ export class GameScene extends Phaser.Scene {
         sound.label.setText(t(sfx.muted ? 'soundOff' : 'soundOn'));
       }, 30);
       this.pauseSoundButton = sound.rect;
-      this.pauseRestartButton = this.addEndButton(W / 2 - 180, H / 2 + 200, 320, 76, t('restart'), 0x2a8a4a, COLORS.merge, () => {
+      this.pauseRestartButton = this.addEndButton(W / 2 - 180, H / 2 + 200, 320, 76, t('restart'), 0x2a3550, 0x4a5c82, () => {
         if (performance.now() >= this.resumeAllowedAt) this.scene.restart();
       });
       this.pauseMenuButton = this.addEndButton(W / 2 + 180, H / 2 + 200, 320, 76, t('toMenu'), 0x2a3550, 0x4a5c82, () => this.leaveToMenu());
@@ -1659,6 +1659,7 @@ export class GameScene extends Phaser.Scene {
     this.state = won ? 'won' : 'lost';
     this.restartAllowedAt = performance.now() + CONFIG.gameOver.restartLockMs;
     this.ghost.setVisible(false);
+    if (!won) this.panel.clearToasts(); // уведомление (например, «Новая бактерия») гаснет, когда показывается экран проигрыша
     // Снаряды в полёте не должны «зависать» под экраном конца уровня
     for (const projectile of this.projectiles) projectile.destroy();
     this.projectiles = [];

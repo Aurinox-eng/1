@@ -55,6 +55,11 @@ export function metaDna(): number {
   return state.dna;
 }
 
+/** Есть ли что сбрасывать: очки ДНК, купленные узлы или звёзды (от этого зависит, показывается ли в меню «Сбросить прогресс»). */
+export function hasProgress(): boolean {
+  return state.dna > 0 || Object.values(state.levels).some((n) => n > 0) || state.progress.stars.some((n) => n > 0);
+}
+
 export function metaLevel(id: UpgradeId): number {
   return state.levels[id];
 }

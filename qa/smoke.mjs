@@ -2019,7 +2019,11 @@ async function runLoseLine(browser, baseUrl) {
     const context = await newDeviceContext(browser, VIEWPORTS.desktop, c.lang);
     const cfg = `${wavesOnlyCfg({ [c.kind]: c.n })},waves.firstDelaySec:1,bacteria.baseSpeed:250,lives.start:3`;
     const game = await openGame(context, baseUrl, p, { speed: 4, cfg, query: c.level > 1 ? `&level=${c.level}` : '' });
-    const lost = await waitFor(game.page, (x) => x.state === 'lost', WAIT_MS, 'проигрыш без башен');
+    let toastBeforeLoss = false;
+    const lost = await waitFor(game.page, (x) => {
+      if (x.toast.text !== null) toastBeforeLoss = true;
+      return x.state === 'lost';
+    }, WAIT_MS, 'проигрыш без башен');
     const kindName = readI18n(`bacName${capital(c.kind)}`)[c.li];
     const escape = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const lineTemplate = readI18n('loseLeakOnly')[c.li];
@@ -2030,6 +2034,8 @@ async function runLoseLine(browser, baseUrl) {
     check(`${p} строка проигрыша: порода «${kindName}», число жизней, без перечня башен («Бьют» нет)`,
       Boolean(found) && gotKind === kindName && !advice,
       `строки: ${JSON.stringify(lost.endDnaLines)}`);
+    check(`${p} на экране проигрыша уведомление («Новая бактерия: …») погасло и очередь пуста (до проигрыша уведомление показывалось: ${toastBeforeLoss ? 'да' : 'нет'})`,
+      lost.toast.text === null && lost.toast.queued.length === 0, JSON.stringify(lost.toast));
     await game.page.close();
     await context.close();
   }
@@ -8779,6 +8785,11 @@ async function runAlmanacPause(browser, baseUrl) {
     const menuOthers = [pausedResume.pauseAlmanacButton, pausedResume.pauseSoundButton, pausedResume.pauseRestartButton, pausedResume.pauseMenuButton];
     check(`${p} на паузе есть кнопка «Продолжить» по центру над остальными четырьмя, внутри экрана, не налезает на них`,
       resumeBtn !== null && insideScreen(resumeBtn) && menuOthers.every((b) => b !== null && !overlaps(resumeBtn, b) && resumeBtn.y < b.y) && Math.abs(resumeBtn.x - W / 2) < 2, JSON.stringify({ resumeBtn, menuOthers }));
+    // цвета: зелёной остаётся только «Продолжить», «Заново» — того же цвета, что «В меню» (заливка у левого края кнопки, вне надписи)
+    const pausePng = await shot(page, `pause-colors-${deviceKey}-${lang}`);
+    const pauseEdge = (r) => game.g(r.x - r.w / 2 + 14, r.y);
+    const [resumeFill, restartFill, menuFill] = await samplePixels(page, pausePng, [resumeBtn, pausedResume.pauseRestartButton, pausedResume.pauseMenuButton].map((r) => [pauseEdge(r).x, pauseEdge(r).y]));
+    check(`${p} на паузе зелёная только «Продолжить»: «Заново» того же цвета, что «В меню»`, restartFill.every((v, i) => Math.abs(v - menuFill[i]) <= 6) && resumeFill[1] > resumeFill[0] + 40 && resumeFill[1] > restartFill[1] + 40, `продолжить ${resumeFill.slice(0, 3)}, заново ${restartFill.slice(0, 3)}, в меню ${menuFill.slice(0, 3)}`);
     const elapsedResume = pausedResume.elapsed;
     await game.input.tap(game.g(resumeBtn.x, resumeBtn.y));
     await waitFor(page, (x) => x.state === 'playing', 5000, 'игра продолжилась кнопкой «Продолжить»');
@@ -8802,6 +8813,19 @@ async function runMenuReset(browser, baseUrl) {
     const context = await newDeviceContext(browser, device, lang);
     let app = await openMenu(context, baseUrl, p, { isTouch: device.hasTouch });
     const { page } = app;
+    // без прогресса кнопки нет; с любым из трёх видов прогресса (очки ДНК, купленный узел, звезда) она есть
+    const bare = await app.ui();
+    check(`${p} без прогресса в меню нет кнопки «${readI18n('resetBtn')[li]}»`, !bare.buttons.reset, JSON.stringify(Object.keys(bare.buttons)));
+    for (const [what, save] of [
+      ['очки ДНК', { v: 3, dna: 5, levels: {}, progress: { stars: [0], best: [0] }, seen: [] }],
+      ['купленный узел', { v: 3, dna: 0, levels: { damage: 1 }, progress: { stars: [0], best: [0] }, seen: [] }],
+      ['звезда', { v: 3, dna: 0, levels: {}, progress: { stars: [1], best: [30] }, seen: [] }],
+    ]) {
+      await page.evaluate((value) => window.localStorage.setItem('pvb.meta', JSON.stringify(value)), save);
+      await page.reload({ waitUntil: 'load' });
+      const withOne = await app.waitUi('menu', `меню с прогрессом: ${what}`);
+      check(`${p} с прогрессом «${what}» в меню есть кнопка «${readI18n('resetBtn')[li]}»`, Boolean(withOne.buttons.reset), JSON.stringify(Object.keys(withOne.buttons)));
+    }
     // сохранение игрока: 77 очков ДНК, уровень 1 пройден на 2 звезды, звук выключен
     await page.evaluate(() => {
       window.localStorage.setItem('pvb.meta', JSON.stringify({ v: 3, dna: 77, levels: { damage: 2 }, progress: { stars: [2], best: [30] }, seen: ['t:pill'] }));
@@ -8813,8 +8837,21 @@ async function runMenuReset(browser, baseUrl) {
     let u = await app.ui();
     check(`${p} в меню очки ДНК из сохранения (${balanceText(77)}), кнопка «${readI18n('resetBtn')[li]}» внутри экрана слева вверху, не налезает на «Звук»`,
       u.texts.includes(balanceText(77)) && u.buttons.reset && insideScreen(u.buttons.reset) && u.buttons.reset.x < W / 2 && !overlaps(u.buttons.reset, u.buttons.sound), JSON.stringify({ texts: u.texts, reset: u.buttons.reset }));
+    // цвет кнопки «Сбросить прогресс» — как у «Альманаха» (заливка у левого края кнопки, вне надписи)
+    const menuPng = await shot(page, `reset-menu-${deviceKey}-${lang}`);
+    const edge = (r) => app.g(r.x - r.w / 2 + 14, r.y);
+    const [resetFill, almanacFill] = await samplePixels(page, menuPng, [edge(u.buttons.reset), edge(u.buttons.almanac)].map((q) => [q.x, q.y]));
+    check(`${p} кнопка «${readI18n('resetBtn')[li]}» того же цвета, что «${readI18n('almanacBtn')[li]}»`, resetFill.every((v, i) => Math.abs(v - almanacFill[i]) <= 6), `сброс ${resetFill.slice(0, 3)}, альманах ${almanacFill.slice(0, 3)}`);
     await app.tapRect(u.buttons.reset);
     u = await app.waitUi('menu', 'окно подтверждения');
+    // подложка под заголовком, текстом и кнопками непрозрачная: в точках, где под ней лежат кнопки меню («Играть», «Улучшения»), виден цвет подложки
+    const dialogPng = await shot(page, `reset-dialog-${deviceKey}-${lang}`);
+    const plate = u.labels.resetPlate;
+    const probes = [[W / 2 - 210, 412], [W / 2 + 210, 412], [W / 2, 500]].map(([gx, gy]) => app.g(gx, gy));
+    const plateFill = await samplePixels(page, dialogPng, probes.map((q) => [q.x, q.y]));
+    const wantFill = [0x0d, 0x16, 0x2b];
+    check(`${p} под окном подтверждения непрозрачная подложка: в трёх точках над кнопками «Играть» и «Улучшения» цвет подложки (${wantFill.join(', ')} ± 6)`,
+      Boolean(plate) && plate.x - plate.w / 2 <= u.buttons.resetYes.x - u.buttons.resetYes.w / 2 && plate.x + plate.w / 2 >= u.buttons.resetNo.x + u.buttons.resetNo.w / 2 && plate.y + plate.h / 2 >= u.buttons.resetYes.y + u.buttons.resetYes.h / 2 && plateFill.every((px) => wantFill.every((v, i) => Math.abs(px[i] - v) <= 6)), `подложка ${JSON.stringify(plate)}, точки ${plateFill.map((px) => px.slice(0, 3).join('/')).join('; ')}`);
     check(`${p} тап открывает окно подтверждения: «${readI18n('resetTitle')[li]}», «${readI18n('resetYes')[li]}» и «${readI18n('resetNo')[li]}» внутри экрана рядом`,
       u.buttons.resetYes && u.buttons.resetNo && insideScreen(u.buttons.resetYes) && insideScreen(u.buttons.resetNo) && !overlaps(u.buttons.resetYes, u.buttons.resetNo) && u.texts.includes(readI18n('resetTitle')[li]), JSON.stringify({ texts: u.texts, yes: u.buttons.resetYes, no: u.buttons.resetNo }));
     // под окном нижние кнопки не нажимаются: тап по «Играть» выбор уровня не открывает
