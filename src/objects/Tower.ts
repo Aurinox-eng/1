@@ -6,7 +6,7 @@ import {
   type ArtBox, type Pt,
 } from '../art';
 import { COLORS, PILL_EYES, TOWER_ART } from '../theme';
-import { isPilotTower, pilotBarrelKey, pilotBaseKey, pilotEyesKey, pilotPupilKey, PILL_EYE_POS, EYES_BOX, PUPIL_BOX, RECOIL_PX, RECOIL_SEC } from './pilotTowerArt';
+import { isPilotTower, pilotBarrelKey, pilotBaseKey, pilotEyesKey, pilotPupilKey, pilotTopKey, PILL_EYE_POS, EYES_BOX, PUPIL_BOX, RECOIL_PX, RECOIL_SEC } from './pilotTowerArt';
 import { computeStats, mutationOptions, unlockedTiers, type TowerKey, type TowerStats } from '../towerStats';
 import type { Bacterium } from './Bacterium';
 
@@ -967,6 +967,7 @@ const LEVEL_COLORS = [COLORS.towerEdge, 0xdfe6f5, 0xffd84d, 0xc78bff];
 function topTexture(scene: Phaser.Scene, id: TowerId, level: number, legacy = false): string {
   const lv = artLevel(level);
   const pilot = !legacy && isPilotTower(id, lv);
+  if (pilot && id === 'pill' && lv === 4) return pilotTopKey(scene, TOP_BOX); // Таблетка 4 уровня: купол под глазами, кольцо и точки уровня — Canvas 2D
   const suffix = legacy && isPilotTower(id, lv) ? '-old' : '';
   return bakeArt(scene, `tower-top-${id}-${lv}${suffix}`, TOP_BOX, (g) => {
     // Пилот: тёмной втулки нет — вместо неё маленькая светлая заклёпка (у таблеток между глазами)

@@ -176,26 +176,16 @@ function drawPillBarrel(ctx: CanvasRenderingContext2D, d: number, lv: number): v
     capsule(ctx, d, -34, -17, 74, 34, 8, COLORS.pillBlue, COLORS.pillEdge);
     return;
   }
-  // уровень 4: бронепластины, три ствола, светящееся ядро (рисунок и расположение — прежние, в новом стиле)
+  // уровень 4 (рисунок заново, 18 октября 2026): центральная капсула с золотыми бандажами, два боковых ствола и светящееся дуло; купол с глазами — в верхней картинке (pilotTopKey)
   for (const s of [-1, 1]) {
-    const pts: [number, number][] = [[-2, s * 20], [-24, s * 36], [-20, s * 24], [-34, s * 30], [-12, s * 12]];
-    softShadow(ctx, d, 4, 1.5, 0.4, () => {
-      ctx.beginPath();
-      pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
-      ctx.closePath();
-      ctx.fill();
-    });
+    capsule(ctx, d, -2, s * 21.5 - 7.5, 46, 15, 22, COLORS.pillBlue, COLORS.goldEdge);
+    goldBand(ctx, d, 16, s * 21.5 - 7.5, 3.6, 15);
+    ctx.fillStyle = css(COLORS.needle);
     ctx.beginPath();
-    pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
-    ctx.closePath();
-    ctx.fillStyle = vGrad(ctx, -40, 40, [[0, 0xffffff], [1, mix(A.plate, 0x8fa3c4, 0.5)]]);
+    ctx.arc(43, s * 21.5, 3.6, 0, Math.PI * 2);
     ctx.fill();
-    ctx.lineWidth = 2;
-    ctx.lineJoin = 'round';
-    ctx.strokeStyle = css(COLORS.goldEdge);
-    ctx.stroke();
   }
-  // скоба
+  // скоба за куполом
   softShadow(ctx, d, 5, 2, 0.45, () => {
     rrPath(ctx, -21, -28, 16, 56, 6);
     ctx.fill();
@@ -203,39 +193,28 @@ function drawPillBarrel(ctx: CanvasRenderingContext2D, d: number, lv: number): v
   ctx.fillStyle = vGrad(ctx, -28, 28, [[0, lighten(A.steelDark, 0.3)], [0.5, A.steelDark], [1, darken(A.steelDark, 0.35)]]);
   rrPath(ctx, -21, -28, 16, 56, 6);
   ctx.fill();
-  ctx.lineWidth = 2;
+  ctx.lineWidth = 2.2;
   ctx.strokeStyle = css(COLORS.gold);
   ctx.stroke();
-  capsule(ctx, d, -2, -29, 46, 15, 20, COLORS.pillBlue, COLORS.goldEdge);
-  capsule(ctx, d, -2, 14, 46, 15, 20, COLORS.pillBlue, COLORS.goldEdge);
-  // свечение под центральным стволом
+  // свечение под центральной капсулой
   ctx.save();
-  ctx.shadowColor = css(COLORS.needle, 0.7);
+  ctx.shadowColor = css(COLORS.needle, 0.75);
   ctx.shadowBlur = 14 * d;
-  ctx.fillStyle = css(COLORS.needle, 0.35);
-  rrPath(ctx, -8, -12, 66, 24, 12);
+  ctx.fillStyle = css(COLORS.needle, 0.4);
+  rrPath(ctx, -6, -14, 70, 28, 14);
   ctx.fill();
   ctx.restore();
-  capsule(ctx, d, -8, -12, 66, 24, 32, COLORS.pillBlue, COLORS.goldEdge, false);
+  capsule(ctx, d, -6, -14, 70, 28, 34, COLORS.pillBlue, COLORS.goldEdge, false);
+  goldBand(ctx, d, 22, -14, 4.5, 28);
+  goldBand(ctx, d, 46, -14, 4.5, 28);
   // ядро дула
   ctx.save();
   ctx.shadowColor = css(COLORS.needle, 0.9);
   ctx.shadowBlur = 12 * d;
-  ctx.fillStyle = vGrad(ctx, -5, 5, [[0, 0xffffff], [0.5, COLORS.needle], [1, darken(COLORS.needle, 0.3)]]);
-  rrPath(ctx, 34, -5, 20, 10, 5);
+  ctx.fillStyle = vGrad(ctx, -6, 6, [[0, 0xffffff], [0.5, COLORS.needle], [1, darken(COLORS.needle, 0.3)]]);
+  rrPath(ctx, 52, -6, 14, 12, 6);
   ctx.fill();
   ctx.restore();
-  for (const x of [4, 17, 30]) {
-    ctx.fillStyle = vGrad(ctx, -15, 15, [[0, 0xffffff], [1, mix(A.plateLight, 0x9aaccc, 0.45)]]);
-    rrPath(ctx, x, -15, 7, 30, 3);
-    ctx.fill();
-    ctx.lineWidth = 2;
-    ctx.strokeStyle = css(COLORS.goldEdge);
-    ctx.stroke();
-    ctx.fillStyle = vGrad(ctx, -11, 11, [[0, lighten(COLORS.gold, 0.4)], [1, COLORS.gold]]);
-    rrPath(ctx, x + 2, -11, 3, 22, 1);
-    ctx.fill();
-  }
   // дуло: мягкое свечение и звезда в точке вылета (x = 64)
   const flash = ctx.createRadialGradient(64, 0, 0, 64, 0, 17);
   flash.addColorStop(0, 'rgba(255,255,255,0.85)');
@@ -254,12 +233,17 @@ function drawPillBarrel(ctx: CanvasRenderingContext2D, d: number, lv: number): v
   }
   ctx.closePath();
   ctx.fill();
-  for (const s of [-1, 1]) {
-    ctx.fillStyle = css(COLORS.needle);
-    ctx.beginPath();
-    ctx.arc(43, s * 21.5, 4, 0, Math.PI * 2);
-    ctx.fill();
-  }
+}
+
+/** Золотой бандаж поперёк ствола: узкая полоса с переходом цвета и тёмной кромкой. */
+function goldBand(ctx: CanvasRenderingContext2D, d: number, x: number, y: number, w: number, h: number): void {
+  ctx.fillStyle = vGrad(ctx, y, y + h, [[0, lighten(COLORS.gold, 0.5)], [0.5, COLORS.gold], [1, darken(COLORS.gold, 0.3)]]);
+  rrPath(ctx, x, y, w, h, 1.4);
+  ctx.fill();
+  ctx.lineWidth = 1.6;
+  ctx.strokeStyle = css(COLORS.goldEdge);
+  ctx.stroke();
+  void d;
 }
 
 /** Сироп 1 уровня: стеклянная бутылочка с оранжевым сиропом (видна граница жидкости), горлышко и пробка у дула (x = 36…42). */
@@ -341,12 +325,95 @@ export function pilotBarrelKey(scene: Phaser.Scene, id: string, lv: number, box:
   return bakeCanvasArt(scene, `pilot-tower-barrel-${id}-${lv}`, box, (ctx, d) => (id === 'pill' ? drawPillBarrel(ctx, d, lv) : drawSyrupBarrel(ctx, d)));
 }
 
+// ---------------------------------------------------------------- верхняя картинка Таблетки 4 уровня: купол под глазами, кольцо и точки уровня
+
+/**
+ * Верх Таблетки 4 уровня: жемчужный купол радиуса 20 (чистый светлый фон под глазами при любом повороте ствола; между глазами ничего нет), золотой ободок, восемь золотых зубцов вокруг, кольцо уровня и четыре точки.
+ * Рисуется вместо прежней «золотой короны вокруг втулки» (она лежала прямо под глазами и они терялись в узоре).
+ */
+function drawTopPill4(ctx: CanvasRenderingContext2D, d: number): void {
+  const ring = 0xc78bff;
+  ctx.save();
+  ctx.shadowColor = css(ring, 0.6);
+  ctx.shadowBlur = 8 * d;
+  ctx.lineWidth = 4;
+  ctx.strokeStyle = css(ring, 0.95);
+  ctx.beginPath();
+  ctx.arc(0, 0, 40, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.restore();
+  for (let i = 0; i < 4; i++) {
+    const dx = (i - 1.5) * 13;
+    ctx.fillStyle = css(ring);
+    ctx.beginPath();
+    ctx.arc(dx, 46, 5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = '#0b1020';
+    ctx.stroke();
+  }
+  // золотые зубцы вокруг купола (поверх ствола)
+  for (let i = 0; i < 8; i++) {
+    const a = (i * Math.PI) / 4 + Math.PI / 8;
+    ctx.save();
+    ctx.rotate(a);
+    ctx.beginPath();
+    ctx.moveTo(19, -4.2);
+    ctx.lineTo(29, 0);
+    ctx.lineTo(19, 4.2);
+    ctx.closePath();
+    ctx.fillStyle = vGrad(ctx, -4, 4, [[0, lighten(COLORS.gold, 0.5)], [1, darken(COLORS.gold, 0.15)]]);
+    ctx.fill();
+    ctx.lineWidth = 1.6;
+    ctx.lineJoin = 'round';
+    ctx.strokeStyle = css(COLORS.goldEdge);
+    ctx.stroke();
+    ctx.restore();
+  }
+  // купол
+  softShadow(ctx, d, 5, 2, 0.5, () => {
+    ctx.beginPath();
+    ctx.arc(0, 0, 20, 0, Math.PI * 2);
+    ctx.fill();
+  });
+  const dome = ctx.createRadialGradient(-7, -9, 2, 0, 0, 21);
+  dome.addColorStop(0, '#ffffff');
+  dome.addColorStop(0.55, css(0xe4ebf8));
+  dome.addColorStop(1, css(0xa7b6d2));
+  ctx.fillStyle = dome;
+  ctx.beginPath();
+  ctx.arc(0, 0, 20, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.lineWidth = 3;
+  ctx.strokeStyle = css(COLORS.gold);
+  ctx.beginPath();
+  ctx.arc(0, 0, 18.5, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.lineWidth = 1.4;
+  ctx.strokeStyle = css(COLORS.goldEdge);
+  ctx.beginPath();
+  ctx.arc(0, 0, 20.2, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.arc(0, 0, 16.8, 0, Math.PI * 2);
+  ctx.stroke();
+  // блик на куполе
+  ctx.fillStyle = 'rgba(255,255,255,0.7)';
+  ctx.beginPath();
+  ctx.ellipse(-8, -11.5, 6.5, 2.6, -0.55, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+export function pilotTopKey(scene: Phaser.Scene, box: ArtBox): string {
+  return bakeCanvasArt(scene, 'pilot-tower-top-pill-4', box, (ctx, d) => drawTopPill4(ctx, d));
+}
+
 // ---------------------------------------------------------------- глаза Таблетки
 
 /** Положение центров белков по уровню: у 1 уровня глаза крупнее, у 4 — меньше (вокруг ядра и короны). */
 export const PILL_EYE_POS: Record<number, { x: number; rx: number; ry: number; pupil: number; look: number }> = {
   1: { x: 8.5, rx: 6.3, ry: 6.8, pupil: 2.9, look: 2.2 },
-  4: { x: 7.4, rx: 5.1, ry: 5.5, pupil: 2.4, look: 1.7 },
+  4: { x: 8.6, rx: 7, ry: 7.4, pupil: 3.5, look: 2.2 },
 };
 const EYES_BOX: ArtBox = { x: -16, y: -16, w: 32, h: 32 };
 const PUPIL_BOX: ArtBox = { x: -5, y: -5, w: 10, h: 10 };
@@ -370,7 +437,7 @@ export function pilotEyesKey(scene: Phaser.Scene, lv: number): string {
       ctx.beginPath();
       ctx.ellipse(cx, 0, e.rx, e.ry, 0, 0, Math.PI * 2);
       ctx.fill();
-      ctx.lineWidth = 1.4;
+      ctx.lineWidth = lv >= 4 ? 1.9 : 1.4;
       ctx.strokeStyle = css(darken(COLORS.pillBlue, 0.6));
       ctx.stroke();
     }
