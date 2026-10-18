@@ -1544,15 +1544,29 @@ async function loseWithTowers(context, baseUrl, p, name, device) {
   if (retries > 0) note(`${p} в проверке «проигрыш с башнями» башни пришлось ставить повторно (попыток ${retries}): первый тап по кнопке башни на только что открытой странице не дошёл до игры`);
   check(`${p} проигрыш с башнями: обе башни поставлены до появления бактерий у организма`, s.towers.length === 2 && s.state === 'playing', `башен ${s.towers.length}, состояние ${s.state}, монет ${s.coins}, выстрелов ${s.shots}`);
   let maxShots = 0;
-  const started = Date.now();
-  while (Date.now() - started < WAIT_MS && s.state !== 'lost') {
+  // Проигрыша ждём ходом игры (до 120 игровых секунд, state.clock.baseSec), а не 90 секундами реального времени: на медленном сервере игра за 90 с не доживала до проигрыша
+  // (в журнале: состояние playing, игровое время 15,5 с, снаряды в воздухе), и проверка краснела, хотя о снарядах после проигрыша данных не было
+  let reachedLoss = true;
+  let lossWhy = '';
+  try {
+    s = await waitForGame(game.page, (x) => {
+      maxShots = Math.max(maxShots, x.projectiles);
+      return x.state === 'lost';
+    }, 'проигрыш');
+  } catch (e) {
+    reachedLoss = false;
+    lossWhy = e.message;
     s = await game.state();
-    maxShots = Math.max(maxShots, s.projectiles);
-    await sleep(40);
   }
   await sleep(300);
   const later = await game.state();
   await shot(game.page, `${name}-16-lost-with-towers`);
+  if (!reachedLoss) {
+    // Отдельно: «игра не дошла до условия» (реальный потолок) и «условие не выполнено» (игра прожила бюджет игровых секунд без проигрыша) — о снарядах в этих случаях ничего не сказано
+    check(`${p} при проигрыше (башни стреляют, в воздухе до ${maxShots} снарядов) снарядов в полёте не остаётся`, false, `${lossWhy}; снарядов сейчас ${later.projectiles}, состояние ${later.state}`);
+    await game.page.close();
+    return;
+  }
   // Сбор данных (критерий проверки не менялся): если снаряды всё же остались, читаем состояние ещё раз через 2 с. Игра при проигрыше убирает снаряды сразу (GameScene.endGame),
   // поэтому оставшиеся и через 2 с снаряды — вопрос к игре, а не к скорости страницы.
   let lateProjectiles = null;
