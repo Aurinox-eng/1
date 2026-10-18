@@ -8900,6 +8900,33 @@ async function runAlmanac(browser, baseUrl) {
       const names = ['towerSyrup', 'towerFrost', 'towerPatch'].map((k) => readI18n(k)[li]);
       check(`${p} текст о Слизне (${lang}) называет Сироп, Холод и Пластырь: «${slickText[li]}»`, names.every((n) => slickText[li].includes(n)), names.join(', '));
     }
+    // (решение владельца 18 октября 2026, ответ 10: остальные расхождения Альманаха — да) тексты о Прыгуне, Гиганте и Холоде называют башни, которые не действуют, по флагам config.ts
+    const flagsOf = (kind) => {
+      const row = new RegExp(`\\n\\s*${kind}: \\{[^}]*\\}`).exec(cfgSrc)?.[0] ?? '';
+      return Object.fromEntries(['slowImmune', 'freezeImmune', 'trapImmune'].map((k) => [k, new RegExp(`${k}: 1\\b`).test(row)]));
+    };
+    const towerOfFlag = { slowImmune: 'towerSyrup', freezeImmune: 'towerFrost', trapImmune: 'towerPatch' };
+    for (const [kind, key] of [['leaper', 'almBacLeaper'], ['giant', 'almBacGiant']]) {
+      const flags = flagsOf(kind);
+      const text = readI18n(key);
+      for (const [li, lang] of [[0, 'ru'], [1, 'en']]) {
+        const need = Object.entries(flags).filter(([, on]) => on).map(([k]) => readI18n(towerOfFlag[k])[li]);
+        check(`${p} текст о ${kind} (${lang}) называет все башни, которые на него не действуют (${need.join(', ')}): «${text[li]}»`, need.length > 0 && need.every((n) => text[li].includes(n)), JSON.stringify(flags));
+      }
+    }
+    const frostText = readI18n('almTowerFrost');
+    const frozenNot = ['slick', 'giant', 'leaper', 'coccus'].filter((k) => flagsOf(k).freezeImmune);
+    for (const [li, lang] of [[0, 'ru'], [1, 'en']]) {
+      // в тексте падежи («Слизня», «Гиганта»): сверяются первые четыре буквы названия («Слиз», «Гига»)
+      const stems = frozenNot.map((k) => readI18n(`bacName${k.charAt(0).toUpperCase()}${k.slice(1)}`)[li].slice(0, 4));
+      check(`${p} текст Холода (${lang}) называет исключения — не замерзают ${frozenNot.join(', ')}: «${frostText[li]}»`, stems.every((s) => frostText[li].includes(s)), stems.join(', '));
+    }
+    // записи в обе стороны: если бактерия есть в «сильна против» башни, башня есть в «бьют» бактерии (по 2.3 предложений — для Гиганта и Выводка)
+    for (const [tower, kind] of [['syrup', 'giant'], ['antibiotic', 'giant'], ['patch', 'brood']]) {
+      const strong = listOf(new RegExp(`^\\s*${tower}: \\{ strong: \\[(.*?)\\]`, 'm')) ?? [];
+      const by = listOf(new RegExp(`^\\s*${kind}: \\[(.*?)\\],`, 'm')) ?? [];
+      check(`${p} запись в обе стороны: ${kind} в «сильна против» у ${tower} — ${strong.includes(kind)}, ${tower} в «бьют» у ${kind} — ${by.includes(tower)}`, strong.includes(kind) && by.includes(tower), JSON.stringify({ strong, by }));
+    }
   }
   for (const [deviceKey, lang] of [['desktop', 'ru'], ['phone', 'ru'], ['desktop', 'en']]) {
     const device = VIEWPORTS[deviceKey];

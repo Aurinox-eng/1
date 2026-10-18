@@ -13,7 +13,7 @@ export interface TowerEntry {
 
 export const ALMANAC_TOWERS: Record<TowerId, TowerEntry> = {
   pill: { strong: ['coccus', 'rod', 'slick'], weak: [] },
-  syrup: { strong: ['rod', 'runner', 'swarm'], weak: ['slick'] },
+  syrup: { strong: ['rod', 'runner', 'swarm', 'giant'], weak: ['slick'] },
   fizz: { strong: ['swarm', 'splitter', 'brood'], weak: ['giant'] },
   syringe: { strong: ['armored', 'healer', 'giant'], weak: ['swarm'] },
   ampule: { strong: ['giant', 'armored', 'brood', 'regen'], weak: ['swarm', 'runner'] },
@@ -38,8 +38,8 @@ export const ALMANAC_BEATEN_BY: Record<BacteriumKind, TowerId[]> = {
   slick: ['pill', 'syringe'],
   regen: ['syringe', 'antibiotic', 'ampule'],
   commander: ['pill', 'syringe'],
-  brood: ['fizz', 'lamp', 'frost', 'antibiotic', 'ampule'],
-  giant: ['syringe', 'ampule', 'patch', 'syrup'],
+  brood: ['fizz', 'lamp', 'frost', 'antibiotic', 'ampule', 'patch'],
+  giant: ['syringe', 'ampule', 'patch', 'syrup', 'antibiotic'],
   leaper: ['pill', 'syringe'],
   phago: ['fizz', 'syringe', 'antibiotic'],
   stealth: ['lamp', 'syringe', 'ampule'],
