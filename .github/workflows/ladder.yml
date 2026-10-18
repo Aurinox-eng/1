@@ -59,7 +59,7 @@ on:
         type: string
         default: '7200'
       from_level:
-        description: 'С какого уровня начинать (по умолчанию 1). Больше 1 — нужен state_run: состояние дорожек берётся из вложений ladder-state-L<from_level − 1>-lane<N> того прогона'
+        description: 'С какого уровня начинать (по умолчанию 1). Больше 1 — нужен state_run: состояние дорожек берётся из вложений ladder-state-L<from_level − 1>-lane<N> (при k_total > k — с суффиксом -b, итог последнего куска уровня) того прогона'
         type: string
         default: '1'
       state_run:
