@@ -5,7 +5,7 @@
 #   claude/art-style-*        → https://aurinox-eng.github.io/1/style/  (ветка стиля)
 #   другая claude/…           → https://aurinox-eng.github.io/1/b-<имя>/
 # Сайт читается из ветки gh-pages (Settings → Pages → Source → Deploy from a branch → gh-pages / root): шаги — docs/process-speedup-2026-10-18.md, раздел 3.
-# Первая публикация ветки идёт при первом push без [skip ci]: workflow_dispatch нового файла возможен только после его слияния в main.
+# Первая публикация ветки идёт при первом push без [skip ci] (workflow_dispatch нового файла возможен только после его слияния в main); дальше — как написано ниже.
 # Срабатывает при push (кроме правок только в docs/ и *.md; push с [skip ci] не срабатывает — тогда запуск вручную: Actions → «Сборки веток» → Run workflow
 # или actions_run_trigger, поле ref — ветка или хеш). Нужны только права GITHUB_TOKEN этого файла, новых ключей нет.
 name: Сборки веток
