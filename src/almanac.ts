@@ -12,13 +12,13 @@ export interface TowerEntry {
 }
 
 export const ALMANAC_TOWERS: Record<TowerId, TowerEntry> = {
-  pill: { strong: ['coccus', 'rod', 'slick'], weak: ['armored'] },
+  pill: { strong: ['coccus', 'rod', 'slick'], weak: [] },
   syrup: { strong: ['rod', 'runner', 'swarm'], weak: ['slick'] },
   fizz: { strong: ['swarm', 'splitter', 'brood'], weak: ['giant'] },
   syringe: { strong: ['armored', 'healer', 'giant'], weak: ['swarm'] },
   ampule: { strong: ['giant', 'armored', 'brood', 'regen'], weak: ['swarm', 'runner'] },
   antibiotic: { strong: ['regen', 'healer', 'brood', 'giant'], weak: ['swarm', 'runner', 'leaper'] },
-  lamp: { strong: ['swarm', 'splitter', 'brood'], weak: ['armored', 'giant'] },
+  lamp: { strong: ['swarm', 'splitter', 'brood', 'stealth'], weak: ['armored', 'giant'] },
   // Витамин сам никого не бьёт: списки пустые, в альманахе у него только строка «Усиливает соседние башни» (пустые подписи не рисуются)
   vitamin: { strong: [], weak: [] },
   frost: { strong: ['swarm', 'runner', 'brood'], weak: ['slick', 'giant'] },
@@ -32,7 +32,7 @@ export const ALMANAC_BEATEN_BY: Record<BacteriumKind, TowerId[]> = {
   swarm: ['fizz', 'lamp', 'frost', 'syrup'],
   runner: ['syrup', 'frost', 'pill'],
   splitter: ['fizz', 'lamp', 'pill'],
-  armored: ['syringe', 'ampule', 'patch'],
+  armored: ['pill', 'syringe', 'ampule', 'patch'],
   healer: ['syringe', 'fizz', 'antibiotic'],
   spore: ['syringe', 'pill'],
   slick: ['pill', 'syringe'],
