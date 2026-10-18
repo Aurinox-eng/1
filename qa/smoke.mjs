@@ -8736,6 +8736,31 @@ const rowsMatch = (texts, rows) => texts.length === rows.length && rows.every((r
 
 /** Экран «Альманах» из главного меню: вкладки «Башни» (строка на башню таблицы `towers`: 10) и «Бактерии» (строка на тип таблицы `types`: 19), «Назад» → меню. Компьютер ru, телефон ru; en — один раз на компьютере. */
 async function runAlmanac(browser, baseUrl) {
+  // ---- состав записей (по рецензии 18 октября 2026): Таблетка бьёт Бронированную первой в строке бактерии и не слаба против неё; Лампа сильна против Скрытной;
+  // текст о Слизне называет все три башни, которые на него не действуют (Сироп — slowImmune, Холод — freezeImmune, Пластырь — trapImmune в config.ts)
+  {
+    const p = '[альманах, состав]';
+    const almSrc = fs.readFileSync(path.join(ROOT, 'src/almanac.ts'), 'utf8');
+    const listOf = (re) => {
+      const m = re.exec(almSrc);
+      return m ? [...m[1].matchAll(/'(\w+)'/g)].map((x) => x[1]) : null;
+    };
+    const armoredBy = listOf(/^\s*armored: \[(.*?)\],/m);
+    const pillWeak = listOf(/^\s*pill: \{ strong: \[.*?\], weak: \[(.*?)\] \}/m);
+    const lampStrong = listOf(/^\s*lamp: \{ strong: \[(.*?)\], weak/m);
+    check(`${p} «бьют» Бронированную: Таблетка первой, затем остальные (${armoredBy})`, Boolean(armoredBy) && armoredBy[0] === 'pill' && armoredBy.length >= 2, JSON.stringify(armoredBy));
+    check(`${p} у Таблетки в «слаба против» нет Бронированной (${JSON.stringify(pillWeak)})`, Boolean(pillWeak) && !pillWeak.includes('armored'), JSON.stringify(pillWeak));
+    check(`${p} у Лампы в «сильна против» есть Скрытная (${JSON.stringify(lampStrong)})`, Boolean(lampStrong) && lampStrong.includes('stealth'), JSON.stringify(lampStrong));
+    const cfgSrc = fs.readFileSync(path.join(ROOT, 'src/config.ts'), 'utf8');
+    const slick = /\n\s*slick: \{[^}]*\}/.exec(cfgSrc)?.[0] ?? '';
+    const slickFlags = ['slowImmune', 'freezeImmune', 'trapImmune'].map((k) => new RegExp(`${k}: 1\\b`).test(slick));
+    check(`${p} в config.ts Слизень не берут Сироп, Холод и Пластырь (slowImmune, freezeImmune, trapImmune = 1)`, slickFlags.every(Boolean), JSON.stringify(slickFlags));
+    const slickText = readI18n('almBacSlick');
+    for (const [li, lang] of [[0, 'ru'], [1, 'en']]) {
+      const names = ['towerSyrup', 'towerFrost', 'towerPatch'].map((k) => readI18n(k)[li]);
+      check(`${p} текст о Слизне (${lang}) называет Сироп, Холод и Пластырь: «${slickText[li]}»`, names.every((n) => slickText[li].includes(n)), names.join(', '));
+    }
+  }
   for (const [deviceKey, lang] of [['desktop', 'ru'], ['phone', 'ru'], ['desktop', 'en']]) {
     const device = VIEWPORTS[deviceKey];
     const p = `[альманах, ${device.label}, ${lang}]`;
