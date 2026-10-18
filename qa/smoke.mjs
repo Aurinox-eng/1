@@ -44,7 +44,7 @@
  *                          дошедший до организма облака не оставляет); Холод (пачка 3: заморозка всех в радиусе на freezeSec, слизень и гигант не замерзают, замороженные стоят, пауза cooldownMs, после конца идут дальше);
  *                          Пластырь (ловушка под первой бактерией: приклеена на trapSec, стоит, теряет trapDps HP/с, прыгун и слизень не липнут, пауза cooldownMs); мутант (память о виде башни: тот же вид ×memoryMul, другой — полный урон);
  *                          паразит (подойдя ближе latchRadius, присасывается к башне: towers[].latchMul = latchMul, несколько не складываются, после гибели 1). Бактерии: рой (пачка,
- *                          дробный урон жизням — lifePool), бегун, лекарь, регенератор, командир, матка, гигант, прыгун (leaps растёт, прыжок на leapPx, лужа Сиропа не замедляет), фагоцит (каждый третий удар не снимает HP, яд счёт ударов не растит); все проверки пачек 2 и 3 считают игровое время (elapsed), а не реальные секунды. Числа читаются из config.ts (readConfigNumber),
+ *                          дробный урон жизням — lifePool), бегун, лекарь, регенератор, командир, матка, гигант, прыгун (leaps растёт, прыжок на leapPx, лужа Сиропа не замедляет), поглотитель (каждый третий удар не снимает HP, яд счёт ударов не растит); все проверки пачек 2 и 3 считают игровое время (elapsed), а не реальные секунды. Числа читаются из config.ts (readConfigNumber),
  *                          баланс боя фиксируется через ?cfg=. QA_TOWERS_ONLY=syrup,fizz — только эти части (texts, panel, controls, prices, syrup, fizz,
  *                          syringe, pill, ampule, antibiotic, lamp, vitamin, mixed, swarm, runner, healer, regen, commander, brood, giant, leaper, phago, stealth, toxin, frost, patch, mutant, parasite)
  *   card                   этап 4, карточка башни (компьютер и телефон): тап по поставленной башне выбирает её и открывает карточку поверх кнопок башен (при выбранной на
@@ -4693,17 +4693,17 @@ async function typesLeaper(browser, baseUrl) {
   await context.close();
 }
 
-// ---------------------------------------------------------------- Фагоцит
+// ---------------------------------------------------------------- Поглотитель
 
 /**
- * Фагоцит: каждый absorbEvery-й удар по нему (3, 6, 9…) ничего не снимает; считается каждый снаряд Таблетки; яд (тики) счёт ударов не растит.
+ * Поглотитель: каждый absorbEvery-й удар по нему (3, 6, 9…) ничего не снимает; считается каждый снаряд Таблетки; яд (тики) счёт ударов не растит.
  * Проверка по состоянию бактерии (hits, absorbed, hp) в каждом замере, поэтому от скорости игрового времени не зависит: absorbed = ⌊hits / absorbEvery⌋ и HP = полное − (hits − absorbed) × урон.
  */
 async function typesPhago(browser, baseUrl) {
-  const p = '[бактерии: фагоцит]';
+  const p = '[бактерии: поглотитель]';
   const every = readConfigNumber('phago', 'absorbEvery');
   const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
-  // ---- А. Таблетка (урон 1, пауза 0,5 с, радиус большой) бьёт прочного фагоцита: каждый третий удар поглощается
+  // ---- А. Таблетка (урон 1, пауза 0,5 с, радиус большой) бьёт прочного поглотителя: каждый третий удар поглощается
   const cfg = `${wavesOnlyCfg({ phago: 1 })},waves.firstDelaySec:1,${FIXED_NO_TOWERS.join(',')},types.phago.hp:99,towers.pill.range:650,towers.pill.damage:1,towers.pill.cooldownMs:500,economy.startCoins:${TW.pill.price},${NO_LIFE_LOSS}`;
   const game = await openGame(context, baseUrl, p, { query: ALL_TOWERS, speed: 4, cfg });
   const placed = await game.placeTowers([FREE.a]);
@@ -4725,8 +4725,8 @@ async function typesPhago(browser, baseUrl) {
     maxHits = Math.max(maxHits, b.hits);
     maxAbsorbed = Math.max(maxAbsorbed, b.absorbed);
   }
-  check(`${p} Таблетка бьёт фагоцита: ударов по нему ${maxHits} (≥ ${3 * every}), поглощено ${maxAbsorbed} (≥ 3); во всех ${rows.length} замерах поглощено ровно каждый ${every}-й удар (absorbed = ⌊hits / ${every}⌋; отклонений ${badAbsorb})`, placed.towers.length === 1 && maxHits >= 3 * every && maxAbsorbed >= 3 && badAbsorb === 0, `ударов ${maxHits}, поглощено ${maxAbsorbed}`);
-  check(`${p} поглощённый удар HP не снимает: во всех замерах HP = полное − (удары − поглощённые) × ${dmg} (отклонений ${badHp}); общий счётчик поглощений ${end.absorbs} равен числу поглощений у фагоцита ${maxAbsorbed} (допуск 1: замер мог не застать последний удар)`, badHp === 0 && end.absorbs >= maxAbsorbed && end.absorbs - maxAbsorbed <= 1, `отклонений ${badHp}, absorbs ${end.absorbs}`);
+  check(`${p} Таблетка бьёт поглотителя: ударов по нему ${maxHits} (≥ ${3 * every}), поглощено ${maxAbsorbed} (≥ 3); во всех ${rows.length} замерах поглощено ровно каждый ${every}-й удар (absorbed = ⌊hits / ${every}⌋; отклонений ${badAbsorb})`, placed.towers.length === 1 && maxHits >= 3 * every && maxAbsorbed >= 3 && badAbsorb === 0, `ударов ${maxHits}, поглощено ${maxAbsorbed}`);
+  check(`${p} поглощённый удар HP не снимает: во всех замерах HP = полное − (удары − поглощённые) × ${dmg} (отклонений ${badHp}); общий счётчик поглощений ${end.absorbs} равен числу поглощений у поглотителя ${maxAbsorbed} (допуск 1: замер мог не застать последний удар)`, badHp === 0 && end.absorbs >= maxAbsorbed && end.absorbs - maxAbsorbed <= 1, `отклонений ${badHp}, absorbs ${end.absorbs}`);
 
   // ---- Б. Антибиотик: яд HP снимает, но счёт ударов не растит и ничего не поглощается
   const dps = TW.antibiotic.dotPerSec;
@@ -4736,7 +4736,7 @@ async function typesPhago(browser, baseUrl) {
   const a = analyzePoison(prow, run.tower?.stats.dotPerSec ?? dps, run.tower?.stats.dotSec ?? secs);
   const hitsSeen = Math.max(...prow.map((r) => r.b.hits));
   const absorbedSeen = Math.max(...prow.map((r) => r.b.absorbed));
-  check(`${p} яд Антибиотика счёт ударов не растит: уколов ${run.end.poisons}, у фагоцита ударов ${hitsSeen}, поглощено ${absorbedSeen}, общий счётчик поглощений ${run.end.absorbs} (ждали 0); при этом яд HP снимает (потеряно ${f2(a.total)} из ${f2(dps * secs)}, отклонений от линейной потери ${a.linearBad.length})`, run.end.poisons === 1 && hitsSeen === 0 && absorbedSeen === 0 && run.end.absorbs === 0 && a.n >= 8 && a.linearBad.length === 0 && Math.abs(a.total - dps * secs) <= 0.05, `уколов ${run.end.poisons}, ударов ${hitsSeen}`);
+  check(`${p} яд Антибиотика счёт ударов не растит: уколов ${run.end.poisons}, у поглотителя ударов ${hitsSeen}, поглощено ${absorbedSeen}, общий счётчик поглощений ${run.end.absorbs} (ждали 0); при этом яд HP снимает (потеряно ${f2(a.total)} из ${f2(dps * secs)}, отклонений от линейной потери ${a.linearBad.length})`, run.end.poisons === 1 && hitsSeen === 0 && absorbedSeen === 0 && run.end.absorbs === 0 && a.n >= 8 && a.linearBad.length === 0 && Math.abs(a.total - dps * secs) <= 0.05, `уколов ${run.end.poisons}, ударов ${hitsSeen}`);
   await context.close();
 }
 
@@ -7208,7 +7208,7 @@ async function runTowers(browser, baseUrl) {
   await part('brood', '[бактерии: матка]', () => typesBrood(browser, baseUrl));
   await part('giant', '[бактерии: гигант]', () => typesGiant(browser, baseUrl));
   await part('leaper', '[бактерии: прыгун]', () => typesLeaper(browser, baseUrl));
-  await part('phago', '[бактерии: фагоцит]', () => typesPhago(browser, baseUrl));
+  await part('phago', '[бактерии: поглотитель]', () => typesPhago(browser, baseUrl));
   await part('stealth', '[бактерии: скрытная]', () => towersStealth(browser, baseUrl));
   await part('toxin', '[бактерии: токсин]', () => typesToxin(browser, baseUrl));
   await part('frost', '[башни: Холод]', () => towersFrost(browser, baseUrl));
@@ -7635,7 +7635,7 @@ async function runLevelWaves(browser, baseUrl) {
     check(`${p} с уровня на уровень первая волна каждого из шести типов не отодвигается (расписание только сжимается)`, rising, firsts.map((f, i) => `${i + 1}: ${six.map((k) => f[k]).join(',')}`).join(' | '));
     check(`${p} на уровне 10 шесть типов выходят подряд в первых 6–8 волнах: ${sched(9).join(', ')}`, sched(9).every((w, j) => w >= 1 && w <= 8 && (j === 0 || w >= sched(9)[j - 1])), sched(9).join(', '));
   }
-  // Новые бактерии пачек 1–3 (этап 7, docs/stage-7-plan.md, разделы 2, 5 и 7): Прыгун выходит с уровня 4, Фагоцит с уровня 6, Скрытная с 5, Токсин с 7, Паразит с 8, Мутант с 9; на более ранних уровнях их в составе волн нет, на этих и позже — есть
+  // Новые бактерии пачек 1–3 (этап 7, docs/stage-7-plan.md, разделы 2, 5 и 7): Прыгун выходит с уровня 4, Поглотитель с уровня 6, Скрытная с 5, Токсин с 7, Паразит с 8, Мутант с 9; на более ранних уровнях их в составе волн нет, на этих и позже — есть
   // Пачка 2 (раздел 5 того же документа): Скрытная выходит с уровня 5, Токсин с уровня 7; пачка 3 (раздел 7): Паразит с уровня 8, Мутант с уровня 9
   for (const [kind, from] of Object.entries({ leaper: 4, phago: 6, ...STAGE7.intro })) {
     if (!KINDS.includes(kind)) continue;

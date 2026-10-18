@@ -37,7 +37,7 @@ function iceImage(scene: Phaser.Scene, radius: number): Phaser.GameObjects.Image
   return artImage(scene, key, box);
 }
 
-/** Сколько секунд видна вспышка «поглощено» у фагоцита. */
+/** Сколько секунд видна вспышка «поглощено» у поглотителя. */
 const ABSORB_SEC = 0.3;
 
 /** Полоска прочности: белая картинка 32×6, левый край в (0, 0); цвет задаётся оттенком, длина — масштабом. */
@@ -107,7 +107,7 @@ export class Bacterium {
   /** Яд башни «Антибиотик»: сколько секунд ещё идёт и сколько HP в секунду снимает (0 — не отравлена). Пока бактерия отравлена, она не лечится. */
   poisonLeft = 0;
   poisonDps = 0;
-  /** Фагоцит: сколько ударов по бактерии было (яд не считается), сколько из них поглощено; последний удар поглощён ли. */
+  /** Поглотитель: сколько ударов по бактерии было (яд не считается), сколько из них поглощено; последний удар поглощён ли. */
   hits = 0;
   absorbed = 0;
   justAbsorbed = false;
@@ -437,7 +437,7 @@ export class Bacterium {
     const { armor, absorbEvery } = CONFIG.types[this.kind];
     this.justAbsorbed = false;
     if (absorbEvery > 0) {
-      // Фагоцит: каждый absorbEvery-й удар (3, 6, 9…) ничего не снимает
+      // Поглотитель: каждый absorbEvery-й удар (3, 6, 9…) ничего не снимает
       this.hits++;
       if (this.hits % absorbEvery === 0) {
         this.absorbed++;
@@ -467,7 +467,7 @@ export class Bacterium {
     return this.hp <= 0;
   }
 
-  /** Вспышка «поглощено» на теле фагоцита: светло-розовое кольцо, гаснет за ABSORB_SEC. */
+  /** Вспышка «поглощено» на теле поглотителя: светло-розовое кольцо, гаснет за ABSORB_SEC. */
   private showAbsorb(): void {
     if (!this.absorbRing) {
       this.absorbRing = ringImage(this.scene, 0, 0, this.radius + 2, 6, COLORS.absorb, 1);

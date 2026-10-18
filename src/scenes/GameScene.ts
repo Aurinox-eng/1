@@ -111,7 +111,7 @@ export class GameScene extends Phaser.Scene {
   private leaked = 0;
   private shots = 0;
   private slows = 0;
-  /** Сколько раз Антибиотик отравил бактерию, сколько ударов поглотил фагоцит и сколько прыжков сделали прыгуны (за партию). */
+  /** Сколько раз Антибиотик отравил бактерию, сколько ударов поглотил поглотитель и сколько прыжков сделали прыгуны (за партию). */
   private poisons = 0;
   private absorbs = 0;
   private leaps = 0;
@@ -969,7 +969,7 @@ export class GameScene extends Phaser.Scene {
     const killed = bacterium.hit(damage, st.armorPierce);
     if (memoryMul > 0 && !killed && !bacterium.justAbsorbed) bacterium.remember(st.towerId);
     if (bacterium.justAbsorbed) {
-      // Фагоцит поглотил удар: урона нет (вспышку «поглощено» рисует сама бактерия), числа не показываем
+      // Поглотитель поглотил удар: урона нет (вспышку «поглощено» рисует сама бактерия), числа не показываем
       this.absorbs++;
       if (!quiet) sfx.hit('armored');
       return false;
