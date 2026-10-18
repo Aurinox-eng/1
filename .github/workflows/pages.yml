@@ -21,8 +21,26 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Если источник Pages переключён на ветку gh-pages (сборки веток, preview.yml), эта публикация не нужна: корень сайта обновляет preview.yml.
+  # Не удалось узнать режим — работаем как раньше (публикация через Actions).
+  mode:
+    name: Режим Pages
+    runs-on: ubuntu-latest
+    outputs:
+      actions: ${{ steps.m.outputs.actions }}
+    steps:
+      - id: m
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          type="$(gh api "repos/${GITHUB_REPOSITORY}/pages" --jq .build_type 2>/dev/null || echo workflow)"
+          echo "Режим Pages: ${type}"
+          if [ "$type" = "legacy" ]; then echo "actions=false" >> "$GITHUB_OUTPUT"; else echo "actions=true" >> "$GITHUB_OUTPUT"; fi
+
   build:
     name: Собрать игру
+    needs: mode
+    if: needs.mode.outputs.actions == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
