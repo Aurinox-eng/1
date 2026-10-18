@@ -6372,7 +6372,7 @@ function cardTexts() {
   const bad = rows.filter((r) => r.ok && (!r.ru.trim() || !r.en.trim() || r.ru === r.en || !cyr.test(r.ru) || cyr.test(r.en)));
   check(`${p} русские строки по-русски, английские по-английски, не пустые и различаются`, bad.length === 0, bad.map((r) => `${r.k}: «${r.ru}» / «${r.en}»`).join('; '));
   const holes = {
-    cardLevel: ['{n}', '{max}'], cardSell: ['{n}'], toastMerged: ['{n}'], toastSold: ['{n}'], statDps: ['{n}'], statCooldown: ['{n}'], statRange: ['{n}'], statPuddle: ['{r}', '{s}'], statSlow: ['{n}'], statBlast: ['{r}'], blastLimitNote: ['{n}', '{m}'], statBeam: ['{n}'], statBeams: ['{n}'], statPoison: ['{n}', '{s}'], statCone: ['{a}', '{r}'], statAura: ['{n}'], statFreeze: ['{n}'], statTrap: ['{s}', '{n}'], statCooldownLatched: ['{n}', '{m}'], statAuraLatched: ['{n}'],
+    cardLevel: ['{n}', '{max}'], cardSell: ['{n}'], toastMerged: ['{n}'], toastSold: ['{n}'], statDps: ['{n}'], statCooldown: ['{n}'], statRange: ['{n}'], statPuddle: ['{r}', '{s}'], statSlow: ['{n}'], statBlast: ['{r}'], blastLimitNote: ['{n}', '{m}'], statBeam: ['{n}'], statBeams: ['{n}'], statPoison: ['{n}', '{s}'], statCone: ['{a}', '{r}'], statAura: ['{n}'], statFreeze: ['{n}'], statTrap: ['{s}', '{n}'], statCooldownLatched: ['{n}', '{m}'], statAuraLatched: ['{n}'], mutdSyringeSpiral: ['{n}'],
   };
   const noHole = rows.filter((r) => r.ok && holes[r.k] && !holes[r.k].every((h) => r.ru.includes(h) && r.en.includes(h))).map((r) => r.k);
   check(`${p} строки со вставками (${Object.keys(holes).join(', ')}) содержат вставки на обоих языках`, noHole.length === 0, noHole.join(', '));
@@ -6390,7 +6390,6 @@ function cardTexts() {
     ['fizzAcid', 'acidSec', (v) => String(v)],
     ['syringeMore', 'pulsesAdd', (v) => `+${v}`],
     ['syringePierce', 'damageMul', (v) => ru(v)],
-    ['syringeSpiral', 'spiral', (v) => String(v)],
     ['ampuleRapid', 'cooldownMul', (v) => String(Math.round((1 - v) * 100))],
     ['ampuleMight', 'damageMul', (v) => ru(v)],
     ['antibioticQuick', 'cooldownMul', (v) => String(Math.round((1 - v) * 100))],
@@ -7002,6 +7001,81 @@ async function specialTwin(context, baseUrl) {
   check(`${p} контроль: с «${S4.mutations.syringe[1][1 - idx].id}» вспышек ровно по числу ударов (${plain.pulses}): ${plain.end.effects.beams}; выстрелов ${plain.end.shots}`, plain.end.shots === 1 && plain.end.effects.beams === plain.pulses, `выстрелов ${plain.end.shots}, вспышек ${plain.end.effects.beams}, ударов ${plain.pulses}`);
 }
 
+/**
+ * Карточка показывает то, что будет в бою (по рецензии 18 октября 2026): «Урон в секунду» — по одной цели, со «Спиралью» (каждый следующий удар очереди сильнее на spiral × множитель урона уровня) и с аурой Витамина
+ * (пауза короче в auraMul раз); описание «Спирали» называет настоящую прибавку; «Бронебойная» (работает один раз) выбрана дважды — без «×2», а «Скорострел» (складывается) — «×2».
+ */
+async function specialCard(context, baseUrl) {
+  const p = '[карточка: числа и мутации как в бою]';
+  const first = (text) => Number(String(/(-?\d+(?:[.,]\d+)?)/.exec(text ?? '')?.[1] ?? 'NaN').replace(',', '.'));
+  const r1 = (n) => Math.round(n * 10) / 10;
+  // ---- Шприц со «Спиралью»: описание, число в карточке, число с аурой Витамина
+  {
+    const idxSpiral = pickIndex('syringe', 1, 'spiral');
+    const idxMore = pickIndex('syringe', 0, 'pulsesAdd');
+    const spec = S4.mutations.syringe[1][idxSpiral];
+    const game = await openGame(context, baseUrl, `${p} Шприц`, { query: ALL_TOWERS, speed: 1, cfg: s4Cfg([SPECIAL_SHORTCUT]) });
+    for (let i = 0; i < 3; i++) await game.input.wheel(game.g(540, 360), 500);
+    await settle();
+    const st0 = await game.state();
+    const spot = beamSpot(st0, 'far');
+    const cell = [spot.col, spot.row];
+    const [helper] = freeCellsNear(cell);
+    if (!helper) throw new Error(`рядом с клеткой ${cell.join(';')} нет свободной клетки в радиусе слияния`);
+    await growTo(game, 'syringe', 2, cell, [helper]);
+    let s = await tapCard(game, 'pick', idxMore); // первый порог; следом открывается второй (порог сближен до 2-го уровня)
+    const lv = S4.levels[towerIn(s, cell).level - 1];
+    const wantN = ru1(r1(spec.spiral * lv.damageMul));
+    const pending = s.ui.card.lines.pending;
+    check(`${p} вариант «Спираль» на карточке называет прибавку, которая будет в бою: ${spec.spiral} × ${lv.damageMul} = ${wantN}: «${pending[idxSpiral]}»`, pending.length === 2 && pending[idxSpiral].includes(wantN) && !pending[idxSpiral].includes('{'), JSON.stringify(pending));
+    s = await tapCard(game, 'pick', idxSpiral);
+    const tw = towerIn(s, cell);
+    if (!tw.picks.includes(spec.id)) throw new Error(`«Спираль» не выбралась: ${tw.picks.join(', ')}`);
+    if (!(selectedIs(s, cell) && s.ui.card.visible)) s = await selectPlaced(game, cell);
+    const dpsOf = (t) => {
+      const lvl = S4.levels[t.level - 1];
+      const pulses = Math.max(1, t.stats.beamPulses);
+      const step = spec.spiral * lvl.damageMul;
+      return { perShot: pulses * t.stats.damage + (step * pulses * (pulses - 1)) / 2, plain: pulses * t.stats.damage, pause: (t.stats.cooldownMs / 1000) * t.auraMul * t.latchMul, pulses };
+    };
+    const a = dpsOf(tw);
+    const wantA = a.perShot / a.pause;
+    const gotA = first(s.ui.card.lines.stats[0]);
+    check(`${p} Шприц ${tw.level} уровня с ${a.pulses} ударами и «Спиралью»: «${s.ui.card.lines.stats[0]}» = ${r1(wantA)} (с прибавкой к каждому следующему удару; без неё было бы ${r1(a.plain / a.pause)})`, Math.abs(gotA - wantA) <= 0.06 && wantA > (a.plain / a.pause) * 1.05, `на карточке ${gotA}, ждали ${wantA}, строки ${JSON.stringify(s.ui.card.lines.stats)}`);
+    // Витамин рядом: пауза короче, урон в секунду на карточке растёт во столько же раз
+    const reach = TW.vitamin.range;
+    const spot2 = freeCellsNear(cell, Math.min(reach * 0.9, MERGE_RADIUS * 0.9), [helper])[0];
+    if (!spot2) throw new Error('рядом со Шприцом нет свободной клетки для Витамина');
+    await placeAt(game, 'vitamin', spot2);
+    for (let k = 0; k < 40; k++) {
+      s = await game.state();
+      if (towerIn(s, cell).auraMul < 1) break;
+      await sleep(50);
+    }
+    s = await selectPlaced(game, cell);
+    const tw2 = towerIn(s, cell);
+    const b = dpsOf(tw2);
+    const wantB = b.perShot / b.pause;
+    const gotB = first(s.ui.card.lines.stats[0]);
+    check(`${p} Витамин рядом: пауза ×${f2(tw2.auraMul)} (в бою), «${s.ui.card.lines.stats[0]}» = ${r1(wantB)} (было ${r1(wantA)})`, tw2.auraMul < 1 && Math.abs(gotB - wantB) <= 0.06 && wantB > wantA * 1.05, `auraMul ${tw2.auraMul}, на карточке ${gotB}, ждали ${wantB}`);
+    await game.page.close();
+  }
+  // ---- «×N» у повторных мутаций: «Бронебойная» работает один раз — без «×2», «Скорострел» складывается — «×2»
+  for (const [field, id, stacks] of [['armorPierce', 'pillPierce', false], ['cooldownMul', 'pillRapid', true]]) {
+    const idx = pickIndex('pill', 0, field);
+    const { game, cell } = await trunkGame(context, baseUrl, `${p} ${id}`, { id: 'pill', picks: [idx], extra: [], speed: 1 });
+    const up = await game.page.evaluate(([c, r, pk]) => window.__pvb.upgradeTower(c, r, pk), [cell[0], cell[1], [id]]);
+    let s = await game.state();
+    if (!(selectedIs(s, cell) && s.ui.card.visible)) s = await selectPlaced(game, cell);
+    const tw = towerIn(s, cell);
+    const name = readI18n(`mut${id.charAt(0).toUpperCase()}${id.slice(1)}`)[0];
+    const line = s.ui.card.lines.mutations;
+    check(`${p} «${name}» выбрана дважды (слияние принесло вторую): ${stacks ? `складывается — «${name} ×2»` : 'работает один раз — без «×2»'}: «${line}»`, up === true && tw.picks.filter((x) => x === id).length === 2 && line.includes(name) && (stacks ? line.includes(`${name} ×2`) : !line.includes('×')), `picks ${tw.picks.join(', ')}, строка «${line}»`);
+    await game.page.close();
+  }
+}
+const ru1 = (n) => String(n).replace('.', ',');
+
 /** «Едкая» лужа Сиропа: бактерии в ней теряют HP — лужа убивает сама (у Сиропа урона нет); без «Едкой» никто не гибнет. */
 async function specialCaustic(context, baseUrl) {
   const p = '[особые мутации: Сироп «Едкая»]';
@@ -7080,6 +7154,7 @@ async function runSpecial(browser, baseUrl) {
   await part('chain', '[особые мутации: Цепная]', specialChain);
   await part('fizzlimit', '[особые мутации: Шипучка, ограничение по площади]', specialFizzLimit);
   await part('twin', '[особые мутации: Второй луч]', specialTwin);
+  await part('card', '[карточка: числа и мутации как в бою]', specialCard);
   await context.close();
 }
 

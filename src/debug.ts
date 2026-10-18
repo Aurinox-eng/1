@@ -259,6 +259,8 @@ export interface DebugSnapshot {
       rotateLeft: { x: number; y: number; w: number; h: number; visible: boolean };
       rotateRight: { x: number; y: number; w: number; h: number; visible: boolean };
       close: { x: number; y: number; w: number; h: number };
+      /** Что написано на карточке: строки чисел башни, строка выбранных мутаций и тексты вариантов мутации, ожидающей выбора («название — описание»). */
+      lines: { stats: string[]; mutations: string; pending: string[] };
     };
     lives: number;
     /** Что написано в окошке жизней верхней полосы («18 / 20»). */
@@ -295,6 +297,8 @@ export interface DebugApi {
   cellToClient: (col: number, row: number) => { x: number; y: number };
   /** Сдвинуть список башен в нижней панели так, чтобы карточка этой башни была видна (проверки и бот нажимают на карточки по координатам). */
   revealTower: (id: string) => void;
+  /** Только проверки: поднять башню в клетке на уровень выше и добавить ей мутации `picks` (как при слиянии, когда мутации сливаемой башни переходят к новой). */
+  upgradeTower: (col: number, row: number, picks: string[]) => boolean;
   /** Замер скорости с последнего сброса (reset — начать заново) и сколько объектов сейчас рисуется. */
   /** Журнал событий игры (с номера `from`): см. QaEvent. Сбрасывается при перезапуске уровня. */
   getEvents: (from?: number) => QaEvent[];

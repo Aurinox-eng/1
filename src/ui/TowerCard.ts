@@ -48,6 +48,8 @@ export interface CardGeometry {
   rotateLeft: Rect & { visible: boolean };
   rotateRight: Rect & { visible: boolean };
   close: Rect;
+  /** Что написано на карточке: строки чисел башни и строка выбранных мутаций (для проверок: показанное должно совпадать с боем). */
+  lines: { stats: string[]; mutations: string; pending: string[] };
 }
 
 /** Высота кнопок «Слить», «Продать» и выбора мутации; ширина «Слить» и «Продать». Между «Слить» и «Продать» — зазор SELL_GAP (решение владельца 8 и 13 октября 2026: без подтверждений, зазор больше). */
@@ -89,6 +91,10 @@ export class TowerCard {
   private readonly rects: Record<string, Rect> = {};
   private shown = false;
   private mergeEnabled = false;
+  /** Показанные строки чисел и мутаций (только для `geometry().lines`). */
+  private shownStats: string[] = [];
+  private shownMutations = '';
+  private shownPending: string[] = [];
   private sellVisible = true;
   private pickVisible = [false, false];
   /** Когда (performance.now) нажали кнопку карточки: нажатие, после которого карточка перерисовалась или закрылась, всё равно принадлежит карточке, а не карте под ней. */
@@ -220,7 +226,11 @@ export class TowerCard {
       this.pickDescs[i].setVisible(false);
     }
     this.statTexts.forEach((text) => text.setVisible(false));
+    this.shownStats = [];
+    this.shownMutations = '';
+    this.shownPending = [];
     if (m.pending) {
+      this.shownPending = m.pending.slice(0, 2).map((o) => `${o.name} — ${o.desc}`);
       // у башни с лучом справа от вариантов стоят кнопки поворота: варианты уже, чтобы не налезать на них
       const pickW = Math.min(PICK_W, Math.floor((midRight - midX - 8) / 2));
       m.pending.slice(0, 2).forEach((opt, i) => {
@@ -240,7 +250,11 @@ export class TowerCard {
         text.setVisible(i < m.stats.length).setText(m.stats[i] ?? '').setPosition(midX, y + 9 + i * 18);
       });
       const ty = y + 9 + Math.max(1, m.stats.length) * 18 + 2;
-      if (m.picked.length > 0) this.listText.setVisible(true).setText(`${t('cardMutations')} ${m.picked.map((p) => p.name).join(', ')}`).setPosition(midX, ty);
+      this.shownStats = m.stats.slice();
+      if (m.picked.length > 0) {
+        this.listText.setVisible(true).setText(`${t('cardMutations')} ${m.picked.map((p) => p.name).join(', ')}`).setPosition(midX, ty);
+        this.shownMutations = this.listText.text;
+      }
     }
     this.applyEnabled();
 
@@ -372,6 +386,7 @@ export class TowerCard {
       rotateLeft: { ...r('rotL'), visible: this.shown && this.rotVisible },
       rotateRight: { ...r('rotR'), visible: this.shown && this.rotVisible },
       close: r('close'),
+      lines: { stats: this.shown ? [...this.shownStats] : [], mutations: this.shown ? this.shownMutations : '', pending: this.shown ? [...this.shownPending] : [] },
     };
   }
 
