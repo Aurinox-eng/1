@@ -77,6 +77,10 @@ export interface DebugSnapshot {
   plannedTotal: number;
   /** Суммарная прочность (HP из таблицы типов, без роста по волнам) всех бактерий уровня. */
   plannedHp: number;
+  /** Фаза волны (`countdown`, `spawning`, `waiting`…), сколько бактерий текущей волны уже вышло и сколько выйдет всего: бот по ним отличает «поле пусто, потому что волна кончилась» от «ещё не вышли». */
+  wavePhase: string;
+  waveSpawned: number;
+  waveCount: number;
   /** Первая волна каждого типа по составу волн уровня (с единицы): расписание выхода типов. */
   firstWaves: Record<string, number>;
   spawned: number;

@@ -1255,6 +1255,14 @@ async function playGame(browser, baseUrl, profile, run, metaLevels = null, salt 
     const bad = new Set(); // клетки, где не вышло
     const waveSeen = { wave: 0 };
     const timeline = [];
+    // Журнал волны (план переработки баланса, 18 октября 2026): сколько HP вышло в волне, за сколько игровых секунд после выхода последней бактерии поле опустело, «бумажный» урон обороны
+    // (урон × удары в очереди луча / настоящая пауза, по одной цели), сколько бактерий было на карте одновременно; пишется в запись волны при переходе к следующей.
+    const seenIds = new Set();
+    let ws = { hp: 0, startT: 0, clearT: null, maxOnMap: 0, buildsAt: 0 };
+    const paperDps = (st) => st.towers.reduce((sum, tw) => {
+      const hits = tw.stats.beamPulses > 0 ? tw.stats.beamPulses : 1;
+      return sum + (tw.stats.damage * hits) / ((tw.stats.cooldownMs / 1000) * (tw.auraMul ?? 1) * (tw.latchMul ?? 1));
+    }, 0);
     const lifeLossWaves = [];
     const lifeLossKinds = []; // вид бактерии, ближайшей к организму в последнем опросе до потери жизни (кто пробивает оборону)
     let frontKind = null;
@@ -1308,9 +1316,20 @@ async function playGame(browser, baseUrl, profile, run, metaLevels = null, salt 
         console.log(`      … ${PROFILE_TITLES[profile]} #${run}: реальных ${Math.round((lastBeat - realStart) / 1000)} с, игровых ${s.elapsed.toFixed(0)} с, волна ${s.wave}/${s.waveTotal}, башен ${s.towers.length}, монет ${s.coins}, жизни ${s.lives}, бактерий на карте ${s.bacteria.length}`);
       }
       if (s.wave !== waveSeen.wave) {
+        const prev = timeline[timeline.length - 1];
+        if (prev) Object.assign(prev, { hpSpawned: Math.round(ws.hp), clearSec: ws.clearT === null ? null : Math.round((ws.clearT - ws.startT) * 10) / 10, maxOnMap: ws.maxOnMap, builds: record.builds.length - ws.buildsAt });
+        ws = { hp: 0, startT: s.elapsed, clearT: null, maxOnMap: 0, buildsAt: record.builds.length };
         waveSeen.wave = s.wave;
-        timeline.push({ wave: s.wave, t: Math.round(s.elapsed), coins: s.coins, towers: s.towers.length, lives: s.lives });
+        timeline.push({ wave: s.wave, t: Math.round(s.elapsed), coins: s.coins, towers: s.towers.length, lives: s.lives, dps: Math.round(paperDps(s) * 10) / 10, merges: record.merges, picks: record.picks });
       }
+      for (const b of s.bacteria) {
+        if (!seenIds.has(b.id)) {
+          seenIds.add(b.id);
+          ws.hp += b.maxHp;
+        }
+      }
+      ws.maxOnMap = Math.max(ws.maxOnMap, s.bacteria.length);
+      if (ws.clearT === null && s.bacteria.length === 0 && ws.hp > 0 && s.waveSpawned >= s.waveCount) ws.clearT = s.elapsed;
       if (s.lives < lastLives) {
         for (let k = 0; k < lastLives - s.lives; k++) {
           lifeLossWaves.push(s.wave);
@@ -1373,6 +1392,11 @@ async function playGame(browser, baseUrl, profile, run, metaLevels = null, salt 
     const leakEvents = (await page.evaluate(() => window.__pvb?.getEvents(0) ?? []).catch(() => [])).filter((e) => e.type === 'leak' && !e.absorbed);
     const leakLives = {};
     for (const e of leakEvents) leakLives[e.kind] = Math.round(((leakLives[e.kind] ?? 0) + e.damage) * 100) / 100;
+    // последняя запись журнала волны закрывается концом партии
+    {
+      const tail = timeline[timeline.length - 1];
+      if (tail && tail.hpSpawned === undefined) Object.assign(tail, { hpSpawned: Math.round(ws.hp), clearSec: ws.clearT === null ? null : Math.round((ws.clearT - ws.startT) * 10) / 10, maxOnMap: ws.maxOnMap, builds: record.builds.length - ws.buildsAt });
+    }
     const counts = {};
     for (const id of KNOWN_TOWERS) counts[id] = last.towers.filter((tw) => tw.id === id).length;
     const startCoins = (cfgGet('economy.startCoins') ?? readConfigNumber('economy', 'startCoins')) + (metaLevels ? metaLevels.coins * META.upgrades.coins.perLevel : 0);
