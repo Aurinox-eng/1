@@ -73,7 +73,7 @@ function cracksTexture(scene: Phaser.Scene, kind: BacteriumKind, damage: number,
  * Образец бактерии для листа образцов режима проверки (`?qa&artsheet`): тело при заданном HP, трещины и (у пилотных видов) лицо; legacy — прежний рисунок пилотных видов.
  * Центр образца — (0, 0); в игре не используется.
  */
-export function bacteriumSample(scene: Phaser.Scene, kind: BacteriumKind, hp: number, maxHp: number, legacy = false): Phaser.GameObjects.Container {
+export function bacteriumSample(scene: Phaser.Scene, kind: BacteriumKind, hp: number, maxHp: number, legacy = false, smallFace = false): Phaser.GameObjects.Container {
   const pilot = !legacy && isPilotKind(kind);
   const parts: Phaser.GameObjects.Image[] = [artImage(scene, bodyTexture(scene, kind, shellWidth(kind, hp), legacy), bodyBox(kind, legacy))];
   const damage = crackCount(hp, maxHp);
@@ -83,7 +83,7 @@ export function bacteriumSample(scene: Phaser.Scene, kind: BacteriumKind, hp: nu
     if (hasRadialCracks(kind)) cracks.setRotation(1);
     parts.push(cracks);
   }
-  if (pilot) parts.push(artImage(scene, pilotFaceKey(scene, kind as PilotKind, false), pilotFaceBox(kind as PilotKind)));
+  if (pilot) parts.push(artImage(scene, pilotFaceKey(scene, kind as PilotKind, false, smallFace), pilotFaceBox(kind as PilotKind)));
   return scene.add.container(0, 0, parts);
 }
 

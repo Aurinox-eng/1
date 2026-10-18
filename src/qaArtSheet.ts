@@ -45,15 +45,18 @@ export class ArtSheetScene extends Phaser.Scene {
       });
     }
 
-    // кокк в размере роя (радиус 14): читается ли лицо в мелком размере; рядом тот же кокк крупнее ×3 для сравнения с прежним
+    // кокк в размере роя (радиус 14): читается ли лицо в мелком размере; рядом упрощённое лицо для мелкого размера (глаза крупнее, зрачки и обводка толще, без румянца, рот — одна дуга);
+    // справа от каждого — тот же рисунок крупнее ×3 для рассмотрения; прежний рисунок — справа
     const swarmScale = 14 / CONFIG.types.coccus.radius;
-    label(110, 462, 'размер роя (радиус 14)', 13);
-    for (const [x, old] of [[110, false], [300, false], [760, true]] as const) {
-      const sample = bacteriumSample(this, 'coccus', 2, 2, old);
-      sample.setPosition(x, 500).setScale(x === 300 ? swarmScale * 3 : swarmScale);
+    label(70, 464, 'кокк, радиус 14', 12);
+    label(195, 464, 'упрощённое лицо, радиус 14', 12);
+    label(345, 464, 'кокк, крупнее', 12);
+    label(500, 464, 'упрощённое лицо, крупнее', 12);
+    for (const [x, old, small, zoom] of [[70, false, false, 1], [195, false, true, 1], [345, false, false, 2.6], [500, false, true, 2.6], [760, true, false, 1]] as const) {
+      const sample = bacteriumSample(this, 'coccus', 2, 2, old, small);
+      sample.setPosition(x, zoom > 1 ? 510 : 500).setScale(swarmScale * zoom);
     }
-    label(300, 462, '×3 (для сравнения)', 13);
-    label(760, 462, 'размер роя (радиус 14)', 13);
+    label(760, 464, 'прежний рисунок, радиус 14', 12);
 
     // башни: новые с глазами и без, Сироп; справа прежние
     label(W * 0.28, 556, 'Таблетка 1 ур. (глаза / без), Таблетка 4 ур. (глаза / без), Сироп 1 ур.', 14);

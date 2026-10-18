@@ -193,14 +193,14 @@ function ellipsePath(ctx: CanvasRenderingContext2D, x: number, y: number, rx: nu
 }
 
 /** Глаз: белок с лёгким переходом, зрачок со смещением, блик в зрачке. */
-function eye(ctx: CanvasRenderingContext2D, cx: number, cy: number, rx: number, ry: number, pr: number, dir: number, stroke: string, pupil: string, white = '#ffffff'): void {
+function eye(ctx: CanvasRenderingContext2D, cx: number, cy: number, rx: number, ry: number, pr: number, dir: number, stroke: string, pupil: string, white = '#ffffff', line = 1.4): void {
   const grad = ctx.createRadialGradient(cx - rx * 0.3, cy - ry * 0.4, 0, cx, cy, Math.max(rx, ry) * 1.1);
   grad.addColorStop(0, white);
   grad.addColorStop(1, '#d9e3f0');
   ctx.fillStyle = grad;
   ellipsePath(ctx, cx, cy, rx, ry);
   ctx.fill();
-  ctx.lineWidth = 1.4;
+  ctx.lineWidth = line;
   ctx.strokeStyle = stroke;
   ctx.stroke();
   const px = cx + dir * rx * 0.14;
@@ -227,13 +227,32 @@ function closedEye(ctx: CanvasRenderingContext2D, cx: number, cy: number, rx: nu
   ctx.stroke();
 }
 
-/** Лицо: кокк — простодушное (круглые глаза, маленький рот), бронированная — тяжёлый взгляд из-под пластин, Гигант — злое (брови к переносице, зубы). Всегда вертикальное. */
-function drawFaceCanvas(ctx: CanvasRenderingContext2D, kind: PilotKind, blink: boolean): void {
+/**
+ * Лицо: кокк — простодушное (круглые глаза, маленький рот), бронированная — тяжёлый взгляд из-под пластин, Гигант — злое (брови к переносице, зубы). Всегда вертикальное.
+ * `small` — упрощённое лицо кокка для мелкого размера (рой, радиус 14): глаза крупнее и дальше от центра, зрачки и обводка толще, румянца нет, рот — одна широкая дуга.
+ */
+function drawFaceCanvas(ctx: CanvasRenderingContext2D, kind: PilotKind, blink: boolean, small = false): void {
   const r = CONFIG.types[kind].radius;
   const col = COLORS.kinds[kind];
   const ink = css(darken(col.shell, 0.65));
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
+
+  if (kind === 'coccus' && small) {
+    const ex = r * 0.33;
+    const ey = -r * 0.1;
+    const sr = r * 0.27;
+    for (const s of [-1, 1] as const) {
+      if (blink) closedEye(ctx, s * ex, ey, sr * 0.9, r * 0.1, ink, true);
+      else eye(ctx, s * ex, ey, sr, sr * 1.04, r * 0.17, -s, ink, '#0c141c', '#ffffff', r * 0.09);
+    }
+    ctx.lineWidth = r * 0.09;
+    ctx.strokeStyle = ink;
+    ctx.beginPath();
+    ctx.arc(0, r * 0.26, r * 0.17, Math.PI * 0.12, Math.PI * 0.88);
+    ctx.stroke();
+    return;
+  }
 
   if (kind === 'coccus') {
     const ex = r * 0.3;
@@ -354,8 +373,8 @@ function drawFaceCanvas(ctx: CanvasRenderingContext2D, kind: PilotKind, blink: b
 }
 
 /** Картинка лица пилотного вида (открытые глаза или моргание): маленькая, поверх тела; одна на вид и кадр, на толщину оболочки не множится. */
-export function pilotFaceKey(scene: Phaser.Scene, kind: PilotKind, blink: boolean): string {
-  return bakeCanvasArt(scene, `pilot-face-${kind}-${blink ? 'b' : 'o'}`, pilotFaceBox(kind), (ctx) => drawFaceCanvas(ctx, kind, blink));
+export function pilotFaceKey(scene: Phaser.Scene, kind: PilotKind, blink: boolean, small = false): string {
+  return bakeCanvasArt(scene, `pilot-face-${kind}-${blink ? 'b' : 'o'}${small ? '-s' : ''}`, pilotFaceBox(kind), (ctx) => drawFaceCanvas(ctx, kind, blink, small));
 }
 
 // ---------------------------------------------------------------- движение на месте
