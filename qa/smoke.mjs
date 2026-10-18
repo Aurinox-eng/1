@@ -8382,6 +8382,13 @@ async function runTreeShop(browser, baseUrl) {
     const rects = m.screen.nodes.map((n) => n.rect);
     let clash = '';
     rects.forEach((a, i) => rects.slice(i + 1).forEach((b, j) => { if (overlaps(a, b)) clash += ` ${ids[i]}×${ids[i + 1 + j]};`; }));
+    // подписи узлов (названия под кружками, в русском — до двух строк) не накрывают чужие кружки и друг друга (с a87e24b подпись «Быстрый обмен веществ» закрывалась кругом «Сильного вещества II»)
+    let labelClash = '';
+    m.screen.nodes.forEach((a, i) => m.screen.nodes.forEach((b, j) => {
+      if (i !== j && overlaps(a.label, b.rect)) labelClash += ` подпись «${a.id}» накрывает кружок «${b.id}»;`;
+      if (i < j && overlaps(a.label, b.label)) labelClash += ` подписи «${a.id}» и «${b.id}» налезают;`;
+    }));
+    check(`${p} подписи узлов (${m.screen.nodes.length}) не накрывают чужие кружки и друг друга`, labelClash === '', labelClash);
     const inView = m.screen.nodes.filter((n) => n.onScreen).every((n) => n.rect.x - n.rect.w / 2 >= v.x && n.rect.x + n.rect.w / 2 <= v.x + v.w && n.rect.y - n.rect.h / 2 >= v.y && n.rect.y + n.rect.h / 2 <= v.y + v.h);
     check(`${p} окно дерева, кнопка покупки в карточке и «Играть» внутри экрана и не налезают друг на друга, узлы между собой не налезают; в начале выбран корень «${rootId}»`, v.x >= 0 && v.y >= 0 && v.x + v.w <= W && v.y + v.h <= H && detail && insideScreen(detail.buy) && insideScreen(m.screen.play) && !overlaps(detail.buy, m.screen.play) && detail.buy.x - detail.buy.w / 2 >= v.x + v.w && clash === '' && inView && m.screen.selected === rootId, `${JSON.stringify(v)} ${JSON.stringify(detail && detail.buy)} ${clash}`);
     await shot(app.page, `tree-shop-top-${deviceKey}-${lang}`);

@@ -1007,7 +1007,7 @@ export const CONFIG = {
     treePos: {
       damage: [0, 2.5],
       coins: [1, 0.5],
-      reward: [1, 2.0],
+      reward: [1, 1.7],
       damageX: [1, 3.0],
       lives: [2, 0.0],
       shield: [3, 0.0],
