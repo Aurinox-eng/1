@@ -1000,6 +1000,8 @@ function drawFaceStyle(ctx: CanvasRenderingContext2D, kind: StyleKind, blink: bo
 
 /** Дыхание: пульсация масштаба ±3 %; период — у каждой бактерии свой в этих границах, секунд (у Гиганта медленнее). */
 export const BREATH_AMP = 0.03;
+/** Шаг округления показателя дыхания: масштаб меняется, когда показатель сдвинулся на столько (0,4 % размера — меньше пикселя у самой крупной бактерии без шипов). */
+export const BREATH_STEP = 0.004;
 export const BREATH_SEC: Record<StyleKind, [number, number]> = {
   coccus: [1.6, 2.4],
   rod: [1.5, 2.2],

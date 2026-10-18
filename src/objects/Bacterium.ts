@@ -7,7 +7,7 @@ import { COLORS, TOWER_MARK } from '../theme';
 import { artDensity, artImage, bakeArt, discImage, ringImage, setArt, squareBox, type ArtBox } from '../art';
 import type { Tower } from './Tower';
 import { bodyHalfSize, crackCount, drawCracks, drawShape, hasRadialCracks, shellWidth, SPLITTER_LOBE_OFFSET } from './bacteriumArt';
-import { BLINK_EVERY_SEC, BLINK_SEC, BREATH_AMP, BREATH_SEC, type Eyes, styleBodyBox, styleBodyKey } from './styleArt';
+import { BLINK_EVERY_SEC, BLINK_SEC, BREATH_AMP, BREATH_SEC, BREATH_STEP, type Eyes, styleBodyBox, styleBodyKey } from './styleArt';
 
 export type BacteriumKind = keyof typeof CONFIG.types;
 
@@ -176,8 +176,9 @@ export class Bacterium {
   /** Тело и трещины — готовые картинки (см. art.ts); показанные ключи, чтобы не менять картинку без нужды. */
   private readonly body: Phaser.GameObjects.Image;
   private readonly cracks: Phaser.GameObjects.Image;
-  /** Вложенная группа «тело с лицом + трещины» — её масштаб пульсирует (дыхание), внешний контейнер не трогаем: его масштаб использует рывок и прыжок. */
-  private readonly artGroup: Phaser.GameObjects.Container;
+  /** Дыхание: масштаб картинок тела и трещин пульсирует на ±BREATH_AMP (внешний контейнер не трогаем: его масштаб использует рывок и прыжок); показатель округлён до шага BREATH_STEP,
+   *  чтобы масштаб менялся не каждый кадр, а лишь когда изменение заметно (вложенной группы нет: лишний объект и пересчёт трёх преобразований на каждую бактерию стоили заметной доли кадра). */
+  private breathK = 1;
   private breathClock = 0;
   private readonly breathSec: number;
   private readonly breathPhase = Math.random() * Math.PI * 2;
@@ -227,8 +228,7 @@ export class Bacterium {
     if (hasRadialCracks(kind)) this.cracks.setRotation(this.seed);
     this.breathSec = BREATH_SEC[kind][0] + Math.random() * (BREATH_SEC[kind][1] - BREATH_SEC[kind][0]);
     this.blinkIn = BLINK_EVERY_SEC[0] + Math.random() * (BLINK_EVERY_SEC[1] - BLINK_EVERY_SEC[0]);
-    this.artGroup = scene.add.container(0, 0, [this.body, this.cracks]);
-    this.container = scene.add.container(0, 0, [this.artGroup]);
+    this.container = scene.add.container(0, 0, [this.body, this.cracks]);
     // Лекарь: кольцо-аура радиуса лечения, командир — радиуса ускорения (под телом)
     if (cfg.healRadius > 0) {
       const aura = discImage(scene, cfg.healRadius, COLORS.aura, 0.07, COLORS.aura, 3, 0.38);
@@ -464,18 +464,17 @@ export class Bacterium {
   }
 
   /**
-   * Движение на месте у всех видов (только поворот, масштаб и смена картинки по таймеру, без анимаций Phaser): дыхание — пульсация масштаба группы «тело с лицом + трещины»,
-   * моргание — смена картинки тела на такую же с закрытыми глазами. Ауры, кольца, лёд и полоска прочности лежат вне группы и не пульсируют. Замороженная и приклеенная бактерия не дышит и не моргает.
+   * Движение на месте у всех видов (только поворот, масштаб и смена картинки по таймеру, без анимаций Phaser): дыхание — пульсация масштаба картинок тела и трещин,
+   * моргание — смена картинки тела на такую же с закрытыми глазами. Ауры, кольца, лёд и полоска прочности не пульсируют. Замороженная и приклеенная бактерия не дышит и не моргает.
    */
   private idle(dt: number, held: boolean): void {
-    const group = this.artGroup;
     if (held || this.hp <= 0) {
-      if (group.scaleX !== 1) group.setScale(1);
+      this.setBreath(1);
       this.shutEyes(false);
       return;
     }
     this.breathClock += dt;
-    if (!NO_BREATH) group.setScale(1 + BREATH_AMP * Math.sin((this.breathClock / this.breathSec) * Math.PI * 2 + this.breathPhase));
+    if (!NO_BREATH) this.setBreath(1 + BREATH_AMP * Math.sin((this.breathClock / this.breathSec) * Math.PI * 2 + this.breathPhase));
     if (this.blinkLeft > 0) {
       this.blinkLeft -= dt;
       if (this.blinkLeft <= 0) this.shutEyes(false);
@@ -487,6 +486,15 @@ export class Bacterium {
         this.blinkIn = BLINK_EVERY_SEC[0] + Math.random() * (BLINK_EVERY_SEC[1] - BLINK_EVERY_SEC[0]);
       }
     }
+  }
+
+  /** Масштаб дыхания (1 — спокойно): меняет размер картинок, только если показатель, округлённый до BREATH_STEP, изменился. */
+  private setBreath(k: number): void {
+    const q = Math.round(k / BREATH_STEP) * BREATH_STEP;
+    if (q === this.breathK) return;
+    this.breathK = q;
+    this.body.setScale(q / artDensity(this.bodyKey));
+    if (this.cracksKey && this.cracks.visible) this.cracks.setScale(q / artDensity(this.cracksKey));
   }
 
   /** Состояние глаз для картинки тела: без лица (режим проверки), открыты или закрыты (моргание). */
@@ -507,6 +515,7 @@ export class Bacterium {
     if (bodyKey === this.bodyKey) return;
     this.bodyKey = bodyKey;
     setArt(this.body, bodyKey, bodyBox(this.kind));
+    if (this.breathK !== 1) this.body.setScale(this.breathK / artDensity(bodyKey));
   }
 
   /**
@@ -679,5 +688,6 @@ export class Bacterium {
       setArt(this.cracks, key, box);
     }
     this.cracks.setVisible(true);
+    this.cracks.setScale(this.breathK / artDensity(key));
   }
 }
