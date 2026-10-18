@@ -524,7 +524,7 @@ export class GameScene extends Phaser.Scene {
       } else {
         this.phase = 'pause';
         this.phaseTimer = CONFIG.waves.pauseSec;
-        this.announceWave(this.waveIdx);
+        this.extendPauseForNewKinds(this.waveIdx);
       }
     }
   }
@@ -628,13 +628,12 @@ export class GameScene extends Phaser.Scene {
     this.bacteria.push(born);
     this.spawned++;
     if (QA_MODE) qaLog(this, 'spawn', { id: born.id, kind, edge: edge.id });
-    if (!this.introduced.includes(kind)) {
-      this.introduced.push(kind);
-      if (kind !== 'coccus') {
-        // кокк выходит с первой волны; остальным при первом выходе — то же короткое уведомление, что и перед волной (без описания и советов)
-        this.panel.news(t('newBacteriaToast', { name: t(`bacName${kind.charAt(0).toUpperCase()}${kind.slice(1)}` as TextKey) }), NEW_TYPE_TOAST_MS);
-        sfx.newType();
-      }
+    if (!this.introduced.includes(kind)) this.introduced.push(kind);
+    // Уведомление о новой бактерии — одно, в момент её выхода и на всех уровнях (решение владельца 18 октября 2026); тип, о котором игрок уже узнал, не повторяется
+    if (!seenNews.has(`b:${kind}`)) {
+      rememberNews(`b:${kind}`);
+      this.panel.news(t('newBacteriaToast', { name: t(`bacName${kind.charAt(0).toUpperCase()}${kind.slice(1)}` as TextKey) }), NEW_TYPE_TOAST_MS);
+      sfx.newType();
     }
   }
 
@@ -1430,7 +1429,6 @@ export class GameScene extends Phaser.Scene {
       level: tower.level,
       maxLevel: MAX_TOWER_LEVEL,
       stats: this.cardStats(tower),
-      note: tower.stats.targeting === 'area' && tower.stats.blastFullTargets > 0 ? t('blastLimitNote', { n: tower.stats.blastFullTargets, m: num(tower.stats.blastRestMul) }) : null,
       pending: tier === null ? null : mutationOptions(tower.id, tier).map((m) => label(m.id)),
       picked: [...new Map(tower.picks.map((id) => [id, tower.picks.filter((p) => p === id).length] as const))].map(([id, n]) => {
         const l = label(id);
@@ -1635,22 +1633,14 @@ export class GameScene extends Phaser.Scene {
       names.push(t(`tower${id.charAt(0).toUpperCase()}${id.slice(1)}` as TextKey));
     }
     if (names.length > 0) this.panel.news(t('newTowerToast', { name: names.join(', ') }), NEWS_MS);
-    this.announceWave(0);
+    this.extendPauseForNewKinds(0);
   }
 
-  /** Перед волной с номером `index` (с нуля): строка-уведомление о типах бактерий, которых игрок ещё не видел; пауза перед такой волной длиннее. */
-  private announceWave(index: number): void {
+  /** Перед волной с номером `index` (с нуля): если в ней выходит тип бактерий, о котором игрок ещё не узнал, пауза перед ней длиннее; уведомление о типе показывается при его выходе (`spawnBacterium`). */
+  private extendPauseForNewKinds(index: number): void {
     if (index >= this.waveTotal()) return;
-    const present = new Set(this.waveKinds(index));
-    const names: string[] = [];
-    for (const kind of KINDS) {
-      if (!present.has(kind) || seenNews.has(`b:${kind}`)) continue;
-      rememberNews(`b:${kind}`);
-      names.push(t(`bacName${kind.charAt(0).toUpperCase()}${kind.slice(1)}` as TextKey));
-    }
-    if (names.length === 0) return;
-    this.phaseTimer += CONFIG.waves.newTypePauseSec;
-    this.panel.news(t('newBacteriaToast', { name: names.join(', ') }), NEWS_MS);
+    const fresh = this.waveKinds(index).some((kind) => !seenNews.has(`b:${kind}`));
+    if (fresh) this.phaseTimer += CONFIG.waves.newTypePauseSec;
   }
 
   // ---------------------------------------------------------------- конец уровня
@@ -1659,7 +1649,7 @@ export class GameScene extends Phaser.Scene {
     this.state = won ? 'won' : 'lost';
     this.restartAllowedAt = performance.now() + CONFIG.gameOver.restartLockMs;
     this.ghost.setVisible(false);
-    if (!won) this.panel.clearToasts(); // уведомление (например, «Новая бактерия») гаснет, когда показывается экран проигрыша
+    this.panel.clearToasts(); // уведомление (например, «Новая бактерия») гаснет, когда показывается экран победы или проигрыша
     // Снаряды в полёте не должны «зависать» под экраном конца уровня
     for (const projectile of this.projectiles) projectile.destroy();
     this.projectiles = [];

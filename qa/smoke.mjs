@@ -2053,15 +2053,18 @@ async function runToastQueue(browser, baseUrl) {
   const bacNews = readI18n('newBacteriaToast')[0].replace('{name}', '');
   const lockedText = readI18n('hintLocked')[0].replace('{n}', '');
   const s0 = await game.state();
-  check(`${p} на старте уровня 1 сразу показана «${towerNews.trim()}», «${bacNews.trim()}» ждёт в очереди (не стёрла первую)`,
-    s0.toast.news && (s0.toast.text ?? '').startsWith(towerNews) && s0.toast.queued.length === 1 && s0.toast.queued[0].startsWith(bacNews), JSON.stringify(s0.toast));
+  check(`${p} на старте уровня 1 показана «${towerNews.trim()}», очередь пуста: «${bacNews.trim()}» появится в момент выхода бактерии, а не перед волной`,
+    s0.toast.news && (s0.toast.text ?? '').startsWith(towerNews) && s0.toast.queued.length === 0, JSON.stringify(s0.toast));
   // тап по закрытой башне — ответ на нажатие: показан сразу, новость возвращается в начало очереди
   await game.selectTower('syringe');
   const s1 = await game.state();
-  check(`${p} тап по закрытой башне: сообщение «${lockedText.trim()}…» показано сразу, прерванная «${towerNews.trim()}» первая в очереди, «${bacNews.trim()}» за ней`,
-    !s1.toast.news && (s1.toast.text ?? '').startsWith(lockedText.trim()) && s1.toast.queued.length === 2 && s1.toast.queued[0].startsWith(towerNews) && s1.toast.queued[1].startsWith(bacNews), JSON.stringify(s1.toast));
+  check(`${p} тап по закрытой башне: сообщение «${lockedText.trim()}…» показано сразу, прерванная «${towerNews.trim()}» первая в очереди`,
+    !s1.toast.news && (s1.toast.text ?? '').startsWith(lockedText.trim()) && s1.toast.queued.length === 1 && s1.toast.queued[0].startsWith(towerNews), JSON.stringify(s1.toast));
+  // кнопка «Начать волну»: первый кокк выходит сразу, его «Новая бактерия» встаёт в очередь за уведомлениями, которые ещё на экране
+  const startButton = s1.ui.waveButton;
+  await game.input.tap(game.g(startButton.x, startButton.y));
   // дальше: ответ гаснет, возвращается «Открыта башня», затем «Новая бактерия»; в очереди пусто
-  const seen = [];
+  const seen = [s1.toast.text];
   const started = Date.now();
   while (Date.now() - started < 40000) {
     const s = await game.state();
@@ -5755,7 +5758,7 @@ const MAX_FRAME_MS = (() => {
 async function towersControls(browser, baseUrl) {
   const p = '[башни: кнопки скорости и «Начать волну»]';
   const WAIT = 60;
-  // В первой волне выходит новый тип (кокк): игра при старте прибавляет к ожиданию waves.newTypePauseSec секунд (GameScene.announceWave), и кнопка «Начать волну» обещает монеты за ВСЕ оставшиеся секунды
+  // В первой волне выходит новый тип (кокк): игра при старте прибавляет к ожиданию waves.newTypePauseSec секунд (GameScene.extendPauseForNewKinds), и кнопка «Начать волну» обещает монеты за ВСЕ оставшиеся секунды
   const NEW_TYPE_PAUSE = readConfigNumber('waves', 'newTypePauseSec');
   const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
   const game = await openGame(context, baseUrl, p, { query: ALL_TOWERS, speed: 1, cfg: `waves.firstDelaySec:${WAIT},${FIXED_NO_TOWERS.join(',')}` });
@@ -7606,7 +7609,12 @@ async function runProgressSave(browser, baseUrl) {
   let s = await g2.state();
   check(`${p} в начале уровня игра не встаёт на паузу (state 'playing', уведомления идут строкой сверху)`, s.state === 'playing', `состояние ${s.state}`);
   m = await metaOf(g2.page);
-  check(`${p} показанные уведомления записаны: башни t:pill и t:syrup, бактерия b:coccus`, ['t:pill', 't:syrup', 'b:coccus'].every((k) => m.seen.includes(k)), m.seen.join());
+  check(`${p} при старте записаны уведомления о башнях t:pill и t:syrup; бактерия b:coccus ещё не записана (её уведомление — при выходе)`, ['t:pill', 't:syrup'].every((k) => m.seen.includes(k)) && !m.seen.includes('b:coccus'), m.seen.join());
+  const waveBtn = s.ui.waveButton;
+  await g2.input.tap(g2.g(waveBtn.x, waveBtn.y));
+  await waitFor(g2.page, (x) => x.introduced.includes('coccus'), 20000, 'выход первого кокка после тапа по «Начать волну»', 20);
+  m = await metaOf(g2.page);
+  check(`${p} после выхода первого кокка записана бактерия b:coccus`, m.seen.includes('b:coccus'), m.seen.join());
   await g2.page.reload({ waitUntil: 'load', timeout: 90000 });
   await waitFor(g2.page, (x) => x.state === 'playing', 20000, 'запуск после обновления');
   s = await g2.state();
