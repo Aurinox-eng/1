@@ -8911,7 +8911,33 @@ async function runMenuReset(browser, baseUrl) {
     u = await app.waitUi('menu', 'меню после «Отмена»');
     const afterCancel = await page.evaluate(() => JSON.parse(window.localStorage.getItem('pvb.meta')));
     check(`${p} «Отмена» закрывает окно и ничего не меняет: очки ДНК ${afterCancel.dna}, звёзды уровня 1: ${afterCancel.progress.stars[0]}`, !u.buttons.resetYes && afterCancel.dna === 77 && afterCancel.progress.stars[0] === 2 && u.texts.includes(balanceText(77)), JSON.stringify(u.texts));
+    // уведомление «Новая бактерия» — один раз для игрока (решение владельца 18 октября 2026): до сброса, когда о кокке уже известно (b:coccus в сохранении), оно при выходе кокка не показывается
+    const bacNews = readI18n('newBacteriaToast')[li].replace('{name}', '');
+    const startAndSpawn = async (label) => {
+      const g = await openGame(context, baseUrl, `${p} ${label}`, { speed: 2, cfg: 'waves.firstDelaySec:600', query: '&persistseen', isTouch: device.hasTouch });
+      const s0 = await g.state();
+      const wb = s0.ui.waveButton;
+      await g.input.tap(g.g(wb.x, wb.y));
+      await waitFor(g.page, (x) => x.introduced.includes('coccus'), WAIT_MS, 'выход первого кокка после тапа по «Начать волну»', 20);
+      // уведомление, если оно есть, в очереди или на экране сразу после выхода; ждём несколько кадров и смотрим всё, что было показано
+      const shownTexts = new Set();
+      for (let i = 0; i < 25; i++) {
+        const x = await g.state();
+        if (x.toast.text !== null) shownTexts.add(x.toast.text);
+        for (const q of x.toast.queued) shownTexts.add(q);
+        await sleep(60);
+      }
+      const startToast = s0.toast.text;
+      await g.page.close();
+      return { startToast, shown: [...shownTexts] };
+    };
+    await page.evaluate(() => window.localStorage.setItem('pvb.meta', JSON.stringify({ v: 3, dna: 77, levels: { damage: 2 }, progress: { stars: [2], best: [30] }, seen: ['t:pill', 't:syrup', 'b:coccus'] })));
+    const beforeReset = await startAndSpawn('до сброса');
+    check(`${p} до сброса о кокке уже известно: при его выходе «${bacNews.trim()}» не показывается (показано: ${JSON.stringify(beforeReset.shown)})`, !beforeReset.shown.some((text) => text.startsWith(bacNews)), JSON.stringify(beforeReset));
     // «Да, сбросить»
+    await page.evaluate(() => window.localStorage.setItem('pvb.meta', JSON.stringify({ v: 3, dna: 77, levels: { damage: 2 }, progress: { stars: [2], best: [30] }, seen: ['t:pill'] })));
+    await page.reload({ waitUntil: 'load' });
+    u = await app.waitUi('menu', 'меню перед сбросом');
     await app.tapRect(u.buttons.reset);
     u = await app.waitUi('menu', 'окно подтверждения (второй раз)');
     await app.tapRect(u.buttons.resetYes);
@@ -8921,6 +8947,18 @@ async function runMenuReset(browser, baseUrl) {
     check(`${p} «${readI18n('resetYes')[li]}» обнуляет сохранение: очки ДНК ${after.meta.dna}, звёзды уровня 1: ${after.meta.progress.stars[0]}, лучшая волна ${after.meta.progress.best[0]}, улучшения «damage» ${after.meta.levels.damage ?? 0}, подсказок ${after.meta.seen.length}; окно закрыто, в меню «${balanceText(0)}»`,
       after.meta.dna === 0 && after.meta.progress.stars[0] === 0 && after.meta.progress.best[0] === 0 && (after.meta.levels.damage ?? 0) === 0 && after.meta.seen.length === 0 && !u.buttons.resetYes && u.texts.includes(balanceText(0)), JSON.stringify({ meta: after.meta, texts: u.texts }));
     check(`${p} звук после сброса не тронут (в хранилище «${after.sound}», было «1»)`, after.sound === '1', '');
+    // после сброса игрок снова «новый»: уведомление об открытой башне при старте и «Новая бактерия» при выходе кокка показываются снова
+    await page.evaluate(() => window.localStorage.setItem('pvb.meta', JSON.stringify({ v: 3, dna: 77, levels: { damage: 2 }, progress: { stars: [2], best: [30] }, seen: ['t:pill', 't:syrup', 'b:coccus'] })));
+    await page.reload({ waitUntil: 'load' });
+    u = await app.waitUi('menu', 'меню перед вторым сбросом');
+    await app.tapRect(u.buttons.reset);
+    u = await app.waitUi('menu', 'окно подтверждения (третий раз)');
+    await app.tapRect(u.buttons.resetYes);
+    await sleep(600);
+    await app.waitUi('menu', 'меню после второго сброса');
+    const towerNewsText = readI18n('newTowerToast')[li].replace('{name}', '');
+    const afterReset = await startAndSpawn('после сброса');
+    check(`${p} после «${readI18n('resetYes')[li]}» уведомления показываются снова, как у нового игрока: при старте «${towerNewsText.trim()}», при выходе кокка «${bacNews.trim()}» (показано: ${JSON.stringify(afterReset.shown)})`, (afterReset.startToast ?? '').startsWith(towerNewsText) && afterReset.shown.some((text) => text.startsWith(bacNews)), JSON.stringify(afterReset));
     await context.close();
   }
 }
