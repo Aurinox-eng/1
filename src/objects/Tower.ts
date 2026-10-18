@@ -6,6 +6,7 @@ import {
   type ArtBox, type Pt,
 } from '../art';
 import { COLORS, PILL_EYES, TOWER_ART } from '../theme';
+import { bakeStyled } from './styleGfx';
 import { isPilotTower, pilotBarrelKey, pilotBaseKey, pilotEyesKey, pilotPupilKey, pilotTopKey, PILL_EYE_POS, EYES_BOX, PUPIL_BOX, RECOIL_PX, RECOIL_SEC } from './pilotTowerArt';
 import { computeStats, mutationOptions, unlockedTiers, type TowerKey, type TowerStats } from '../towerStats';
 import type { Bacterium } from './Bacterium';
@@ -46,7 +47,9 @@ function barrelImage(scene: Phaser.Scene, id: TowerId, level: number, legacy = f
 function barrelTexture(scene: Phaser.Scene, id: TowerId, level: number, legacy = false): string {
   const lv = artLevel(level);
   if (!legacy && isPilotTower(id, lv)) return pilotBarrelKey(scene, id, lv, BARREL_BOX);
-  const suffix = legacy && isPilotTower(id, lv) ? '-old' : '';
+  // Остальные башни и уровни: прежние команды рисования выполняются в новом стиле (styleGfx.ts): объём, переход цвета, мягкие тени
+  if (!legacy) return bakeStyled(scene, `tower-barrel-styled-${id}-${lv}`, BARREL_BOX, (g) => drawBarrel(g, id, lv));
+  const suffix = isPilotTower(id, lv) ? '-old' : '';
   return bakeArt(scene, `tower-barrel-${id}-${lv}${suffix}`, BARREL_BOX, (g) => drawBarrel(g, id, lv));
 }
 
@@ -969,10 +972,11 @@ function topTexture(scene: Phaser.Scene, id: TowerId, level: number, legacy = fa
   const pilot = !legacy && isPilotTower(id, lv);
   if (pilot && id === 'pill' && lv === 4) return pilotTopKey(scene, TOP_BOX); // Таблетка 4 уровня: купол под глазами, кольцо и точки уровня — Canvas 2D
   const suffix = legacy && isPilotTower(id, lv) ? '-old' : '';
-  return bakeArt(scene, `tower-top-${id}-${lv}${suffix}`, TOP_BOX, (g) => {
+  const baker = (key: string, draw: (g: Phaser.GameObjects.Graphics) => void): string => (legacy ? bakeArt(scene, key, TOP_BOX, draw) : bakeStyled(scene, key, TOP_BOX, draw));
+  return baker(`tower-top-${legacy ? '' : 'styled-'}${id}-${lv}${suffix}`, (g) => {
     // Пилот: тёмной втулки нет — вместо неё маленькая светлая заклёпка (у таблеток между глазами)
-    if (pilot) {
-      shCirc(g, 0, 0, 2.6, 0xe9f1ff, COLORS.towerEdge, 1.2);
+    if (pilot || id === 'pill') {
+      shCirc(g, 0, 0, 2.6, lv >= 2 && lv < 4 ? LEVEL_COLORS[lv - 1] : 0xe9f1ff, COLORS.towerEdge, 1.2);
     } else {
       shCirc(g, 0, 0, 9, COLORS.background, COLORS.towerEdge, 2);
     }
@@ -984,7 +988,7 @@ function topTexture(scene: Phaser.Scene, id: TowerId, level: number, legacy = fa
       }
       glowCircle(g, 0, 0, 5, core, 10, 0.5);
       shCirc(g, 0, 0, 5, core, 0xffffff, 1.5);
-    } else if (lv >= 2) {
+    } else if (lv >= 2 && id !== 'pill') {
       shCirc(g, 0, 0, 4, LEVEL_COLORS[lv - 1]);
     }
     if (lv <= 1) return;
@@ -1002,7 +1006,8 @@ function topTexture(scene: Phaser.Scene, id: TowerId, level: number, legacy = fa
 function baseTexture(scene: Phaser.Scene, id: TowerId, level: number, legacy = false): string {
   const lv = artLevel(level);
   if (!legacy && isPilotTower(id, lv)) return pilotBaseKey(scene, id, lv, BASE_BOX);
-  const suffix = legacy && isPilotTower(id, lv) ? '-old' : '';
+  if (!legacy) return bakeStyled(scene, `tower-base-styled-${id}-${lv}`, BASE_BOX, (g) => drawBase(g, id, lv));
+  const suffix = isPilotTower(id, lv) ? '-old' : '';
   return bakeArt(scene, `tower-base-${id}-${lv}${suffix}`, BASE_BOX, (g) => drawBase(g, id, lv));
 }
 
@@ -1037,13 +1042,11 @@ function buildTowerArt(scene: Phaser.Scene, parent: Phaser.GameObjects.Container
   return art;
 }
 
-/** Показывает глаза на уровнях пилота (1 и 4) и ставит их размер по уровню; на уровнях 2 и 3 (прежний рисунок) глаз нет. */
+/** Показывает глаза Таблетки на всех уровнях и ставит их размер по уровню. */
 function setEyesLevel(scene: Phaser.Scene, art: TowerArt, lv: number): void {
   if (!art.eyes) return;
-  const show = lv === 1 || lv === 4;
-  art.eyes.setVisible(show);
-  for (const p of art.pupils) p.setVisible(show);
-  if (!show) return;
+  art.eyes.setVisible(true);
+  for (const p of art.pupils) p.setVisible(true);
   setArt(art.eyes, pilotEyesKey(scene, lv), EYES_BOX);
   const e = PILL_EYE_POS[lv];
   art.pupils.forEach((p, i) => {
@@ -1439,10 +1442,11 @@ export class Tower {
    * С мутацией «Двойной выстрел» башня бьёт ещё `extraTargets` целей за тот же выстрел.
    */
   /**
-   * Выстрел состоялся (зовёт сцена рядом с отзвуком выстрела): у пилотных стволов запускает отдачу. Возвращает true, если башня пилотная (сцена тогда пускает облачко у дула).
+   * Выстрел состоялся (зовёт сцена рядом с отзвуком выстрела): у стволов запускает отдачу. Возвращает true, если у башни есть ствол, из которого стреляют
+   * (сцена тогда пускает облачко у дула); у Лампы (постоянный конус), Витамина, Холода и Пластыря ствола-«стрелка» нет.
    */
   kick(): boolean {
-    if (this.art.legacy || !isPilotTower(this.id, artLevel(this.level))) return false;
+    if (this.art.legacy || MUZZLE[this.id] <= 0 || this.id === 'lamp') return false;
     this.recoilLeft = RECOIL_SEC;
     return true;
   }

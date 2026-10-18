@@ -1,8 +1,12 @@
 import Phaser from 'phaser';
 import { CONFIG } from './config';
+import { ART_SHEET_PAGE } from './debug';
 import { bacteriumSample, type BacteriumKind } from './objects/Bacterium';
 import { createTowerArtSample, type TowerId } from './objects/Tower';
 import { COLORS } from './theme';
+
+const KINDS = Object.keys(CONFIG.types) as BacteriumKind[];
+const TOWERS: TowerId[] = ['pill', 'syrup', 'fizz', 'syringe', 'ampule', 'antibiotic', 'lamp', 'vitamin', 'frost', 'patch'];
 
 /**
  * Лист образцов пилота этапа 8 (только режим проверки, `?qa&artsheet`; в игровую сборку не попадает, как qaTools.ts): новый и прежний рисунок рядом.
@@ -18,6 +22,14 @@ export class ArtSheetScene extends Phaser.Scene {
     const W = CONFIG.screen.width;
     const H = CONFIG.screen.height;
     this.add.rectangle(W / 2, H / 2, W, H, 0x14264a);
+    if (ART_SHEET_PAGE === 'b1' || ART_SHEET_PAGE === 'b2') {
+      this.bacteriaPage(ART_SHEET_PAGE === 'b1' ? KINDS.slice(0, 10) : KINDS.slice(10));
+      return;
+    }
+    if (ART_SHEET_PAGE === 't1' || ART_SHEET_PAGE === 't2') {
+      this.towersPage(ART_SHEET_PAGE === 't1' ? TOWERS.slice(0, 5) : TOWERS.slice(5));
+      return;
+    }
     // два фона-«панели» с карты: новое и прежнее
     this.add.rectangle(W * 0.28, H / 2, W * 0.5, H - 20, 0x1d3a6a, 0.55);
     this.add.rectangle(W * 0.78, H / 2, W * 0.42, H - 20, 0x1d3a6a, 0.35);
@@ -77,5 +89,36 @@ export class ArtSheetScene extends Phaser.Scene {
     }
     // цвет фона панели как у карты — для оценки контраста; подпись версии
     this.add.text(W - 8, H - 8, COLORS.background.toString(16), { fontFamily: 'Arial', fontSize: '1px', color: '#14264a' }).setOrigin(1, 1);
+  }
+
+  /** Страница бактерий: по виду — полное HP и 1 HP (трещины); пять видов в ряд, два ряда; Гигант и бронированная уменьшены до 0,7 (подписано). */
+  private bacteriaPage(kinds: BacteriumKind[]): void {
+    const W = CONFIG.screen.width;
+    const cellW = W / 5;
+    kinds.forEach((kind, i) => {
+      const cx = (i % 5) * cellW + cellW / 2;
+      const cy = i < 5 ? 190 : 530;
+      const maxHp = CONFIG.types[kind].hp;
+      const big = CONFIG.types[kind].radius > 40;
+      const scale = big ? 0.7 : 1;
+      const label = this.add.text(cx, cy - 150, kind + (big ? ' (×0,7)' : ''), { fontFamily: 'Arial', fontSize: '15px', color: '#cfe0ff' });
+      label.setOrigin(0.5, 0.5);
+      [maxHp, 1].forEach((hp, j) => {
+        const sample = bacteriumSample(this, kind, hp, maxHp);
+        sample.setPosition(cx + (j === 0 ? -62 : 62), cy).setScale(scale);
+      });
+    });
+  }
+
+  /** Страница башен: пять видов, уровни 1–4 в ряд. */
+  private towersPage(ids: TowerId[]): void {
+    ids.forEach((id, i) => {
+      const cy = 80 + i * 138;
+      this.add.text(30, cy, id, { fontFamily: 'Arial', fontSize: '15px', color: '#cfe0ff' }).setOrigin(0, 0.5);
+      for (let lv = 1; lv <= 4; lv++) {
+        const holder = this.add.container(260 + (lv - 1) * 240, cy);
+        createTowerArtSample(this, holder, id, lv, false, true);
+      }
+    });
   }
 }

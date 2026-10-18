@@ -35,6 +35,8 @@ const ZOOM_MIN = Math.min(VIEW.w / WORLD.w, VIEW.h / WORLD.h);
 const DAMAGE_COLORS: Record<TowerStats['targeting'], number> = { radius: 0xffffff, area: COLORS.fizz, beam: COLORS.needle, puddle: COLORS.puddle, snipe: 0x9fe4ff, poison: COLORS.poison, cone: COLORS.lamp, aura: 0xffffff, freeze: COLORS.frost, trap: COLORS.patch };
 /** Цвет числа урона, когда удар ослаблен памятью мутанта (башня того же вида, что и прошлая). */
 const RESIST_COLOR = 0x9aa6bd;
+/** Цвет облачка у дула по башне (вид, не баланс). */
+const MUZZLE_PUFF: Partial<Record<string, number>> = { pill: 0xffffff, syrup: COLORS.syrup, fizz: COLORS.acid, syringe: COLORS.needle, ampule: 0x9fdcff, antibiotic: COLORS.antibiotic };
 /** Сколько миллисекунд висит строка «Новая бактерия: …» / «Открыта башня: …» (игра при этом идёт). */
 const NEWS_MS = 4200;
 /** О чём игрок уже узнал из строк-уведомлений («b:тип» — бактерия, «t:башня» — башня): повторные партии подряд их не повторяют. */
@@ -692,8 +694,8 @@ export class GameScene extends Phaser.Scene {
     }
     this.shots++;
     sfx.shoot(tower.id);
-    // Пилот этапа 8: отдача ствола и облачко у дула (из общего запаса эффектов, без новых объектов на каждый выстрел)
-    if (tower.kick()) this.effects.muzzle(muzzleX, muzzleY, Math.atan2(muzzleY - tower.y, muzzleX - tower.x), tower.id === 'syrup' ? COLORS.syrup : 0xffffff);
+    // Отдача ствола и облачко у дула (из общего запаса эффектов, без новых объектов на каждый выстрел)
+    if (tower.kick()) this.effects.muzzle(muzzleX, muzzleY, Math.atan2(muzzleY - tower.y, muzzleX - tower.x), MUZZLE_PUFF[tower.id] ?? 0xffffff);
     return true;
   }
 

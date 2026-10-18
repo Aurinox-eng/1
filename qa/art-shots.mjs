@@ -187,6 +187,9 @@ async function main() {
     await waitState(page, (s) => s.state === 'playing' && s.bacteria.length >= 60, 'толпа в стресс-сценарии', 180000);
     await frames(page, 8);
     await shot(page, 'c-stress');
+    // память картинок в стресс-сценарии (все виды бактерий и башен): по этому файлу считается «до/после» при переносе стиля
+    const stats = await page.evaluate(() => window.__pvb.getArtStats(''));
+    fs.writeFileSync(path.join(OUT, `c-stress-art-stats${SUFFIX}.json`), JSON.stringify(stats));
     await ctx.close();
   });
   await run('d', 'альманах, вкладка «Бактерии»', async () => {
@@ -236,10 +239,13 @@ async function main() {
   });
   if (TAG !== 'before') {
     await run('s', 'лист образцов', async () => {
-      const { ctx, page } = await open(browser, DESKTOP, `${BASE}?qa&artsheet&lang=ru${EXTRA}`);
-      await frames(page, 12);
-      await shot(page, 's-artsheet');
-      await ctx.close();
+      // страницы: пилот (новое рядом с прежним), все бактерии (b1, b2), все башни (t1, t2)
+      for (const [page_, name] of [['', 's-artsheet'], ['=b1', 's-bacteria-1'], ['=b2', 's-bacteria-2'], ['=t1', 's-towers-1'], ['=t2', 's-towers-2']]) {
+        const { ctx, page } = await open(browser, DESKTOP, `${BASE}?qa&artsheet${page_}&lang=ru${EXTRA}`);
+        await frames(page, 12);
+        await shot(page, name);
+        await ctx.close();
+      }
     });
   }
   await browser.close();

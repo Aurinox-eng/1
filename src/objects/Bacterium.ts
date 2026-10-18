@@ -6,13 +6,13 @@ import { COLORS, TOWER_MARK } from '../theme';
 import { artDensity, artImage, bakeArt, discImage, ringImage, setArt, squareBox, type ArtBox } from '../art';
 import type { Tower } from './Tower';
 import { bodyHalfSize, crackCount, drawCracks, drawShape, hasRadialCracks, shellWidth, SPLITTER_LOBE_OFFSET } from './bacteriumArt';
-import { BLINK_EVERY_SEC, BLINK_SEC, BREATH_AMP, BREATH_SEC, isPilotKind, pilotBodyBox, pilotBodyKey, pilotFaceBox, pilotFaceKey, type PilotKind } from './pilotArt';
+import { BLINK_EVERY_SEC, BLINK_SEC, BREATH_AMP, BREATH_SEC, styleBodyBox, styleBodyKey, styleFaceBox, styleFaceKey } from './styleArt';
 
 export type BacteriumKind = keyof typeof CONFIG.types;
 
-/** Рамка рисунка тела типа (и трещин у некруглых типов). */
+/** Рамка рисунка тела типа: новая (с запасом под мягкую тень) или прежняя (`legacy`; по ней же рисуются трещины некруглых типов). */
 function bodyBox(kind: BacteriumKind, legacy = false): ArtBox {
-  if (!legacy && isPilotKind(kind)) return pilotBodyBox(kind);
+  if (!legacy) return styleBodyBox(kind);
   const { hx, hy } = bodyHalfSize(kind);
   return { x: -hx, y: -hy, w: hx * 2, h: hy * 2 };
 }
@@ -53,11 +53,10 @@ const MAXHP_STEP = 0.25;
 
 /** Картинка тела типа с оболочкой толщины sw (рисуется один раз на тип и толщину). */
 function bodyTexture(scene: Phaser.Scene, kind: BacteriumKind, sw: number, legacy = false): string {
-  if (!legacy && isPilotKind(kind)) return pilotBodyKey(scene, kind, sw);
+  if (!legacy) return styleBodyKey(scene, kind, sw);
+  // прежний рисунок (лист образцов): свой ключ, чтобы не смешиваться с новым
   const q = Math.round(sw / SHELL_STEP_PX) * SHELL_STEP_PX;
-  // прежний рисунок пилотных видов (лист образцов): свой ключ, чтобы не смешиваться с новым
-  const suffix = legacy && isPilotKind(kind) ? '-old' : '';
-  return bakeArt(scene, `bact-${kind}-${q}${suffix}`, bodyBox(kind, legacy), (g) => drawShape(g, kind, q));
+  return bakeArt(scene, `bact-${kind}-${q}`, bodyBox(kind, true), (g) => drawShape(g, kind, q));
 }
 
 /** Картинка трещин: у круглых типов — от угла 0 (картинка поворачивается на свой угол у каждой бактерии), у остальных — на месте. */
@@ -65,16 +64,15 @@ function cracksTexture(scene: Phaser.Scene, kind: BacteriumKind, damage: number,
   const radial = hasRadialCracks(kind);
   const hp = radial ? Math.max(3, Math.min(9, maxHp)) : kind === 'rod' ? maxHp : 0;
   const q = Math.round(hp / MAXHP_STEP) * MAXHP_STEP;
-  const box = radial ? squareBox(CONFIG.types[kind].radius + 4) : bodyBox(kind);
+  const box = radial ? squareBox(CONFIG.types[kind].radius + 4) : bodyBox(kind, true);
   return { key: bakeArt(scene, `crack-${kind}-${damage}-${q}`, box, (g) => drawCracks(g, kind, damage, q, 0)), box };
 }
 
 /**
- * Образец бактерии для листа образцов режима проверки (`?qa&artsheet`): тело при заданном HP, трещины и (у пилотных видов) лицо; legacy — прежний рисунок пилотных видов.
+ * Образец бактерии для листа образцов режима проверки (`?qa&artsheet`): тело при заданном HP, трещины и лицо; legacy — прежний рисунок (до переноса стиля).
  * Центр образца — (0, 0); в игре не используется.
  */
 export function bacteriumSample(scene: Phaser.Scene, kind: BacteriumKind, hp: number, maxHp: number, legacy = false, smallFace = false): Phaser.GameObjects.Container {
-  const pilot = !legacy && isPilotKind(kind);
   const parts: Phaser.GameObjects.Image[] = [artImage(scene, bodyTexture(scene, kind, shellWidth(kind, hp), legacy), bodyBox(kind, legacy))];
   const damage = crackCount(hp, maxHp);
   if (damage > 0) {
@@ -83,7 +81,7 @@ export function bacteriumSample(scene: Phaser.Scene, kind: BacteriumKind, hp: nu
     if (hasRadialCracks(kind)) cracks.setRotation(1);
     parts.push(cracks);
   }
-  if (pilot) parts.push(artImage(scene, pilotFaceKey(scene, kind as PilotKind, false, smallFace), pilotFaceBox(kind as PilotKind)));
+  if (!legacy) parts.push(artImage(scene, styleFaceKey(scene, kind, false, smallFace), styleFaceBox(kind)));
   return scene.add.container(0, 0, parts);
 }
 
@@ -228,13 +226,10 @@ export class Bacterium {
     this.cracks = artImage(scene, bodyTexture(scene, kind, shellWidth(kind, this.hp)), box).setVisible(false);
     // Круглые типы: трещины повёрнуты на свой угол у каждой бактерии (как раньше: от угла seed)
     if (hasRadialCracks(kind)) this.cracks.setRotation(this.seed);
-    const pilot = isPilotKind(kind);
-    this.breathSec = pilot ? BREATH_SEC[kind as PilotKind][0] + Math.random() * (BREATH_SEC[kind as PilotKind][1] - BREATH_SEC[kind as PilotKind][0]) : 2;
-    if (pilot) {
-      this.blinkIn = BLINK_EVERY_SEC[0] + Math.random() * (BLINK_EVERY_SEC[1] - BLINK_EVERY_SEC[0]);
-      this.face = artImage(scene, pilotFaceKey(scene, kind as PilotKind, false), pilotFaceBox(kind as PilotKind));
-      this.artGroup = scene.add.container(0, 0, [this.body, this.cracks, this.face]);
-    }
+    this.breathSec = BREATH_SEC[kind][0] + Math.random() * (BREATH_SEC[kind][1] - BREATH_SEC[kind][0]);
+    this.blinkIn = BLINK_EVERY_SEC[0] + Math.random() * (BLINK_EVERY_SEC[1] - BLINK_EVERY_SEC[0]);
+    this.face = artImage(scene, styleFaceKey(scene, kind, false), styleFaceBox(kind));
+    this.artGroup = scene.add.container(0, 0, [this.body, this.cracks, this.face]);
     this.container = scene.add.container(0, 0, this.artGroup ? [this.artGroup] : [this.body, this.cracks]);
     // Лекарь: кольцо-аура радиуса лечения, командир — радиуса ускорения (под телом)
     if (cfg.healRadius > 0) {
@@ -471,7 +466,7 @@ export class Bacterium {
   }
 
   /**
-   * Движение на месте у пилотных видов (только поворот, масштаб и смена картинки по таймеру, без анимаций Phaser): дыхание — пульсация масштаба группы «тело + трещины + лицо»,
+   * Движение на месте у всех видов (только поворот, масштаб и смена картинки по таймеру, без анимаций Phaser): дыхание — пульсация масштаба группы «тело + трещины + лицо»,
    * моргание — смена картинки лица. Ауры, кольца, лёд и полоска прочности лежат вне группы и не пульсируют. Замороженная и приклеенная бактерия не дышит и не моргает.
    */
   private idle(dt: number, held: boolean): void {
@@ -501,7 +496,7 @@ export class Bacterium {
   private shutEyes(shut: boolean): void {
     if (!this.face || shut === this.eyesShut) return;
     this.eyesShut = shut;
-    setArt(this.face, pilotFaceKey(this.scene, this.kind as PilotKind, shut), pilotFaceBox(this.kind as PilotKind));
+    setArt(this.face, styleFaceKey(this.scene, this.kind, shut), styleFaceBox(this.kind));
   }
 
   /**

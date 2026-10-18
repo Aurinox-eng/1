@@ -413,6 +413,8 @@ export function pilotTopKey(scene: Phaser.Scene, box: ArtBox): string {
 /** Положение центров белков по уровню: у 1 уровня глаза крупнее, у 4 — меньше (вокруг ядра и короны). */
 export const PILL_EYE_POS: Record<number, { x: number; rx: number; ry: number; pupil: number; look: number }> = {
   1: { x: 8.5, rx: 6.3, ry: 6.8, pupil: 2.9, look: 2.2 },
+  2: { x: 8.5, rx: 6.5, ry: 7, pupil: 3.1, look: 2.2 },
+  3: { x: 8.6, rx: 6.8, ry: 7.2, pupil: 3.3, look: 2.2 },
   4: { x: 8.6, rx: 7, ry: 7.4, pupil: 3.5, look: 2.2 },
 };
 const EYES_BOX: ArtBox = { x: -16, y: -16, w: 32, h: 32 };
@@ -437,7 +439,7 @@ export function pilotEyesKey(scene: Phaser.Scene, lv: number): string {
       ctx.beginPath();
       ctx.ellipse(cx, 0, e.rx, e.ry, 0, 0, Math.PI * 2);
       ctx.fill();
-      ctx.lineWidth = lv >= 4 ? 1.9 : 1.4;
+      ctx.lineWidth = lv >= 4 ? 1.9 : lv >= 2 ? 1.6 : 1.4;
       ctx.strokeStyle = css(darken(COLORS.pillBlue, 0.6));
       ctx.stroke();
     }
