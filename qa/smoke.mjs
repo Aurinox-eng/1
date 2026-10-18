@@ -25,13 +25,13 @@
  *   split                  делящаяся: при гибели 2 кокка на том же ребре в 64 px друг от друга, награда 8 и 10+10, без убийства не делится
  *   spore                  спора: глушит башню при подходе ближе 150 px на 3 с (выстрелы стоят), один раз; дальняя башня не глушится
  *   armored                бронированная: броня (урон − броня, не меньше доли armorMinShare от удара: удары 5, 3 и 1), 20 HP, награда, без башен отнимает 2 жизни
- *   intro                  порядок появления типов по таблице волн (уровень 1 — шесть типов; новый тип один и первым); сообщение «Новая бактерия!» и звук для
+ *   intro                  порядок появления типов по таблице волн (уровень 1 — шесть типов; новый тип один и первым); сообщение «Новая бактерия: <название>» и звук для
  *                          каждого нового типа, кроме кокка (ru и en), текст целиком в окне
  *   lose-ru, lose-en       потеря жизней, проигрыш (в том числе при работающих башнях: снарядов в полёте не остаётся), блокировка
  *                          перезапуска, перезапуск кнопкой «Заново», утечки (lose-ru — компьютер, lose-en — телефон)
  *   win-ru, win-en         победа (снарядов в полёте не остаётся) и перезапуск кнопкой «Заново» (win-ru — компьютер, win-en — телефон)
  *   towers                 все башни таблицы `towers` (с 9 октября 2026 — десять) и новые бактерии; размеры таблиц config.ts (10 башен, 19 типов, 49 узлов дерева). Башни: тексты i18n; панель на компьютере и телефоне, ru и en (кнопки по порядку таблицы, выбор и снятие
- *                          выбора, цвет цен (кнопки по 38 px, одна строка: значок, название, справа цена; подписи способа стрельбы на кнопках нет), нижняя подсказка целиком в окне — у Шприца она шире окна, это известная ошибка игры); кнопки скорости ×1/×2/×3 и
+ *                          выбора, цвет цен (кнопки по 38 px, одна строка: значок, название, справа цена; подписи способа стрельбы на кнопках нет), при выборе башни внизу подсказки нет (решение владельца 18 октября 2026); кнопки скорости ×1/×2/×3 и
  *                          «Начать волну»; цены (списывается ровно price, при нехватке не ставится); Сироп — ЛУЖА (капля летит в точку дорожки впереди бактерии,
  *                          лужа живёт puddleSec, в ней идут ×slowFactor, после выхода ещё slowSec, поверх старой лужи новая не кладётся, слизень не замедляется);
  *                          Шипучка (малый взрыв: задевает всех в круге blastRadius и никого дальше, 1 взрыв за выстрел, монеты; с 11 октября 2026 полный урон только первым blastFullTargets целям круга (ближайшим к центру), остальным × blastRestMul — по журналу `blast`: поля full, rest, acid, fullDealt, restDealt); Шприц — ЛУЧ (range 0, первый тап по башне выбирает её, поворот —
@@ -807,7 +807,7 @@ async function profileLoadAndCamera(c) {
   });
   check(`${p} старт: «ствол» на экране в (${f1(zScreen.x)}; ${f1(zScreen.y)}) — правее плашки «◀ Организм» (x 0…${CHIP.x1}) не меньше чем на 150 px, в окне карты`, zScreen.x >= CHIP.x1 + 150 && zScreen.y > winTop && zScreen.y < winBottom, `ствол (${f1(zScreen.x)}; ${f1(zScreen.y)})`);
   check(`${p} старт: все 12 клеток, достающих всех бактерий (${reachAll.routes} маршрутов, радиус 225 px), целиком в окне карты и не под плашкой — видно ${reachAll.cells.length - hiddenReach.length} из ${reachAll.cells.length}`, reachAll.routes === 18 && reachAll.cells.length === 12 && hiddenReach.length === 0, `маршрутов ${reachAll.routes}, клеток ${reachAll.cells.length}, скрыты: ${hiddenReach.join(' ') || 'нет'}; клетки ${reachAll.cells.map(([c, r]) => `${c};${r}`).join(' ')}`);
-  check(`${p} старт: внизу подсказка «${readI18n('hintJunction')[lang === 'ru' ? 0 : 1]}», пока нет ни одной башни`, s0.ui.hint === readI18n('hintJunction')[lang === 'ru' ? 0 : 1], `подсказка: ${JSON.stringify(s0.ui.hint)}`);
+  check(`${p} старт: внизу подсказки нет (игра во время партии не объясняет и не советует)`, s0.ui.hint === null, `подсказка: ${JSON.stringify(s0.ui.hint)}`);
   const rot0 = await rotateInfo(page);
   check(`${p} подсказка «Поверните телефон» в горизонтальном положении (и на компьютере) не показана`, rot0.display === 'none', `display=${rot0.display}, pointer:coarse=${rot0.coarse}`);
   const btn = s0.ui.towerButton;
@@ -1199,7 +1199,7 @@ async function profileBattle(c) {
     if (s.kills >= 2 && shotTaken) break;
     await sleep(40);
   }
-  check(`${p} подсказка про сходящиеся дорожки после постановки башен пропала (внизу уже не «${readI18n('hintJunction')[0]}»; две Таблетки рядом — подсказка о слиянии)`, s.ui.hint !== readI18n('hintJunction')[0], `подсказка: ${JSON.stringify(s.ui.hint)}`);
+  check(`${p} после постановки башен внизу только подсказка слияния (две Таблетки рядом) или ничего`, s.ui.hint === null || readI18n('hintMergePair').includes(s.ui.hint), `подсказка: ${JSON.stringify(s.ui.hint)}`);
   check(`${p} бой: башни стреляют, бактерии гибнут, за каждую — монеты`, s.shots > 0 && s.kills >= 1 && s.coins === CFG.startCoins - 2 * BASE.price + s.kills * BASE.reward, `выстрелов ${s.shots}, убито ${s.kills}, монет ${s.coins}`);
   check(`${p} бой: звук запущен по касанию и играет`, s.sound.state === 'running' && s.sound.played > 0, JSON.stringify(s.sound));
   check(`${p} бой: отклик — «+монеты» и частицы на каждое убийство`, s.effects.bursts === s.kills && s.effects.popups === s.kills, `частицы ${s.effects.bursts}, «+монеты» ${s.effects.popups}, убито ${s.kills}`);
@@ -2749,7 +2749,7 @@ async function runArmored(browser, baseUrl) {
   await context.close();
 }
 
-// ================================================================== порядок появления типов и сообщения «Новая бактерия!»
+// ================================================================== порядок появления типов и сообщения «Новая бактерия: <название>»
 
 /** Сколько «жёлтых» точек текста сообщения вверху экрана и где он начинается и кончается по горизонтали (экран игры, px). */
 async function toastPixels(game, png) {
@@ -2807,7 +2807,7 @@ async function runIntro(browser, baseUrl) {
   check(`${p} состав волн из config.ts: вышло ${end.spawned} бактерий (ждали ${planned}), волн ${end.wave} из ${end.waveTotal}, партия окончена победой (без башен все дошли до организма: дошло ${end.leaked}, у матки рождённые на ходу не входят в «вышли»)`, end.spawned === planned && end.wave === TOTAL && end.waveTotal === TOTAL && end.state === 'won' && end.kills === 0 && end.leaked >= planned, `вышло ${end.spawned}, дошло ${end.leaked}, убито ${end.kills}, состояние ${end.state}`);
   await context.close();
 
-  // ---- B. сообщение «Новая бактерия!» и звук при первом появлении (ru и en): все типы, кроме кокка, подряд
+  // ---- B. сообщение «Новая бактерия: <название>» и звук при первом появлении (ru и en): все типы, кроме кокка, подряд
   const toastKinds = INTRO_ORDER.filter((k) => k !== 'coccus');
   const only = Object.fromEntries(toastKinds.map((k) => [k, 1]));
   for (const lang of ['ru', 'en']) {
@@ -2828,7 +2828,7 @@ async function runIntro(browser, baseUrl) {
       last = s;
       return seen.length >= toastKinds.length;
     }, 150000, 25);
-    check(`${q} при первом появлении каждого из ${toastKinds.length} новых типов вверху сообщение «Новая бактерия!…» (жёлтые точки текста: ${seen.map((x) => `${x.kind} ${x.t.count}`).join(', ')})`, seen.length === toastKinds.length && seen.every((x) => x.t.count >= 120), seen.map((x) => `${x.kind}: ${x.t.count}`).join(', '));
+    check(`${q} при первом появлении каждого из ${toastKinds.length} новых типов вверху сообщение «Новая бактерия: …» (жёлтые точки текста: ${seen.map((x) => `${x.kind} ${x.t.count}`).join(', ')})`, seen.length === toastKinds.length && seen.every((x) => x.t.count >= 120), seen.map((x) => `${x.kind}: ${x.t.count}`).join(', '));
     check(`${q} текст каждого сообщения целиком в окне карты (от ${Math.min(...seen.map((x) => x.t.minX))} до ${Math.max(...seen.map((x) => x.t.maxX))} px из 1280)`, seen.length === toastKinds.length && seen.every((x) => x.t.minX >= 10 && x.t.maxX <= 1274), seen.map((x) => `${x.kind}: ${x.t.minX}…${x.t.maxX}`).join('; '));
     check(`${q} при первом появлении нового типа играет звук (аудио запущено, sound.played растёт на каждом появлении)`, seen.length === toastKinds.length && seen.every((x) => x.soundState === 'running' && x.playedDelta >= 1), seen.map((x) => `${x.kind}: +${x.playedDelta}`).join(', '));
     await ctx.close();
@@ -3255,39 +3255,13 @@ async function priceColors(game, png, btn) {
   return { gold, red, kind: gold >= 12 && red < 4 ? 'gold' : red >= 12 && gold < 4 ? 'red' : 'unclear' };
 }
 
-/** Подсказка внизу окна карты: сколько белых точек текста и где он начинается и кончается по горизонтали (экран игры, px). Сканируется только окно карты
- *  (весь экран по ширине; по высоте — над нижней панелью). */
-async function hintExtent(game, png) {
-  const points = [];
-  const xs = [];
-  for (let gy = 548; gy <= 596; gy += 2) {
-    for (let gx = 0; gx <= 1278; gx += 3) {
-      const c = game.screen.g2c(gx, gy);
-      points.push([c.x, c.y]);
-      xs.push(gx);
-    }
-  }
-  const px = await samplePixels(game.page, png, points);
-  let count = 0;
-  let minX = Infinity;
-  let maxX = -Infinity;
-  px.forEach(([r, g, b], i) => {
-    if (r >= 215 && g >= 215 && b >= 215) {
-      count++;
-      minX = Math.min(minX, xs[i]);
-      maxX = Math.max(maxX, xs[i]);
-    }
-  });
-  return { count, minX, maxX };
-}
-
 // ---------------------------------------------------------------- тексты (i18n)
 
 function towersTexts() {
   const p = '[башни: тексты]';
   const cap1 = (id) => id.charAt(0).toUpperCase() + id.slice(1);
-  // названия и нижние подсказки — по всем башням таблицы (у Таблетки нижней подсказки нет); подпись способа стрельбы с кнопок панели убрана (пачка 3), её строки не проверяются
-  const keys = [...TOWER_IDS.map((id) => `tower${cap1(id)}`), ...TOWER_IDS.filter((id) => id !== 'pill').map((id) => `info${cap1(id)}`), 'hintRotate', 'startWave'];
+  // названия — по всем башням таблицы; описаний действия башен и нижних подсказок в партии нет (решение владельца 18 октября 2026: описания — в Альманахе)
+  const keys = [...TOWER_IDS.map((id) => `tower${cap1(id)}`), 'startWave'];
   const rows = keys.map((k) => {
     try {
       const [ru, en] = readI18n(k);
@@ -3301,15 +3275,13 @@ function towersTexts() {
   const cyr = /[А-Яа-яЁё]/;
   const bad = rows.filter((r) => r.ok && (!r.ru.trim() || !r.en.trim() || r.ru === r.en || !cyr.test(r.ru) || cyr.test(r.en)));
   check(`${p} русские строки по-русски, английские по-английски, обе не пустые и различаются`, bad.length === 0, bad.map((r) => `${r.k}: «${r.ru}» / «${r.en}»`).join('; '));
-  const syrup = rows.find((r) => r.k === 'infoSyrup');
-  check(`${p} подсказка Сиропа на обоих языках содержит вставку {pct} (на сколько процентов лужа замедляет — из config.ts)`, Boolean(syrup?.ok) && ['ru', 'en'].every((l) => syrup[l].includes('{pct}')), syrup ? `${syrup.ru} / ${syrup.en}` : '');
   const names = rows.filter((r) => r.k.startsWith('tower') && r.ok).map((r) => r.ru);
   check(`${p} названия ${TOWER_IDS.length} башен различаются: ${names.join(', ')}`, names.length === TOWER_IDS.length && new Set(names).size === TOWER_IDS.length);
 }
 
 // ---------------------------------------------------------------- панель: кнопки всех башен
 
-/** Панель на одном экране: порядок и размещение кнопок, выбор и снятие выбора, цвет цен, подсказка внизу целиком в окне. */
+/** Панель на одном экране: порядок и размещение кнопок, выбор и снятие выбора, цвет цен, при выборе башни подсказки внизу нет. */
 async function towersPanel(browser, baseUrl, deviceKey, lang, { full = false } = {}) {
   const device = VIEWPORTS[deviceKey];
   const p = `[башни: панель, ${device.label}, ${lang}]`;
@@ -3349,18 +3321,18 @@ async function towersPanel(browser, baseUrl, deviceKey, lang, { full = false } =
   // выбор: тап по каждой кнопке выбирает именно её; повторный тап снимает; тап по другой кнопке переключает
   const picked = [];
   const reTap = [];
-  const hints = [];
+  const hintsAt = [];
   for (const id of TOWER_IDS) {
     await game.selectTower(id);
     s = await game.state();
     picked.push(s.selected === id);
+    hintsAt.push({ id, hint: s.ui.hint });
     if (!device.hasTouch) {
       await input.hover(await game.cell(...FREE.d));
       await sleep(250);
     }
     await sleep(150);
-    const png = await shot(page, `towers-02-selected-${id}-${name}`);
-    hints.push({ id, ...(await hintExtent(game, png)) });
+    await shot(page, `towers-02-selected-${id}-${name}`);
     await game.selectTower(id);
     s = await game.state();
     reTap.push(s.selected === null);
@@ -3373,10 +3345,8 @@ async function towersPanel(browser, baseUrl, deviceKey, lang, { full = false } =
   s = await game.state();
   check(`${p} тап по другой кнопке переключает выбор (Сироп → Шипучка: selected = ${s.selected})`, s.selected === 'fizz');
   await game.selectTower('fizz');
-  // подсказка внизу есть у каждой башни и целиком внутри окна карты (не залезает на панель)
-  for (const h of hints) {
-    check(`${p} нижняя подсказка при выборе башни «${h.id}» видна и целиком в окне карты (текст от ${h.minX} до ${h.maxX} px из 1280, точек текста ${h.count})`, h.count >= 100 && h.minX >= 8 && h.maxX <= 1274, `точек ${h.count}, ${h.minX}…${h.maxX}`);
-  }
+  // при выборе башни внизу подсказки нет ни у одной башни (решение владельца 18 октября 2026: игра во время партии не объясняет и не советует)
+  check(`${p} при выборе любой из ${TOWER_IDS.length} башен внизу подсказки нет (hint = null)`, hintsAt.every((h) => h.hint === null), hintsAt.map((h) => `${h.id}: ${JSON.stringify(h.hint)}`).join('; '));
   // тап по пустой клетке без башни по-прежнему ничего не ставит
   await game.tapCell(...FREE.a);
   s = await game.state();

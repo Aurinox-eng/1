@@ -57,27 +57,6 @@ const SIM_STEP_SEC = 1 / 30;
 const MAX_SPAWNS_PER_FRAME = 10;
 /** Все типы бактерий в порядке появления в игре. */
 const KINDS = Object.keys(CONFIG.types) as BacteriumKind[];
-/** Сообщение при первом появлении типа (у кокка нет: он с первой волны). */
-const NEW_TYPE_TEXT: Partial<Record<BacteriumKind, TextKey>> = {
-  rod: 'newTypeRod',
-  splitter: 'newTypeSplitter',
-  armored: 'newTypeArmored',
-  spore: 'newTypeSpore',
-  swarm: 'newTypeSwarm',
-  runner: 'newTypeRunner',
-  healer: 'newTypeHealer',
-  slick: 'newTypeSlick',
-  regen: 'newTypeRegen',
-  commander: 'newTypeCommander',
-  brood: 'newTypeBrood',
-  giant: 'newTypeGiant',
-  leaper: 'newTypeLeaper',
-  phago: 'newTypePhago',
-  stealth: 'newTypeStealth',
-  toxin: 'newTypeToxin',
-  mutant: 'newTypeMutant',
-  parasite: 'newTypeParasite',
-};
 /** Сколько миллисекунд держится сообщение о новом типе. */
 const NEW_TYPE_TOAST_MS = 4200;
 /** Цепной взрыв: пауза до второго взрыва, секунд; радиус поиска бактерии для него, пикселей. */
@@ -184,10 +163,6 @@ export class GameScene extends Phaser.Scene {
   private merges = 0;
   private sells = 0;
   private mutationsPicked = 0;
-  /** Подсказка «тапните по Шприцу — повернуть» уже показана в этой партии. */
-  private rotateHinted = false;
-  /** Поставлена ли уже хоть одна башня (после этого общая подсказка «Выберите башню…» больше не нужна). */
-  private placedAny = false;
 
   // Волны
   private phase: WavePhase = 'countdown';
@@ -335,8 +310,6 @@ export class GameScene extends Phaser.Scene {
     this.merges = 0;
     this.sells = 0;
     this.mutationsPicked = 0;
-    this.placedAny = false;
-    this.rotateHinted = false;
     this.phase = 'countdown';
     this.phaseTimer = CONFIG.waves.firstDelaySec;
     this.waveIdx = 0;
@@ -657,9 +630,9 @@ export class GameScene extends Phaser.Scene {
     if (QA_MODE) qaLog(this, 'spawn', { id: born.id, kind, edge: edge.id });
     if (!this.introduced.includes(kind)) {
       this.introduced.push(kind);
-      const text = NEW_TYPE_TEXT[kind];
-      if (text) {
-        this.panel.news(t(text), NEW_TYPE_TOAST_MS);
+      if (kind !== 'coccus') {
+        // кокк выходит с первой волны; остальным при первом выходе — то же короткое уведомление, что и перед волной (без описания и советов)
+        this.panel.news(t('newBacteriaToast', { name: t(`bacName${kind.charAt(0).toUpperCase()}${kind.slice(1)}` as TextKey) }), NEW_TYPE_TOAST_MS);
         sfx.newType();
       }
     }
@@ -1197,7 +1170,7 @@ export class GameScene extends Phaser.Scene {
     this.updateHint();
   }
 
-  /** Нижняя подсказка: у новых башен — как они бьют; у таблетки и до первой башни — «выберите башню и тапните по клетке». */
+  /** Нижняя подсказка: только разовая подсказка о слиянии (решение владельца 18 октября 2026: во время партии игра не объясняет и не советует). */
   private updateHint(): void {
     if (this.mergeMode) {
       this.panel.setHint(null); // подсказка слияния — в узкой полосе карточки (иначе плашка над карточкой закрывала бы кандидатов)
@@ -1207,8 +1180,7 @@ export class GameScene extends Phaser.Scene {
     this.mergeHintTowers = this.mergeHintPair();
     for (const tower of this.towers) tower.setMergeCandidate(this.mergeHintTowers.includes(tower));
     const mergeLine = this.mergeHintTowers.length > 0 && !this.selectedTower ? t('hintMergePair') : null;
-    const info = this.selected ? this.towerInfo(this.selected) : null;
-    this.panel.setHint(info ?? mergeLine ?? (this.placedAny || this.selectedTower ? null : t('hintJunction')));
+    this.panel.setHint(mergeLine);
   }
 
   /** Первая пара одинаковых башен в радиусе слияния, пока игрок ни разу не включал «Слить» (запоминается как `h:merge` вместе с показанными уведомлениями); иначе пусто. */
@@ -1219,20 +1191,6 @@ export class GameScene extends Phaser.Scene {
       if (other) return [tower, other];
     }
     return [];
-  }
-
-  private towerInfo(id: TowerId): string | null {
-    const cfg = computeStats(id, 1, []);
-    if (id === 'syrup') return t('infoSyrup', { pct: Math.round((1 - cfg.slowFactor) * 100) });
-    if (id === 'fizz') return t('infoFizz');
-    if (id === 'syringe') return t('infoSyringe');
-    if (id === 'ampule') return t('infoAmpule');
-    if (id === 'antibiotic') return t('infoAntibiotic');
-    if (id === 'lamp') return t('infoLamp');
-    if (id === 'vitamin') return t('infoVitamin');
-    if (id === 'frost') return t('infoFrost', { n: num(Math.round(cfg.freezeSec * 10) / 10) });
-    if (id === 'patch') return t('infoPatch', { n: num(Math.round(cfg.trapSec * 10) / 10) });
-    return null;
   }
 
   /** Башня, стоящая в клетке (или null). */
@@ -1505,14 +1463,9 @@ export class GameScene extends Phaser.Scene {
     this.effects.placed(center.x, center.y);
     sfx.place();
     this.panel.setCoins(this.coins);
-    this.placedAny = true;
     this.updateHint();
     this.ghost.setVisible(false);
     this.refreshCard();
-    if (CONFIG.towers[id].targeting === 'beam' && !this.rotateHinted) {
-      this.rotateHinted = true;
-      this.panel.news(t('hintRotate'), 3200);
-    }
   }
 
   private deny(message: string): void {

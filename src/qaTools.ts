@@ -233,7 +233,6 @@ export function setupStress(s: GameSceneInternals): void {
     s.occupied.add(cellKey(col, row));
     s.towers.push(tower);
   }
-  s.placedAny = true;
   s.updateHint();
   refillStress(s, STRESS_BACTERIA);
 }
@@ -261,7 +260,6 @@ function setupStressFizz(s: GameSceneInternals, free: [number, number][]): void 
     s.occupied.add(cellKey(col, row));
     s.towers.push(tower);
   }
-  s.placedAny = true;
   s.updateHint();
   refillStress(s, STRESS_BACTERIA);
 }
