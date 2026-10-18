@@ -1,0 +1,148 @@
+From ee411079d2292b46d8c5029c9387ea9aaaed180a Mon Sep 17 00:00:00 2001
+From: Claude <335224071+Aurinox-eng@users.noreply.github.com>
+Date: Sun, 18 Oct 2026 07:10:15 +0000
+Subject: [PATCH 6/7] =?UTF-8?q?=D1=8D=D1=82=D0=B0=D0=BF=208,=20=D0=BF?=
+ =?UTF-8?q?=D0=B8=D0=BB=D0=BE=D1=82:=20=D1=83=D0=BF=D1=80=D0=BE=D1=89?=
+ =?UTF-8?q?=D1=91=D0=BD=D0=BD=D0=BE=D0=B5=20=D0=BB=D0=B8=D1=86=D0=BE=20?=
+ =?UTF-8?q?=D0=BA=D0=BE=D0=BA=D0=BA=D0=B0=20=D0=B4=D0=BB=D1=8F=20=D0=BC?=
+ =?UTF-8?q?=D0=B5=D0=BB=D0=BA=D0=BE=D0=B3=D0=BE=20=D1=80=D0=B0=D0=B7=D0=BC?=
+ =?UTF-8?q?=D0=B5=D1=80=D0=B0=20(=D1=80=D0=B0=D0=B4=D0=B8=D1=83=D1=81=2014?=
+ =?UTF-8?q?)=20=D0=BD=D0=B0=20=D0=BB=D0=B8=D1=81=D1=82=D0=B5=20=D0=BE?=
+ =?UTF-8?q?=D0=B1=D1=80=D0=B0=D0=B7=D1=86=D0=BE=D0=B2?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Глаза крупнее и дальше от центра, зрачки и обводка толще, без румянца, рот — одна дуга. На листе образцов рядом: лицо кокка и упрощённое лицо в размере роя и крупнее, прежний рисунок справа.
+
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01PRjKEBt45fDLH3kMXYShp6
+---
+ src/objects/Bacterium.ts |  4 ++--
+ src/objects/pilotArt.ts  | 31 +++++++++++++++++++++++++------
+ src/qaArtSheet.ts        | 17 ++++++++++-------
+ 3 files changed, 37 insertions(+), 15 deletions(-)
+
+diff --git a/src/objects/Bacterium.ts b/src/objects/Bacterium.ts
+index 56ce308..18aa55c 100644
+--- a/src/objects/Bacterium.ts
++++ b/src/objects/Bacterium.ts
+@@ -73,7 +73,7 @@ function cracksTexture(scene: Phaser.Scene, kind: BacteriumKind, damage: number,
+  * Образец бактерии для листа образцов режима проверки (`?qa&artsheet`): тело при заданном HP, трещины и (у пилотных видов) лицо; legacy — прежний рисунок пилотных видов.
+  * Центр образца — (0, 0); в игре не используется.
+  */
+-export function bacteriumSample(scene: Phaser.Scene, kind: BacteriumKind, hp: number, maxHp: number, legacy = false): Phaser.GameObjects.Container {
++export function bacteriumSample(scene: Phaser.Scene, kind: BacteriumKind, hp: number, maxHp: number, legacy = false, smallFace = false): Phaser.GameObjects.Container {
+   const pilot = !legacy && isPilotKind(kind);
+   const parts: Phaser.GameObjects.Image[] = [artImage(scene, bodyTexture(scene, kind, shellWidth(kind, hp), legacy), bodyBox(kind, legacy))];
+   const damage = crackCount(hp, maxHp);
+@@ -83,7 +83,7 @@ export function bacteriumSample(scene: Phaser.Scene, kind: BacteriumKind, hp: nu
+     if (hasRadialCracks(kind)) cracks.setRotation(1);
+     parts.push(cracks);
+   }
+-  if (pilot) parts.push(artImage(scene, pilotFaceKey(scene, kind as PilotKind, false), pilotFaceBox(kind as PilotKind)));
++  if (pilot) parts.push(artImage(scene, pilotFaceKey(scene, kind as PilotKind, false, smallFace), pilotFaceBox(kind as PilotKind)));
+   return scene.add.container(0, 0, parts);
+ }
+ 
+diff --git a/src/objects/pilotArt.ts b/src/objects/pilotArt.ts
+index ad21887..bcdc339 100644
+--- a/src/objects/pilotArt.ts
++++ b/src/objects/pilotArt.ts
+@@ -193,14 +193,14 @@ function ellipsePath(ctx: CanvasRenderingContext2D, x: number, y: number, rx: nu
+ }
+ 
+ /** Глаз: белок с лёгким переходом, зрачок со смещением, блик в зрачке. */
+-function eye(ctx: CanvasRenderingContext2D, cx: number, cy: number, rx: number, ry: number, pr: number, dir: number, stroke: string, pupil: string, white = '#ffffff'): void {
++function eye(ctx: CanvasRenderingContext2D, cx: number, cy: number, rx: number, ry: number, pr: number, dir: number, stroke: string, pupil: string, white = '#ffffff', line = 1.4): void {
+   const grad = ctx.createRadialGradient(cx - rx * 0.3, cy - ry * 0.4, 0, cx, cy, Math.max(rx, ry) * 1.1);
+   grad.addColorStop(0, white);
+   grad.addColorStop(1, '#d9e3f0');
+   ctx.fillStyle = grad;
+   ellipsePath(ctx, cx, cy, rx, ry);
+   ctx.fill();
+-  ctx.lineWidth = 1.4;
++  ctx.lineWidth = line;
+   ctx.strokeStyle = stroke;
+   ctx.stroke();
+   const px = cx + dir * rx * 0.14;
+@@ -227,14 +227,33 @@ function closedEye(ctx: CanvasRenderingContext2D, cx: number, cy: number, rx: nu
+   ctx.stroke();
+ }
+ 
+-/** Лицо: кокк — простодушное (круглые глаза, маленький рот), бронированная — тяжёлый взгляд из-под пластин, Гигант — злое (брови к переносице, зубы). Всегда вертикальное. */
+-function drawFaceCanvas(ctx: CanvasRenderingContext2D, kind: PilotKind, blink: boolean): void {
++/**
++ * Лицо: кокк — простодушное (круглые глаза, маленький рот), бронированная — тяжёлый взгляд из-под пластин, Гигант — злое (брови к переносице, зубы). Всегда вертикальное.
++ * `small` — упрощённое лицо кокка для мелкого размера (рой, радиус 14): глаза крупнее и дальше от центра, зрачки и обводка толще, румянца нет, рот — одна широкая дуга.
++ */
++function drawFaceCanvas(ctx: CanvasRenderingContext2D, kind: PilotKind, blink: boolean, small = false): void {
+   const r = CONFIG.types[kind].radius;
+   const col = COLORS.kinds[kind];
+   const ink = css(darken(col.shell, 0.65));
+   ctx.lineCap = 'round';
+   ctx.lineJoin = 'round';
+ 
++  if (kind === 'coccus' && small) {
++    const ex = r * 0.33;
++    const ey = -r * 0.1;
++    const sr = r * 0.27;
++    for (const s of [-1, 1] as const) {
++      if (blink) closedEye(ctx, s * ex, ey, sr * 0.9, r * 0.1, ink, true);
++      else eye(ctx, s * ex, ey, sr, sr * 1.04, r * 0.17, -s, ink, '#0c141c', '#ffffff', r * 0.09);
++    }
++    ctx.lineWidth = r * 0.09;
++    ctx.strokeStyle = ink;
++    ctx.beginPath();
++    ctx.arc(0, r * 0.26, r * 0.17, Math.PI * 0.12, Math.PI * 0.88);
++    ctx.stroke();
++    return;
++  }
++
+   if (kind === 'coccus') {
+     const ex = r * 0.3;
+     const ey = -r * 0.1;
+@@ -354,8 +373,8 @@ function drawFaceCanvas(ctx: CanvasRenderingContext2D, kind: PilotKind, blink: b
+ }
+ 
+ /** Картинка лица пилотного вида (открытые глаза или моргание): маленькая, поверх тела; одна на вид и кадр, на толщину оболочки не множится. */
+-export function pilotFaceKey(scene: Phaser.Scene, kind: PilotKind, blink: boolean): string {
+-  return bakeCanvasArt(scene, `pilot-face-${kind}-${blink ? 'b' : 'o'}`, pilotFaceBox(kind), (ctx) => drawFaceCanvas(ctx, kind, blink));
++export function pilotFaceKey(scene: Phaser.Scene, kind: PilotKind, blink: boolean, small = false): string {
++  return bakeCanvasArt(scene, `pilot-face-${kind}-${blink ? 'b' : 'o'}${small ? '-s' : ''}`, pilotFaceBox(kind), (ctx) => drawFaceCanvas(ctx, kind, blink, small));
+ }
+ 
+ // ---------------------------------------------------------------- движение на месте
+diff --git a/src/qaArtSheet.ts b/src/qaArtSheet.ts
+index d1fccc2..29c68b6 100644
+--- a/src/qaArtSheet.ts
++++ b/src/qaArtSheet.ts
+@@ -45,15 +45,18 @@ export class ArtSheetScene extends Phaser.Scene {
+       });
+     }
+ 
+-    // кокк в размере роя (радиус 14): читается ли лицо в мелком размере; рядом тот же кокк крупнее ×3 для сравнения с прежним
++    // кокк в размере роя (радиус 14): читается ли лицо в мелком размере; рядом упрощённое лицо для мелкого размера (глаза крупнее, зрачки и обводка толще, без румянца, рот — одна дуга);
++    // справа от каждого — тот же рисунок крупнее ×3 для рассмотрения; прежний рисунок — справа
+     const swarmScale = 14 / CONFIG.types.coccus.radius;
+-    label(110, 462, 'размер роя (радиус 14)', 13);
+-    for (const [x, old] of [[110, false], [300, false], [760, true]] as const) {
+-      const sample = bacteriumSample(this, 'coccus', 2, 2, old);
+-      sample.setPosition(x, 500).setScale(x === 300 ? swarmScale * 3 : swarmScale);
++    label(70, 464, 'кокк, радиус 14', 12);
++    label(195, 464, 'упрощённое лицо, радиус 14', 12);
++    label(345, 464, 'кокк, крупнее', 12);
++    label(500, 464, 'упрощённое лицо, крупнее', 12);
++    for (const [x, old, small, zoom] of [[70, false, false, 1], [195, false, true, 1], [345, false, false, 2.6], [500, false, true, 2.6], [760, true, false, 1]] as const) {
++      const sample = bacteriumSample(this, 'coccus', 2, 2, old, small);
++      sample.setPosition(x, zoom > 1 ? 510 : 500).setScale(swarmScale * zoom);
+     }
+-    label(300, 462, '×3 (для сравнения)', 13);
+-    label(760, 462, 'размер роя (радиус 14)', 13);
++    label(760, 464, 'прежний рисунок, радиус 14', 12);
+ 
+     // башни: новые с глазами и без, Сироп; справа прежние
+     label(W * 0.28, 556, 'Таблетка 1 ур. (глаза / без), Таблетка 4 ур. (глаза / без), Сироп 1 ур.', 14);
+-- 
+2.43.0
+

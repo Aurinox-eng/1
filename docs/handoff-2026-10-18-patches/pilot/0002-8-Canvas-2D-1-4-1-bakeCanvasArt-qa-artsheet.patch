@@ -1,25 +1,25 @@
-From 5a12b3f3a1ba899067e48caa5f11bf98291ebf37 Mon Sep 17 00:00:00 2001
+From 8445c0c2cdb2cd58b433aca7c49561bfd649f281 Mon Sep 17 00:00:00 2001
 From: Claude <335224071+Aurinox-eng@users.noreply.github.com>
 Date: Sat, 17 Oct 2026 18:46:18 +0000
-Subject: [PATCH] =?UTF-8?q?=D1=8D=D1=82=D0=B0=D0=BF=208,=20=D0=BF=D0=B8?=
- =?UTF-8?q?=D0=BB=D0=BE=D1=82:=20=D0=BD=D0=BE=D0=B2=D1=8B=D0=B9=20=D1=80?=
- =?UTF-8?q?=D0=B8=D1=81=D1=83=D0=BD=D0=BE=D0=BA=20=D0=BA=D0=BE=D0=BA=D0=BA?=
- =?UTF-8?q?=D0=B0,=20=D0=B1=D1=80=D0=BE=D0=BD=D0=B8=D1=80=D0=BE=D0=B2?=
- =?UTF-8?q?=D0=B0=D0=BD=D0=BD=D0=BE=D0=B9=20=D0=B8=20=D0=93=D0=B8=D0=B3?=
- =?UTF-8?q?=D0=B0=D0=BD=D1=82=D0=B0=20(Canvas=202D,=20=D0=BB=D0=B8=D1=86?=
- =?UTF-8?q?=D0=B0,=20=D0=B4=D1=8B=D1=85=D0=B0=D0=BD=D0=B8=D0=B5=20=D0=B8?=
- =?UTF-8?q?=20=D0=BC=D0=BE=D1=80=D0=B3=D0=B0=D0=BD=D0=B8=D0=B5),=20=D0=A2?=
- =?UTF-8?q?=D0=B0=D0=B1=D0=BB=D0=B5=D1=82=D0=BA=D0=B8=201=20=D0=B8=204=20?=
- =?UTF-8?q?=D1=83=D1=80=D0=BE=D0=B2=D0=BD=D1=8F=20=D0=B8=20=D0=A1=D0=B8?=
- =?UTF-8?q?=D1=80=D0=BE=D0=BF=D0=B0=201=20=D1=83=D1=80=D0=BE=D0=B2=D0=BD?=
- =?UTF-8?q?=D1=8F=20(=D0=BE=D0=B1=D1=8A=D1=91=D0=BC,=20=D0=B3=D0=BB=D0=B0?=
- =?UTF-8?q?=D0=B7=D0=B0,=20=D0=BE=D1=82=D0=B4=D0=B0=D1=87=D0=B0,=20=D0=BE?=
- =?UTF-8?q?=D0=B1=D0=BB=D0=B0=D1=87=D0=BA=D0=BE=20=D1=83=20=D0=B4=D1=83?=
- =?UTF-8?q?=D0=BB=D0=B0),=20bakeCanvasArt,=20=D0=BB=D0=B8=D1=81=D1=82=20?=
- =?UTF-8?q?=D0=BE=D0=B1=D1=80=D0=B0=D0=B7=D1=86=D0=BE=D0=B2=20=3Fqa&artshe?=
- =?UTF-8?q?et,=20=D1=81=D1=87=D1=91=D1=82=D1=87=D0=B8=D0=BA=20=D0=BF=D0=B0?=
- =?UTF-8?q?=D0=BC=D1=8F=D1=82=D0=B8=20=D0=BA=D0=B0=D1=80=D1=82=D0=B8=D0=BD?=
- =?UTF-8?q?=D0=BE=D0=BA?=
+Subject: [PATCH 2/7] =?UTF-8?q?=D1=8D=D1=82=D0=B0=D0=BF=208,=20=D0=BF?=
+ =?UTF-8?q?=D0=B8=D0=BB=D0=BE=D1=82:=20=D0=BD=D0=BE=D0=B2=D1=8B=D0=B9=20?=
+ =?UTF-8?q?=D1=80=D0=B8=D1=81=D1=83=D0=BD=D0=BE=D0=BA=20=D0=BA=D0=BE=D0=BA?=
+ =?UTF-8?q?=D0=BA=D0=B0,=20=D0=B1=D1=80=D0=BE=D0=BD=D0=B8=D1=80=D0=BE?=
+ =?UTF-8?q?=D0=B2=D0=B0=D0=BD=D0=BD=D0=BE=D0=B9=20=D0=B8=20=D0=93=D0=B8?=
+ =?UTF-8?q?=D0=B3=D0=B0=D0=BD=D1=82=D0=B0=20(Canvas=202D,=20=D0=BB=D0=B8?=
+ =?UTF-8?q?=D1=86=D0=B0,=20=D0=B4=D1=8B=D1=85=D0=B0=D0=BD=D0=B8=D0=B5=20?=
+ =?UTF-8?q?=D0=B8=20=D0=BC=D0=BE=D1=80=D0=B3=D0=B0=D0=BD=D0=B8=D0=B5),=20?=
+ =?UTF-8?q?=D0=A2=D0=B0=D0=B1=D0=BB=D0=B5=D1=82=D0=BA=D0=B8=201=20=D0=B8?=
+ =?UTF-8?q?=204=20=D1=83=D1=80=D0=BE=D0=B2=D0=BD=D1=8F=20=D0=B8=20=D0=A1?=
+ =?UTF-8?q?=D0=B8=D1=80=D0=BE=D0=BF=D0=B0=201=20=D1=83=D1=80=D0=BE=D0=B2?=
+ =?UTF-8?q?=D0=BD=D1=8F=20(=D0=BE=D0=B1=D1=8A=D1=91=D0=BC,=20=D0=B3=D0=BB?=
+ =?UTF-8?q?=D0=B0=D0=B7=D0=B0,=20=D0=BE=D1=82=D0=B4=D0=B0=D1=87=D0=B0,=20?=
+ =?UTF-8?q?=D0=BE=D0=B1=D0=BB=D0=B0=D1=87=D0=BA=D0=BE=20=D1=83=20=D0=B4?=
+ =?UTF-8?q?=D1=83=D0=BB=D0=B0),=20bakeCanvasArt,=20=D0=BB=D0=B8=D1=81?=
+ =?UTF-8?q?=D1=82=20=D0=BE=D0=B1=D1=80=D0=B0=D0=B7=D1=86=D0=BE=D0=B2=20=3F?=
+ =?UTF-8?q?qa&artsheet,=20=D1=81=D1=87=D1=91=D1=82=D1=87=D0=B8=D0=BA=20?=
+ =?UTF-8?q?=D0=BF=D0=B0=D0=BC=D1=8F=D1=82=D0=B8=20=D0=BA=D0=B0=D1=80=D1=82?=
+ =?UTF-8?q?=D0=B8=D0=BD=D0=BE=D0=BA?=
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
 Content-Transfer-Encoding: 8bit
@@ -1423,7 +1423,7 @@ index 5041414..6f809c7 100644
      const g = this.add.graphics();
      drawBody(g, kind, { hp, maxHp: hp, spread: 0, seed: 1 });
 diff --git a/src/scenes/GameScene.ts b/src/scenes/GameScene.ts
-index 5a40cf4..be11fae 100644
+index 115acb2..c47894c 100644
 --- a/src/scenes/GameScene.ts
 +++ b/src/scenes/GameScene.ts
 @@ -19,7 +19,7 @@ import { Cloud } from '../objects/Cloud';
@@ -1435,7 +1435,7 @@ index 5a40cf4..be11fae 100644
  import { pointAt, tileCenter, unitCenter, type Edge } from '../pathing';
  import { sfx } from '../sound';
  import { computeStats, MAX_TOWER_LEVEL, mutationOptions, towerPrice, type TowerStats } from '../towerStats';
-@@ -430,6 +430,7 @@ export class GameScene extends Phaser.Scene {
+@@ -403,6 +403,7 @@ export class GameScene extends Phaser.Scene {
        }),
        gameToClient: (gx, gy) => this.gameToClient(gx, gy),
        placeTower: (id, col, row, level) => placeTowerQa(this, id as TowerId, col, row, level),
@@ -1443,7 +1443,7 @@ index 5a40cf4..be11fae 100644
        getPerf: (reset) => {
          let objects = 0;
          const count = (list: Phaser.GameObjects.GameObject[]): void => {
-@@ -719,6 +720,8 @@ export class GameScene extends Phaser.Scene {
+@@ -692,6 +693,8 @@ export class GameScene extends Phaser.Scene {
      }
      this.shots++;
      sfx.shoot(tower.id);
