@@ -341,6 +341,7 @@ export class UpgradesScene extends Phaser.Scene {
           open: isNodeOpen(nid),
           onScreen: y - NODE_R >= VIEW.y && y + NODE_R <= VIEW.y + VIEW.h,
           rect: { x, y, w: NODE_R * 2, h: NODE_R * 2 },
+          label: this.labelRect(nid, x, y),
           recommended: recommendedIds().includes(nid),
         };
       }),
@@ -352,6 +353,14 @@ export class UpgradesScene extends Phaser.Scene {
       },
       play: { x: PLAY.x, y: PLAY.y, w: PLAY.w, h: PLAY.h },
     };
+  }
+
+  /** Где на экране подпись узла (название под кружком): центр и размер текста. */
+  private labelRect(id: UpgradeId, x: number, y: number): { x: number; y: number; w: number; h: number } {
+    const label = this.nodes.find((n) => n.id === id)?.label;
+    const w = label?.displayWidth ?? 0;
+    const h = label?.displayHeight ?? 0;
+    return { x, y: y + NODE_R + 6 + h / 2, w, h };
   }
 
   /** Тексты карточки помещаются: название — не выше уровня, описание и условие — выше кнопки покупки, надпись кнопки — по её ширине. */

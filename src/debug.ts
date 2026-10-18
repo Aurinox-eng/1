@@ -77,6 +77,10 @@ export interface DebugSnapshot {
   plannedTotal: number;
   /** Суммарная прочность (HP из таблицы типов, без роста по волнам) всех бактерий уровня. */
   plannedHp: number;
+  /** Фаза волны (`countdown`, `spawning`, `waiting`…), сколько бактерий текущей волны уже вышло и сколько выйдет всего: бот по ним отличает «поле пусто, потому что волна кончилась» от «ещё не вышли». */
+  wavePhase: string;
+  waveSpawned: number;
+  waveCount: number;
   /** Первая волна каждого типа по составу волн уровня (с единицы): расписание выхода типов. */
   firstWaves: Record<string, number>;
   spawned: number;
@@ -95,7 +99,7 @@ export interface DebugSnapshot {
   splits: number;
   disables: number;
   slows: number;
-  /** Сколько раз Антибиотик отравил бактерию, сколько ударов поглотил фагоцит, сколько прыжков сделали прыгуны (за партию). */
+  /** Сколько раз Антибиотик отравил бактерию, сколько ударов поглотил поглотитель, сколько прыжков сделали прыгуны (за партию). */
   poisons: number;
   absorbs: number;
   leaps: number;
@@ -222,7 +226,7 @@ export interface DebugSnapshot {
     /** Подсвечена ли скрытная бактерия Лампой (башни видят её на полном радиусе). */
     lit: boolean;
     remaining: number;
-    /** Яд: сколько секунд ещё идёт (0 — не отравлена); фагоцит: ударов было и поглощено; прыгун: прыжков сделано. */
+    /** Яд: сколько секунд ещё идёт (0 — не отравлена); поглотитель: ударов было и поглощено; прыгун: прыжков сделано. */
     poisonLeft: number;
     hits: number;
     absorbed: number;
@@ -255,6 +259,8 @@ export interface DebugSnapshot {
       rotateLeft: { x: number; y: number; w: number; h: number; visible: boolean };
       rotateRight: { x: number; y: number; w: number; h: number; visible: boolean };
       close: { x: number; y: number; w: number; h: number };
+      /** Что написано на карточке: строки чисел башни, строка выбранных мутаций и тексты вариантов мутации, ожидающей выбора («название — описание»). */
+      lines: { stats: string[]; mutations: string; pending: string[] };
     };
     lives: number;
     /** Что написано в окошке жизней верхней полосы («18 / 20»). */
@@ -291,6 +297,8 @@ export interface DebugApi {
   cellToClient: (col: number, row: number) => { x: number; y: number };
   /** Сдвинуть список башен в нижней панели так, чтобы карточка этой башни была видна (проверки и бот нажимают на карточки по координатам). */
   revealTower: (id: string) => void;
+  /** Только проверки: поднять башню в клетке на уровень выше и добавить ей мутации `picks` (как при слиянии, когда мутации сливаемой башни переходят к новой). */
+  upgradeTower: (col: number, row: number, picks: string[]) => boolean;
   /** Замер скорости с последнего сброса (reset — начать заново) и сколько объектов сейчас рисуется. */
   /** Журнал событий игры (с номера `from`): см. QaEvent. Сбрасывается при перезапуске уровня. */
   getEvents: (from?: number) => QaEvent[];

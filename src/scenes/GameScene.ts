@@ -22,7 +22,7 @@ import { beamReach, createTowerArt, defaultAim, drawAimLine, Tower, type TowerId
 import { ringImage } from '../art';
 import { pointAt, tileCenter, unitCenter, type Edge } from '../pathing';
 import { sfx } from '../sound';
-import { computeStats, MAX_TOWER_LEVEL, mutationOptions, towerPrice, type TowerStats } from '../towerStats';
+import { computeStats, MAX_TOWER_LEVEL, mutationById, mutationOptions, mutationStacks, towerPrice, type TowerStats } from '../towerStats';
 import { COLORS, FONT, TEXT_COLORS } from '../theme';
 import { FPS_ENABLED, FpsMeter, frameReport, installFrameStats } from '../perf';
 import { Panel, VIEW } from '../ui/Panel';
@@ -111,7 +111,7 @@ export class GameScene extends Phaser.Scene {
   private leaked = 0;
   private shots = 0;
   private slows = 0;
-  /** Сколько раз Антибиотик отравил бактерию, сколько ударов поглотил фагоцит и сколько прыжков сделали прыгуны (за партию). */
+  /** Сколько раз Антибиотик отравил бактерию, сколько ударов поглотил поглотитель и сколько прыжков сделали прыгуны (за партию). */
   private poisons = 0;
   private absorbs = 0;
   private leaps = 0;
@@ -145,6 +145,8 @@ export class GameScene extends Phaser.Scene {
   private threads!: Phaser.GameObjects.Graphics;
   /** Какой множитель паузы от паразита показан в карточке выбранной башни (если изменился — карточка перерисовывается). */
   private cardLatch = 1;
+  /** Множитель паузы от ауры Витамина, с которым нарисована карточка (чтобы перерисовать её, когда он изменился). */
+  private cardAura = 1;
   private bursts: BeamBurst[] = [];
   private chains: ChainBlast[] = [];
   /** Занятые клетки (ключ «колонка,ряд»). */
@@ -270,6 +272,7 @@ export class GameScene extends Phaser.Scene {
     this.trapsMade = 0;
     this.latches = 0;
     this.cardLatch = 1;
+    this.cardAura = 1;
     this.spawned = 0;
     this.lifePool = 0;
     this.shieldLeft = shieldCharges();
@@ -431,6 +434,13 @@ export class GameScene extends Phaser.Scene {
         return this.gameToClient(s.x, s.y);
       },
       revealTower: (id) => this.panel.revealTower(id as TowerId),
+      upgradeTower: (col, row, picks) => {
+        const tower = this.towers.find((tw) => tw.col === col && tw.row === row);
+        if (!tower) return false;
+        tower.upgrade(picks);
+        if (this.selectedTower === tower) this.refreshCard();
+        return true;
+      },
     });
   }
 
@@ -777,6 +787,8 @@ export class GameScene extends Phaser.Scene {
       }
       tower.auraMul = mul;
     }
+    // Карточка выбранной башни показывает урон в секунду с учётом ауры: перерисовать, когда она изменилась
+    if (this.selectedTower && this.selectedTower.auraMul !== this.cardAura) this.refreshCard();
   }
 
   /** Паразиты: подойдя ближе latchRadius к башне, паразит присасывается к ближайшей и держится, пока жив и не дошёл до организма (исчезнувшую башню меняет на другую); пауза присосанной башни ×latchMul
@@ -904,7 +916,7 @@ export class GameScene extends Phaser.Scene {
       if (mother.brewClock < brewEverySec) continue;
       mother.brewClock -= brewEverySec;
       for (let i = 0; i < brewCount; i++) {
-        const child = new Bacterium(this, this.bacteriaLayer, BREWS_INTO, mother.edge, mother.s, this.waveHpMul());
+        const child = new Bacterium(this, this.bacteriaLayer, BREWS_INTO, mother.edge, mother.s, mother.hpMul);
         child.moveForward(i * CONFIG.types[BREWS_INTO].radius * 2);
         this.bacteria.push(child);
       }
@@ -957,7 +969,7 @@ export class GameScene extends Phaser.Scene {
     const killed = bacterium.hit(damage, st.armorPierce);
     if (memoryMul > 0 && !killed && !bacterium.justAbsorbed) bacterium.remember(st.towerId);
     if (bacterium.justAbsorbed) {
-      // Фагоцит поглотил удар: урона нет (вспышку «поглощено» рисует сама бактерия), числа не показываем
+      // Поглотитель поглотил удар: урона нет (вспышку «поглощено» рисует сама бактерия), числа не показываем
       this.absorbs++;
       if (!quiet) sfx.hit('armored');
       return false;
@@ -1083,7 +1095,7 @@ export class GameScene extends Phaser.Scene {
     this.splits++;
     sfx.split();
     for (let i = 0; i < splitCount; i++) {
-      const child = new Bacterium(this, this.bacteriaLayer, SPLITS_INTO, parent.edge, parent.s, this.waveHpMul());
+      const child = new Bacterium(this, this.bacteriaLayer, SPLITS_INTO, parent.edge, parent.s, parent.hpMul);
       child.moveForward(i * splitGapPx);
       this.bacteria.push(child);
     }
@@ -1382,10 +1394,20 @@ export class GameScene extends Phaser.Scene {
     this.refreshCard();
   }
 
-  /** Урон в секунду одной цели: удар (у луча — очередь ударов, у «Двойного выстрела» — все цели) делится на паузу между выстрелами. */
-  private dps(st: TowerStats): number {
-    const hits = st.targeting === 'beam' ? Math.max(1, st.beamPulses) * (st.secondBeam ? 2 : 1) : 1 + st.extraTargets;
-    return (st.damage * hits) / (st.cooldownMs / 1000);
+  /**
+   * Урон в секунду по одной цели, как в бою: у луча — вся очередь по цели на линии («Спираль» делает каждый следующий удар сильнее на `spiral` × множитель урона уровня башни,
+   * как в `beamPulse`), у остальных — один удар; делится на настоящую паузу между выстрелами (с аурой Витамина рядом и присосавшимся паразитом, как в `Tower.update`).
+   * Вторая цель «Двойного выстрела» и второй луч в число не входят: это другие цели.
+   */
+  private dps(tower: Tower): number {
+    const st = tower.stats;
+    let perShot = st.damage;
+    if (st.targeting === 'beam') {
+      const pulses = Math.max(1, st.beamPulses);
+      const step = st.spiral * CONFIG.towerLevels[Math.min(tower.level, CONFIG.towerLevels.length) - 1].damageMul;
+      perShot = pulses * st.damage + (step * pulses * (pulses - 1)) / 2;
+    }
+    return perShot / ((st.cooldownMs / 1000) * tower.auraMul * tower.latchMul);
   }
 
   /** Числа для карточки: у каждой башни свои три строки. */
@@ -1395,9 +1417,9 @@ export class GameScene extends Phaser.Scene {
     // Присосавшийся паразит удлиняет паузу: показываем уже удлинённую и пометку
     const pause = tower.latchMul > 1 ? t('statCooldownLatched', { n: n((st.cooldownMs / 1000) * tower.latchMul), m: num(tower.latchMul) }) : t('statCooldown', { n: n(st.cooldownMs / 1000) });
     if (st.targeting === 'puddle') return [t('statPuddle', { r: Math.round(st.puddleRadius), s: n(st.puddleSec) }), t('statSlow', { n: n(st.slowFactor) }), pause];
-    if (st.targeting === 'beam') return [t('statDps', { n: n(this.dps(st)) }), t(st.secondBeam ? 'statBeams' : 'statBeam', { n: st.secondBeam ? 2 : st.beamPulses }), pause];
-    if (st.targeting === 'area') return [t('statDps', { n: n(this.dps(st)) }), t('statBlast', { r: Math.round(st.blastRadius) }), pause];
-    if (st.targeting === 'cone') return [t('statDps', { n: n(this.dps(st)) }), t('statCone', { a: Math.round(st.coneDeg), r: Math.round(st.range) }), pause];
+    if (st.targeting === 'beam') return [t('statDps', { n: n(this.dps(tower)) }), t(st.secondBeam ? 'statBeams' : 'statBeam', { n: st.secondBeam ? 2 : st.beamPulses }), pause];
+    if (st.targeting === 'area') return [t('statDps', { n: n(this.dps(tower)) }), t('statBlast', { r: Math.round(st.blastRadius) }), pause];
+    if (st.targeting === 'cone') return [t('statDps', { n: n(this.dps(tower)) }), t('statCone', { a: Math.round(st.coneDeg), r: Math.round(st.range) }), pause];
     if (st.targeting === 'aura') {
       const aura = tower.latchMul > 1 ? 1 - (1 - st.auraMul) / tower.latchMul : st.auraMul;
       return [t(tower.latchMul > 1 ? 'statAuraLatched' : 'statAura', { n: num(Math.round(aura * 100) / 100) }), t('statRange', { n: Math.round(st.range) })];
@@ -1405,7 +1427,7 @@ export class GameScene extends Phaser.Scene {
     if (st.targeting === 'freeze') return [t('statFreeze', { n: n(st.freezeSec) }), pause, t('statRange', { n: Math.round(st.range) })];
     if (st.targeting === 'trap') return [t('statTrap', { s: n(st.trapSec), n: n(st.trapDps) }), pause, t('statRange', { n: Math.round(st.range) })];
     if (st.targeting === 'poison') return [t('statPoison', { n: n(st.dotPerSec), s: n(st.dotSec) }), pause, t('statRange', { n: Math.round(st.range) })];
-    return [t('statDps', { n: n(this.dps(st)) }), pause, t('statRange', { n: Math.round(st.range) })];
+    return [t('statDps', { n: n(this.dps(tower)) }), pause, t('statRange', { n: Math.round(st.range) })];
   }
 
   /** Перерисовать карточку выбранной башни (или скрыть, если башня не выбрана). */
@@ -1418,9 +1440,15 @@ export class GameScene extends Phaser.Scene {
     }
     const label = (id: string): { name: string; desc: string } => {
       const key = id.charAt(0).toUpperCase() + id.slice(1);
-      return { name: t(`mut${key}` as TextKey), desc: t(`mutd${key}` as TextKey) };
+      // «Спираль»: прибавка к удару зависит от уровня башни (spiral × множитель урона уровня, как в `beamPulse`) — в описании стоит число, которое будет в бою
+      const spiral = mutationById(tower.id, id)?.spiral;
+      const desc = spiral
+        ? t(`mutd${key}` as TextKey, { n: num(Math.round(spiral * CONFIG.towerLevels[Math.min(tower.level, CONFIG.towerLevels.length) - 1].damageMul * 10) / 10) })
+        : t(`mutd${key}` as TextKey);
+      return { name: t(`mut${key}` as TextKey), desc };
     };
     this.cardLatch = tower.latchMul;
+    this.cardAura = tower.auraMul;
     const tier = tower.pendingTier;
     const merge = tower.level >= MAX_TOWER_LEVEL ? 'max' : this.mergeMode ? 'active' : this.mergeCandidates(tower).length > 0 ? 'ready' : 'none';
     this.panel.showCard({
@@ -1432,7 +1460,7 @@ export class GameScene extends Phaser.Scene {
       pending: tier === null ? null : mutationOptions(tower.id, tier).map((m) => label(m.id)),
       picked: [...new Map(tower.picks.map((id) => [id, tower.picks.filter((p) => p === id).length] as const))].map(([id, n]) => {
         const l = label(id);
-        return n > 1 ? { ...l, name: `${l.name} ×${n}` } : l;
+        return n > 1 && mutationStacks(tower.id, id) ? { ...l, name: `${l.name} ×${n}` } : l;
       }),
       beam: tower.isBeam,
       merge,
@@ -1673,7 +1701,8 @@ export class GameScene extends Phaser.Scene {
       const parts = dnaParts(cleared, won, this.dnaReplay, coinsLeft);
       this.dnaGained = awardDna(cleared, won, this.dnaReplay, coinsLeft);
       // Звёзды по потерянным жизням (docs/stage-5-plan.md, раздел 4) и лучшая волна уровня; за новые звёзды — очки ДНК
-      this.stars = won ? starsForLoss(Math.max(0, this.maxLives() - this.lives) + this.shieldAbsorbed) : 0;
+      // Потеря = целые списанные жизни + накопленный дробной остаток (рой отнимает по 0,25) + погашенное щитом: дробные потери учитываются как есть (config.ts, levels.stars)
+      this.stars = won ? starsForLoss(Math.max(0, this.maxLives() - this.lives) + this.lifePool + this.shieldAbsorbed) : 0;
       this.starDna = recordResult(currentLevel(), cleared, this.stars).starDna;
       this.dnaParts = { ...parts, stars: this.starDna };
       this.coinsLeft = coinsLeft;

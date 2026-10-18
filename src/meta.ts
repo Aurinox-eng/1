@@ -287,7 +287,7 @@ export interface MetaScreenInfo {
   selected: string;
   scroll: number;
   view: Rect;
-  nodes: { id: UpgradeId; level: number; max: number; price: number | null; canBuy: boolean; open: boolean; onScreen: boolean; rect: Rect; recommended: boolean }[];
+  nodes: { id: UpgradeId; level: number; max: number; price: number | null; canBuy: boolean; open: boolean; onScreen: boolean; rect: Rect; /** Подпись под кружком (название узла): центр и размер на экране игры. */ label: Rect; recommended: boolean }[];
   /** Карточка выбранного узла: тексты (название, уровень, что даст дальше, условие, кнопка), кнопка покупки, помещаются ли тексты. */
   detail: { texts: string[]; buy: Rect; fits: boolean; /** «★ рекомендуем» у узла с меткой (иначе пусто). */ hint: string } | null;
   play: Rect | null;

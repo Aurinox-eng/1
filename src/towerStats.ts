@@ -80,6 +80,15 @@ export function mutationById(id: TowerKey, pickId: string): MutationSpec | undef
   return undefined;
 }
 
+/** Особые мутации-«включатели» (бронебойность, второй луч, цепной взрыв, самая прочная цель) работают один раз: второй такой же выбор ничего не добавляет. */
+const ONCE_ONLY_FLAGS: ReadonlySet<string> = new Set(['id', 'armorPierce', 'secondBeam', 'chain', 'toughest']);
+
+/** Прибавляет ли ещё один экземпляр мутации что-нибудь: false, если в её описании только флаги из `ONCE_ONLY_FLAGS` (на карточке такой выбор показывается без «×N»). */
+export function mutationStacks(id: TowerKey, pickId: string): boolean {
+  const spec = mutationById(id, pickId);
+  return Boolean(spec) && Object.keys(spec as MutationSpec).some((key) => !ONCE_ONLY_FLAGS.has(key));
+}
+
 /** Сколько порогов мутаций башня этого уровня уже достигла. */
 export function unlockedTiers(level: number): number {
   return CONFIG.mutationLevels.filter((l) => level >= l).length;
