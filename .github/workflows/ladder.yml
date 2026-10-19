@@ -66,6 +66,10 @@ on:
         description: 'Номер прогона (run id), из вложений которого берётся состояние дорожек при from_level больше 1 (его дорожки должны быть теми же профилем и номерами)'
         type: string
         default: ''
+      norender:
+        description: '1 — бот без рисования сцены (≈ ×3–5 быстрее, волны гибели совпадают с рисованием — сверка 19 октября 2026); 0 — с рисованием'
+        type: string
+        default: '1'
       max_parallel:
         description: 'Сколько дорожек одной серии идёт одновременно (по умолчанию 7). На аккаунте 20 мест на все задачи: две серии по 7 дорожек занимают 14, и для проверок (smoke) остаётся не меньше 6; больше двух серий одновременно не запускать'
         type: string
@@ -149,6 +153,7 @@ jobs:
       chunked: ${{ needs.plan.outputs.chunked }}
       budget_sec: ${{ inputs.budget_sec || '19800' }}
       max_parallel: ${{ needs.plan.outputs.max_parallel }}
+      norender: ${{ inputs.norender || '1' }}
 
   l02:
     name: Уровень 2
@@ -171,6 +176,7 @@ jobs:
       chunked: ${{ needs.plan.outputs.chunked }}
       budget_sec: ${{ inputs.budget_sec || '19800' }}
       max_parallel: ${{ needs.plan.outputs.max_parallel }}
+      norender: ${{ inputs.norender || '1' }}
 
   l03:
     name: Уровень 3
@@ -193,6 +199,7 @@ jobs:
       chunked: ${{ needs.plan.outputs.chunked }}
       budget_sec: ${{ inputs.budget_sec || '19800' }}
       max_parallel: ${{ needs.plan.outputs.max_parallel }}
+      norender: ${{ inputs.norender || '1' }}
 
   l04:
     name: Уровень 4
@@ -215,6 +222,7 @@ jobs:
       chunked: ${{ needs.plan.outputs.chunked }}
       budget_sec: ${{ inputs.budget_sec || '19800' }}
       max_parallel: ${{ needs.plan.outputs.max_parallel }}
+      norender: ${{ inputs.norender || '1' }}
 
   l05:
     name: Уровень 5
@@ -237,6 +245,7 @@ jobs:
       chunked: ${{ needs.plan.outputs.chunked }}
       budget_sec: ${{ inputs.budget_sec || '19800' }}
       max_parallel: ${{ needs.plan.outputs.max_parallel }}
+      norender: ${{ inputs.norender || '1' }}
 
   l06:
     name: Уровень 6
@@ -259,6 +268,7 @@ jobs:
       chunked: ${{ needs.plan.outputs.chunked }}
       budget_sec: ${{ inputs.budget_sec || '19800' }}
       max_parallel: ${{ needs.plan.outputs.max_parallel }}
+      norender: ${{ inputs.norender || '1' }}
 
   l07:
     name: Уровень 7
@@ -281,6 +291,7 @@ jobs:
       chunked: ${{ needs.plan.outputs.chunked }}
       budget_sec: ${{ inputs.budget_sec || '19800' }}
       max_parallel: ${{ needs.plan.outputs.max_parallel }}
+      norender: ${{ inputs.norender || '1' }}
 
   l08:
     name: Уровень 8
@@ -303,6 +314,7 @@ jobs:
       chunked: ${{ needs.plan.outputs.chunked }}
       budget_sec: ${{ inputs.budget_sec || '19800' }}
       max_parallel: ${{ needs.plan.outputs.max_parallel }}
+      norender: ${{ inputs.norender || '1' }}
 
   l09:
     name: Уровень 9
@@ -325,6 +337,7 @@ jobs:
       chunked: ${{ needs.plan.outputs.chunked }}
       budget_sec: ${{ inputs.budget_sec || '19800' }}
       max_parallel: ${{ needs.plan.outputs.max_parallel }}
+      norender: ${{ inputs.norender || '1' }}
 
   l10:
     name: Уровень 10
@@ -347,6 +360,7 @@ jobs:
       chunked: ${{ needs.plan.outputs.chunked }}
       budget_sec: ${{ inputs.budget_sec || '19800' }}
       max_parallel: ${{ needs.plan.outputs.max_parallel }}
+      norender: ${{ inputs.norender || '1' }}
 
   report:
     name: Итоговая таблица

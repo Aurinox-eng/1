@@ -42,6 +42,9 @@ export const STRESS_FIZZ: boolean = STRESS && params.get('stress') === 'fizz';
 /** Вход (номер ребра), по которому выходят ВСЕ бактерии волн (только вместе с ?qa&entrance=N); null — вход случайный, как в игре. */
 export const QA_ENTRANCE: number | null = QA_MODE && params.has('entrance') && Number.isFinite(Number(params.get('entrance'))) ? Number(params.get('entrance')) : null;
 
+/** `?qa&norender` — сцена партии не рисуется, цикл кадров идёт по таймеру: боты идут в 3–5 раз быстрее (ответ владельца 12, сверка с рисованием 19 октября 2026 — docs/process-speedup-2026-10-18.md, раздел 4.3). */
+export const QA_NORENDER: boolean = QA_MODE && params.has('norender');
+
 /** Множитель игрового времени (1 = обычная скорость). Работает только вместе с ?qa. */
 export const TIME_SCALE: number = QA_MODE ? Math.min(10, Math.max(0.1, Number(params.get('speed')) || 1)) : 1;
 

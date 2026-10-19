@@ -214,6 +214,7 @@ const HELP = `Бот-замерщик баланса: играет целые п
                                         1 — прежний: с 8-й волны, а обычное правило «Лампа на каждые 4 Таблетки» работает с самого начала;
                                         veteran («опытный») — Лампы не покупаются, пока до выхода скрытных больше 3 волн; с (волна выхода − 3)-й волны идут вне очереди;
                                         first («первая встреча») — Лампы не покупаются, пока не вышла первая скрытная (её плашка); потом вне очереди
+  --norender                            не рисовать сцену партии (?qa&norender), цикл кадров по таймеру: в 3–5 раз быстрее, волны гибели те же (сверка 19 октября 2026)
   --canvas                              рисовать игру через canvas вместо WebGL (?qa&canvas): на слабом контейнере партия идёт ≈ втрое быстрее.
                                         Логика игры та же; для замеров баланса годится (картинка не важна)
   --help                                эта справка
@@ -229,7 +230,7 @@ if (args.help || args.h) {
   console.log(HELP);
   process.exit(0);
 }
-const KNOWN = new Set(['profile', 'runs', 'speed', 'exclude', 'cfg', 'tag', 'seed', 'max-game-sec', 'max-real-sec', 'verbose', 'shots', 'canvas', 'level', 'meta', 'campaign', 'ladder', 'ladder-total', 'ladder-budget-sec', 'ladder-last', 'from-level', 'to-level', 'state-in', 'state-out', 'run-offset', 'solo', 'lamps', 'farm', 'help']);
+const KNOWN = new Set(['profile', 'runs', 'speed', 'exclude', 'cfg', 'tag', 'seed', 'max-game-sec', 'max-real-sec', 'verbose', 'shots', 'canvas', 'norender', 'level', 'meta', 'campaign', 'ladder', 'ladder-total', 'ladder-budget-sec', 'ladder-last', 'from-level', 'to-level', 'state-in', 'state-out', 'run-offset', 'solo', 'lamps', 'farm', 'help']);
 for (const key of Object.keys(args)) if (!KNOWN.has(key)) die(`Неизвестный параметр --${key}. Справка: node qa/bot.mjs --help`);
 
 function numArg(name, fallback, { min = -Infinity, max = Infinity, int = false } = {}) {
@@ -1019,7 +1020,7 @@ async function playGame(browser, baseUrl, profile, run, metaLevels = null, salt 
   let levelGrowth = null;
   const realStart = Date.now();
   try {
-    await page.goto(`${baseUrl}?qa&speed=${SPEED}${args.canvas ? '&canvas' : ''}${CFG_STRING ? `&cfg=${CFG_STRING}` : ''}&level=${level}${level > 1 ? '&levelwaves' : ''}${metaLevels ? `&meta=${Object.entries(metaLevels).map(([id, n]) => `${id}:${n}`).join(',')}` : ''}${extraQuery}`, { waitUntil: 'load' });
+    await page.goto(`${baseUrl}?qa&speed=${SPEED}${args.canvas ? '&canvas' : ''}${args.norender ? '&norender' : ''}${CFG_STRING ? `&cfg=${CFG_STRING}` : ''}&level=${level}${level > 1 ? '&levelwaves' : ''}${metaLevels ? `&meta=${Object.entries(metaLevels).map(([id, n]) => `${id}:${n}`).join(',')}` : ''}${extraQuery}`, { waitUntil: 'load' });
     // В начале уровня игра сама встаёт на паузу и показывает плашки (башни уровня и бактерии 1-й волны): state 'info'. Бот закрывает их тапом (раньше 0,4 с после показа плашка тап не принимает)
     let s = await pollUntil(page, (x) => x && (x.state === 'playing' || x.state === 'info'), 20000, 100);
     checkConsole();
@@ -1429,6 +1430,8 @@ async function playGame(browser, baseUrl, profile, run, metaLevels = null, salt 
       maxOnMap,
       gameSec: Math.round(last.elapsed * 10) / 10,
       realSec: Math.round((Date.now() - realStart) / 100) / 10,
+      frames: last.clock?.frames ?? null, // кадров игры за партию (кадров в секунду = frames / realSec)
+      norender: Boolean(args.norender),
       timeline,
       merges: record.merges,
       mergeMisses: record.mergeMisses,
@@ -1456,7 +1459,7 @@ function gameLine(g, runs) {
   if (g.result === 'error') return `${head} ОШИБКА: ${g.error}`;
   const towers = KNOWN_TOWERS.map((id) => `${SHORT[id] ?? id} ${g.towers[id]}`).join(' ');
   const merged = g.merges || g.mergeMisses || g.picks ? ` · слияний ${g.merges} (мимо ${g.mergeMisses ?? 0}), мутаций ${g.picks}` : '';
-  return `${head} ${RESULT_RU[g.result]} · волна ${g.wave}/${g.waveTotal} · жизни ${g.lives}/${g.maxLives} · убито ${g.kills}, дошло ${g.leaked} · монеты ${g.coins} · башни ${towers}${merged} · игра ${f1(g.gameSec)} с · реал. ${f1(g.realSec)} с`;
+  return `${head} ${RESULT_RU[g.result]} · волна ${g.wave}/${g.waveTotal} · жизни ${g.lives}/${g.maxLives} · убито ${g.kills}, дошло ${g.leaked} · монеты ${g.coins} · башни ${towers}${merged} · игра ${f1(g.gameSec)} с · реал. ${f1(g.realSec)} с${g.frames ? ` · кадров/с ${f1(g.frames / g.realSec)}` : ''}`;
 }
 
 /** До какой волны дошла партия: победа — все волны уровня, иначе номер волны на момент конца (проигрыш, timeout). */

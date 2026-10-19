@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import { CameraRig } from '../cameraRig';
 import { CONFIG } from '../config';
-import { exposeDebug, QA_ENTRANCE, QA_MODE, STRESS, STRESS_FIZZ, TIME_SCALE, type QaEvent } from '../debug';
+import { exposeDebug, QA_ENTRANCE, QA_MODE, QA_NORENDER, STRESS, STRESS_FIZZ, TIME_SCALE, type QaEvent } from '../debug';
 import { qaLog, qaSnapshot, setupStress, stressFrame } from '../qaTools';
 import { Effects } from '../effects';
 import { drawStar, setScreenInfo } from '../screens';
@@ -257,6 +257,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   create(): void {
+    if (QA_NORENDER) this.sys.setVisible(false); // боты без рисования: менеджер сцен не рисует эту сцену, игровая логика идёт как обычно
     // Сцена при перезапуске не создаётся заново, поэтому всё обнуляем вручную.
     this.state = 'playing';
     this.elapsed = 0;

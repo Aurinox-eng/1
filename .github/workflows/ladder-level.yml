@@ -51,6 +51,10 @@ on:
         description: 'Сколько дорожек идёт одновременно (strategy.max-parallel): на аккаунте 20 мест на все задачи, серии не должны занимать больше 14'
         type: string
         default: '7'
+      norender:
+        description: '1 — бот без рисования сцены (--norender, ≈ ×3–5 быстрее; волны гибели совпадают с рисованием — сверка 19 октября 2026, docs/process-speedup-2026-10-18.md, раздел 4.3); 0 — с рисованием'
+        type: string
+        default: '1'
       chunked:
         description: 'true — уровень играется двумя задачами подряд (k партий в каждой): состояние и результаты первой лежат в ladder-state-…/ladder-chunk-…, второй — в …-b'
         type: string
@@ -113,11 +117,13 @@ jobs:
           KTOT: ${{ inputs.k_total }}
           CHUNKED: ${{ inputs.chunked }}
           BUDGET: ${{ inputs.budget_sec }}
+          NORENDER: ${{ inputs.norender }}
         run: |
           args=(--profile="$PROFILE" --runs=1 --run-offset=$((LANE - 1)) --speed="$SPEED" --canvas --ladder="$K" --from-level="$LEVEL" --to-level="$LEVEL" --state-out=state-out.json --max-real-sec="$MAX_REAL" --tag="ladder-L${LEVEL}-lane${LANE}")
           if [ "$LEVEL" -gt 1 ]; then args+=(--state-in=state-in/state-out.json); fi
           if [ -n "$CFG" ]; then args+=(--cfg="$CFG"); fi
           if [ "$FARM" = "1" ]; then args+=(--farm); fi
+          if [ "$NORENDER" = "1" ]; then args+=(--norender); fi
           if [ "$CHUNKED" = "true" ]; then args+=(--ladder-total="$KTOT" --ladder-budget-sec="$BUDGET"); fi
           node qa/bot.mjs "${args[@]}" 2>&1 | tee bot.log
       - name: Сохранить состояние дорожки
@@ -185,10 +191,12 @@ jobs:
           MAX_REAL: ${{ inputs.max_real_sec }}
           KTOT: ${{ inputs.k_total }}
           BUDGET: ${{ inputs.budget_sec }}
+          NORENDER: ${{ inputs.norender }}
         run: |
           args=(--profile="$PROFILE" --runs=1 --run-offset=$((LANE - 1)) --speed="$SPEED" --canvas --ladder="$K" --ladder-total="$KTOT" --ladder-budget-sec="$BUDGET" --ladder-last --from-level="$LEVEL" --to-level="$LEVEL" --state-in=state-in/state-out.json --state-out=state-out.json --max-real-sec="$MAX_REAL" --tag="ladder-L${LEVEL}-lane${LANE}")
           if [ -n "$CFG" ]; then args+=(--cfg="$CFG"); fi
           if [ "$FARM" = "1" ]; then args+=(--farm); fi
+          if [ "$NORENDER" = "1" ]; then args+=(--norender); fi
           node qa/bot.mjs "${args[@]}" 2>&1 | tee bot.log
       - name: Сохранить состояние дорожки
         if: always()
