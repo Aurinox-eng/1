@@ -8,6 +8,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
 import { preview } from 'vite';
+// прибавка силы от Шприца — одно число для модели и лестницы ботов (решение владельца 19 октября 2026, сообщение 4, п. 2)
+import { SYRINGE_GAIN } from '../docs/redesign-model-2026-10-19.mjs';
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -585,7 +587,7 @@ const pctGain = (step, share = 1) => (l) => (1 + step * share * l) / (1 + step *
 const BRANCH_SHARE = { pill: 0.5, syrup: 0.6, fizz: 0.3, syringe: 0.3, ampule: 0.2, antibiotic: 0.2, lamp: 0.08, vitamin: 1, frost: 0.25, patch: 0.1 };
 /** Крупные узлы (башни, умения, ключевые узлы) и их оценка силы (модель, раздел 5 документа дизайна): покупаются первыми, как только хватает очков. */
 const BIG_GAIN = {
-  towerSyrup: 1.2, towerFizz: 1.2, towerSyringe: 1.15, towerAmpule: 1.12, towerLamp: 1.06, towerAntibiotic: 1.1, towerVitamin: 1.1, towerFrost: 1.07, towerPatch: 1.05,
+  towerSyrup: 1.2, towerFizz: 1.2, towerSyringe: SYRINGE_GAIN, towerAmpule: 1.12, towerLamp: 1.06, towerAntibiotic: 1.1, towerVitamin: 1.1, towerFrost: 1.07, towerPatch: 1.05,
   fever: 1, pillKey: 1.1, fizzKey: 1.08, syringeKey: 1.07, ampuleKey: 1.07, antibioticKey: 1.06, syrupKey: 1.05, lampKey: 1.05, vitaminKey: 1.04, frostKey: 1.05, patchKey: 1.03,
 };
 /** Прирост силы от следующего уровня узла `id` (множитель; 1 — силы не прибавляет, такой узел лучший порядок не покупает). */
@@ -618,11 +620,12 @@ export function nodeChain(upgrades, id) {
 /**
  * Лучший найденный порядок покупок очков ДНК (раздел 10.1 документа дизайна, п. 7; как `spend` в модели): из открытых узлов, на следующий уровень которых хватает очков, сначала крупные (башни, умения, ключевые узлы),
  * затем остальные — по наибольшему приросту силы на очко ДНК (ln(прирост) / цена); узлы без прироста силы не покупаются. `towers` (необязательно) — башни стратегии:
- * узлы и ветки других башен не покупаются (стратегия их не строит). Возвращает новые уровни, остаток очков и список покупок.
+ * ДНК — только на узлы и ветки своих башен и общие узлы (решение владельца 19 октября 2026, сообщение 4, п. 1.2); узлы других башен не покупаются, даже если общий узел
+ * («Лихорадка») их требует. Возвращает новые уровни, остаток очков и список покупок.
  */
 export function buyBest({ upgrades, levels, dna, towers = null }) {
-  // узлы башен на пути к башням стратегии и к «Лихорадке» (цепочка «требует») покупаются, даже если сама башня стратегии не нужна
-  const needed = new Set(towers ? [...towers.map(towerNodeId), 'fever'].flatMap((id) => nodeChain(upgrades, id)) : []);
+  // узлы башен на пути к своим башням (цепочка «требует»), если своя башня ещё не открыта
+  const needed = new Set(towers ? towers.filter((id) => !(levels[towerNodeId(id)] > 0)).map(towerNodeId).flatMap((id) => nodeChain(upgrades, id)) : []);
   const foreign = (id) => {
     if (!towers || needed.has(id)) return false;
     const u = upgrades[id];
