@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { CameraRig } from '../cameraRig';
-import { CONFIG, type BossId } from '../config';
+import { CONFIG, type BossId, type Ward } from '../config';
 import { exposeDebug, QA_ENTRANCE, QA_MODE, QA_NORENDER, QA_START_WAVE, STRESS, STRESS_FIZZ, TIME_SCALE, type QaEvent } from '../debug';
 import { qaLog, qaSnapshot, setupStress, stressFrame } from '../qaTools';
 import { Effects } from '../effects';
@@ -791,6 +791,7 @@ export class GameScene extends Phaser.Scene {
     const { kind } = item;
     const edge = item.edge ?? this.pickEntrance();
     const born = new Bacterium(this, this.bacteriaLayer, kind, edge, 0, this.waveHpMul(), { armorMul: this.waveArmorMul(), boss: item.boss, reward: item.reward });
+    born.ward = this.wardFor(kind, item.boss);
     this.bacteria.push(born);
     this.spawned++;
     if (QA_MODE) qaLog(this, 'spawn', { id: born.id, kind, edge: edge.id, boss: item.boss ?? null });
@@ -801,6 +802,30 @@ export class GameScene extends Phaser.Scene {
       rememberNews(`b:${kind}`);
       this.panel.news(t('newBacteriaToast', { name: t(`bacName${kind.charAt(0).toUpperCase()}${kind.slice(1)}` as TextKey) }), NEW_TYPE_TOAST_MS);
       sfx.newType();
+    }
+  }
+
+  /** Жёсткое свойство бактерии на этом уровне (`plan.hardWalls`): бегун, бронированный, слизень — по виду; босс последней волны — фаза «только взрыв и луч». */
+  private wardFor(kind: BacteriumKind, boss?: BossId): Ward | null {
+    const hard = this.params.plan?.hardWalls;
+    if (!hard) return null;
+    if (boss) return hard.bossArea > 0 && this.waveIdx >= (this.params.plan?.waves.length ?? Infinity) ? 'area' : null;
+    if (kind === 'runner' && hard.runnerSlow > 0) return 'slow';
+    if (kind === 'armored' && hard.armoredPierce > 0) return 'pierce';
+    if (kind === 'slick' && hard.slickBeam > 0) return 'beam';
+    if (kind === 'slick' && hard.slickMemory > 0) return 'memory';
+    return null;
+  }
+
+  /** Не даёт ли жёсткое свойство ранить бактерию этим ударом (`Ward`). */
+  private wardBlocks(bacterium: Bacterium, st: TowerStats): boolean {
+    switch (bacterium.ward) {
+      case 'slow': return !bacterium.slowed;
+      case 'pierce': return !st.armorPierce && bacterium.armor > 0;
+      case 'beam': return st.targeting === 'beam';
+      case 'memory': return bacterium.memory === st.towerId;
+      case 'area': return bacterium.inFinalPhase && st.targeting !== 'area' && st.targeting !== 'beam';
+      default: return false;
     }
   }
 
@@ -1157,6 +1182,12 @@ export class GameScene extends Phaser.Scene {
    */
   private damageBacterium(bacterium: Bacterium, st: TowerStats, quiet = false, damage: number = st.damage, light = false, acid = true): boolean {
     if (bacterium.hp <= 0) return false;
+    // Жёсткое свойство уровня: удар не ранит (число 0 серым); «память вида» запоминает башню и после отражённого удара
+    if (this.wardBlocks(bacterium, st)) {
+      if (!light) this.effects.damageNumber(bacterium.id, bacterium.x, bacterium.y - bacterium.radius * 0.7, 0, 0, RESIST_COLOR);
+      return false;
+    }
+    if (bacterium.ward === 'memory') bacterium.remember(st.towerId);
     // Мутант помнит вид башни, ударившей последней: удар башни того же вида слабее; удар другого вида штрафа не получает и запоминается
     const memoryMul = CONFIG.types[bacterium.kind].memoryMul;
     const resisted = memoryMul > 0 && bacterium.memory === st.towerId;

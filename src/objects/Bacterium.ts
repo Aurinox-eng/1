@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { CONFIG, type BossId, type BossSpec } from '../config';
+import { CONFIG, type BossId, type BossSpec, type Ward } from '../config';
 import { EDGES_FROM } from '../level';
 import { pointAt, type Edge } from '../pathing';
 import { COLORS, TOWER_MARK } from '../theme';
@@ -129,6 +129,9 @@ export class Bacterium {
   numAt = -1;
   /** Мутант: вид (id) башни, ударившей по бактерии последней; null — ещё не били. Удар башни того же вида слабее (`types.mutant.memoryMul`), смена вида штрафа не даёт. */
   memory: string | null = null;
+  /** Жёсткое свойство на этом уровне (`HardWalls`, выставляет сцена при выходе): чем бактерию не ранить; null — нет. Пока свойство действует, вокруг тела серое кольцо. */
+  ward: Ward | null = null;
+  private wardRing: Phaser.GameObjects.Image | null = null;
   /** Ловушка Пластыря: сколько секунд бактерия ещё приклеена (0 — свободна) и сколько HP в секунду теряет. Пока приклеена, не идёт. */
   trapLeft = 0;
   trapDps = 0;
@@ -430,6 +433,23 @@ export class Bacterium {
     return found;
   }
 
+  /** Босс в последней фазе (у босса без фаз — нет). */
+  get inFinalPhase(): boolean {
+    const count = this.boss?.phases?.length ?? 0;
+    return count > 0 && this.phaseIndex >= count;
+  }
+
+  /** Действует ли сейчас жёсткое свойство (для серого кольца): бегун вне лужи, бронированный с бронёй, слизень, босс в последней фазе. */
+  get guarded(): boolean {
+    switch (this.ward) {
+      case 'slow': return !this.slowed;
+      case 'pierce': return this.armor > 0;
+      case 'beam': case 'memory': return true;
+      case 'area': return this.inFinalPhase;
+      default: return false;
+    }
+  }
+
   /** Номер фазы босса (0 — первая). */
   get phaseIndex(): number {
     const phases = this.boss?.phases;
@@ -554,6 +574,14 @@ export class Bacterium {
         this.acidRing?.setVisible(false);
       }
     }
+    if (this.ward) {
+      const on = this.guarded;
+      if (on && !this.wardRing) {
+        this.wardRing = ringImage(this.scene, 0, 0, this.radius + 12, 5, COLORS.wardRing, 0.85);
+        this.container.add(this.wardRing);
+      }
+      this.wardRing?.setVisible(on);
+    }
     if (this.slowLeft > 0) {
       this.slowLeft -= dt;
       if (this.slowLeft <= 0) {
@@ -620,6 +648,8 @@ export class Bacterium {
   drain(amount: number): boolean {
     if (this.hp <= 0) return true;
     if (this.capsuleLeft > 0) return false;
+    // жёсткое свойство: бронированного яд не берёт (пока есть броня), босса в последней фазе — тоже
+    if ((this.ward === 'pierce' && this.armor > 0) || (this.ward === 'area' && this.inFinalPhase)) return false;
     this.hp = Math.max(0, this.hp - amount);
     if (Math.abs(this.hp - this.drawnHp) >= 0.5 || this.hp <= 0) {
       this.redraw();
