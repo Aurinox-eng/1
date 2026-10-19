@@ -621,9 +621,10 @@ export function nodeChain(upgrades, id) {
  * Лучший найденный порядок покупок очков ДНК (раздел 10.1 документа дизайна, п. 7; как `spend` в модели): из открытых узлов, на следующий уровень которых хватает очков, сначала крупные (башни, умения, ключевые узлы),
  * затем остальные — по наибольшему приросту силы на очко ДНК (ln(прирост) / цена); узлы без прироста силы не покупаются. `towers` (необязательно) — башни стратегии:
  * ДНК — только на узлы и ветки своих башен и общие узлы (решение владельца 19 октября 2026, сообщение 4, п. 1.2); узлы других башен не покупаются, даже если общий узел
- * («Лихорадка») их требует. Возвращает новые уровни, остаток очков и список покупок.
+ * («Лихорадка») их требует. `saveFor` (необязательно) — башни ядра, на которые игрок копит: пока они не открыты, ДНК идёт только на цепочку к ним (без покупок по пути).
+ * Возвращает новые уровни, остаток очков и список покупок.
  */
-export function buyBest({ upgrades, levels, dna, towers = null }) {
+export function buyBest({ upgrades, levels, dna, towers = null, saveFor = null }) {
   // узлы башен на пути к своим башням (цепочка «требует»), если своя башня ещё не открыта
   const needed = new Set(towers ? towers.filter((id) => !(levels[towerNodeId(id)] > 0)).map(towerNodeId).flatMap((id) => nodeChain(upgrades, id)) : []);
   const foreign = (id) => {
@@ -635,7 +636,18 @@ export function buyBest({ upgrades, levels, dna, towers = null }) {
   const next = { ...levels };
   const bought = [];
   let left = dna;
+  // следующий некупленный узел на пути к неоткрытой башне ядра (null — копить не на что)
+  const saveTarget = () => (saveFor ?? []).filter((t) => !(next[towerNodeId(t)] > 0)).flatMap((t) => nodeChain(upgrades, towerNodeId(t))).find((id) => !(next[id] > 0)) ?? null;
   for (;;) {
+    const target = saveTarget();
+    if (target) {
+      const price = upgrades[target].prices[next[target] ?? 0];
+      if (price > left) break;
+      left -= price;
+      next[target] = (next[target] ?? 0) + 1;
+      bought.push(target);
+      continue;
+    }
     const opts = Object.keys(upgrades).filter((id) => {
       const u = upgrades[id];
       const price = u.prices[next[id] ?? 0];
