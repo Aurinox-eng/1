@@ -1389,7 +1389,7 @@ async function playGame(browser, baseUrl, run, metaLevels = null, salt = '', lev
     }
     const counts = {};
     for (const id of KNOWN_TOWERS) counts[id] = last.towers.filter((tw) => tw.id === id).length;
-    const startCoins = (cfgGet('economy.startCoins') ?? readConfigNumber('economy', 'startCoins')) + (metaLevels ? metaLevels.coins * META.upgrades.coins.perLevel : 0);
+    const startCoins = (last.plan?.startCoins ?? cfgGet('economy.startCoins') ?? readConfigNumber('economy', 'startCoins')) + (metaLevels ? (metaLevels.coins ?? 0) * META.upgrades.coins.perLevel : 0); // уровень нового формата — монеты плана (200)
     return {
       profile,
       strategy: STRATEGY_LABEL,
