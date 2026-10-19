@@ -33,10 +33,11 @@ export const waveIncome = (n) => 25 + 7 * n + (MINI.includes(n) ? 60 : 0);
 export const coinsAt = (n, extraStart = 0, rewardMul = 1) => { let c = START_COINS + extraStart; for (let i = 1; i < n; i++) c += waveIncome(i) * rewardMul; return c; };
 
 // ---------------------------------------------------------------- ступени-стены уровня 1 (Preq опорного игрока)
-/** Волны-стены: [волна, Preq]. Между стенами Preq = 0,8 · следующей стены (облегчение после прорыва). */
+/** Волны-стены: [волна, Preq]. Между стенами Preq = 0,8 · следующей стены (облегчение после прорыва). Стена босса (50-я) — 3,8: без «Лихорадки» эксперт её не проходит,
+ *  уровень — за 10 попыток (решение владельца 19 октября 2026, сводное сообщение, пп. 3.1–3.2; до этого 3,3 и 9 попыток). */
 export const WALLS_L1 = [
   [4, 0.25], [6, 0.38], [8, 1.05], [10, 1.2], [12, 1.32], [15, 1.37], [18, 1.51], [20, 1.66], [23, 1.81], [26, 1.97],
-  [30, 2.16], [33, 2.31], [36, 2.47], [40, 2.68], [43, 2.83], [46, 2.99], [48, 3.12], [50, 3.3],
+  [30, 2.16], [33, 2.31], [36, 2.47], [40, 2.68], [43, 2.83], [46, 2.99], [48, 3.12], [50, 3.8],
 ];
 /** Уровни 2–3: та же форма, сдвиг и растяжение (раздел 5 документа): Preq_L(n) = λ_L · Preq_1(n)^γ_L. */
 export const LEVEL_SHAPE = { 1: { lambda: 1, gamma: 1 }, 2: { lambda: 3.2, gamma: 0.72 }, 3: { lambda: 5.5, gamma: 0.72 } };
@@ -57,6 +58,8 @@ export function preq(level, n) {
 /** Ориентир сложности — только эксперт (решение владельца 19 октября 2026): e сильнейшего профиля — сейчас zone, 0,022 (Таблетки и Сироп у последней развилки);
  *  после серии 10.2 — e сильнейшей стратегии. Прежние профили (expert 0,017, strong, average, «средний человек») — не цель. */
 export const PROFILES = { expert: 0.022 };
+/** «Лихорадка» на волне босса и мини-боссов: все башни стреляют вдвое чаще 8 с при перезарядке 60 с — за волну босса (75 с, босс под огнём ≈ 40 с) это ≈ +20 % урона по боссу (решение владельца 19 октября 2026, сводное сообщение, п. 3.2: босс уровня 1 без «Лихорадки» не проходится). */
+export const FEVER_BOSS = 1.2;
 export const E0 = PROFILES.expert;
 
 // ---------------------------------------------------------------- древо (раздел 4 документа): только узлы, которые дают силу или монеты
@@ -66,7 +69,7 @@ export const TREE = {
   syrup: { name: 'Сироп', prices: [25], gain: () => 1.2, big: true },
   fizz: { name: 'Шипучка', prices: [80], gain: () => 1.2, big: true, req: ['syrup', 1] },
   syringe: { name: 'Шприц', prices: [220], gain: () => 1.15, big: true, req: ['fizz', 1] },
-  fever: { name: '«Лихорадка»', prices: [150], gain: () => 1.06, big: true, req: ['fizz', 1] },
+  fever: { name: '«Лихорадка»', prices: [150], gain: () => 1, big: true, fever: true, req: ['fizz', 1] },
   damage: { name: 'Сильное вещество (+10 %)', prices: [50, 65, 80, 95, 110, 125, 145, 165, 190, 227], gain: pct(0.1) },
   coins: { name: 'Питательная среда (+25 монет)', prices: [10, 14, 18, 24, 30, 40], coins: 25, req: ['damage', 1] },
   pillPower: { name: 'Сила таблетки (+8 %)', prices: [10, 14, 18, 24, 32], gain: pct(0.08, 0.5), req: ['damage', 2] },
@@ -108,7 +111,9 @@ export function deathWave(level, state, e) {
     const coinsPlayer = coinsAt(n, state.extraStart ?? 0);
     const coinsBase = coinsAt(n);
     const req = preq(level, n) * E0 * coinsBase; // урон/с, нужный на волне n
-    const have = e * coinsPlayer * state.P;
+    // «Лихорадка» действует на волнах мини-боссов и босса (её включают перед боссом): сила × FEVER_BOSS
+    const fever = state.fever && (MINI.includes(n) || n === BOSS) ? FEVER_BOSS : 1;
+    const have = e * coinsPlayer * state.P * fever;
     if (req > have) return n;
   }
   return WAVES + 1; // победа
@@ -140,6 +145,7 @@ export function spend(lv, state) {
     state.dna -= price;
     lv[id] = (lv[id] ?? 0) + 1;
     if (TREE[id].coins) state.extraStart = (state.extraStart ?? 0) + TREE[id].coins;
+    else if (TREE[id].fever) state.fever = true;
     else state.P *= TREE[id].gain(lv[id]);
     bought.push(TREE[id].name);
   }
