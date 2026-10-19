@@ -2642,7 +2642,8 @@ async function runSplit(browser, baseUrl) {
   const unseenKilled = killEvents.filter((e) => e.kind === 'coccus' && !seenC.has(e.id)).map((e) => e.id);
   const missingExplained = missing >= 0 && unseenKilled.length >= 2 * missing;
   check(`${p} регрессия: каждый распад учтён (${pairs.length} пар + ${singles.length} у организма + ${Math.max(missing, 0)} не застигнутых опросом = ${endC.splits} распадов), не застигнутые подтверждены журналом убийств, партия окончена победой`, endC.state === 'won' && missingExplained && pairs.length + singles.length >= Math.max(20, splitNeed), `состояние ${endC.state}, распадов ${endC.splits}, не застигнуто ${missing}, убитых кокков, которых опрос не видел, ${unseenKilled.length} (${unseenKilled.join(',') || '—'}), убито делящихся не больше ${endC.spawned}`);
-  check(`${p} учёт при распадах у организма: убитые + дошедшие = вышедшие + ${count}·распады (${endC.kills} + ${endC.leaked} = ${endC.spawned} + ${count}·${endC.splits})`, endC.kills + endC.leaked === endC.spawned + count * endC.splits, `убито ${endC.kills}, дошло ${endC.leaked}, вышло ${endC.spawned}, распадов ${endC.splits}, лишних ${endC.kills + endC.leaked - endC.spawned - count * endC.splits}`);
+  const countC = 2; // в части C детей два (подмена splitCount)
+  check(`${p} учёт при распадах у организма: убитые + дошедшие = вышедшие + ${countC}·распады (${endC.kills} + ${endC.leaked} = ${endC.spawned} + ${countC}·${endC.splits})`, endC.kills + endC.leaked === endC.spawned + countC * endC.splits, `убито ${endC.kills}, дошло ${endC.leaked}, вышло ${endC.spawned}, распадов ${endC.splits}, лишних ${endC.kills + endC.leaked - endC.spawned - countC * endC.splits}`);
   await context.close();
 }
 
