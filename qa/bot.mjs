@@ -13,7 +13,8 @@
  *            клетка — лучшая именно для этой башни (охват с учётом того, сколько бактерий там проходит; Шипучка — где сходятся ветки; Шприц — клетка и направление луча, под которым
  *            больше всего дорожки с бактериями, после постановки бот поворачивает башню), копит на дорогую башню до 30 игровых секунд, решает каждые 2 с, сливает всё;
  *   zone     Таблетки и один Сироп только вокруг последней развилки у организма (на «корнях» — узел Z, на «Горле» — развилка F);
- *   --solo=X «каждая башня одна» (раздел 10.1 документа дизайна): строит только X (с --exclude=syrup — без Сиропа; без него — X и один Сироп);
+ *   --solo=X «каждая башня одна» (раздел 10.1 документа дизайна, п. 2): строит только X, без Сиропа;
+ *   --core=a,b эксперт без ограничения башен (решение владельца 19 октября 2026, сообщение 3): ядро a + b кучкой, Сироп и Шипучка против стен, остальные открытые башни;
  *   --pair=a,b «каждая пара»: только башни a и b по кругу [a, b];
  *   --focus=a,b «сосредоточение на связке»: только a и b, все башни вида — кучкой в радиусе слияния, слияния до IV.
  * Мутации: --mut=pill:pillRapid,pillDouble;fizz:fizzFast,fizzAcid (id из config.ts, по порогам); по умолчанию — `DEFAULT_MUT` ниже (лучшие по урону в секунду с потолками п. 4.2).
@@ -167,10 +168,11 @@ const HELP = `Бот-замерщик баланса: играет целые п
 
   node qa/bot.mjs [параметры]
 
-  --strategy=default|zone|solo:X|pair:a+b|focus:a+b   стратегия эксперта (по умолчанию default; zone — Таблетки и один Сироп у последней развилки у организма; остальные — как ключи ниже)
-  --solo=<башня>                        «каждая башня одна»: строит только эту башню (и не больше одного Сиропа; с --exclude=syrup — без Сиропа); башня должна быть открыта (узел древа в --meta или &towers не нужны: бот сам добавит узел)
+  --strategy=default|zone|solo:X|pair:a+b|focus:a+b|core:a+b   стратегия эксперта (по умолчанию default; zone — Таблетки и один Сироп у последней развилки у организма; остальные — как ключи ниже)
+  --solo=<башня>                        «каждая башня одна»: строит только эту башню, без Сиропа (если башня сама не бьёт — ещё Таблетки); узел башни бот добавляет сам
   --pair=a,b                            «каждая пара»: только башни a и b, по кругу
   --focus=a,b                           «сосредоточение на связке»: только a и b, башни одного вида кучкой в радиусе слияния, слияния до IV
+  --core=a,b                            эксперт без ограничения башен: ядро a + b кучкой, Сироп и Шипучка против стен, остальные открытые башни — по общим правилам
   --mut=башня:мутация,мутация;…         мутации на порогах (id из config.ts), например pill:pillRapid,pillDouble;fizz:fizzBig,fizzChain; не названные башни — по умолчанию (DEFAULT_MUT); --mut=alt — второй набор (на каждом пороге другой вариант)
   --runs=N                              партий (по умолчанию 10)
   --speed=2                             ускорение игрового времени, 0.1…5 (по умолчанию 2)
@@ -202,7 +204,7 @@ if (args.help || args.h) {
   console.log(HELP);
   process.exit(0);
 }
-const KNOWN = new Set(['profile', 'strategy', 'pair', 'focus', 'mut', 'runs', 'speed', 'exclude', 'cfg', 'tag', 'seed', 'max-game-sec', 'max-real-sec', 'verbose', 'shots', 'canvas', 'norender', 'level', 'meta', 'campaign', 'ladder', 'ladder-total', 'ladder-budget-sec', 'ladder-last', 'from-level', 'to-level', 'state-in', 'state-out', 'run-offset', 'solo', 'lamps', 'farm', 'help']);
+const KNOWN = new Set(['profile', 'strategy', 'pair', 'focus', 'core', 'mut', 'runs', 'speed', 'exclude', 'cfg', 'tag', 'seed', 'max-game-sec', 'max-real-sec', 'verbose', 'shots', 'canvas', 'norender', 'level', 'meta', 'campaign', 'ladder', 'ladder-total', 'ladder-budget-sec', 'ladder-last', 'from-level', 'to-level', 'state-in', 'state-out', 'run-offset', 'solo', 'lamps', 'farm', 'help']);
 for (const key of Object.keys(args)) if (!KNOWN.has(key)) die(`Неизвестный параметр --${key}. Справка: node qa/bot.mjs --help`);
 
 function numArg(name, fallback, { min = -Infinity, max = Infinity, int = false } = {}) {
@@ -216,19 +218,24 @@ function numArg(name, fallback, { min = -Infinity, max = Infinity, int = false }
 
 // Профиль один (решение владельца 19 октября 2026): --profile принимается только как expert (прежние novice, average, strong убраны); zone — стратегия (--strategy=zone; --profile=zone читается так же)
 if (args.profile !== undefined && !['expert', 'zone'].includes(String(args.profile))) die(`--profile=«${args.profile}»: профиль один — expert (стратегии — --strategy, --solo, --pair, --focus).`);
-// --strategy: default | zone | solo:X | pair:a+b | focus:a+b (то же, что --solo=X, --pair=a,b, --focus=a,b; так стратегию задаёт одно поле workflow)
+// --strategy: default | zone | solo:X | pair:a+b | focus:a+b | core:a+b (то же, что --solo=X, --pair=a,b, --focus=a,b, --core=a,b; так стратегию задаёт одно поле workflow)
 const STRATEGY_SPEC = String(args.strategy ?? (args.profile === 'zone' ? 'zone' : 'default'));
-const specMatch = /^(solo|pair|focus):([\w+,]+)$/.exec(STRATEGY_SPEC);
-if (!specMatch && !['default', 'expert', 'zone'].includes(STRATEGY_SPEC)) die(`--strategy=«${STRATEGY_SPEC}»: есть default, zone, solo:X, pair:a+b, focus:a+b.`);
+const specMatch = /^(solo|pair|focus|core):([\w+,]+)$/.exec(STRATEGY_SPEC);
+if (!specMatch && !['default', 'expert', 'zone'].includes(STRATEGY_SPEC)) die(`--strategy=«${STRATEGY_SPEC}»: есть default, zone, solo:X, pair:a+b, focus:a+b, core:a+b.`);
 if (specMatch && args[specMatch[1]] !== undefined) die(`--strategy=${STRATEGY_SPEC} и --${specMatch[1]} вместе не задаются.`);
 if (specMatch) args[specMatch[1]] = specMatch[2].replace(/\+/g, ',');
 const STRATEGY = STRATEGY_SPEC === 'zone' ? 'zone' : 'default';
 const listArg = (name) => (args[name] === undefined || args[name] === true ? null : String(args[name]).split(',').map((x) => x.trim()).filter(Boolean));
 const PAIR = listArg('pair');
 const FOCUS = listArg('focus');
-if ((PAIR && PAIR.length !== 2) || (FOCUS && FOCUS.length !== 2)) die('--pair и --focus: две башни через запятую, например --pair=pill,fizz.');
+// --core=a,b — эксперт без ограничения башен (решение владельца 19 октября 2026, сообщение 3, п. 1.1): ядро — связка a + b кучкой в радиусе слияния (как --focus),
+// в круге покупок после каждых четырёх башен ядра — Сироп или Шипучка против стен; остальные открытые башни (Ампула, Антибиотик, Лампа…) — по общим правилам «над кругом»
+const CORE = listArg('core');
+if ((PAIR && PAIR.length !== 2) || (FOCUS && FOCUS.length !== 2) || (CORE && CORE.length !== 2)) die('--pair, --focus и --core: две башни через запятую, например --pair=pill,fizz.');
+/** Ядро, которое строится кучкой в радиусе слияния: --focus и --core. */
+const KERNEL = FOCUS ?? CORE;
 /** Стратегия партии (метка в итогах): default, zone, solo:X, pair:a+b, focus:a+b. */
-const STRATEGY_LABEL = (PAIR ? `pair:${PAIR.join('+')}` : FOCUS ? `focus:${FOCUS.join('+')}` : args.solo !== undefined ? `solo:${args.solo}` : STRATEGY) + (args.mut === 'alt' ? ' · мутации alt' : args.mut !== undefined ? ' · мутации --mut' : '');
+const STRATEGY_LABEL = (PAIR ? `pair:${PAIR.join('+')}` : FOCUS ? `focus:${FOCUS.join('+')}` : CORE ? `core:${CORE.join('+')}` : args.solo !== undefined ? `solo:${args.solo}` : STRATEGY) + (args.mut === 'alt' ? ' · мутации alt' : args.mut !== undefined ? ' · мутации --mut' : '');
 const PROFILES = [PROFILE];
 const profileTitle = () => `${PROFILE_TITLE}${STRATEGY_LABEL === 'default' ? '' : ` (${STRATEGY_LABEL})`}`;
 const RUNS = numArg('runs', 10, { min: 1, max: 1000, int: true });
@@ -284,7 +291,6 @@ if (LAMP_MODE === 'veteran' && LADDER) die('--lamps=veteran не сочетае�
 const STEALTH_WAVE = LAMP_MODE === 'veteran' ? stealthIntroWave(LEVEL) : null;
 if (LAMP_MODE === 'veteran' && STEALTH_WAVE === null) console.warn(`--lamps=veteran: на уровне ${LEVEL} нет скрытных — Лампы не покупаются`);
 if (LAMPS && SOLO) die('--lamps не сочетается с --solo (при --solo башни выбирает сам режим).');
-if (SOLO && (LADDER || CAMPAIGN)) die('--solo не сочетается с --ladder и --campaign: сравнение «одна башня» идёт на одном уровне с фиксированными улучшениями (--meta).');
 const SEED = args.seed === undefined ? Math.floor(Math.random() * 1e9) : numArg('seed', 0, { min: 0, max: 4294967295, int: true });
 const TAG = args.tag === undefined ? 'latest' : String(args.tag);
 if (!/^[\w-]+$/.test(TAG)) die(`Неверный --tag=«${TAG}»: только буквы, цифры, «_» и «-».`);
@@ -302,17 +308,14 @@ const EXCLUDE = new Set(
         .filter(Boolean),
 );
 if (SOLO && (!KNOWN_TOWERS.includes(SOLO) || SOLO === 'syrup')) die(`--solo: нет такой башни «${SOLO}». Есть: ${KNOWN_TOWERS.filter((id) => id !== 'syrup').join(', ')}.`);
-for (const id of [...(PAIR ?? []), ...(FOCUS ?? [])]) if (!KNOWN_TOWERS.includes(id)) die(`--pair/--focus: нет башни «${id}». Есть: ${KNOWN_TOWERS.join(', ')}.`);
-if ([SOLO, PAIR, FOCUS].filter(Boolean).length > 1 || (STRATEGY === 'zone' && (SOLO || PAIR || FOCUS))) die('--solo, --pair, --focus и --strategy=zone — разные стратегии: выберите одну.');
-/** Какие башни строит игрок: --solo — сама башня, Сироп (не больше одного; если не исключён) и, если башня не бьёт сама, Таблетки; --pair и --focus — две башни. null — все. */
-const SOLO_ALLOWED = SOLO ? new Set([SOLO, 'syrup', ...(SOLO === 'pill' || SOLO_SUPPORT.includes(SOLO) ? ['pill'] : [])]) : PAIR ? new Set(PAIR) : FOCUS ? new Set(FOCUS) : null;
-/** Круг покупок стратегии (вместо DEFAULT_CYCLE): --solo — Сироп один раз, дальше основа; --pair и --focus — две башни по очереди. */
-const SOLO_CYCLE = SOLO ? (SOLO_SUPPORT.includes(SOLO) ? ['pill', 'pill', 'syrup', 'pill'] : [SOLO, 'syrup', SOLO]) : PAIR ? [...PAIR] : FOCUS ? [...FOCUS] : null;
-/** Башни, которые стратегия должна иметь открытыми: узлы древа добавляются к улучшениям партии (иначе кнопка башни в игре закрыта). */
-const STRATEGY_TOWERS = [...(SOLO ? [SOLO, ...(excludesSyrup() ? [] : ['syrup'])] : []), ...(PAIR ?? []), ...(FOCUS ?? [])].filter((id) => id !== 'pill');
-function excludesSyrup() {
-  return String(args.exclude ?? '').split(',').map((x) => x.trim()).includes('syrup');
-}
+for (const id of [...(PAIR ?? []), ...(FOCUS ?? []), ...(CORE ?? [])]) if (!KNOWN_TOWERS.includes(id)) die(`--pair/--focus/--core: нет башни «${id}». Есть: ${KNOWN_TOWERS.join(', ')}.`);
+if ([SOLO, PAIR, FOCUS, CORE].filter(Boolean).length > 1 || (STRATEGY === 'zone' && (SOLO || PAIR || FOCUS || CORE))) die('--solo, --pair, --focus, --core и --strategy=zone — разные стратегии: выберите одну.');
+/** Какие башни строит игрок: --solo — только сама башня, без Сиропа (раздел 10.1 документа дизайна, п. 2; если башня не бьёт сама — ещё Таблетки); --pair и --focus — две башни; --core и обычная игра — все (null). */
+const SOLO_ALLOWED = SOLO ? new Set([SOLO, ...(SOLO_SUPPORT.includes(SOLO) ? ['pill'] : [])]) : PAIR ? new Set(PAIR) : FOCUS ? new Set(FOCUS) : null;
+/** Круг покупок стратегии (вместо DEFAULT_CYCLE): --solo — одна башня; --pair и --focus — две башни по очереди; --core — ядро a, b, a, b, затем Сироп, снова ядро, затем Шипучка. */
+const SOLO_CYCLE = SOLO ? (SOLO_SUPPORT.includes(SOLO) ? ['pill'] : [SOLO]) : PAIR ? [...PAIR] : FOCUS ? [...FOCUS] : CORE ? [...CORE, ...CORE, 'syrup', ...CORE, ...CORE, 'fizz'] : null;
+/** Башни, которые стратегия должна иметь открытыми в одиночной партии (первая попытка серии 10.2): узлы древа добавляются к улучшениям партии (иначе кнопка башни в игре закрыта). */
+const STRATEGY_TOWERS = [...(SOLO ? [SOLO] : []), ...(PAIR ?? []), ...(FOCUS ?? []), ...(CORE ? [...CORE, 'syrup', 'fizz'] : [])].filter((id, i, a) => id !== 'pill' && a.indexOf(id) === i);
 for (const id of EXCLUDE) if (!KNOWN_TOWERS.includes(id)) die(`--exclude: нет башни «${id}». Есть: ${KNOWN_TOWERS.join(', ')}.`);
 
 /** --cfg=путь:число,...: проверяем запись и накладываем на то, что бот знает сам (цены и радиусы башен, ширина дорожки). */
@@ -899,8 +902,8 @@ function makePlayer({ world, rng, buttons }) {
       const near = nearPartner(view, chosen.type);
       const share = TABLE[chosen.type].targeting === 'beam' || chosen.type === 'syrup' ? MERGE_NEAR_SHARE_PICKY : MERGE_NEAR_SHARE;
       const nearPool = near && best ? candidates.filter((x) => x.v >= best.v * share && near(x.c)) : [];
-      // --focus: все башни вида — кучкой в радиусе слияния от первой такой башни (качество клетки не важно): пары каждого уровня оказываются рядом и сливаются до IV
-      const anchor = FOCUS ? view.towers.find((tw) => tw.id === chosen.type) : null;
+      // --focus и ядро --core: все башни вида — кучкой в радиусе слияния от первой такой башни (качество клетки не важно): пары каждого уровня оказываются рядом и сливаются до IV
+      const anchor = KERNEL?.includes(chosen.type) ? view.towers.find((tw) => tw.id === chosen.type) : null;
       const focusPool = anchor ? candidates.filter((x) => Math.hypot(x.c.x - anchor.x, x.c.y - anchor.y) <= (view.s.mergeRadiusPx ?? 0) * MERGE_NEAR_MARGIN) : [];
       if (focusPool.length) best = focusPool[0];
       else if (nearPool.length) best = nearPool[0]; // candidates уже по убыванию оценки: лучшая из клеток в радиусе слияния
@@ -1558,7 +1561,7 @@ process.on('SIGINT', () => {
 console.log(`Бот-замерщик: ${profileTitle()}; партий ${RUNS}; speed ${SPEED}; потолок ${MAX_GAME_SEC} игровых с; seed ${SEED}`);
 console.log(`  башни из config.ts${CFG_STRING ? ' с подменой --cfg' : ''}: ${KNOWN_TOWERS.map((id) => `${NAMES[id] ?? id} ${TABLE[id].price}₽/${TABLE[id].targeting === 'beam' ? 'луч' : `${TABLE[id].range}px`}`).join(', ')}`);
 if (!LADDER && !CAMPAIGN) console.log(`  уровень ${LEVEL}: открыты башни ${KNOWN_TOWERS.filter((id) => id === 'pill' || SINGLE_META[towerNodeId(id)] > 0).map((id) => NAMES[id] ?? id).join(', ')}`);
-if (SOLO) console.log(`  --solo=${SOLO}: строят только ${[...SOLO_ALLOWED].map((id) => NAMES[id] ?? id).join(', ')} (Сироп — не больше одного)`);
+if (SOLO) console.log(`  --solo=${SOLO}: строят только ${[...SOLO_ALLOWED].map((id) => NAMES[id] ?? id).join(', ')}`);
 if (EXCLUDE.size) console.log(`  не строят: ${[...EXCLUDE].map((id) => NAMES[id] ?? id).join(', ')}`);
 if (CFG_STRING) console.log(`  подмена чисел (--cfg): ${CFG_STRING}`);
 if (SPEED > 2) console.log(`  ⚠ speed ${SPEED} выше 2: замеры грубее (кадры крупнее, бот тратит больше игрового времени на тап). Для итоговых чисел баланса используйте speed 2.`);

@@ -19,7 +19,7 @@ on:
         type: string
         default: ''
       profiles:
-        description: 'Стратегии эксперта через запятую (профиль один — expert): expert, zone, solo:X, pair:a+b, focus:a+b'
+        description: 'Стратегии эксперта через запятую (профиль один — expert): expert, zone, solo:X, pair:a+b, focus:a+b, core:a+b'
         type: string
         default: expert
       muts:
