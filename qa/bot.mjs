@@ -455,8 +455,9 @@ function treeLeft(levels) {
 function buyUpgrades(levels, dna) {
   return buyBest({ upgrades: META.upgrades, levels, dna, towers: BUY_TOWERS, saveFor: CORE_SAVE ? CORE : null });
 }
-/** Башни, узлы и ветки которых покупает стратегия (null — все): --solo/--pair/--focus — только свои башни (Таблетка — если стратегия её строит), zone — Таблетка и Сироп; без исключённых (--exclude). */
-const BUY_TOWERS = SOLO_ALLOWED ? [...SOLO_ALLOWED].filter((id) => !EXCLUDE.has(id)) : STRATEGY === 'zone' ? [...ZONE_TOWERS] : EXCLUDE.size ? KNOWN_TOWERS.filter((id) => !EXCLUDE.has(id)) : null;
+/** Башни, узлы и ветки которых покупает стратегия (null — все): --solo/--pair/--focus — только свои башни (Таблетка — если стратегия её строит), --core — башни своего круга (ядро, Сироп, Шипучка;
+ *  ветку Таблетки core:syrup+syringe не качает: Таблетка у неё одна, с начала партии), zone — Таблетка и Сироп; без исключённых (--exclude). */
+const BUY_TOWERS = SOLO_ALLOWED ? [...SOLO_ALLOWED].filter((id) => !EXCLUDE.has(id)) : CORE ? [...new Set(SOLO_CYCLE)].filter((id) => !EXCLUDE.has(id)) : STRATEGY === 'zone' ? [...ZONE_TOWERS] : EXCLUDE.size ? KNOWN_TOWERS.filter((id) => !EXCLUDE.has(id)) : null;
 /** Начальные улучшения лестницы и серии партий: стратегии с ограничением башен (--solo/--pair/--focus, zone) — узлы своих башен открыты с первой попытки, как в серии 10.2
  *  (решение владельца 19 октября 2026, сообщение 4, п. 1.1), остальное — с нуля; эксперт без ограничения (обычная игра, --core) — всё с нуля. */
 const startLevels = () => ({ ...emptyLevels(), ...(SOLO_ALLOWED || STRATEGY === 'zone' ? OPEN_NODES : {}), ...(L1_OPEN ? { towerSyrup: 1, towerFizz: 1, towerSyringe: 1 } : {}) });
