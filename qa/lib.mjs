@@ -179,14 +179,13 @@ export function readWaveList() {
   });
 }
 
-/** С какого уровня открыта каждая башня: `levels.towerUnlock` из src/config.ts, например { pill: 1, syrup: 1, fizz: 5, syringe: 10, ampule: 3, antibiotic: 6, lamp: 5, vitamin: 7, frost: 8, patch: 9 }. */
-export function readTowerUnlock() {
-  const src = readSource('src/config.ts');
-  const found = /towerUnlock:\s*\{([^}]*)\}/.exec(src);
-  if (!found) throw new Error('В config.ts нет таблицы levels.towerUnlock');
-  const table = {};
-  for (const [, key, value] of found[1].matchAll(/(\w+):\s*(\d+)/g)) table[key] = Number(value);
-  return table;
+/** Id узла башни в древе улучшений (`meta.upgrades`): `tower` + id башни с заглавной буквы (`fizz` → `towerFizz`); у Таблетки узла нет — она открыта с начала (как `towerNodeId` в src/meta.ts). */
+export const towerNodeId = (tower) => `tower${tower.charAt(0).toUpperCase()}${tower.slice(1)}`;
+
+/** Открыта ли ветка древа при уровнях узлов `levels` (как `isBranchOpen` в src/meta.ts): «Организм», «Защита», узлы башен и умения — всегда; ветка башни — когда куплен узел башни (Таблетка — всегда). */
+export function branchOpen(branch, levels) {
+  if (['body', 'defense', 'towers', 'skills', 'pill'].includes(branch)) return true;
+  return (levels?.[towerNodeId(branch)] ?? 0) > 0;
 }
 
 /**
@@ -514,13 +513,15 @@ export async function heapMb(cdp) {
 }
 
 /** Очки ДНК за `wavesCleared` пройденных волн по таблице `readMetaTable().dna` (та же формула, что в `src/meta.ts`: waveBase·k + waveStep·k·(k + 1)/2, округление до ближайшего целого). */
-export function dnaWavesReward(dna, wavesCleared) {
+export function dnaWavesReward(dna, wavesCleared, level = 1) {
   const k = Math.max(0, Math.floor(wavesCleared));
-  return Math.round(dna.waveBase * k + (dna.waveStep * k * (k + 1)) / 2);
+  const mul = dna.levelMul?.[Math.min(dna.levelMul.length, Math.max(1, level)) - 1] ?? 1;
+  return Math.round((dna.waveBase * k + (dna.waveStep * k * (k + 1)) / 2) * mul);
 }
 
 /**
- * Очки ДНК и улучшения вне партии из src/config.ts (раздел meta): { dna: { waveBase, waveStep, winBonus, replayFactor, coinsPerPoint, coinsCapShare }, upgrades: { id: { branch, effect, perLevel, prices: [...] } } }.
+ * Очки ДНК и улучшения вне партии из src/config.ts (раздел meta): { dna: { waveBase, waveStep, levelMul, floor, miniBossFirst, bossFirst, flawlessShare, winBonus, replayFactor, coinsPerPoint, coinsCapShare },
+ * upgrades: { id: { branch, effect, perLevel, prices: [...], requires } } }.
  * Порядок ключей — порядок строк в таблице (как на экране «Улучшения»).
  */
 export function readMetaTable() {
@@ -540,39 +541,36 @@ export function readMetaTable() {
     upgrades[m[1]] = { branch: m[2], effect: m[3], perLevel: Number(m[4]), prices: m[5].split(',').map((x) => Number(x.trim())).filter((x) => Number.isFinite(x)), requires: m[6] ? { id: m[6], level: Number(m[7]) } : null };
   }
   if (!Object.keys(upgrades).length) throw new Error('В разделе «meta» config.ts не нашлось улучшений');
-  // уровни узла `waveOpen.node` открываются лучшими волнами на уровнях (решение владельца 18 октября 2026): таблица квот и границы волн
-  const wo = /waveOpen:\s*\{\s*node:\s*'(\w+)',\s*fromWave:\s*(\d+),\s*toWave:\s*(\d+),\s*quota:\s*\[([^\]]*)\]/.exec(body);
-  const waveOpen = wo ? { node: wo[1], fromWave: Number(wo[2]), toWave: Number(wo[3]), quota: wo[4].split(',').map((x) => Number(x.trim())) } : null;
-  if (waveOpen && upgrades[waveOpen.node]) upgrades[waveOpen.node].waveOpen = true;
-  return { waveOpen, dna: { waveBase: num('waveBase'), waveStep: num('waveStep'), winBonus: num('winBonus'), replayFactor: num('replayFactor'), coinsPerPoint: num('coinsPerPoint'), coinsCapShare: num('coinsCapShare') }, upgrades };
+  const levelMul = /levelMul:\s*\[([^\]]*)\]/.exec(body);
+  return {
+    dna: {
+      waveBase: num('waveBase'),
+      waveStep: num('waveStep'),
+      levelMul: levelMul ? levelMul[1].split(',').map((x) => Number(x.trim())).filter((x) => Number.isFinite(x)) : [1],
+      floor: num('floor'),
+      miniBossFirst: num('miniBossFirst'),
+      bossFirst: num('bossFirst'),
+      flawlessShare: num('flawlessShare'),
+      winBonus: num('winBonus'),
+      replayFactor: num('replayFactor'),
+      coinsPerPoint: num('coinsPerPoint'),
+      coinsCapShare: num('coinsCapShare'),
+    },
+    upgrades,
+  };
 }
 
 /**
- * Сколько уровней узла `waveOpen.node` открыто лучшими волнами (как `waveOpenCap` в `src/meta.ts`): по каждому уровню ⌊квота · clamp((лучшая волна − fromWave) / (toWave − fromWave), 0, 1)⌋, сумма.
- * `best` — число пройденных волн по уровням (индекс 0 — уровень 1; победа — число волн уровня).
+ * Жадная покупка улучшений вне партии: пока хватает очков, берётся первое по порядку `order` улучшение, у которого есть следующий уровень по цене не выше остатка,
+ * ветка открыта (`branchOpen`: ветка башни — после узла башни) и родитель куплен до нужного уровня. `upgrades` — таблица из `readMetaTable().upgrades`,
+ * `levels` — текущие уровни улучшений ({id: число}). Возвращает новые уровни, остаток очков и список покупок.
  */
-export function waveOpenCap(waveOpen, best) {
-  if (!waveOpen) return 0;
-  let sum = 0;
-  waveOpen.quota.forEach((q, i) => {
-    const share = Math.min(1, Math.max(0, ((best?.[i] ?? 0) - waveOpen.fromWave) / (waveOpen.toWave - waveOpen.fromWave)));
-    sum += Math.floor(q * share + 1e-9);
-  });
-  return sum;
-}
-
-/**
- * Жадная покупка улучшений вне партии (один порядок для бота и для расчёта эталонных наборов, docs/stage-5b-plan.md, раздел 5): пока хватает очков,
- * берётся первое по порядку `order` улучшение, у которого есть следующий уровень по цене не выше остатка; ветка башни доступна, если башня открыта
- * на уровне `level` (`unlock` — таблица «башня → с какого уровня»; ветки «Организм» и «Защита» — всегда).
- * `upgrades` — таблица из `readMetaTable().upgrades`, `levels` — текущие уровни улучшений ({id: число}). Возвращает новые уровни, остаток очков и список покупок.
- */
-export function buyGreedy({ upgrades, order, unlock, level, levels, dna, caps = null }) {
+export function buyGreedy({ upgrades, order, levels, dna }) {
   const next = { ...levels };
   const bought = [];
   let left = dna;
   for (;;) {
-    const id = order.find((x) => upgrades[x] && (unlock[upgrades[x].branch] ?? 1) <= level && upgrades[x].prices[next[x] ?? 0] !== undefined && upgrades[x].prices[next[x] ?? 0] <= left && (!upgrades[x].requires || (next[upgrades[x].requires.id] ?? 0) >= upgrades[x].requires.level) && (next[x] ?? 0) < (upgrades[x].waveOpen ? (caps?.[x] ?? 0) : Infinity));
+    const id = order.find((x) => upgrades[x] && branchOpen(upgrades[x].branch, next) && upgrades[x].prices[next[x] ?? 0] !== undefined && upgrades[x].prices[next[x] ?? 0] <= left && (!upgrades[x].requires || (next[upgrades[x].requires.id] ?? 0) >= upgrades[x].requires.level));
     if (!id) break;
     left -= upgrades[id].prices[next[id] ?? 0];
     next[id] = (next[id] ?? 0) + 1;
@@ -588,7 +586,7 @@ export function buyGreedy({ upgrades, order, unlock, level, levels, dna, caps = 
  */
 export function buyOrder(upgrades, tower = 'pill') {
   const own = Object.keys(upgrades).filter((id) => upgrades[id].branch === tower);
-  const first = ['damage', ...Object.keys(upgrades).filter((id) => upgrades[id].waveOpen), ...own];
+  const first = ['damage', ...own];
   return [...first, ...baseBuyOrder(upgrades).filter((id) => !first.includes(id))];
 }
 
