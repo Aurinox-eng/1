@@ -396,10 +396,16 @@ jobs:
           pattern: ladder-res-*
           path: results
           merge-multiple: true
+      # первые задачи уровней, доигранных двумя задачами: файлы с тем же именем, что у продолжения, — отдельной папкой (их «⚠» и ошибки — в раздел «Проблемы»)
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          pattern: ladder-chunk-*
+          path: chunks
       - name: Собрать таблицу
         run: |
-          mkdir -p out
-          node qa/bot-report.mjs results --title="Итог лестницы" > out/summary.md
+          mkdir -p out chunks
+          node qa/bot-report.mjs results --chunks=chunks --title="Итог лестницы" > out/summary.md
           cat out/summary.md >> "$GITHUB_STEP_SUMMARY"
           echo "================ ИТОГ ЛЕСТНИЦЫ (то же, что в Summary) ================"
           cat out/summary.md

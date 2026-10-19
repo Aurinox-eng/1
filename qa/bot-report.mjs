@@ -338,7 +338,19 @@ for (const r of campaignResults) {
     for (const w of game.warnings ?? []) problems.push(`${name}: консоль: ${w}`);
   }
 }
-for (const r of ladderResults) {
+// первые задачи уровня, доигранного двумя задачами (--chunks=папка, артефакты ladder-chunk-…): их партии в итог дорожки уже вошли через состояние, здесь — только их «⚠» и ошибки
+const chunkResults = [];
+if (args.chunks && args.chunks !== true && fs.existsSync(String(args.chunks))) {
+  for (const file of findJson(String(args.chunks))) {
+    try {
+      const data = JSON.parse(fs.readFileSync(file, 'utf8'));
+      if (data?.ladder && Array.isArray(data.games)) chunkResults.push(data);
+    } catch {
+      /* не результат бота — пропускаем */
+    }
+  }
+}
+for (const r of [...chunkResults, ...ladderResults]) {
   for (const game of r.games) {
     const name = `${titleOf(who(game))}, дорожка ${game.run}, уровень ${game.ladderLevel ?? '?'}, партия ${game.ladderGame ?? '?'}`;
     if (game.result === 'error') problems.push(`${name}: ОШИБКА — ${game.error}`);
