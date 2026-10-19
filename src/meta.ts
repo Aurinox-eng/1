@@ -9,7 +9,7 @@
 import { CONFIG, type UpgradeBranch, type UpgradeEffect } from './config';
 import { QA_MODE } from './debug';
 import { emptyMeta, loadMeta, MAX_LOG, maxLevel, saveMeta, UPGRADE_IDS, type MetaSave, type UpgradeId } from './save';
-import { setLevelReachedCheck, unlockLevel } from './progress';
+import { setLevelReachedCheck, setTowerOwnedCheck } from './progress';
 
 function readOverride(): MetaSave | null {
   if (!QA_MODE) return null;
@@ -34,7 +34,7 @@ function readStarsOverride(): number[] | null {
   return raw.split(',').map((x) => Math.max(0, Math.min(3, Math.floor(Number(x)) || 0)));
 }
 
-/** `?qa&best=30,19` — лучшие волны (число пройденных волн) уровней 1, 2, …; остальные — 0. Нужна проверкам открытия уровней узла по волнам (`waveOpenCap`). */
+/** `?qa&best=30,19` — лучшие волны (число пройденных волн) уровней 1, 2, …; остальные — 0. */
 function readBestOverride(): number[] | null {
   if (!QA_MODE) return null;
   const raw = new URLSearchParams(window.location.search).get('best');
@@ -95,42 +95,54 @@ export function requirementMet(id: UpgradeId): boolean {
   return !req || (state.levels[req.id] ?? 0) >= req.level;
 }
 
-/**
- * Сколько уровней узла `waveOpen.node` открыто лучшими волнами на уровнях (решение владельца 18 октября 2026): по каждому уровню ⌊quota · clamp((лучшая волна − fromWave) / (toWave − fromWave), 0, 1)⌋,
- * уровни складываются; уровень 1 (quota 0) ничего не открывает. `best` — лучшие волны по уровням (индекс 0 — уровень 1); без аргумента — из сохранения.
- */
-export function waveOpenCap(best: readonly number[] = state.progress.best): number {
-  const { fromWave, toWave, quota } = CONFIG.meta.waveOpen;
-  let sum = 0;
-  quota.forEach((q, i) => {
-    const share = Math.min(1, Math.max(0, ((best[i] ?? 0) - fromWave) / (toWave - fromWave)));
-    sum += Math.floor(q * share + 1e-9);
-  });
-  return sum;
-}
-
-/** Наибольший уровень узла, который можно купить сейчас: у узла `waveOpen.node` — по лучшим волнам уровней, у остальных — все уровни таблицы. */
-export function levelCap(id: UpgradeId): number {
-  return id === CONFIG.meta.waveOpen.node ? Math.min(maxLevel(id), waveOpenCap()) : maxLevel(id);
-}
-
-/** Узел доступен для покупки по структуре дерева и по картам уровней (ветка башни открыта, родитель куплен); очки не учитываются. */
+/** Узел доступен для покупки по структуре древа (ветка открыта, родитель куплен); очки не учитываются. */
 export function isNodeOpen(id: UpgradeId): boolean {
-  return isBranchOpen(CONFIG.meta.upgrades[id].branch) && requirementMet(id) && levelCap(id) > 0;
+  return isBranchOpen(CONFIG.meta.upgrades[id].branch) && requirementMet(id);
 }
 
 export function canBuy(id: UpgradeId): boolean {
   const price = nextPrice(id);
-  return price !== null && state.dna >= price && isNodeOpen(id) && state.levels[id] < levelCap(id);
+  return price !== null && state.dna >= price && isNodeOpen(id);
 }
 
-/** Покупает следующий уровень улучшения; false, если куплен наибольший уровень или не хватает очков. */
+/** Покупает следующий уровень улучшения; false, если куплен наибольший уровень, узел закрыт или не хватает очков. */
 export function buyUpgrade(id: UpgradeId): boolean {
   const price = nextPrice(id);
-  if (price === null || state.dna < price || !isNodeOpen(id) || state.levels[id] >= levelCap(id)) return false;
+  if (price === null || state.dna < price || !isNodeOpen(id)) return false;
   state = { ...state, dna: state.dna - price, levels: { ...state.levels, [id]: state.levels[id] + 1 }, bought: [...state.bought, id] };
   persist();
   return true;
+}
+
+/** Id узла башни в древе: `tower` + id башни с заглавной буквы (`fizz` → `towerFizz`); у Таблетки узла нет. */
+export const towerNodeId = (tower: string): UpgradeId => `tower${tower.charAt(0).toUpperCase()}${tower.slice(1)}`;
+
+/** Куплен ли узел башни (Таблетка открыта с начала). */
+export function towerOwned(tower: string): boolean {
+  return tower === 'pill' || (state.levels[towerNodeId(tower)] ?? 0) > 0;
+}
+
+setTowerOwnedCheck(towerOwned);
+
+/** Куплены ли умение «Лихорадка», «Автостарт волны» и ключевой узел ветки башни. */
+export const feverOwned = (): boolean => (state.levels.fever ?? 0) > 0;
+export const autoWaveOwned = (): boolean => (state.levels.autoWave ?? 0) > 0;
+export const keyOwned = (tower: string): boolean => (state.levels[`${tower}Key`] ?? 0) > 0;
+
+/** Крупные узлы (башни, умения, ключевые узлы ветвей): до ближайшего из них экран конца уровня пишет «не хватает N ДНК». */
+const BIG_EFFECTS: ReadonlySet<UpgradeEffect> = new Set(['tower', 'fever', 'key']);
+
+/** Ближайший по цене крупный узел, который можно купить по древу (родитель куплен), и сколько очков до него не хватает; null — все куплены или очков уже хватает. */
+export function nextBigNode(): { id: UpgradeId; need: number } | null {
+  let best: { id: UpgradeId; price: number } | null = null;
+  for (const id of UPGRADE_IDS) {
+    const spec = CONFIG.meta.upgrades[id];
+    if (!BIG_EFFECTS.has(spec.effect) || state.levels[id] > 0 || !isNodeOpen(id)) continue;
+    const price = spec.prices[0];
+    if (!best || price < best.price) best = { id, price };
+  }
+  if (!best || best.price <= state.dna) return null;
+  return { id: best.id, need: best.price - state.dna };
 }
 
 /** Номер текущей попытки на уровне (1 — первая): сыгранные попытки + 1. */
@@ -158,37 +170,85 @@ export function attemptLog(): string[] {
   return [...state.log];
 }
 
-/** Из чего складываются очки ДНК партии (звёзды считаются отдельно: `recordResult`). */
+/** Итог партии для подсчёта очков ДНК. */
+export interface DnaInput {
+  level: number;
+  /** Сколько волн пройдено (при проигрыше — без текущей; при победе — все). */
+  waves: number;
+  won: boolean;
+  /** Уровень уже пройден до этой партии (`isLevelBeaten`, проверять до `recordResult`). */
+  replay: boolean;
+  /** Монет в конце партии. */
+  coinsLeft: number;
+  /** Каких боссов уровня игрок победил в этой партии: биты 0–3 — мини-боссы 10, 20, 30, 40-й волн, бит 4 — босс. */
+  bossBits: number;
+  /** Победа без потери жизней. */
+  flawless: boolean;
+  /** Есть ли на уровне босс (тогда добавку за победу заменяет `bossFirst`). */
+  hasBoss: boolean;
+}
+
+/** Из чего складываются очки ДНК партии (звёзды считаются отдельно: `recordResult`); floor — доплата до нижней границы `meta.dna.floor`. */
 export interface DnaParts {
   waves: number;
   win: number;
   coins: number;
+  bosses: number;
+  flawless: number;
+  floor: number;
+}
+
+/** Очки за k пройденных волн уровня (без повтора): (waveBase · k + waveStep · k · (k + 1) / 2) × множитель уровня, округление один раз. */
+export function dnaForWaves(level: number, waves: number): number {
+  const { waveBase, waveStep, levelMul } = CONFIG.meta.dna;
+  const k = Math.max(0, Math.floor(waves));
+  const mul = levelMul[Math.min(levelMul.length, Math.max(1, level)) - 1] ?? 1;
+  return Math.round((waveBase * k + (waveStep * k * (k + 1)) / 2) * mul);
+}
+
+/** Какие из боссов `bits` побеждены впервые (ещё не записаны в сохранении уровня). */
+function freshBossBits(level: number, bits: number): number {
+  return bits & ~(state.bossWins[level - 1] ?? 0);
 }
 
 /**
- * Очки ДНК партии по частям: за каждую пройденную волну, добавка за победу и перевод остатка монет (только при победе: 1 очко за `coinsPerPoint` монет, не больше `coinsCapShare` награды за волны).
- * Повтор пройденного уровня: за волны и за монеты только replayFactor от обычного, бонуса за победу нет.
+ * Очки ДНК партии по частям (документ дизайна docs/redesign-2026-10-19.md, раздел 6): за волны; добавка за первую победу на уровне без босса; перевод остатка монет (только при победе);
+ * за первые победы над мини-боссами и боссом; «без потерь» (первая такая победа на уровне, +25 % очков за волны); доплата до нижней границы. Повтор пройденного уровня: за волны и монеты — replayFactor.
  */
-export function dnaParts(wavesCleared: number, won: boolean, replay = false, coinsLeft = 0): DnaParts {
-  const { waveBase, waveStep, winBonus, replayFactor, coinsPerPoint, coinsCapShare } = CONFIG.meta.dna;
-  const waves = Math.max(0, Math.floor(wavesCleared));
-  // награда растёт с номером волны: за k пройденных волн waveBase·k + waveStep·k·(k + 1)/2, округление один раз за партию
-  const wavesReward = Math.round(waveBase * waves + (waveStep * waves * (waves + 1)) / 2);
-  const coinsRaw = won && coinsPerPoint > 0 ? Math.min(Math.floor(Math.max(0, coinsLeft) / coinsPerPoint), Math.floor(wavesReward * coinsCapShare)) : 0;
-  if (replay) return { waves: Math.floor(wavesReward * replayFactor), win: 0, coins: Math.floor(coinsRaw * replayFactor) };
-  return { waves: wavesReward, win: won ? winBonus : 0, coins: coinsRaw };
+export function dnaParts(input: DnaInput): DnaParts {
+  const { winBonus, replayFactor, coinsPerPoint, coinsCapShare, miniBossFirst, bossFirst, flawlessShare, floor } = CONFIG.meta.dna;
+  const full = dnaForWaves(input.level, input.waves);
+  const coinsRaw = input.won && coinsPerPoint > 0 ? Math.min(Math.floor(Math.max(0, input.coinsLeft) / coinsPerPoint), Math.floor(full * coinsCapShare)) : 0;
+  const fresh = freshBossBits(input.level, input.bossBits);
+  let bosses = 0;
+  for (let bit = 0; bit < 4; bit++) if (fresh & (1 << bit)) bosses += miniBossFirst;
+  if (fresh & (1 << 4)) bosses += bossFirst;
+  const flawless = input.won && input.flawless && !(state.flawless[input.level - 1] > 0) ? Math.round(full * flawlessShare) : 0;
+  const waves = input.replay ? Math.floor(full * replayFactor) : full;
+  const coins = input.replay ? Math.floor(coinsRaw * replayFactor) : coinsRaw;
+  const win = input.won && !input.replay && !input.hasBoss ? winBonus : 0;
+  const sum = waves + win + coins + bosses + flawless;
+  return { waves, win, coins, bosses, flawless, floor: Math.max(0, floor - sum) };
 }
 
 /** Сколько очков ДНК даёт партия (сумма `dnaParts`). */
-export function dnaForGame(wavesCleared: number, won: boolean, replay = false, coinsLeft = 0): number {
-  const p = dnaParts(wavesCleared, won, replay, coinsLeft);
-  return p.waves + p.win + p.coins;
+export function dnaForGame(input: DnaInput): number {
+  const p = dnaParts(input);
+  return p.waves + p.win + p.coins + p.bosses + p.flawless + p.floor;
 }
 
-/** Начисляет очки ДНК за партию на счёт и возвращает, сколько начислено. `replay` — уровень уже пройден (`isLevelBeaten`, проверять до `recordResult`); `coinsLeft` — монет в конце партии. */
-export function awardDna(wavesCleared: number, won: boolean, replay = false, coinsLeft = 0): number {
-  const gained = dnaForGame(wavesCleared, won, replay, coinsLeft);
-  state = { ...state, dna: state.dna + gained };
+/** Начисляет очки ДНК за партию на счёт, записывает первые победы над боссами и «без потерь»; возвращает, сколько начислено. */
+export function awardDna(input: DnaInput): number {
+  const parts = dnaParts(input);
+  const gained = parts.waves + parts.win + parts.coins + parts.bosses + parts.flawless + parts.floor;
+  const i = input.level - 1;
+  const bossWins = [...state.bossWins];
+  const flawless = [...state.flawless];
+  if (i >= 0 && i < bossWins.length) {
+    bossWins[i] |= input.bossBits;
+    if (parts.flawless > 0) flawless[i] = 1;
+  }
+  state = { ...state, dna: state.dna + gained, bossWins, flawless };
   persist();
   return gained;
 }
@@ -268,14 +328,10 @@ export function markSeen(key: string): void {
 
 // ---------------------------------------------------------------- ветки и бонусы партии
 
-/** С какого уровня открыта ветка: «Организм» и «Защита» — с первого, ветка башни — с уровня, на котором башня становится доступной (`levels.towerUnlock`). */
-export function branchUnlockLevel(branch: UpgradeBranch): number {
-  return branch === 'body' || branch === 'defense' ? 1 : unlockLevel(branch);
-}
-
-/** Открыта ли ветка для покупок: открыт ли на карте уровней уровень, на котором ветка открывается. */
+/** Открыта ли ветка для покупок: «Организм», «Защита», узлы башен и умения — с начала; ветка башни — когда куплен узел башни (Таблетка — с начала). */
 export function isBranchOpen(branch: UpgradeBranch): boolean {
-  return isLevelOpen(branchUnlockLevel(branch));
+  if (branch === 'body' || branch === 'defense' || branch === 'towers' || branch === 'skills') return true;
+  return towerOwned(branch);
 }
 
 /** Сумма эффектов купленных улучшений вида `effect` (уровень × эффект уровня); `branch` ограничивает ветку (для башен — id башни). 0, если таких улучшений нет или не куплено. */
@@ -324,19 +380,20 @@ export interface MetaDebugSnapshot {
   progress: { stars: number[]; best: number[] };
   seen: string[];
   screen: MetaScreenInfo;
-  /** Сколько уровней узла `waveOpen.node` открыто лучшими волнами уровней сейчас. */
-  waveOpenCap: number;
+  /** Первые победы над боссами по уровням (биты) и награды «без потерь». */
+  bossWins: number[];
+  flawless: number[];
 }
 
 declare global {
   interface Window {
-    __pvbMeta?: { getMeta: () => MetaDebugSnapshot; dnaFor: (wavesCleared: number, won: boolean, replay: boolean, coinsLeft: number) => DnaParts; starsFor: (lostLives: number) => number };
+    __pvbMeta?: { getMeta: () => MetaDebugSnapshot; dnaFor: (input: DnaInput) => DnaParts; starsFor: (lostLives: number) => number };
   }
 }
 
 /** Делает состояние очков и улучшений доступным проверкам (`window.__pvbMeta`); `screen` отдаёт описание экрана «Улучшения» (или «не показан»). */
 export function exposeMetaDebug(screen: () => MetaScreenInfo): void {
-  if (QA_MODE) window.__pvbMeta = { getMeta: () => ({ dna: state.dna, levels: metaLevels(), progress: { stars: [...state.progress.stars], best: [...state.progress.best] }, seen: [...state.seen], waveOpenCap: waveOpenCap(), screen: screen() }), dnaFor: dnaParts, starsFor: starsForLoss };
+  if (QA_MODE) window.__pvbMeta = { getMeta: () => ({ dna: state.dna, levels: metaLevels(), progress: { stars: [...state.progress.stars], best: [...state.progress.best] }, seen: [...state.seen], bossWins: [...state.bossWins], flawless: [...state.flawless], screen: screen() }), dnaFor: dnaParts, starsFor: starsForLoss };
 }
 
 export const HIDDEN_SCREEN: MetaScreenInfo = { visible: false, balance: '', selected: '', scroll: 0, view: { x: 0, y: 0, w: 0, h: 0 }, nodes: [], detail: null, play: null };

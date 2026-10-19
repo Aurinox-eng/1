@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { CONFIG, type UpgradeEffect } from '../config';
-import { exposeMetaDebug, branchUnlockLevel, buyUpgrade, canBuy, isBranchOpen, isLevelBeaten, isLevelOpen, isNodeOpen, levelCap, metaDna, metaLevel, nextPrice, requirementMet, requirementOf, waveOpenCap, type MetaScreenInfo } from '../meta';
+import { exposeMetaDebug, buyUpgrade, canBuy, isBranchOpen, isLevelBeaten, isLevelOpen, isNodeOpen, metaDna, metaLevel, nextPrice, requirementMet, requirementOf, towerNodeId, type MetaScreenInfo } from '../meta';
 import { num, t, type TextKey } from '../i18n';
 import { maxLevel, UPGRADE_IDS, type UpgradeId } from '../save';
 import { sfx } from '../sound';
@@ -30,19 +30,27 @@ const nameKey = (id: UpgradeId): TextKey => `upg${id[0].toUpperCase()}${id.slice
 const DESC_KEY: Partial<Record<UpgradeEffect, TextKey>> = { lives: 'upgLivesDesc', coins: 'upgCoinsDesc', damage: 'upgDamageDesc', reward: 'upgRewardDesc' };
 const descKey = (effect: UpgradeEffect): TextKey => DESC_KEY[effect] ?? (`upgDesc${effect[0].toUpperCase()}${effect.slice(1)}` as TextKey);
 
-/** Что даёт улучшение на уровне level (суммарно): числом (жизни, монеты, щит, удары, пиксели), процентами (урон, награда, цена, пауза, радиусы, время лужи, возврат) или множителем (скорость в луже). */
+/** Узлы, которые не прибавляют число, а открывают башню или меняют поведение: у них в карточке — одна строка описания (`upgInfo…`). */
+const INFO_EFFECTS: ReadonlySet<UpgradeEffect> = new Set(['tower', 'key', 'fever', 'autoWave']);
+
+/** Строка описания узла-«включателя»: башня — «Открывает башню …», остальные — своя строка (`upgInfo` + id с заглавной буквы). */
+function infoText(id: UpgradeId): string {
+  const spec = CONFIG.meta.upgrades[id];
+  if (spec.effect === 'tower') return t('upgInfoTower', { name: t(nameKey(id)) });
+  return t(`upgInfo${id[0].toUpperCase()}${id.slice(1)}` as TextKey);
+}
+
+/** Что даёт улучшение на уровне level (суммарно): числом (жизни, монеты, щит, пиксели), процентами (урон, награда, цена, пауза, радиус, время лужи, возврат); у узлов-«включателей» — строка описания. */
 function effectText(id: UpgradeId, level: number): string {
   const spec = CONFIG.meta.upgrades[id];
+  if (INFO_EFFECTS.has(spec.effect)) return infoText(id);
   const total = spec.perLevel * level;
   let value: number;
   switch (spec.effect) {
     case 'sellRefund':
       value = Math.round((CONFIG.economy.sellRefund + total) * 100);
       break;
-    case 'slowFactor':
-      value = Math.round(Math.max(CONFIG.meta.minSlowFactor, CONFIG.towers.syrup.slowFactor + total) * 100) / 100;
-      break;
-    case 'damage': case 'towerDamage': case 'reward': case 'price': case 'cooldown': case 'range': case 'blast': case 'puddleSec': case 'puddleRadius': case 'auraBoost': case 'freezeTime':
+    case 'damage': case 'towerDamage': case 'reward': case 'price': case 'cooldown': case 'range': case 'puddleSec': case 'auraBoost': case 'freezeTime':
       value = Math.round(Math.abs(total) * 100);
       break;
     default:
@@ -67,14 +75,14 @@ function nodeCenter(id: UpgradeId): { x: number; y: number } {
 const CONTENT_H = Math.max(...UPGRADE_IDS.map((id) => nodeCenter(id).y)) + NODE_R + 52;
 
 /**
- * Узлы с меткой «★ рекомендуем» (решение владельца 15 октября 2026, docs/tester-feedback-plan-2026-10-15.md, пункт 8): «Сильное вещество», пока оно ниже 3-го уровня (с него открываются
- * все ветки башен), и первый узел ветки той башни, которую игрок больше всего ставил в последней партии, пока он не куплен до наибольшего уровня.
+ * Узлы с меткой «★ рекомендуем» (решение владельца 15 октября 2026, docs/tester-feedback-plan-2026-10-15.md, пункт 8): «Сильное вещество», пока оно ниже 3-го уровня,
+ * и «Сила» той башни, которую игрок больше всего ставил в последней партии, пока она не куплена до наибольшего уровня.
  */
 function recommendedIds(): UpgradeId[] {
   const ids: UpgradeId[] = [];
   if (metaLevel('damage') < 3) ids.push('damage');
   const branch = favoriteBranch();
-  const root = branch === null ? undefined : UPGRADE_IDS.find((id) => CONFIG.meta.upgrades[id].branch === branch && CONFIG.meta.upgrades[id].requires?.[0] === 'damage');
+  const root = branch === null ? undefined : UPGRADE_IDS.find((id) => id === `${branch}Power`);
   if (root !== undefined && metaLevel(root) < maxLevel(root)) ids.push(root);
   return ids;
 }
@@ -110,6 +118,8 @@ export class UpgradesScene extends Phaser.Scene {
   /** Откуда пришли: 'menu' — из главного меню («Играть» ведёт на выбор уровня); иначе с экрана конца уровня («Играть» начинает новую партию того же уровня). */
   private from: 'menu' | 'game' = 'game';
   private dragFrom: { x: number; y: number; scroll: number; moved: boolean } | null = null;
+  /** Уведомление «Открыта башня» (или null). */
+  private toast: Phaser.GameObjects.Text | null = null;
 
   constructor() {
     super('Upgrades');
@@ -121,6 +131,7 @@ export class UpgradesScene extends Phaser.Scene {
 
   create(): void {
     this.nodes = [];
+    this.toast = null;
     this.scrollY = 0;
     this.selected = UPGRADE_IDS[0];
     this.cameras.main.setBackgroundColor(COLORS.background);
@@ -233,6 +244,8 @@ export class UpgradesScene extends Phaser.Scene {
     if (buyUpgrade(id)) {
       sfx.place();
       this.refresh();
+      // Узел башни: уведомление «Открыта башня» (конфликт 3 документа дизайна, принят владельцем 19 октября 2026)
+      if (CONFIG.meta.upgrades[id].effect === 'tower') this.showToast(t('upgTowerBought', { name: t(nameKey(id)) }));
       return;
     }
     // не хватает очков, узел закрыт или куплен наибольший уровень: красная вспышка числа очков
@@ -241,7 +254,7 @@ export class UpgradesScene extends Phaser.Scene {
     this.time.delayedCall(350, () => this.balance.setColor(TEXT_COLORS.main));
   }
 
-  /** Линии от родителя к узлу: зелёные, если узел открыт, иначе серые. */
+  /** Линии от родителя к узлу: зелёные, если узел открыт, иначе серые. В одной колонке — вертикально (если между узлами есть другие — обходом слева); в разных — ступенькой: вправо на полшага, по вертикали, вправо к узлу. */
   private drawEdges(): void {
     this.edges.clear();
     for (const id of UPGRADE_IDS) {
@@ -251,9 +264,32 @@ export class UpgradesScene extends Phaser.Scene {
       const b = nodeCenter(id);
       const open = isNodeOpen(id);
       this.edges.lineStyle(open ? 5 : 3, open ? COLORS.merge : 0x4a5c82, open ? 0.9 : 0.7);
-      const mid = (a.x + b.x) / 2;
+      if (Math.abs(a.x - b.x) < 1) {
+        const lo = Math.min(a.y, b.y);
+        const hi = Math.max(a.y, b.y);
+        const blocked = UPGRADE_IDS.some((other) => {
+          const c = nodeCenter(other);
+          return other !== id && other !== req.id && Math.abs(c.x - a.x) < 1 && c.y > lo && c.y < hi;
+        });
+        const sign = b.y > a.y ? 1 : -1;
+        if (!blocked) this.edges.beginPath().moveTo(a.x, a.y + sign * NODE_R).lineTo(b.x, b.y - sign * NODE_R).strokePath();
+        else {
+          const side = a.x - STEP.x * 0.36;
+          this.edges.beginPath().moveTo(a.x - NODE_R, a.y).lineTo(side, a.y).lineTo(side, b.y).lineTo(b.x - NODE_R, b.y).strokePath();
+        }
+        continue;
+      }
+      const mid = a.x + STEP.x * 0.5;
       this.edges.beginPath().moveTo(a.x + NODE_R, a.y).lineTo(mid, a.y).lineTo(mid, b.y).lineTo(b.x - NODE_R, b.y).strokePath();
     }
+  }
+
+  /** Короткое уведомление над окном дерева (гаснет само). */
+  private showToast(message: string): void {
+    this.toast?.destroy();
+    const text = this.add.text(VIEW.x + VIEW.w / 2, VIEW.y + 30, message, this.style(28, TEXT_COLORS.accent)).setOrigin(0.5).setDepth(10);
+    this.toast = text;
+    this.tweens.add({ targets: text, alpha: 0, delay: 1800, duration: 500, onComplete: () => text.destroy() });
   }
 
   /** Перерисовывает очки, линии, узлы и карточку выбранного узла. */
@@ -298,21 +334,21 @@ export class UpgradesScene extends Phaser.Scene {
     // Не максимум: подпись и строка «Сейчас +80 % → станет +90 %»; максимум — итог одной строкой
     const now = effectParts(id, level);
     const next = effectParts(id, level + 1);
-    this.detailEffect.setText(price === null ? effectText(id, level) : `${now.label ? `${now.label}\n` : ''}${t('upgNowNext', { now: now.value, next: next.value })}`);
-    // условие открытия: ветка башни по уровню карты, родитель по дереву
+    const info = INFO_EFFECTS.has(spec.effect);
+    this.detailEffect.setText(price === null || info ? effectText(id, level) : `${now.label ? `${now.label}\n` : ''}${t('upgNowNext', { now: now.value, next: next.value })}`);
+    // условие открытия: ветка башни — купленным узлом башни, родитель — по дереву
     const lines: string[] = [];
-    if (!isBranchOpen(spec.branch)) lines.push(t('upgLocked', { n: branchUnlockLevel(spec.branch) }));
+    const towerNode = towerNodeId(spec.branch);
+    if (!isBranchOpen(spec.branch) && requirementOf(id)?.id !== towerNode) lines.push(t('upgLockedTower', { name: t(nameKey(towerNode)) }));
     const req = requirementOf(id);
     if (req && !requirementMet(id)) lines.push(t('upgRequires', { name: t(nameKey(req.id)), n: req.level }));
-    // узел, уровни которого открываются волнами уровней (`meta.waveOpen`): сколько открыто, когда новых уровней пока нет
-    if (id === CONFIG.meta.waveOpen.node && level >= levelCap(id) && price !== null) lines.push(t('upgWaves', { n: waveOpenCap(), max: maxLevel(id) }));
     this.detailNeed.setText(lines.join('\n'));
     const open = isNodeOpen(id);
     const enabled = canBuy(id);
     this.buyBg.clear();
     this.buyBg.fillStyle(enabled ? 0x2a8a4a : 0x2a3550, 1).fillRoundedRect(BUY_CENTER.x - BUY.w / 2, BUY_CENTER.y - BUY.h / 2, BUY.w, BUY.h, 14);
     this.buyBg.lineStyle(3, enabled ? COLORS.merge : 0x4a5c82, 1).strokeRoundedRect(BUY_CENTER.x - BUY.w / 2, BUY_CENTER.y - BUY.h / 2, BUY.w, BUY.h, 14);
-    const label = price === null ? t('upgMax') : !open || level >= levelCap(id) ? t('upgClosed') : t('upgBuy', { n: price });
+    const label = price === null ? t('upgMax') : !open ? t('upgClosed') : t('upgBuy', { n: price });
     this.buyLabel.setText(label).setColor(enabled ? TEXT_COLORS.main : TEXT_COLORS.dim);
     let size = 26;
     this.buyLabel.setFontSize(size);

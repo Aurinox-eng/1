@@ -5,6 +5,8 @@ import { num, t, type TextKey } from '../i18n';
 import { drawBody } from '../objects/bacteriumArt';
 import { extentOf, type BacteriumKind } from '../objects/Bacterium';
 import { createTowerArt, type TowerId } from '../objects/Tower';
+import { isLevelOpen } from '../meta';
+import { isTowerOpen, levelKinds } from '../progress';
 import { addButton, setScreenInfo, textStyle, type Rect } from '../screens';
 import { COLORS, TEXT_COLORS } from '../theme';
 
@@ -26,6 +28,16 @@ const TOWERS = Object.keys(CONFIG.towers) as TowerId[];
 const KINDS = Object.keys(CONFIG.types) as BacteriumKind[];
 
 const cap = (id: string): string => id.charAt(0).toUpperCase() + id.slice(1);
+
+/** Открыта ли запись: башня — куплена в древе (Таблетка — с начала); бактерия — встречается на открытом уровне. Закрытая запись показывается силуэтом (конфликт 2 документа дизайна, принят владельцем 19 октября 2026). */
+function isOpenEntry(tab: Tab, id: string): boolean {
+  if (tab === 'towers') return isTowerOpen(id);
+  for (let level = 1; level <= CONFIG.levels.count; level++) if (isLevelOpen(level) && levelKinds(level).includes(id as BacteriumKind)) return true;
+  return false;
+}
+
+/** Цена узла башни в древе (очков ДНК). */
+const towerNodePrice = (id: string): number => CONFIG.meta.upgrades[`tower${cap(id)}`]?.prices[0] ?? 0;
 
 /**
  * «Альманах» (решение владельца 8 октября 2026, docs/expert-plan.md, раздел 3): вместо плашек с автопаузой — один экран со списком башен и бактерий.
@@ -61,8 +73,9 @@ export class AlmanacScene extends Phaser.Scene {
     this.backRect = addButton(this, { x: 130, y: 44, w: 190, h: 64, label: t('almBack'), fontSize: 32, fill: 0x2a3550, line: 0x4a5c82, onTap: () => this.leave() });
 
     this.tabGraphics = this.add.graphics();
-    this.tabRects.towers = this.addTab(W / 2 - 160, 100, 'towers', t('almTabTowers'));
-    this.tabRects.bacteria = this.addTab(W / 2 + 160, 100, 'bacteria', t('almTabBacteria'));
+    const count = (tab: Tab, ids: string[]): { n: number; m: number } => ({ n: ids.filter((id) => isOpenEntry(tab, id)).length, m: ids.length });
+    this.tabRects.towers = this.addTab(W / 2 - 160, 100, 'towers', t('almTabTowers', count('towers', TOWERS)));
+    this.tabRects.bacteria = this.addTab(W / 2 + 160, 100, 'bacteria', t('almTabBacteria', count('bacteria', KINDS)));
 
     this.list = this.add.container(LIST.x, LIST.y);
     const maskShape = this.make.graphics({ x: 0, y: 0 }, false);
@@ -88,7 +101,8 @@ export class AlmanacScene extends Phaser.Scene {
   private addTab(x: number, y: number, tab: Tab, label: string): Rect {
     const w = 290;
     const h = 56;
-    this.add.text(x, y, label, textStyle(32)).setOrigin(0.5);
+    const text = this.add.text(x, y, label, textStyle(30)).setOrigin(0.5);
+    if (text.width > w - 16) text.setScale((w - 16) / text.width);
     this.add
       .zone(x, y, w, h)
       .setInteractive({ useHandCursor: true })
@@ -132,21 +146,33 @@ export class AlmanacScene extends Phaser.Scene {
     this.list.add(g);
     const cy = y + ROW_H / 2;
 
-    const name = t(tab === 'towers' ? (`tower${key}` as TextKey) : (`bacName${key}` as TextKey));
-    const line = t(tab === 'towers' ? (`almTower${key}` as TextKey) : (`almBac${key}` as TextKey));
+    const open = isOpenEntry(tab, id);
+    const name = tab === 'bacteria' && !open ? t('almUnknown') : t(tab === 'towers' ? (`tower${key}` as TextKey) : (`bacName${key}` as TextKey));
+    const line = open
+      ? t(tab === 'towers' ? (`almTower${key}` as TextKey) : (`almBac${key}` as TextKey))
+      : tab === 'towers'
+        ? t('almTowerClosed', { n: towerNodePrice(id) })
+        : t('almBacClosed');
     this.rowTexts.push(`${name}: ${line}`);
     // Длинное название («Бронированная») сжимается по ширине, чтобы не заходить на описание (оно начинается с LINE_X)
     const nameText = this.add.text(NAME_X, cy, name, textStyle(28)).setOrigin(0, 0.5);
     if (nameText.width > LINE_X - NAME_X - 12) nameText.setScale((LINE_X - NAME_X - 12) / nameText.width);
     this.list.add(nameText);
     // Шипучка: под строкой — сколько целей взрыва получают полный урон (числа из config.ts); строка из i18n.ts и проверка её текста не меняются
-    const limit = tab === 'towers' ? CONFIG.towers[id as TowerId].blastFullTargets : 0;
+    const limit = tab === 'towers' && open ? CONFIG.towers[id as TowerId].blastFullTargets : 0;
     this.list.add(this.add.text(LINE_X, limit > 0 ? cy - 14 : cy, line, { ...textStyle(22, TEXT_COLORS.main, false), fontStyle: 'normal', wordWrap: { width: LINE_W } }).setOrigin(0, 0.5));
     if (limit > 0) {
       const note = t('blastLimitNote', { n: limit, m: num(CONFIG.towers[id as TowerId].blastRestMul) });
       this.list.add(this.add.text(LINE_X, cy + 16, note, { ...textStyle(17, TEXT_COLORS.soft, false), fontStyle: 'normal', wordWrap: { width: LINE_W } }).setOrigin(0, 0.5));
     }
 
+    if (!open) {
+      // Закрытая запись: силуэт (тёмный рисунок) без значков «сильна / слаба / бьют»
+      const icon = tab === 'towers' ? this.towerIcon(ICON_X, cy, id as TowerId, 0.78) : this.bacteriumIcon(id as BacteriumKind, ICON_X, cy, 30);
+      this.silhouette(icon);
+      this.list.add(icon);
+      return;
+    }
     if (tab === 'towers') {
       this.list.add(this.towerIcon(ICON_X, cy, id as TowerId, 0.78));
       const entry = ALMANAC_TOWERS[id as TowerId];
@@ -170,6 +196,17 @@ export class AlmanacScene extends Phaser.Scene {
       this.list.add(icon);
       ix += MARK + 6;
     }
+  }
+
+  /** Силуэт: весь рисунок значка тёмный и полупрозрачный. */
+  private silhouette(icon: Phaser.GameObjects.Container): void {
+    icon.setAlpha(0.3);
+    const tint = (obj: Phaser.GameObjects.GameObject): void => {
+      if (obj instanceof Phaser.GameObjects.Container) obj.list.forEach(tint);
+      else if ('setTint' in obj && typeof (obj as Phaser.GameObjects.Image).setTint === 'function') (obj as Phaser.GameObjects.Image).setTint(0x0b1020);
+      else if (obj instanceof Phaser.GameObjects.Graphics) obj.setAlpha(0.25);
+    };
+    icon.list.forEach(tint);
   }
 
   private towerIcon(x: number, y: number, id: TowerId, scale: number): Phaser.GameObjects.Container {

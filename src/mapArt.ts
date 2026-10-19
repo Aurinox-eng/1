@@ -2,7 +2,7 @@ import Phaser from 'phaser';
 import { CONFIG } from './config';
 import { t } from './i18n';
 import { getLang } from './lang';
-import { BLOCKED_TILES, EDGES, LEVEL, PATH_TILES, WORLD, cellKey } from './level';
+import { BLOCKED_TILES, EDGES, LEVEL, MAP_ID, PATH_TILES, WORLD, cellKey } from './level';
 import { FONT, MAP_COLORS } from './theme';
 
 /** Во сколько раз текстура плотнее мира: при самом сильном приближении карта остаётся чёткой. */
@@ -205,8 +205,8 @@ function paintMap(ctx: CanvasRenderingContext2D): void {
 }
 
 /**
- * Рисует карту один раз (в четыре куска — так текстуры не превышают 2048 px, это безопасно для старых телефонов)
- * и добавляет её в контейнер мира. При перезапуске уровня готовые текстуры используются повторно.
+ * Рисует карту текущего уровня один раз (в четыре куска — так текстуры не превышают 2048 px, это безопасно для старых телефонов)
+ * и добавляет её в контейнер мира. При перезапуске уровня готовые текстуры используются повторно; куски другой карты удаляются.
  */
 export function addMap(scene: Phaser.Scene, parent: Phaser.GameObjects.Container): void {
   const halfW = Math.ceil(WORLD.w / 2);
@@ -217,8 +217,10 @@ export function addMap(scene: Phaser.Scene, parent: Phaser.GameObjects.Container
       const y0 = qy * halfH;
       const w = Math.min(halfW + OVERLAP, WORLD.w - x0);
       const h = Math.min(halfH + OVERLAP, WORLD.h - y0);
-      const key = `map-${getLang()}-${qx}${qy}`;
+      const key = `map-${MAP_ID}-${getLang()}-${qx}${qy}`;
       if (!scene.textures.exists(key)) {
+        // Куски другой карты (прошлый уровень) больше не нужны: память картинок на телефоне ограничена
+        for (const other of scene.textures.getTextureKeys()) if (other.startsWith('map-') && !other.startsWith(`map-${MAP_ID}-`)) scene.textures.remove(other);
         const texture = scene.textures.createCanvas(key, Math.ceil(w * DENSITY), Math.ceil(h * DENSITY));
         if (!texture) continue;
         const ctx = texture.getContext();
