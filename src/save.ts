@@ -15,8 +15,7 @@ export const UPGRADE_IDS: UpgradeId[] = Object.keys(CONFIG.meta.upgrades);
 
 export interface MetaSave {
   /** Версия формата: 1 — очки и улучшения (этап 6а); 2 — плюс прогресс по уровням и показанные плашки (этап 5); 3 — улучшения всех веток древа (этап 6б); 4 — попытки и строки итога (решение владельца 18 октября 2026, ответ 7);
-   *  5 — новое древо, победы над боссами и «без потерь» (переработка, пакет «Уровень 1», 19 октября 2026). Версии 1–4 при чтении переводятся в 5 (`migrateLegacy`): узлы, которых в новом древе нет или у которых
-   *  уровней стало меньше («Сильное вещество II» целиком), возвращаются очками ДНК по прежним ценам. */
+   *  5 — новое древо, победы над боссами и «без потерь» (переработка, пакет «Уровень 1», 19 октября 2026). Версия 5 хранится под своим ключом (`KEY`) и начинается с нуля: прежнее сохранение не переносится. */
   v: 5;
   /** Очки ДНК на счёте (целое число ≥ 0). */
   dna: number;
@@ -38,73 +37,6 @@ export interface MetaSave {
   flawless: number[];
 }
 
-/** Цены улучшений сохранений версий 1–4 (таблица `meta.upgrades` до переработки, коммит 82a36a5): по ним при переходе на версию 5 возвращаются очки за узлы, которых нет в новом древе, и за уровни сверх нового наибольшего. */
-const LEGACY_PRICES: Record<string, number[]> = {
-  damage: [15, 20, 25, 35, 45, 55, 70, 95, 120, 160],
-  coins: [10, 10, 15, 20, 25, 30, 40, 50, 65, 85],
-  reward: [10, 15, 15, 20, 30, 35, 50, 65, 80, 105],
-  damageX: [20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75, 80, 85, 90, 95, 100, 105, 110, 115, 120, 125, 130, 135, 140, 145, 150, 155, 160, 165, 170],
-  lives: [40, 50, 70],
-  shield: [35, 45, 60, 75, 100],
-  recycle: [25, 30, 40, 55, 70],
-  reinforce: [25, 30, 40, 55, 70, 95, 120, 155],
-  pillPower: [20, 25, 35, 45, 55, 75],
-  pillRate: [20, 25, 35, 45, 55, 75, 95, 125],
-  pillRange: [20, 25, 35, 45, 55, 75],
-  pillCheap: [25, 30, 40, 55, 70, 95],
-  syrupTime: [20, 25, 35, 45, 55, 75, 95, 125],
-  syrupSlow: [25, 30, 40, 55, 70, 95, 120, 155],
-  syrupWide: [20, 25, 35, 45, 55, 75, 95, 125],
-  syrupCheap: [25, 30, 40, 55, 70, 95],
-  fizzPower: [30, 40, 50, 65, 85, 110],
-  fizzBlast: [30, 40, 50, 65, 85, 110, 145, 190],
-  fizzRate: [30, 40, 50, 65, 85, 110, 145, 190],
-  fizzRange: [25, 30, 40, 55, 70, 95],
-  fizzCheap: [30, 40, 50, 65, 85, 110],
-  syringePower: [35, 45, 60, 75, 100, 130],
-  syringeRate: [35, 45, 60, 75, 100, 130, 170, 220],
-  syringeWidth: [30, 40, 50, 65, 85, 110, 145, 190],
-  syringePulse: [120, 155, 205],
-  syringeCheap: [35, 45, 60, 75, 100, 130],
-  ampulePower: [30, 40, 50, 65, 85, 110],
-  ampuleRate: [30, 40, 50, 65, 85, 110, 145, 190],
-  ampuleRange: [25, 35, 40, 55, 70, 95],
-  ampuleCheap: [30, 40, 50, 65, 85, 110],
-  antibioticPower: [25, 35, 40, 55, 70, 95],
-  antibioticRate: [25, 35, 40, 55, 70, 95, 120, 155],
-  antibioticRange: [20, 25, 35, 45, 55, 75],
-  antibioticCheap: [25, 35, 40, 55, 70, 95],
-  lampPower: [30, 40, 50, 65, 85, 110],
-  lampRate: [30, 40, 50, 65, 85, 110, 145, 190],
-  lampRange: [25, 35, 40, 55, 70, 95],
-  lampCheap: [30, 40, 50, 65, 85, 110],
-  vitaminPower: [25, 35, 40, 55, 70, 95],
-  vitaminRate: [25, 35, 40, 55],
-  vitaminRange: [20, 25, 35, 45, 55, 75],
-  vitaminCheap: [25, 35, 40, 55, 70, 95],
-  frostPower: [30, 40, 50, 65, 85, 110],
-  frostRate: [30, 40, 50, 65, 85, 110, 145, 190],
-  frostRange: [25, 35, 40, 55, 70, 95],
-  frostCheap: [30, 40, 50, 65, 85, 110],
-  patchPower: [25, 35, 40, 55, 70, 95],
-  patchRate: [25, 35, 40, 55, 70, 95, 120, 155],
-  patchRange: [20, 25, 35, 45, 55, 75],
-  patchCheap: [25, 35, 40, 55, 70, 95],
-};
-
-/** Сколько очков ДНК вернуть сохранению версий 1–4: за каждый узел прежнего древа — цены купленных уровней, которых в новом древе нет (узла нет — все его уровни; уровней стало меньше — лишние). */
-export function legacyRefund(levels: Record<string, unknown>): number {
-  let refund = 0;
-  for (const [id, prices] of Object.entries(LEGACY_PRICES)) {
-    const n = levels[id];
-    if (typeof n !== 'number' || !Number.isFinite(n) || n <= 0) continue;
-    const bought = Math.min(prices.length, Math.floor(n));
-    const kept = UPGRADE_IDS.includes(id) ? Math.min(bought, maxLevel(id)) : 0;
-    for (let i = kept; i < bought; i++) refund += prices[i];
-  }
-  return refund;
-}
-
 /** Наибольшие допустимые значения при чтении сохранения: больше — значит запись чужая или испорченная. */
 const MAX_BEST_WAVE = 1000;
 const MAX_SEEN = 200;
@@ -115,7 +47,9 @@ export const MAX_LOG = 20;
 const MAX_LOG_LEN = 1000;
 const MAX_BOUGHT = 400;
 
-const KEY = 'pvb.meta';
+/** Ключ хранилища. Сборки main, ветки стиля и рабочей ветки открываются с одного адреса (aurinox-eng.github.io) и делят одно хранилище; прежние сборки читают ключ `pvb.meta` и записывают обратно только знакомые
+ *  им поля. Поэтому новое древо хранится под своим ключом, прогресс в нём начинается с нуля, прежнее сохранение не переносится и очки за него не возвращаются (решение владельца 19 октября 2026, сводное сообщение, п. 2). */
+const KEY = 'pvb.meta5';
 
 /** Наибольший уровень улучшения (число цен в таблице). */
 export function maxLevel(id: UpgradeId): number {
@@ -131,11 +65,8 @@ export function emptyMeta(): MetaSave {
 export function sanitizeMeta(raw: unknown): MetaSave {
   const out = emptyMeta();
   if (typeof raw !== 'object' || raw === null) return out;
-  const r = raw as { v?: unknown; dna?: unknown; levels?: unknown; progress?: unknown; seen?: unknown; attempts?: unknown; log?: unknown; bought?: unknown; bossWins?: unknown; flawless?: unknown };
+  const r = raw as { dna?: unknown; levels?: unknown; progress?: unknown; seen?: unknown; attempts?: unknown; log?: unknown; bought?: unknown; bossWins?: unknown; flawless?: unknown };
   if (typeof r.dna === 'number' && Number.isFinite(r.dna) && r.dna > 0) out.dna = Math.floor(r.dna);
-  // Сохранение до переработки (версии 1–4): узлы прежнего древа сверх нового возвращаются очками ДНК
-  const legacy = typeof r.v !== 'number' || r.v < 5;
-  if (legacy && typeof r.levels === 'object' && r.levels !== null) out.dna += legacyRefund(r.levels as Record<string, unknown>);
   if (typeof r.levels === 'object' && r.levels !== null) {
     const lv = r.levels as Record<string, unknown>;
     for (const id of UPGRADE_IDS) {
@@ -181,12 +112,7 @@ export function sanitizeMeta(raw: unknown): MetaSave {
 export function loadMeta(): MetaSave {
   try {
     const text = window.localStorage.getItem(KEY);
-    if (!text) return emptyMeta();
-    const raw: unknown = JSON.parse(text);
-    const meta = sanitizeMeta(raw);
-    // Сохранение прежней версии переписывается сразу: иначе возврат очков за прежнее древо начислялся бы при каждом запуске
-    if (typeof raw !== 'object' || raw === null || (raw as { v?: unknown }).v !== meta.v) saveMeta(meta);
-    return meta;
+    return text ? sanitizeMeta(JSON.parse(text)) : emptyMeta();
   } catch {
     return emptyMeta();
   }
