@@ -66,6 +66,7 @@ import path from 'node:path';
 import {
   branchOpen,
   buyBest,
+  nodeChain,
   createInput,
   dnaWavesReward,
   GAME_H as H,
@@ -223,7 +224,8 @@ const STRATEGY_SPEC = String(args.strategy ?? (args.profile === 'zone' ? 'zone' 
 const specMatch = /^(solo|pair|focus|core):([\w+,]+)(?::(save|l1))?$/.exec(STRATEGY_SPEC);
 if (!specMatch && !['default', 'expert', 'zone'].includes(STRATEGY_SPEC)) die(`--strategy=«${STRATEGY_SPEC}»: есть default, zone, solo:X, pair:a+b, focus:a+b, core:a+b, core:a+b:save, <стратегия>:l1.`);
 if (specMatch?.[3] === 'save' && specMatch[1] !== 'core') die(`--strategy=${STRATEGY_SPEC}: «:save» — только для core.`);
-/** core:a+b:save — эксперт копит очки ДНК на башни ядра: пока они не открыты, покупает только узлы на пути к ним. */
+/** core:a+b:save — эксперт копит очки ДНК на башни ядра: пока они не открыты, покупает только узлы на пути к ним и строит только Таблетки — без Сиропа и Шипучки в круге
+ *  (решение владельца 19 октября 2026, сообщение 5, п. 2: Сироп в круге забирал монеты у Таблеток, гибель 12–13 → 10). */
 const CORE_SAVE = specMatch?.[3] === 'save';
 /** <стратегия>:l1 — проба: башни уровня 1 (Сироп, Шипучка, Шприц) открыты с первой попытки без очков ДНК; покупки — по правилам стратегии («Лихорадка» — общий узел). */
 const L1_OPEN = specMatch?.[3] === 'l1';
@@ -462,11 +464,13 @@ const BUY_TOWERS = SOLO_ALLOWED ? [...SOLO_ALLOWED].filter((id) => !EXCLUDE.has(
  *  (решение владельца 19 октября 2026, сообщение 4, п. 1.1), остальное — с нуля; эксперт без ограничения (обычная игра, --core) — всё с нуля. */
 const startLevels = () => ({ ...emptyLevels(), ...(SOLO_ALLOWED || STRATEGY === 'zone' ? OPEN_NODES : {}), ...(L1_OPEN ? { towerSyrup: 1, towerFizz: 1, towerSyringe: 1 } : {}) });
 
-/** Узлы башен, которые стратегия открывает для замера первой попытки (раздел 10.2 документа дизайна: «без улучшений вне партии, но с открытыми башнями набора»): --solo/--pair/--focus — свои башни;
+/** Узлы башен, которые стратегия открывает для замера первой попытки (раздел 10.2 документа дизайна: «без улучшений вне партии, но с открытыми башнями набора»): --solo/--pair/--focus — свои башни и цепочка к ним;
  *  default — башни уровня 1 (Сироп, Шипучка, Шприц), zone — Сироп. В лестнице и серии партий эти узлы открыты с первой попытки у стратегий с ограничением башен (startLevels), эксперт (default, core) покупает башни за очки ДНК. */
 const OPEN_NODES = (() => {
   const towers = STRATEGY_TOWERS.length || SOLO ? STRATEGY_TOWERS : STRATEGY === 'zone' ? ['syrup'] : ['syrup', 'fizz', 'syringe'];
-  return Object.fromEntries(towers.filter((id) => !EXCLUDE.has(id)).map((id) => [towerNodeId(id), 1]));
+  // вся цепочка «требует» к башням набора (для Шприца — Сироп, Шипучка, Шприц; решение владельца 19 октября 2026, сообщение 5, п. 1.1): строит стратегия только свои башни,
+  // а умения, которым нужна башня цепочки («Лихорадка» — Шипучка), покупать может
+  return Object.fromEntries(towers.filter((id) => !EXCLUDE.has(id)).flatMap((id) => nodeChain(META.upgrades, towerNodeId(id))).map((id) => [id, 1]));
 })();
 /** Улучшения одиночной партии (без --ladder и --campaign): --meta (не названные — 0) и поверх — узлы башен стратегии (OPEN_NODES). */
 const SINGLE_META = (() => {
@@ -866,6 +870,8 @@ function makePlayer({ world, rng, buttons }) {
         const idx = (ptr + k) % cycle.length;
         if (available(cycle[idx]) && !(syrupDone && cycle[idx] === 'syrup')) order.push({ idx, type: cycle[idx] });
       }
+      // core:…:save — пока ядро не открыто, строятся только Таблетки (место в круге не двигается)
+      if (CORE_SAVE && CORE.some((id) => !available(id))) order = available('pill') ? [{ idx: -1, type: 'pill' }] : [];
       // Начало партии: пока башен с уроном мало, главное — урон: берётся самая дешёвая башня с уроном (вне списка по кругу; Сироп без урона ничего не убьёт)
       // Считаем в «обычных башнях»: башня уровня L — это 2^(L−1) обычных (иначе после слияния двух Таблеток «начало партии» включалось снова и бот до конца партии покупал только Таблетки: Сироп не строился)
       const hitsHard = (id) => TABLE[id]?.damage > 0 || (Boolean(SOLO_ALLOWED) && TABLE[id]?.dotPerSec > 0); // при --solo яд (Антибиотик, damage 0) тоже считается уроном: иначе «начало партии» не находит башню и ничего не строится
