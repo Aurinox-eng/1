@@ -22,6 +22,8 @@
  *   http://localhost:5173/?qa&meta=lives:1,coins:2,damage:3,reward:0,dna:50 — подменяет уровни улучшений вне партии и очки ДНК (в сохранение ничего не пишется)
  *   http://localhost:5173/?lang=en       — принудительно выбирает язык (проверка переводов)
  *   http://localhost:5173/?qa&best=30,19 — лучшие волны уровней 1, 2, … (в сохранение ничего не пишется)
+ *   http://localhost:5173/?qa&pilleyes=0 — Таблетки без глаз (снимки пилота этапа 8, qa/art-shots.mjs); по умолчанию глаза есть (theme.PILL_EYES)
+ *   http://localhost:5173/?qa&artsheet   — лист образцов: новые и прежние рисунки рядом; &artsheet=b1|b2 — все бактерии, =t1|t2 — все башни (только режим проверки; в игровую сборку не попадает)
  */
 import type { PerfReport } from './perf';
 
@@ -31,6 +33,21 @@ export const QA_ENABLED: boolean = import.meta.env.DEV || import.meta.env.MODE =
 const params = new URLSearchParams(window.location.search);
 
 export const QA_MODE: boolean = QA_ENABLED && params.has('qa');
+
+/** Только режим проверки: `?qa&pilleyes=0` — Таблетки без глаз (для снимков пилота); в игровой сборке всегда false. */
+export const PILL_EYES_OFF: boolean = QA_MODE && params.get('pilleyes') === '0';
+
+/**
+ * Только режим проверки (разбор удорожания отрисовки ветки стиля, замер `perf`): `?qa&noface` — бактерии без картинки лица, `?qa&nobreath` — без «дыхания» (пульсации масштаба).
+ * В игровой сборке всегда false.
+ */
+export const NO_FACE: boolean = QA_MODE && params.has('noface');
+export const NO_BREATH: boolean = QA_MODE && params.has('nobreath');
+
+/** Только режим проверки: `?qa&artsheet` — вместо игры показывается лист образцов пилота этапа 8. */
+export const ART_SHEET: boolean = QA_MODE && params.has('artsheet');
+/** Страница листа образцов: пусто — пилот (новое рядом с прежним), `b1`, `b2` — все 19 бактерий, `t1`, `t2` — все 10 башен по уровням. */
+export const ART_SHEET_PAGE: string = params.get('artsheet') ?? '';
 
 /** Не показывать плашки с описанием (только вместе с ?qa): нужно проверкам, которые проверяют не плашки, а бой и интерфейс. */
 
@@ -257,6 +274,8 @@ export interface DebugSnapshot {
     hits: number;
     absorbed: number;
     leaps: number;
+    /** Ключ картинки тела сейчас (в нём число — толщина оболочки, от доли оставшегося HP): проверка, что оболочка худеет вместе с HP усиленных бактерий. */
+    bodyKey: string;
     /** Сколько секунд ещё заморожена (0 — нет), сколько секунд ещё приклеена, мутант: вид башни, ударившей последней; паразит: клетка башни, к которой присосался. */
     freezeLeft: number;
     trapLeft: number;
@@ -323,6 +342,10 @@ export interface DebugApi {
   cellToClient: (col: number, row: number) => { x: number; y: number };
   /** Сдвинуть список башен в нижней панели так, чтобы карточка этой башни была видна (проверки и бот нажимают на карточки по координатам). */
   revealTower: (id: string) => void;
+  /** Поставить башню вида `id` уровня `level` (1–4) в свободную клетку без оплаты и слияний — для снимков (qa/art-shots.mjs); false — клетка занята, закрыта или на дорожке. */
+  placeTower: (id: string, col: number, row: number, level: number) => boolean;
+  /** Сколько картинок нарисовано и сколько памяти они занимают (ширина × высота × 4 байта); prefix — только ключи, начинающиеся с него (qa/art-shots.mjs). */
+  getArtStats: (prefix?: string) => { count: number; bytes: number; keys: Record<string, [number, number]> };
   /** Только проверки: поднять башню в клетке на уровень выше и добавить ей мутации `picks` (как при слиянии, когда мутации сливаемой башни переходят к новой). */
   upgradeTower: (col: number, row: number, picks: string[]) => boolean;
   /** Замер скорости с последнего сброса (reset — начать заново) и сколько объектов сейчас рисуется. */

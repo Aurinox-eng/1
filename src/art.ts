@@ -16,6 +16,8 @@ export const ART_DENSITY = CONFIG.camera.zoomMax;
 const MAX_TEXTURE_PX = 4096;
 /** С какой плотностью нарисована каждая картинка (ключ → плотность): картинка на экране уменьшается ровно настолько же. */
 const densityOf = new Map<string, number>();
+/** Размеры каждой нарисованной картинки в пикселях текстуры (ключ → ширина, высота): по ним считается память (ширина × высота × 4 байта) — режим проверки `getArtStats`. */
+const sizeOf = new Map<string, [number, number]>();
 
 /** Прямоугольник рисунка в его собственных координатах (центр объекта — 0,0): левый верхний угол и размер, пикселей мира. */
 export interface ArtBox {
@@ -42,9 +44,48 @@ export function bakeArt(scene: Phaser.Scene, key: string, box: ArtBox, draw: (g:
   g.scaleCanvas(density, density);
   g.translateCanvas(-box.x, -box.y);
   draw(g);
-  g.generateTexture(key, Math.max(1, Math.ceil(box.w * density)), Math.max(1, Math.ceil(box.h * density)));
+  const w = Math.max(1, Math.ceil(box.w * density));
+  const h = Math.max(1, Math.ceil(box.h * density));
+  g.generateTexture(key, w, h);
   g.destroy();
+  sizeOf.set(key, [w, h]);
   return key;
+}
+
+/**
+ * Как bakeArt, но рисунок — стандартным Canvas 2D браузера (плавные переходы цвета, мягкие тени, кривые), как карта (mapArt.ts) и панель (ui/panelArt.ts).
+ * Рамка, плотность (ART_DENSITY), предел MAX_TEXTURE_PX и запись плотности те же, поэтому artImage и setArt работают без изменений. Рисуется один раз и переиспользуется:
+ * перерисовка каждый кадр запрещена. `draw(ctx, d)` получает контекст с уже заданным преобразованием (координаты объекта, центр — 0,0) и фактическую плотность `d`:
+ * размеры теней (shadowBlur, shadowOffset) в Canvas 2D задаются в пикселях текстуры, преобразование их не меняет, поэтому их надо умножать на `d`.
+ */
+export function bakeCanvasArt(scene: Phaser.Scene, key: string, box: ArtBox, draw: (ctx: CanvasRenderingContext2D, d: number) => void, density = ART_DENSITY): string {
+  if (scene.textures.exists(key)) return key;
+  density = Math.min(density, MAX_TEXTURE_PX / Math.max(1, box.w, box.h));
+  const w = Math.max(1, Math.ceil(box.w * density));
+  const h = Math.max(1, Math.ceil(box.h * density));
+  const texture = scene.textures.createCanvas(key, w, h);
+  if (!texture) return key;
+  densityOf.set(key, density);
+  sizeOf.set(key, [w, h]);
+  const ctx = texture.getContext();
+  ctx.setTransform(density, 0, 0, density, -box.x * density, -box.y * density);
+  draw(ctx, density);
+  texture.refresh();
+  return key;
+}
+
+/** Сколько картинок нарисовано и сколько памяти они занимают (ширина × высота × 4 байта); prefix — только ключи, начинающиеся с него. Для проверок и отчётов (`getArtStats`). */
+export function artStats(prefix = ''): { count: number; bytes: number; keys: Record<string, [number, number]> } {
+  let count = 0;
+  let bytes = 0;
+  const keys: Record<string, [number, number]> = {};
+  for (const [key, [w, h]] of sizeOf) {
+    if (!key.startsWith(prefix)) continue;
+    count++;
+    bytes += w * h * 4;
+    keys[key] = [w, h];
+  }
+  return { count, bytes, keys };
 }
 
 /** Картинка из готовой текстуры, поставленная так, что её точка 0,0 совпадает с центром объекта (как у прежнего рисунка Graphics). */

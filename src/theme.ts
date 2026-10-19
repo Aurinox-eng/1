@@ -1,4 +1,5 @@
 import type { CONFIG } from './config';
+import { PILL_EYES_OFF } from './debug';
 
 type Kind = keyof typeof CONFIG.types;
 
@@ -218,3 +219,10 @@ export const TEXT_COLORS = {
 } as const;
 
 export const FONT = 'Arial, "Segoe UI", Roboto, sans-serif';
+
+/**
+ * Глаза у Таблеток (пилот этапа 8): одна константа. true — с глазами (по умолчанию), false — без. В режиме проверки `?qa&pilleyes=0` глаза выключаются адресом (снимки «без глаз»).
+ * Вид, не баланс.
+ */
+const PILL_EYES_DEFAULT = true;
+export const PILL_EYES: boolean = PILL_EYES_DEFAULT && !PILL_EYES_OFF;

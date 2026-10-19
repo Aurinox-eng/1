@@ -1931,22 +1931,32 @@ async function runProduction(browser, prodUrl, qaUrl) {
   const g = (x, y) => ({ x: rect.left + (x * rect.width) / W, y: rect.top + (y * rect.height) / H });
   const towerCell = GEO.center(...FREE.a);
   const cellG = { x: VIEW_CENTER.x + (towerCell.x - startCenterPx().x), y: VIEW_CENTER.y + (towerCell.y - startCenterPx().y) }; // приближение на старте = 1
+  // Появление башни ловим по изменению картинки вокруг клетки, а не по точному цвету рисунка (стиль основания меняется, пустая клетка почти того же цвета, что основание):
+  // точки лежат на светлой кромке основания (радиус 35,5 px мира), до постановки там фон карты. Эталон «до» снимается дважды: если точки менялись сами, проверка красная.
   const ring = [];
-  for (let a = 100; a <= 260; a += 20) ring.push(g(cellG.x + 27 * Math.cos((a * Math.PI) / 180), cellG.y + 27 * Math.sin((a * Math.PI) / 180)));
-  const near = ([r, gg, b], want, tol) => Math.abs(r - want[0]) <= tol && Math.abs(gg - want[1]) <= tol && Math.abs(b - want[2]) <= tol;
-  const beforePx = await samplePixels(play, await play.screenshot(), ring.map((q) => [q.x, q.y]));
+  for (let a = 100; a <= 260; a += 20) ring.push(g(cellG.x + 35.5 * Math.cos((a * Math.PI) / 180), cellG.y + 35.5 * Math.sin((a * Math.PI) / 180)));
+  const sampleRing = async () => samplePixels(play, await play.screenshot(), ring.map((q) => [q.x, q.y]));
+  const delta = (a, b) => Math.abs(a[0] - b[0]) + Math.abs(a[1] - b[1]) + Math.abs(a[2] - b[2]);
+  const beforePx = await sampleRing();
+  await sleep(250);
+  const before2Px = await sampleRing();
+  const stable = beforePx.filter((c, i) => delta(c, before2Px[i]) < 24).length;
   const btn = g(64, 662); // первая карточка башни (Таблетка) в нижней панели
   await play.touchscreen.tap(btn.x, btn.y);
   await sleep(300);
   const cellPt = g(cellG.x, cellG.y);
   await play.touchscreen.tap(cellPt.x, cellPt.y);
-  await sleep(900);
-  const afterPx = await samplePixels(play, await play.screenshot(), ring.map((q) => [q.x, q.y]));
-  // Цвет основания башни (0x2c4a7c). Пустая клетка карты теперь почти того же цвета (≈ 35, 67, 119), поэтому допуск узкий: 3 из 255 на канал
-  const TOWER = [44, 74, 124];
-  const before = beforePx.filter((c) => near(c, TOWER, 3)).length;
-  const after = afterPx.filter((c) => near(c, TOWER, 3)).length;
-  check(`${p} игра работает: выбрать башню на панели и тапнуть по клетке — башня появляется (цвет основания вокруг клетки)`, before === 0 && after >= 6, `точек цвета башни: было ${before}, стало ${after} из ${ring.length}`);
+  // ждём не паузу, а само изменение картинки (до 60 с): башня появилась, когда не меньше 6 из 9 точек заметно изменили цвет
+  let changed = 0;
+  let afterPx = before2Px;
+  const waitStart = Date.now();
+  while (Date.now() - waitStart < 60000) {
+    afterPx = await sampleRing();
+    changed = afterPx.filter((c, i) => delta(c, before2Px[i]) >= 90).length;
+    if (changed >= 6) break;
+    await sleep(150);
+  }
+  check(`${p} игра работает: выбрать башню на панели и тапнуть по клетке — башня появляется (картинка вокруг клетки изменилась)`, stable >= 8 && changed >= 6, `точек до постановки без изменений ${stable} из ${ring.length} (≥ 8), изменилось после ${changed} из ${ring.length} (≥ 6)`);
   await shot(play, 'production-tower');
   await play.close();
 
@@ -8835,6 +8845,35 @@ async function runCameraFit(browser, baseUrl) {
 }
 
 /** Снимок поля для глаз: делящаяся (оранжевая), бегун (малиновый), лекарь, спора и лужа Сиропа рядом — различимы ли по цвету. */
+/**
+ * Оболочка здоровья считается от настоящего максимума HP (по рецензии 18 октября 2026): у бактерии, усиленной в 3 раза (прочность волны), после попадания примерно на половину оболочка тоньше, чем у целой.
+ * Прежний расчёт брал прочность вида из таблицы типов: оболочка оставалась полной, пока HP не падало ниже неё (на 30-й волне уровня 6 — до потери 99 %).
+ * Палочка 5 HP × 3 = 15; Таблетка бьёт один раз на 7: осталось 8 из 15. Толщина — число в ключе картинки тела (`style-body-rod-<толщина>`, с лицом — `-o` или `-b` в конце; толщина округлена до сетки с шагом 2 px от самой тонкой оболочки, у палочки наибольшая — 9,9).
+ */
+async function runShell(browser, baseUrl) {
+  const p = '[оболочка здоровья]';
+  const ctx = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
+  const cfg = `${wavesOnlyCfg({ rod: 1 })},waves.firstDelaySec:1,waves.hpScale:3,waves.level1HpFactor:1,types.rod.hp:5,types.rod.speedFactor:0.3,towers.pill.damage:7,towers.pill.cooldownMs:60000,economy.startCoins:500,${NO_LIFE_LOSS}`;
+  const game = await openGame(ctx, baseUrl, p, { speed: 2, cfg });
+  await placeSure(game, 'pill', FREE.a);
+  const width = (key) => Number(/style-body-rod-(\d+(?:\.\d+)?)(?:-[ob])?$/.exec(key ?? '')?.[1] ?? NaN);
+  let full = null;
+  let hit = null;
+  await pollUntil(game, (st) => {
+    const b = st.bacteria.find((x) => x.kind === 'rod');
+    if (!b) return st.state !== 'playing';
+    if (!full && b.hp === b.maxHp) full = { hp: b.hp, maxHp: b.maxHp, key: b.bodyKey };
+    if (full && b.hp < b.maxHp) {
+      hit = { hp: b.hp, maxHp: b.maxHp, key: b.bodyKey };
+      return true;
+    }
+    return st.state !== 'playing';
+  }, WAIT_MS, 30).catch(() => null);
+  check(`${p} палочка 5 HP × 3 = 15: целая — оболочка ${width(full?.key)} px, после попадания (${hit ? `${f1(hit.hp)} из ${hit.maxHp}` : 'нет'}) — ${width(hit?.key)} px, не меньше чем на 2 px тоньше`, Boolean(full && hit) && full.maxHp === 15 && hit.hp < hit.maxHp && width(full.key) - width(hit.key) >= 2, `${JSON.stringify(full)} → ${JSON.stringify(hit)}`);
+  await game.page.close();
+  await ctx.close();
+}
+
 async function runColors(browser, baseUrl) {
   const p = '[цвета бактерий]';
   const kinds = ['splitter', 'runner', 'healer', 'spore'];
@@ -9384,6 +9423,7 @@ try {
   if (wants('deflation')) await safe('[дефляция]', () => runDeflation(browser, qaServer.url));
   if (wants('camera-fit')) await safe('[отдаление камеры]', () => runCameraFit(browser, qaServer.url));
   if (wants('colors')) await safe('[цвета бактерий]', () => runColors(browser, qaServer.url));
+  if (wants('colors')) await safe('[оболочка здоровья]', () => runShell(browser, qaServer.url));
   if (wants('meta-save')) await safe('[очки ДНК: сохранение]', () => runMetaSave(browser, qaServer.url));
   if (wants('meta-dna')) await safe('[очки ДНК: начисление]', () => runMetaDna(browser, qaServer.url));
   if (wants('meta-shop')) await safe('[улучшения]', () => runMetaShop(browser, qaServer.url));

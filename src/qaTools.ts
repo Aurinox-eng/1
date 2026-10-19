@@ -186,6 +186,7 @@ export function qaSnapshot(s: GameSceneInternals): DebugSnapshot {
       hits: b.hits,
       absorbed: b.absorbed,
       leaps: b.leaps,
+      bodyKey: b.bodyKey,
       freezeLeft: b.frozenFor,
       trapLeft: b.trapLeft,
       memory: b.memory,
@@ -221,6 +222,21 @@ export function qaSnapshot(s: GameSceneInternals): DebugSnapshot {
     },
     sound: { state: sfx.state, played: sfx.played, muted: sfx.muted },
   };
+}
+
+/** Ставит одну башню нужного вида и уровня без оплаты (снимки qa/art-shots.mjs); клетка должна быть свободной, не дорожкой и не закрытой. */
+export function placeTowerQa(s: GameSceneInternals, id: TowerId, col: number, row: number, level: number): boolean {
+  const key = cellKey(col, row);
+  if (!(id in CONFIG.towers) || PATH_TILES.has(key) || BLOCKED_TILES.has(key) || s.occupied.has(key)) return false;
+  const center = tileCenter(col, row);
+  const tower = new Tower(s, s.towerLayer, id, col, row, center.x, center.y);
+  for (let lv = 1; lv < Math.min(level, MAX_TOWER_LEVEL); lv++) tower.upgrade();
+  while (tower.pendingTier !== null) tower.pickMutation(0);
+  s.occupied.add(key);
+  s.towers.push(tower);
+  s.placedAny = true;
+  s.updateHint();
+  return true;
 }
 
 /** 40 башен всех видов (уровни 1–4, мутации выбраны) по свободным клеткам, ≈200 бактерий всех типов по всей сети, скорость ×3. */

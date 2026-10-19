@@ -9,25 +9,118 @@ type Kind = keyof typeof CONFIG.types;
  *  пикселей за каждое HP, и у бронированной с 14 HP радиус тела выходил отрицательным — режим canvas на этом падал). */
 const SHELL_MAX_SHARE: Record<Kind, number> = { coccus: 0, rod: 0.45, splitter: 0.4, armored: 0.45, spore: 0, swarm: 0, runner: 0.4, healer: 0.3, slick: 0.25, regen: 0.3, commander: 0.3, brood: 0.3, giant: 0.4, leaper: 0.3, phago: 0.35, stealth: 0.2, toxin: 0.3, mutant: 0.3, parasite: 0.3 };
 const SHELL_BASE = 4;
+/** Самая тонкая и самая толстая оболочка вида, пикселей (при 1 HP и при полном HP): по ним картинки тела округляются до немногих толщин (`styleBodyKey`). */
+export function shellRange(kind: Kind): [number, number] {
+  const top = Math.max(SHELL_BASE, CONFIG.types[kind].radius * SHELL_MAX_SHARE[kind]);
+  return [SHELL_BASE, top];
+}
 /** Расстояние от центра делящейся до центра каждой доли, в радиусах доли (чем больше, тем глубже перетяжка). */
 export const SPLITTER_LOBE_OFFSET = 0.95;
 
-/** Толщина оболочки: чем больше осталось HP, тем толще (от SHELL_BASE при 1 HP до доли радиуса при полном HP). Так здоровье видно без текста. */
-export function shellWidth(kind: Kind, hp: number): number {
-  const { hp: maxHp, radius } = CONFIG.types[kind];
+/**
+ * Толщина оболочки: чем больше осталось HP, тем толще (от SHELL_BASE при 1 HP до доли радиуса при полном HP). Так здоровье видно без текста.
+ * `maxHp` — настоящий максимум этой бактерии (прочность вида × множитель волны и уровня): без него (по умолчанию — прочность вида из таблицы) оболочка у усиленных бактерий
+ * оставалась бы полной, пока не потеряно почти всё HP (на 30-й волне уровня 6 — до потери 99 %).
+ */
+export function shellWidth(kind: Kind, hp: number, maxHp: number = CONFIG.types[kind].hp): number {
+  const { radius } = CONFIG.types[kind];
   const share = SHELL_MAX_SHARE[kind];
   if (maxHp <= 1 || share <= 0) return SHELL_BASE;
   const top = Math.max(SHELL_BASE, radius * share);
   return SHELL_BASE + (top - SHELL_BASE) * Math.min(1, Math.max(0, hp - 1) / (maxHp - 1));
 }
 
-/** Ломаная-трещина от точки на краю внутрь тела. */
-function crack(g: Phaser.GameObjects.Graphics, color: number, ...points: [number, number][]): void {
+type Pt = [number, number];
+/** Область, куда трещины не заходят (лицо и знаки на нём): круг или прямоугольник в координатах рисунка. */
+type Keepout = { circle: [number, number, number] } | { rect: [number, number, number, number] };
+
+/** Доля радиуса, внутрь которой трещины круглых типов не заходят: там лицо (оно стоит прямо, а трещины поворачиваются картинкой, поэтому для них область лица — круг). У лекаря, командира
+ *  и регенератора знаки (крест, звезда, кольцо-стрелка) лежат до 0,8 радиуса. */
+const FACE_FREE_SHARE: Partial<Record<Kind, number>> = { healer: 0.8, commander: 0.8, regen: 0.8 };
+const FACE_FREE_DEFAULT = 0.72;
+
+/** Область лица для видов с трещинами «на месте» (палочка, бегун — прямоугольник головы; делящаяся — глаза долей и улыбка на перетяжке). Размеры — из лиц в `styleArt.ts`. */
+function faceKeepout(kind: Kind): Keepout[] {
+  if (kind === 'rod') return [{ rect: [-19, -40, 19, -12] }];
+  if (kind === 'runner') return [{ rect: [-17, -24, 17, 5.5] }];
+  const r = CONFIG.types[kind].radius;
+  if (kind === 'splitter') {
+    const off = r * SPLITTER_LOBE_OFFSET;
+    return [{ circle: [-off, -r * 0.08, r * 0.38] }, { circle: [off, -r * 0.08, r * 0.38] }, { circle: [0, r * 0.5, r * 0.22] }];
+  }
+  return [{ circle: [0, 0, r * (FACE_FREE_SHARE[kind] ?? FACE_FREE_DEFAULT)] }];
+}
+
+/** Часть отрезка a→b (доли t от 0 до 1), лежащая внутри области; null — отрезок области не касается. */
+function insideSpan(a: Pt, b: Pt, area: Keepout): [number, number] | null {
+  const dx = b[0] - a[0];
+  const dy = b[1] - a[1];
+  if ('circle' in area) {
+    const [cx, cy, R] = area.circle;
+    const fx = a[0] - cx;
+    const fy = a[1] - cy;
+    const A = dx * dx + dy * dy;
+    if (A === 0) return null;
+    const B = 2 * (fx * dx + fy * dy);
+    const C = fx * fx + fy * fy - R * R;
+    const D = B * B - 4 * A * C;
+    if (D <= 0) return null;
+    const root = Math.sqrt(D);
+    const t0 = Math.max(0, (-B - root) / (2 * A));
+    const t1 = Math.min(1, (-B + root) / (2 * A));
+    return t0 < t1 ? [t0, t1] : null;
+  }
+  const [x0, y0, x1, y1] = area.rect;
+  let t0 = 0;
+  let t1 = 1;
+  for (const [p, q] of [[-dx, a[0] - x0], [dx, x1 - a[0]], [-dy, a[1] - y0], [dy, y1 - a[1]]] as const) {
+    if (p === 0) {
+      if (q < 0) return null;
+      continue;
+    }
+    const t = q / p;
+    if (p < 0) t0 = Math.max(t0, t);
+    else t1 = Math.min(t1, t);
+  }
+  return t0 < t1 ? [t0, t1] : null;
+}
+
+/** Ломаная-трещина от точки на краю внутрь тела; части, попавшие в область лица (`keepout`), не рисуются. */
+function crack(g: Phaser.GameObjects.Graphics, color: number, keepout: Keepout[], ...points: Pt[]): void {
   g.lineStyle(3.5, color, 1);
-  g.beginPath();
-  g.moveTo(points[0][0], points[0][1]);
-  for (const [x, y] of points.slice(1)) g.lineTo(x, y);
-  g.strokePath();
+  let open = false; // линия начата и кончается в конце прошлого отрезка
+  const flush = (): void => {
+    if (open) g.strokePath();
+    open = false;
+  };
+  for (let i = 1; i < points.length; i++) {
+    const a = points[i - 1];
+    const b = points[i];
+    // что вне области: дополнение к объединению частей отрезка, лежащих внутри неё
+    const spans = keepout.map((k) => insideSpan(a, b, k)).filter((x): x is [number, number] => x !== null).sort((u, v) => u[0] - v[0]);
+    const outside: [number, number][] = [];
+    let from = 0;
+    for (const [t0, t1] of spans) {
+      if (t0 > from) outside.push([from, t0]);
+      from = Math.max(from, t1);
+    }
+    if (from < 1) outside.push([from, 1]);
+    if (open && (outside.length === 0 || outside[0][0] > 0)) flush();
+    const at = (t: number): Pt => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
+    for (const [t0, t1] of outside) {
+      if (!(open && t0 === 0)) {
+        flush();
+        g.beginPath();
+        const p = at(t0);
+        g.moveTo(p[0], p[1]);
+      }
+      const q = at(t1);
+      g.lineTo(q[0], q[1]);
+      open = true;
+      if (t1 < 1) flush();
+    }
+  }
+  flush();
 }
 
 /** Блик — маленький светлый кружок: тело выглядит объёмнее. */
@@ -75,7 +168,7 @@ export function bodyHalfSize(kind: Kind): { hx: number; hy: number } {
  */
 export function drawBody(g: Phaser.GameObjects.Graphics, kind: Kind, state: BodyState): void {
   g.clear();
-  drawShape(g, kind, shellWidth(kind, state.hp), state.spread);
+  drawShape(g, kind, shellWidth(kind, state.hp, state.maxHp), state.spread);
   drawCracks(g, kind, crackCount(state.hp, state.maxHp), state.maxHp, state.seed);
 }
 
@@ -297,23 +390,36 @@ export function drawShape(g: Phaser.GameObjects.Graphics, kind: Kind, sw: number
   }
 }
 
-/** Трещины поверх тела: damage — сколько (crackCount), maxHp — полное HP этой бактерии, seed — угол первой трещины у круглых типов. */
-export function drawCracks(g: Phaser.GameObjects.Graphics, kind: Kind, damage: number, maxHp: number, seed: number): void {
+/**
+ * Трещины поверх тела: damage — сколько (crackCount), maxHp — полное HP этой бактерии, seed — угол первой трещины у круглых типов.
+ * `avoidFace` — трещины не заходят на лицо (новый рисунок, у которого лицо нарисовано на теле): у круглых видов они короче и кончаются у границы лица, у палочки и бегуна идут ниже головы,
+ * у делящейся обходят глаза долей; прежний рисунок (`drawShape`) лица не имеет.
+ */
+export function drawCracks(g: Phaser.GameObjects.Graphics, kind: Kind, damage: number, maxHp: number, seed: number, avoidFace = false): void {
   const cfg = CONFIG.types[kind];
   const col = COLORS.kinds[kind];
+  const keepout: Keepout[] = avoidFace ? faceKeepout(kind) : [];
   if (kind === 'runner') {
     const w = cfg.radius * 2;
     const l = cfg.length;
-    for (let i = 0; i < damage; i++) crack(g, col.crack, [(i % 2 === 0 ? -1 : 1) * w * 0.5, -l * 0.2 + i * 7], [(i % 2 === 0 ? -1 : 1) * w * 0.1, -l * 0.1 + i * 7], [0, l * 0.05 + i * 5]);
+    for (let i = 0; i < damage; i++) {
+      const side = i % 2 === 0 ? -1 : 1;
+      if (avoidFace) {
+        const y = 6 + ((i >> 1) % 4) * 4; // ниже лица: четыре места, дальше повторяются
+        crack(g, col.crack, keepout, [side * w * 0.5, y], [side * w * 0.12, y + 4], [0, y + 7]);
+      } else crack(g, col.crack, keepout, [side * w * 0.5, -l * 0.2 + i * 7], [side * w * 0.1, -l * 0.1 + i * 7], [0, l * 0.05 + i * 5]);
+    }
     return;
   }
   if (kind === 'rod') {
     const w = cfg.radius * 2;
     const l = cfg.length;
+    const slots = avoidFace ? Math.max(damage, Math.min(maxHp, 9)) : maxHp;
     for (let i = 0; i < damage; i++) {
       const side = i % 2 === 0 ? -1 : 1;
-      const y = -l / 2 + ((i + 1) * l) / (maxHp + 1);
-      crack(g, col.crack, [side * w * 0.5, y], [side * w * 0.12, y + 9], [-side * w * 0.08, y - 5]);
+      // с лицом: места трещин делят участок ниже головы (от −10 до l/2 − 4), а не всю палочку
+      const y = avoidFace ? -10 + ((i + 1) * (l / 2 - 4 + 10)) / (slots + 1) : -l / 2 + ((i + 1) * l) / (maxHp + 1);
+      crack(g, col.crack, keepout, [side * w * 0.5, y], [side * w * 0.12, y + 9], [-side * w * 0.08, y - 5]);
     }
     return;
   }
@@ -322,20 +428,24 @@ export function drawCracks(g: Phaser.GameObjects.Graphics, kind: Kind, damage: n
     const off = r * SPLITTER_LOBE_OFFSET;
     for (let i = 0; i < damage; i++) {
       const cx = i % 2 === 0 ? -off : off;
-      crack(g, col.crack, [cx - r * 0.9, -r * 0.2 + i * 6], [cx - r * 0.45, r * 0.1], [cx - r * 0.2, -r * 0.05]);
+      crack(g, col.crack, keepout, [cx - r * 0.9, -r * 0.2 + i * 6], [cx - r * 0.45, r * 0.1], [cx - r * 0.2, -r * 0.05]);
     }
     return;
   }
   const r = cfg.radius;
   const step = (Math.PI * 2) / Math.max(3, Math.min(9, maxHp));
+  // внутренний край трещины: прежний (0,45 радиуса) или граница лица
+  const inner = avoidFace ? (FACE_FREE_SHARE[kind] ?? FACE_FREE_DEFAULT) : 0.45;
+  const mid = avoidFace ? 1 - 0.55 * (1 - inner) : 0.72;
   for (let i = 0; i < damage; i++) {
     const a = seed + i * step;
     crack(
       g,
       col.crack,
+      keepout,
       [Math.cos(a) * r, Math.sin(a) * r],
-      [Math.cos(a + 0.14) * r * 0.72, Math.sin(a + 0.14) * r * 0.72],
-      [Math.cos(a - 0.1) * r * 0.45, Math.sin(a - 0.1) * r * 0.45],
+      [Math.cos(a + 0.14) * r * mid, Math.sin(a + 0.14) * r * mid],
+      [Math.cos(a - 0.1) * r * inner, Math.sin(a - 0.1) * r * inner],
     );
   }
 }

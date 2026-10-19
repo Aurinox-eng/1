@@ -2,7 +2,7 @@ import Phaser from 'phaser';
 import { CameraRig } from '../cameraRig';
 import { CONFIG, type BossId, type Ward } from '../config';
 import { exposeDebug, QA_ENTRANCE, QA_MODE, QA_NORENDER, QA_START_WAVE, STRESS, STRESS_FIZZ, TIME_SCALE, type QaEvent } from '../debug';
-import { qaLog, qaSnapshot, setupStress, stressFrame } from '../qaTools';
+import { placeTowerQa, qaLog, qaSnapshot, setupStress, stressFrame } from '../qaTools';
 import { Effects } from '../effects';
 import { drawStar, setScreenInfo } from '../screens';
 import { attemptNumber, autoWaveOwned, awardDna, boughtSinceLast, dnaParts, coinsBonus, exposeMetaDebug, feverOwned, finishAttempt, HIDDEN_SCREEN, isLevelBeaten, livesBonus, markSeen, metaDna, metaLevels, metaSeen, nextBigNode, recordResult, refundBonus, rewardMul, shieldCharges, starsForLoss, waveCoinsBonus, type DnaInput, type DnaParts } from '../meta';
@@ -20,7 +20,7 @@ import { Cloud } from '../objects/Cloud';
 import { Trap } from '../objects/Trap';
 import { Puddle } from '../objects/Puddle';
 import { beamReach, createTowerArt, defaultAim, drawAimLine, Tower, type TowerId } from '../objects/Tower';
-import { ringImage } from '../art';
+import { artStats, ringImage } from '../art';
 import { pointAt, tileCenter, unitCenter, type Edge } from '../pathing';
 import { sfx } from '../sound';
 import { computeStats, MAX_TOWER_LEVEL, mutationById, mutationOptions, mutationStacks, towerPrice, type TowerStats } from '../towerStats';
@@ -36,6 +36,8 @@ const ZOOM_MIN = Math.min(VIEW.w / WORLD.w, VIEW.h / WORLD.h);
 const DAMAGE_COLORS: Record<TowerStats['targeting'], number> = { radius: 0xffffff, area: COLORS.fizz, beam: COLORS.needle, puddle: COLORS.puddle, snipe: 0x9fe4ff, poison: COLORS.poison, cone: COLORS.lamp, aura: 0xffffff, freeze: COLORS.frost, trap: COLORS.patch };
 /** Цвет числа урона, когда удар ослаблен памятью мутанта (башня того же вида, что и прошлая). */
 const RESIST_COLOR = 0x9aa6bd;
+/** Цвет облачка у дула по башне (вид, не баланс). */
+const MUZZLE_PUFF: Partial<Record<string, number>> = { pill: 0xffffff, syrup: COLORS.syrup, fizz: COLORS.acid, syringe: COLORS.needle, ampule: 0x9fdcff, antibiotic: COLORS.antibiotic };
 /** Сколько миллисекунд висит строка «Новая бактерия: …» / «Открыта башня: …» (игра при этом идёт). */
 const NEWS_MS = 4200;
 /** О чём игрок уже узнал из строк-уведомлений («b:тип» — бактерия, «t:башня» — башня): повторные партии подряд их не повторяют. */
@@ -459,6 +461,8 @@ export class GameScene extends Phaser.Scene {
         }),
       }),
       gameToClient: (gx, gy) => this.gameToClient(gx, gy),
+      placeTower: (id, col, row, level) => placeTowerQa(this, id as TowerId, col, row, level),
+      getArtStats: (prefix) => artStats(prefix),
       getPerf: (reset) => {
         let objects = 0;
         const count = (list: Phaser.GameObjects.GameObject[]): void => {
@@ -882,6 +886,8 @@ export class GameScene extends Phaser.Scene {
     }
     this.shots++;
     sfx.shoot(tower.id);
+    // Отдача ствола и облачко у дула (из общего запаса эффектов, без новых объектов на каждый выстрел)
+    if (tower.kick()) this.effects.muzzle(muzzleX, muzzleY, Math.atan2(muzzleY - tower.y, muzzleX - tower.x), MUZZLE_PUFF[tower.id] ?? 0xffffff);
     return true;
   }
 
