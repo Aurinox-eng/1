@@ -318,6 +318,9 @@ if ([SOLO, PAIR, FOCUS, CORE].filter(Boolean).length > 1 || (STRATEGY === 'zone'
 /** Какие башни строит игрок: --solo — только сама башня, без Сиропа (раздел 10.1 документа дизайна, п. 2; если башня не бьёт сама — ещё Таблетки); --pair и --focus — две башни; --core и обычная игра — все (null). */
 const SOLO_ALLOWED = SOLO ? new Set([SOLO, ...(SOLO_SUPPORT.includes(SOLO) ? ['pill'] : [])]) : PAIR ? new Set(PAIR) : FOCUS ? new Set(FOCUS) : null;
 /** Круг покупок стратегии (вместо DEFAULT_CYCLE): --solo — одна башня; --pair и --focus — две башни по очереди; --core — ядро a, b, a, b, затем Сироп, снова ядро, затем Шипучка. */
+/** --pair, --focus, --core: круг строго по порядку — бот копит на очередную башню круга и не отдаёт монеты более дешёвой (иначе в бою, когда «не спокойно», терпение 0
+ *  и Таблетки за 70 забирали все монеты: у «Таблетка + Шприц» к 44-й волне 31 Таблетка и один Шприц I, у «Сироп + Шприц» — два Шприца на 6–11 Сиропов). */
+const STRICT_CYCLE = Boolean(PAIR || FOCUS || CORE);
 const SOLO_CYCLE = SOLO ? (SOLO_SUPPORT.includes(SOLO) ? ['pill'] : [SOLO]) : PAIR ? [...PAIR] : FOCUS ? [...FOCUS] : CORE ? [...CORE, ...CORE, 'syrup', ...CORE, ...CORE, 'fizz'] : null;
 /** Башни, которые стратегия должна иметь открытыми в одиночной партии (первая попытка серии 10.2): узлы древа добавляются к улучшениям партии (иначе кнопка башни в игре закрыта). */
 const STRATEGY_TOWERS = [...(SOLO ? [SOLO] : []), ...(PAIR ?? []), ...(FOCUS ?? []), ...(CORE ? [...CORE, 'syrup', 'fizz'] : [])].filter((id, i, a) => id !== 'pill' && a.indexOf(id) === i);
@@ -883,7 +886,7 @@ function makePlayer({ world, rng, buttons }) {
       const calm = view.s.lives >= view.s.maxLives && view.s.bacteria.length <= CALM_MAX_BACTERIA;
       let chosen = null;
       if (view.coins >= TABLE[order[0].type].price) chosen = order[0];
-      else if (!opening && !needFirst && now - headSince >= (calm ? patience : 0)) chosen = order.find((o) => view.coins >= TABLE[o.type].price) ?? null;
+      else if (!opening && !needFirst && !STRICT_CYCLE && now - headSince >= (calm ? patience : 0)) chosen = order.find((o) => view.coins >= TABLE[o.type].price) ?? null;
       if (!chosen) return null;
       if (chosen.type === 'vitamin') {
         const spot = vitaminSpot(view); // Витамин — в центре группы башен: охвата дорожки у него нет, оценка клеток и слияние по радиусу не нужны
