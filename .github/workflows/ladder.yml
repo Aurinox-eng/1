@@ -7,7 +7,7 @@ name: Лестница (боты по уровням)
 run-name: ${{ github.event_name == 'push' && format('Лестница · по файлу запроса · {0}', github.sha) || format('Лестница · {0} · {1} дор. · до {2} парт. · уровни 1–{3}', inputs.profile, inputs.lanes, inputs.k, inputs.to_level) }}
 
 on:
-  # Без кнопки: изменить `.github/ladder-request.json` (поля profile, lanes, k, to_level, speed, cfg, farm) и сделать push в рабочую ветку; кнопка Run workflow
+  # Без кнопки: изменить `.github/ladder-request.json` (поля profile, mut, lanes, k, to_level, speed, cfg, farm) и сделать push в рабочую ветку; кнопка Run workflow
   # появляется на вкладке Actions, только когда этот файл уже лежит в main.
   push:
     branches: ['claude/**']
@@ -19,9 +19,13 @@ on:
         type: string
         default: ''
       profile:
-        description: 'Профиль бота: novice, average, strong, expert или zone («всё у Z»: Таблетки и Сироп вокруг развилки Z)'
+        description: 'Стратегия эксперта (профиль один): expert, zone, solo:X, pair:a+b, focus:a+b'
         type: string
-        default: strong
+        default: expert
+      mut:
+        description: 'Набор мутаций: пусто — по умолчанию, alt — второй набор, или «башня:мутация,мутация;…»'
+        type: string
+        default: ''
       lanes:
         description: 'Сколько дорожек (независимых игроков), 1–10'
         type: string
@@ -85,6 +89,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       profile: ${{ steps.plan.outputs.profile }}
+      mut: ${{ steps.plan.outputs.mut }}
       lanes: ${{ steps.plan.outputs.lanes }}
       k: ${{ steps.plan.outputs.k }}
       to_level: ${{ steps.plan.outputs.to_level }}
@@ -112,6 +117,7 @@ jobs:
         env:
           EVENT_NAME: ${{ github.event_name }}
           PROFILE: ${{ inputs.profile }}
+          MUT: ${{ inputs.mut }}
           LANES: ${{ inputs.lanes }}
           K: ${{ inputs.k }}
           TO_LEVEL: ${{ inputs.to_level }}
@@ -143,6 +149,7 @@ jobs:
       prev: 0
       sha: ${{ needs.plan.outputs.sha }}
       profile: ${{ needs.plan.outputs.profile }}
+      mut: ${{ needs.plan.outputs.mut }}
       lanes_json: ${{ needs.plan.outputs.lanes }}
       k: ${{ needs.plan.outputs.k }}
       speed: ${{ needs.plan.outputs.speed }}
@@ -166,6 +173,7 @@ jobs:
       prev: 1
       sha: ${{ needs.plan.outputs.sha }}
       profile: ${{ needs.plan.outputs.profile }}
+      mut: ${{ needs.plan.outputs.mut }}
       lanes_json: ${{ needs.plan.outputs.lanes }}
       k: ${{ needs.plan.outputs.k }}
       speed: ${{ needs.plan.outputs.speed }}
@@ -189,6 +197,7 @@ jobs:
       prev: 2
       sha: ${{ needs.plan.outputs.sha }}
       profile: ${{ needs.plan.outputs.profile }}
+      mut: ${{ needs.plan.outputs.mut }}
       lanes_json: ${{ needs.plan.outputs.lanes }}
       k: ${{ needs.plan.outputs.k }}
       speed: ${{ needs.plan.outputs.speed }}
@@ -212,6 +221,7 @@ jobs:
       prev: 3
       sha: ${{ needs.plan.outputs.sha }}
       profile: ${{ needs.plan.outputs.profile }}
+      mut: ${{ needs.plan.outputs.mut }}
       lanes_json: ${{ needs.plan.outputs.lanes }}
       k: ${{ needs.plan.outputs.k }}
       speed: ${{ needs.plan.outputs.speed }}
@@ -235,6 +245,7 @@ jobs:
       prev: 4
       sha: ${{ needs.plan.outputs.sha }}
       profile: ${{ needs.plan.outputs.profile }}
+      mut: ${{ needs.plan.outputs.mut }}
       lanes_json: ${{ needs.plan.outputs.lanes }}
       k: ${{ needs.plan.outputs.k }}
       speed: ${{ needs.plan.outputs.speed }}
@@ -258,6 +269,7 @@ jobs:
       prev: 5
       sha: ${{ needs.plan.outputs.sha }}
       profile: ${{ needs.plan.outputs.profile }}
+      mut: ${{ needs.plan.outputs.mut }}
       lanes_json: ${{ needs.plan.outputs.lanes }}
       k: ${{ needs.plan.outputs.k }}
       speed: ${{ needs.plan.outputs.speed }}
@@ -281,6 +293,7 @@ jobs:
       prev: 6
       sha: ${{ needs.plan.outputs.sha }}
       profile: ${{ needs.plan.outputs.profile }}
+      mut: ${{ needs.plan.outputs.mut }}
       lanes_json: ${{ needs.plan.outputs.lanes }}
       k: ${{ needs.plan.outputs.k }}
       speed: ${{ needs.plan.outputs.speed }}
@@ -304,6 +317,7 @@ jobs:
       prev: 7
       sha: ${{ needs.plan.outputs.sha }}
       profile: ${{ needs.plan.outputs.profile }}
+      mut: ${{ needs.plan.outputs.mut }}
       lanes_json: ${{ needs.plan.outputs.lanes }}
       k: ${{ needs.plan.outputs.k }}
       speed: ${{ needs.plan.outputs.speed }}
@@ -327,6 +341,7 @@ jobs:
       prev: 8
       sha: ${{ needs.plan.outputs.sha }}
       profile: ${{ needs.plan.outputs.profile }}
+      mut: ${{ needs.plan.outputs.mut }}
       lanes_json: ${{ needs.plan.outputs.lanes }}
       k: ${{ needs.plan.outputs.k }}
       speed: ${{ needs.plan.outputs.speed }}
@@ -350,6 +365,7 @@ jobs:
       prev: 9
       sha: ${{ needs.plan.outputs.sha }}
       profile: ${{ needs.plan.outputs.profile }}
+      mut: ${{ needs.plan.outputs.mut }}
       lanes_json: ${{ needs.plan.outputs.lanes }}
       k: ${{ needs.plan.outputs.k }}
       speed: ${{ needs.plan.outputs.speed }}

@@ -19,8 +19,13 @@ on:
         type: string
         required: true
       profile:
+        description: 'Стратегия эксперта: expert, zone, solo:X, pair:a+b, focus:a+b'
         type: string
         required: true
+      mut:
+        description: 'Набор мутаций (--mut): пусто — по умолчанию'
+        type: string
+        default: ''
       lanes_json:
         type: string
         required: true
@@ -107,6 +112,7 @@ jobs:
       - name: Бот
         env:
           PROFILE: ${{ inputs.profile }}
+          MUT: ${{ inputs.mut }}
           LEVEL: ${{ inputs.level }}
           LANE: ${{ matrix.lane }}
           K: ${{ inputs.k }}
@@ -119,9 +125,10 @@ jobs:
           BUDGET: ${{ inputs.budget_sec }}
           NORENDER: ${{ inputs.norender }}
         run: |
-          args=(--profile="$PROFILE" --runs=1 --run-offset=$((LANE - 1)) --speed="$SPEED" --canvas --ladder="$K" --from-level="$LEVEL" --to-level="$LEVEL" --state-out=state-out.json --max-real-sec="$MAX_REAL" --tag="ladder-L${LEVEL}-lane${LANE}")
+          args=(--strategy="$PROFILE" --runs=1 --run-offset=$((LANE - 1)) --speed="$SPEED" --canvas --ladder="$K" --from-level="$LEVEL" --to-level="$LEVEL" --state-out=state-out.json --max-real-sec="$MAX_REAL" --tag="ladder-L${LEVEL}-lane${LANE}")
           if [ "$LEVEL" -gt 1 ]; then args+=(--state-in=state-in/state-out.json); fi
           if [ -n "$CFG" ]; then args+=(--cfg="$CFG"); fi
+          if [ -n "$MUT" ]; then args+=(--mut="$MUT"); fi
           if [ "$FARM" = "1" ]; then args+=(--farm); fi
           if [ "$NORENDER" = "1" ]; then args+=(--norender); fi
           if [ "$CHUNKED" = "true" ]; then args+=(--ladder-total="$KTOT" --ladder-budget-sec="$BUDGET"); fi
@@ -182,6 +189,7 @@ jobs:
       - name: Бот
         env:
           PROFILE: ${{ inputs.profile }}
+          MUT: ${{ inputs.mut }}
           LEVEL: ${{ inputs.level }}
           LANE: ${{ matrix.lane }}
           K: ${{ inputs.k }}
@@ -193,8 +201,9 @@ jobs:
           BUDGET: ${{ inputs.budget_sec }}
           NORENDER: ${{ inputs.norender }}
         run: |
-          args=(--profile="$PROFILE" --runs=1 --run-offset=$((LANE - 1)) --speed="$SPEED" --canvas --ladder="$K" --ladder-total="$KTOT" --ladder-budget-sec="$BUDGET" --ladder-last --from-level="$LEVEL" --to-level="$LEVEL" --state-in=state-in/state-out.json --state-out=state-out.json --max-real-sec="$MAX_REAL" --tag="ladder-L${LEVEL}-lane${LANE}")
+          args=(--strategy="$PROFILE" --runs=1 --run-offset=$((LANE - 1)) --speed="$SPEED" --canvas --ladder="$K" --ladder-total="$KTOT" --ladder-budget-sec="$BUDGET" --ladder-last --from-level="$LEVEL" --to-level="$LEVEL" --state-in=state-in/state-out.json --state-out=state-out.json --max-real-sec="$MAX_REAL" --tag="ladder-L${LEVEL}-lane${LANE}")
           if [ -n "$CFG" ]; then args+=(--cfg="$CFG"); fi
+          if [ -n "$MUT" ]; then args+=(--mut="$MUT"); fi
           if [ "$FARM" = "1" ]; then args+=(--farm); fi
           if [ "$NORENDER" = "1" ]; then args+=(--norender); fi
           node qa/bot.mjs "${args[@]}" 2>&1 | tee bot.log

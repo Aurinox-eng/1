@@ -28,8 +28,10 @@ if (!dir || !fs.existsSync(dir)) {
 
 const NAMES = { pill: 'Таблетка', syrup: 'Сироп', fizz: 'Шипучка', syringe: 'Шприц', ampule: 'Ампула', antibiotic: 'Антибиотик', lamp: 'Лампа', vitamin: 'Витамин', frost: 'Холод', patch: 'Пластырь' };
 const SHORT = { pill: 'Таб', syrup: 'Сир', fizz: 'Шип', syringe: 'Шпр', ampule: 'Амп', antibiotic: 'Ант', lamp: 'Лмп', vitamin: 'Вит', frost: 'Хол', patch: 'Пла' };
-const PROFILE_TITLES = { novice: 'новичок', average: 'средний', strong: 'сильный', expert: 'особо сильный', zone: 'всё у Z' };
-const PROFILE_ORDER = Object.keys(PROFILE_TITLES);
+// Профиль один — эксперт (решение владельца 19 октября 2026); строки различаются стратегией (default, zone, solo:X, pair:a+b, focus:a+b — поле strategy партии, серии и дорожки)
+const who = (x) => (x.strategy && x.strategy !== 'default' ? x.strategy : x.profile === 'zone' ? 'zone' : 'expert');
+const titleOf = (id) => (id === 'expert' ? 'эксперт' : `эксперт (${id})`);
+const whoList = (list) => [...new Set(list.map(who))].sort((a, b) => (a === 'expert' ? -1 : b === 'expert' ? 1 : a.localeCompare(b)));
 const RESULT_RU = { won: 'победа', lost: 'проигрыш', timeout: 'timeout', error: 'ОШИБКА' };
 const mean = (a) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : NaN);
 const f1 = (n) => (Number.isFinite(n) ? (Math.round(n * 10) / 10).toString() : '—');
@@ -77,15 +79,15 @@ for (const r of results) {
   const solo = a.solo ?? '';
   const lamps = a.lamps ? (a.lamps === true || a.lamps === 'true' ? 'prep8' : String(a.lamps)) : '';
   for (const g of r.games) {
-    const key = [g.profile, exclude, cfg, level, meta, solo, lamps].join('|');
-    if (!groups.has(key)) groups.set(key, { profile: g.profile, exclude, cfg, level, meta, solo, lamps, games: [], tags: new Set(), seeds: [] });
+    const key = [who(g), exclude, cfg, level, meta, solo, lamps].join('|');
+    if (!groups.has(key)) groups.set(key, { profile: who(g), exclude, cfg, level, meta, solo, lamps, games: [], tags: new Set(), seeds: [] });
     const group = groups.get(key);
     group.games.push(g);
     group.tags.add(r.tag);
   }
 }
 const orderedGroups = [...groups.values()].sort(
-  (x, y) => x.level - y.level || x.meta.localeCompare(y.meta) || x.cfg.localeCompare(y.cfg) || x.exclude.localeCompare(y.exclude) || x.solo.localeCompare(y.solo) || PROFILE_ORDER.indexOf(x.profile) - PROFILE_ORDER.indexOf(y.profile),
+  (x, y) => x.level - y.level || x.meta.localeCompare(y.meta) || x.cfg.localeCompare(y.cfg) || x.exclude.localeCompare(y.exclude) || x.solo.localeCompare(y.solo) || x.profile.localeCompare(y.profile),
 );
 
 /** До какой волны дошла партия: победа — все волны уровня, иначе номер волны на момент конца (проигрыш, timeout). */
@@ -122,7 +124,7 @@ const LAMP_TITLES = { prep8: 'Лампы против скрытных', veteran
 const variant = (g) => [g.lamps ? (LAMP_TITLES[g.lamps] ?? 'Лампы против скрытных') : '', g.solo ? `одна башня: ${NAMES[g.solo] ?? g.solo}` : '', g.exclude ? `без: ${g.exclude.split(',').map((id) => NAMES[id] ?? id).join(', ')}` : '', g.cfg ? `cfg: ${g.cfg}` : '', g.level !== 1 ? `уровень ${g.level}` : '', g.meta ? `улучшения: ${g.meta}` : ''].filter(Boolean).join('; ') || 'обычный';
 
 const gameLine = (g, index, total) => {
-  const head = `[${PROFILE_TITLES[g.profile] ?? g.profile} ${index}/${total}]`;
+  const head = `[${titleOf(who(g))} ${index}/${total}]`;
   if (g.result === 'error') return `${head} ОШИБКА: ${g.error}`;
   const towers = KNOWN_TOWERS.map((id) => `${SHORT[id] ?? id} ${g.towers?.[id] ?? 0}`).join(' ');
   const merged = g.merges ? ` · слияний ${g.merges}, мутаций ${g.picks}` : '';
@@ -166,11 +168,11 @@ if (!orderedGroups.length && !campaignResults.length && !ladderResults.length) {
   for (const g of orderedGroups) {
     const s = summarize(g.games);
     if (!s) {
-      lines.push(`| ${esc(variant(g))} | ${PROFILE_TITLES[g.profile] ?? g.profile} | 0 (все партии с ошибкой) | — | — | — | — | — | — | — | — |`);
+      lines.push(`| ${esc(variant(g))} | ${titleOf(g.profile)} | 0 (все партии с ошибкой) | — | — | — | — | — | — | — | — |`);
       continue;
     }
     lines.push(
-      `| ${esc(variant(g))} | ${PROFILE_TITLES[g.profile] ?? g.profile} | ${s.games}${s.timeout ? ` (timeout ${s.timeout})` : ''} | ${s.won}/${s.games} (${pct(s.winRate)}) | ${f1(s.avgLivesLost)} | ${s.avgStealthLives === null ? '—' : f1(s.avgStealthLives)} | ${s.lost ? f1(s.avgLossWave) : '—'} | ${f1(s.medianWave)} | ${KNOWN_TOWERS.map((id) => f1(s.avgTowers[id])).join(' / ')} | ${f1(s.avgCoinsEnd)} | ${f1(s.avgRealSec)} с (игра ${f1(s.avgGameSec)} с) |`,
+      `| ${esc(variant(g))} | ${titleOf(g.profile)} | ${s.games}${s.timeout ? ` (timeout ${s.timeout})` : ''} | ${s.won}/${s.games} (${pct(s.winRate)}) | ${f1(s.avgLivesLost)} | ${s.avgStealthLives === null ? '—' : f1(s.avgStealthLives)} | ${s.lost ? f1(s.avgLossWave) : '—'} | ${f1(s.medianWave)} | ${KNOWN_TOWERS.map((id) => f1(s.avgTowers[id])).join(' / ')} | ${f1(s.avgCoinsEnd)} | ${f1(s.avgRealSec)} с (игра ${f1(s.avgGameSec)} с) |`,
     );
   }
   lines.push('');
@@ -190,7 +192,7 @@ if (!orderedGroups.length && !campaignResults.length && !ladderResults.length) {
   lines.push('');
   lines.push('```');
   for (const g of orderedGroups) {
-    lines.push(`# ${PROFILE_TITLES[g.profile] ?? g.profile} — ${variant(g)}`);
+    lines.push(`# ${titleOf(g.profile)} — ${variant(g)}`);
     g.games.forEach((game, i) => {
       if (game.result === 'error') return;
       lines.push(`  партия ${i + 1}: потеря жизней на волнах [${(game.lifeLossWaves ?? []).join(', ')}]${game.lifeLossKinds?.length ? ` (виды: ${[...new Set(game.lifeLossKinds)].map((k) => `${k}×${game.lifeLossKinds.filter((x) => x === k).length}`).join(', ')})` : ''}${game.leakLives && Object.keys(game.leakLives).length ? `; жизней по видам: ${Object.entries(game.leakLives).map(([k, v]) => `${k} ${v}`).join(', ')}` : ''}; постройки: ${buildsOf(game)}; уровни башен ${JSON.stringify(game.levels ?? {})}; слияний ${game.merges ?? 0}, мутаций ${game.picks ?? 0}`);
@@ -219,21 +221,21 @@ if (campaignResults.length) {
     lines.push('');
     lines.push('| Профиль | Серий | Серий с победой | Первая победа в партии (среднее; по сериям) | Волны по партиям (каждая серия в скобках) |');
     lines.push('|---|---|---|---|---|');
-    for (const profile of PROFILE_ORDER) {
-      const own = grp.series.filter((x) => x.profile === profile && !x.error);
+    for (const profile of whoList(grp.series)) {
+      const own = grp.series.filter((x) => who(x) === profile && !x.error);
       if (!own.length) continue;
       const wins = own.filter((x) => x.firstWin);
       lines.push(
-        `| ${PROFILE_TITLES[profile]} | ${own.length} | ${wins.length}/${own.length} (${pct(wins.length / own.length)}) | ${wins.length ? `${f1(mean(wins.map((x) => x.firstWin)))} (${wins.map((x) => x.firstWin).sort((x, y) => x - y).join(', ')})` : `нет за ${grp.n}`}${own.length > wins.length && wins.length ? `; без победы: ${own.length - wins.length}` : ''} | ${own.map((x) => `[${x.waves.join(' ')}]`).join(' ')} |`,
+        `| ${titleOf(profile)} | ${own.length} | ${wins.length}/${own.length} (${pct(wins.length / own.length)}) | ${wins.length ? `${f1(mean(wins.map((x) => x.firstWin)))} (${wins.map((x) => x.firstWin).sort((x, y) => x - y).join(', ')})` : `нет за ${grp.n}`}${own.length > wins.length && wins.length ? `; без победы: ${own.length - wins.length}` : ''} | ${own.map((x) => `[${x.waves.join(' ')}]`).join(' ')} |`,
       );
     }
     lines.push('');
     lines.push('<details><summary>Покупки по партиям</summary>');
     lines.push('');
     lines.push('```');
-    for (const profile of PROFILE_ORDER) {
-      for (const x of grp.series.filter((y) => y.profile === profile)) {
-        lines.push(`${PROFILE_TITLES[profile]}, серия ${x.run}: ${x.error ? `ОШИБКА ${x.error}` : x.bought.map((b, i) => `${i + 1}: ${b.join('+') || '—'}`).join('; ')}`);
+    for (const profile of whoList(grp.series)) {
+      for (const x of grp.series.filter((y) => who(y) === profile)) {
+        lines.push(`${titleOf(profile)}, серия ${x.run}: ${x.error ? `ОШИБКА ${x.error}` : x.bought.map((b, i) => `${i + 1}: ${b.join('+') || '—'}`).join('; ')}`);
       }
     }
     lines.push('```');
@@ -248,8 +250,8 @@ if (ladderResults.length) {
   const lanes = new Map();
   for (const r of ladderResults) {
     for (const lane of r.ladder.lanes) {
-      const key = `${lane.profile}:${lane.run}`;
-      if (!lanes.has(key)) lanes.set(key, { profile: lane.profile, run: lane.run, levels: new Map(), stuckAt: null, dna: 0 });
+      const key = `${who(lane)}:${lane.run}`;
+      if (!lanes.has(key)) lanes.set(key, { profile: who(lane), run: lane.run, levels: new Map(), stuckAt: null, dna: 0 });
       const own = lanes.get(key);
       for (const rec of lane.perLevel) own.levels.set(rec.level, rec);
       if (lane.stuckAt) own.stuckAt = lane.stuckAt;
@@ -280,7 +282,7 @@ if (ladderResults.length) {
       const x = l.levels.get(level);
       if (!x) continue;
       const waves = x.waves.map((w, i) => (x.results?.[i] === 'won' ? `В${w}` : String(w))).join(' → ');
-      lines.push(`| ${level} | ${PROFILE_TITLES[l.profile] ?? l.profile} ${l.run} | ${waves || '—'} | ${x.firstWin ?? `нет (${x.games})`} | ${x.treeLeftIn ? `${x.treeLeftIn.all} / ${x.treeLeftIn.open}` : '—'} | ${x.dnaIn ?? '—'} |`);
+      lines.push(`| ${level} | ${titleOf(l.profile)} ${l.run} | ${waves || '—'} | ${x.firstWin ?? `нет (${x.games})`} | ${x.treeLeftIn ? `${x.treeLeftIn.all} / ${x.treeLeftIn.open}` : '—'} | ${x.dnaIn ?? '—'} |`);
     }
   }
   lines.push('');
@@ -288,7 +290,7 @@ if (ladderResults.length) {
   for (let level = 1; level <= 10; level++) {
     for (const l of [...lanes.values()].sort((a, b) => a.profile.localeCompare(b.profile) || a.run - b.run)) {
       const x = l.levels.get(level);
-      if (x?.farm) farmRows.push(`| ${level} | ${PROFILE_TITLES[l.profile] ?? l.profile} ${l.run} | ${x.farm.level} | ${x.farm.result === 'won' ? 'победа' : `гибель на ${x.farm.wave}-й волне`} | ${x.farm.dnaGame ?? '—'} (модель ${x.farm.dnaModel ?? '—'}) | ${x.attemptDnaText ?? x.farm.attemptDna ?? '—'} | ${x.farm.gameSec ?? '—'} / ${x.farm.realSec ?? '—'} |`);
+      if (x?.farm) farmRows.push(`| ${level} | ${titleOf(l.profile)} ${l.run} | ${x.farm.level} | ${x.farm.result === 'won' ? 'победа' : `гибель на ${x.farm.wave}-й волне`} | ${x.farm.dnaGame ?? '—'} (модель ${x.farm.dnaModel ?? '—'}) | ${x.attemptDnaText ?? x.farm.attemptDna ?? '—'} | ${x.farm.gameSec ?? '—'} / ${x.farm.realSec ?? '—'} |`);
     }
   }
   if (farmRows.length) {
@@ -304,7 +306,7 @@ if (ladderResults.length) {
   lines.push('```');
   for (const l of [...lanes.values()].sort((a, b) => a.profile.localeCompare(b.profile) || a.run - b.run)) {
     const parts = [...l.levels.values()].sort((a, b) => a.level - b.level).map((x) => `${x.level}: ${x.firstWin ?? `—(${x.games})`}`);
-    lines.push(`${PROFILE_TITLES[l.profile] ?? l.profile}, дорожка ${l.run}: ${parts.join(' · ')}${l.stuckAt ? ` · застряла на уровне ${l.stuckAt}` : ''} · очков в конце ${l.dna}`);
+    lines.push(`${titleOf(l.profile)}, дорожка ${l.run}: ${parts.join(' · ')}${l.stuckAt ? ` · застряла на уровне ${l.stuckAt}` : ''} · очков в конце ${l.dna}`);
     for (const x of [...l.levels.values()].sort((a, b) => a.level - b.level)) {
       const buys = x.bought.flat();
       if (buys.length) lines.push(`    уровень ${x.level}: куплено ${buys.join('+')}`);
@@ -318,7 +320,7 @@ if (ladderResults.length) {
 // ------------------------------------------------------------------ проблемы
 const problems = [];
 for (const g of orderedGroups) {
-  const name = `${PROFILE_TITLES[g.profile] ?? g.profile} (${variant(g)})`;
+  const name = `${titleOf(g.profile)} (${variant(g)})`;
   g.games.forEach((game, i) => {
     if (game.result === 'error') problems.push(`${name}, партия ${i + 1}: ОШИБКА — ${game.error}`);
     if (game.result === 'timeout') problems.push(`${name}, партия ${i + 1}: timeout (волна ${game.wave})`);
@@ -329,7 +331,7 @@ for (const g of orderedGroups) {
 }
 for (const r of campaignResults) {
   for (const game of r.games) {
-    const name = `${PROFILE_TITLES[game.profile] ?? game.profile}, серия ${game.series ?? game.run}, партия ${game.game ?? '?'}`;
+    const name = `${titleOf(who(game))}, серия ${game.series ?? game.run}, партия ${game.game ?? '?'}`;
     if (game.result === 'error') problems.push(`${name}: ОШИБКА — ${game.error}`);
     if (game.result === 'timeout') problems.push(`${name}: timeout (волна ${game.wave})`);
     for (const a of game.anomalies ?? []) problems.push(`${name}: ⚠ ${a}`);
@@ -338,7 +340,7 @@ for (const r of campaignResults) {
 }
 for (const r of ladderResults) {
   for (const game of r.games) {
-    const name = `${PROFILE_TITLES[game.profile] ?? game.profile}, дорожка ${game.run}, уровень ${game.ladderLevel ?? '?'}, партия ${game.ladderGame ?? '?'}`;
+    const name = `${titleOf(who(game))}, дорожка ${game.run}, уровень ${game.ladderLevel ?? '?'}, партия ${game.ladderGame ?? '?'}`;
     if (game.result === 'error') problems.push(`${name}: ОШИБКА — ${game.error}`);
     if (game.result === 'timeout') problems.push(`${name}: timeout (волна ${game.wave})`);
     for (const a of game.anomalies ?? []) problems.push(`${name}: ⚠ ${a}`);
@@ -350,7 +352,7 @@ if (args.plan && fs.existsSync(String(args.plan))) {
     const plan = JSON.parse(fs.readFileSync(String(args.plan), 'utf8'));
     const seen = new Set([...results, ...campaignResults, ...ladderResults].map((r) => r.tag)); // результаты серий (--campaign) и лестницы (--ladder) тоже считаются присланными
     for (const job of Array.isArray(plan) ? plan : plan.include ?? []) {
-      if (!seen.has(job.tag)) problems.push(`задача «${job.tag}» (${PROFILE_TITLES[job.profile] ?? job.profile}${job.exclude ? `, без ${job.exclude}` : ''}) не прислала результата: упала или не закончилась (см. лог задачи)`);
+      if (!seen.has(job.tag)) problems.push(`задача «${job.tag}» (${titleOf(job.profile)}${job.exclude ? `, без ${job.exclude}` : ''}) не прислала результата: упала или не закончилась (см. лог задачи)`);
     }
   } catch (error) {
     problems.push(`не удалось прочитать план задач: ${error.message}`);

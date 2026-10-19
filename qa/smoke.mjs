@@ -6215,7 +6215,7 @@ function expectedStats(id, level, picks) {
     // яд Антибиотика (src/towerStats.ts): сила растёт с уровнем слияния как урон, время яда от уровня не зависит; мутации «Долгий яд» (dotSecMul) и «Сильный яд» (dotDpsMul)
     dotPerSec: b.dotPerSec * lv.damageMul,
     dotSec: b.dotSec,
-    // конус Лампы и аура Витамина (src/towerStats.ts): угол конуса меняют мутации (coneMul, не шире MAX_CONE_DEG), силу ауры — уровень слияния, улучшения ветки и мутации (auraBonusMul)
+    // конус Лампы и аура Витамина (src/towerStats.ts): угол конуса меняют мутации (coneMul, не шире mutationCaps.coneDeg), силу ауры — уровень слияния, улучшения ветки и мутации (auraBonusMul)
     coneDeg: b.coneDeg,
     auraMul: 1,
     // заморозка Холода растёт с уровнем медленно (время × damageMul уровня ^ freezeLevelPower); ловушка Пластыря: время от уровня не зависит, HP в секунду растут как урон; мутации freezeMul, trapSecMul, trapDpsMul
@@ -6224,6 +6224,11 @@ function expectedStats(id, level, picks) {
     trapDps: (base.trapDps ?? 0) * lv.damageMul,
   };
   let auraBonus = 1;
+  // потолки мутаций (config.ts: mutationCaps; документ дизайна, п. 4.2) — как в src/towerStats.ts: насколько мутации подняли урон, частоту и яд; лишние цели
+  let mutDamage = 1;
+  let mutRate = 1;
+  let mutDot = 1;
+  let extraTargets = 0;
   const shares = S4.copyShares;
   const seen = new Map();
   for (const pickId of picks) {
@@ -6234,34 +6239,50 @@ function expectedStats(id, level, picks) {
     const share = shares[Math.min(k, shares.length - 1)];
     const scaled = (mul) => 1 + (mul - 1) * share;
     const whole = (n) => (k === 0 ? n : Math.floor(n * share + 0.5));
-    if (spec.damageMul) s.damage *= scaled(spec.damageMul);
-    if (spec.cooldownMul) s.cooldownMs *= scaled(spec.cooldownMul);
+    if (spec.damageMul) {
+      s.damage *= scaled(spec.damageMul);
+      mutDamage *= scaled(spec.damageMul);
+    }
+    if (spec.cooldownMul) {
+      s.cooldownMs *= scaled(spec.cooldownMul);
+      mutRate /= scaled(spec.cooldownMul);
+    }
     if (spec.blastMul) s.blastRadius *= scaled(spec.blastMul);
     if (spec.puddleRadiusMul) s.puddleRadius *= scaled(spec.puddleRadiusMul);
-    if (spec.slowFactor !== undefined) s.slowFactor = k === 0 ? Math.min(s.slowFactor, spec.slowFactor) : Math.max(0.1, s.slowFactor * (1 - (1 - spec.slowFactor) * share));
+    if (spec.slowFactor !== undefined && share > 0) s.slowFactor = k === 0 ? Math.min(s.slowFactor, spec.slowFactor) : s.slowFactor * (1 - (1 - spec.slowFactor) * share);
     if (spec.pulsesAdd && s.beamPulses > 0) s.beamPulses += whole(spec.pulsesAdd);
+    if (spec.extraTargets) extraTargets += whole(spec.extraTargets);
     if (spec.dotSecMul) s.dotSec *= scaled(spec.dotSecMul);
-    if (spec.dotDpsMul) s.dotPerSec *= scaled(spec.dotDpsMul);
-    if (spec.coneMul) s.coneDeg = Math.min(MAX_CONE_DEG, s.coneDeg * scaled(spec.coneMul));
+    if (spec.dotDpsMul) {
+      s.dotPerSec *= scaled(spec.dotDpsMul);
+      mutDot *= scaled(spec.dotDpsMul);
+    }
+    if (spec.coneMul) s.coneDeg = Math.min(CAPS.coneDeg, s.coneDeg * scaled(spec.coneMul));
     if (spec.rangeMul) s.range *= scaled(spec.rangeMul);
     if (spec.auraBonusMul) auraBonus *= scaled(spec.auraBonusMul);
     if (spec.freezeMul) s.freezeSec *= scaled(spec.freezeMul);
     if (spec.trapSecMul) s.trapSec *= scaled(spec.trapSecMul);
     if (spec.trapDpsMul) s.trapDps *= scaled(spec.trapDpsMul);
   }
+  const basePulses = (base.beamPulses ?? 0) > 0 ? base.beamPulses + lv.pulsesAdd : 0;
+  extraTargets = Math.min(CAPS.extraTargetsMax, extraTargets);
+  if (s.beamPulses > 0) s.beamPulses = Math.min(CAPS.pulsesMax, s.beamPulses);
+  const mutDps = mutDamage * mutRate * (1 + extraTargets) * (basePulses > 0 ? s.beamPulses / basePulses : 1);
+  if (mutDps > CAPS.dpsMul) s.damage *= CAPS.dpsMul / mutDps;
+  const mutDotDps = mutDot * mutRate * (1 + extraTargets);
+  if (mutDotDps > CAPS.dpsMul) s.dotPerSec *= CAPS.dpsMul / mutDotDps;
+  if (s.slowFactor < 1) s.slowFactor = Math.max(MIN_SLOW_FACTOR, s.slowFactor);
+  if (s.freezeSec > 0) s.freezeSec = Math.min(s.freezeSec, (s.cooldownMs / 1000) * CAPS.freezeShareOfCooldown);
   if ((base.auraMul ?? 1) < 1) {
     const raw = base.auraMul - base.auraStep * (level - 1); // 1-й уровень — auraMul, дальше на auraStep меньше (улучшений вне партии в этих проверках нет)
     s.auraMul = Math.min(1, Math.max(MIN_AURA_MUL, 1 - (1 - raw) * auraBonus));
   }
   return s;
 }
-/** Самый широкий конус Лампы после мутаций, градусов (src/towerStats.ts) и самая сильная аура (meta.minAuraMul в config.ts). */
-const MAX_CONE_DEG = (() => {
-  const found = /MAX_CONE_DEG\s*=\s*(\d+)/.exec(fs.readFileSync(path.join(ROOT, 'src', 'towerStats.ts'), 'utf8'));
-  if (!found) throw new Error('В src/towerStats.ts нет MAX_CONE_DEG');
-  return Number(found[1]);
-})();
+/** Потолки мутаций (config.ts: mutationCaps), самая сильная аура и самое сильное замедление (meta.minAuraMul, meta.minSlowFactor). */
+const CAPS = Object.fromEntries(['coneDeg', 'freezeShareOfCooldown', 'extraTargetsMax', 'pulsesMax', 'dpsMul'].map((k) => [k, readConfigNumber('mutationCaps', k)]));
 const MIN_AURA_MUL = readConfigNumber('meta', 'minAuraMul');
+const MIN_SLOW_FACTOR = readConfigNumber('meta', 'minSlowFactor');
 /** Рост времени заморозки Холода с уровнем башни (config.ts: freezeLevelPower). */
 const FREEZE_LEVEL_POWER = (() => {
   const found = /\bfreezeLevelPower:\s*([\d.]+)/.exec(fs.readFileSync(path.join(ROOT, 'src', 'config.ts'), 'utf8'));

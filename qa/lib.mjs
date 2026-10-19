@@ -579,6 +579,78 @@ export function buyGreedy({ upgrades, order, levels, dna }) {
   return { levels: next, dna: left, bought };
 }
 
+/** Множитель силы обороны от l-го уровня узла «+шаг» при доле башни share в уроне обороны: (1 + шаг·share·l) / (1 + шаг·share·(l − 1)) (как `pct` в docs/redesign-model-2026-10-19.mjs). */
+const pctGain = (step, share = 1) => (l) => (1 + step * share * l) / (1 + step * share * (l - 1));
+/** Доля башни в уроне обороны эксперта (для веток башен; как в модели): Таблетка — основа, Сироп — лужа (замедление), Витамин — аура на всех. */
+const BRANCH_SHARE = { pill: 0.5, syrup: 0.6, fizz: 0.3, syringe: 0.3, ampule: 0.2, antibiotic: 0.2, lamp: 0.08, vitamin: 1, frost: 0.25, patch: 0.1 };
+/** Крупные узлы (башни, умения, ключевые узлы) и их оценка силы (модель, раздел 5 документа дизайна): покупаются первыми, как только хватает очков. */
+const BIG_GAIN = {
+  towerSyrup: 1.2, towerFizz: 1.2, towerSyringe: 1.15, towerAmpule: 1.12, towerLamp: 1.06, towerAntibiotic: 1.1, towerVitamin: 1.1, towerFrost: 1.07, towerPatch: 1.05,
+  fever: 1, pillKey: 1.1, fizzKey: 1.08, syringeKey: 1.07, ampuleKey: 1.07, antibioticKey: 1.06, syrupKey: 1.05, lampKey: 1.05, vitaminKey: 1.04, frostKey: 1.05, patchKey: 1.03,
+};
+/** Прирост силы от следующего уровня узла `id` (множитель; 1 — силы не прибавляет, такой узел лучший порядок не покупает). */
+function nodeGain(upgrades, id, level) {
+  const u = upgrades[id];
+  if (BIG_GAIN[id] !== undefined) return BIG_GAIN[id];
+  const share = BRANCH_SHARE[u.branch] ?? 1;
+  switch (u.effect) {
+    case 'damage': return pctGain(u.perLevel)(level);
+    case 'towerDamage': return pctGain(u.perLevel, share)(level);
+    case 'puddleSec': return pctGain(u.perLevel * 0.6, share)(level);
+    case 'cooldown': return pctGain(-u.perLevel, share)(level);
+    case 'auraBoost': return pctGain(-u.perLevel, share)(level);
+    case 'freezeTime': return pctGain(u.perLevel, share)(level);
+    case 'range': case 'beamWidth': return pctGain(0.02, share)(level);
+    case 'price': return pctGain(-u.perLevel, share)(level);
+    case 'coins': return 1 + (u.perLevel / 1345) * 0.6; // монеты на старте: заметны в начале попытки (к 15-й волне уровня 1 у игрока ≈ 1 345 монет)
+    case 'reward': return pctGain(u.perLevel * 0.6)(level);
+    default: return 1;
+  }
+}
+
+/** Узел и все узлы, которые он требует (по цепочке `requires`), от корня к узлу; узла нет в таблице — пусто. */
+export function nodeChain(upgrades, id) {
+  const out = [];
+  for (let x = id; x && upgrades[x] && !out.includes(x); x = upgrades[x].requires?.id) out.unshift(x);
+  return out;
+}
+
+/**
+ * Лучший найденный порядок покупок очков ДНК (раздел 10.1 документа дизайна, п. 7; как `spend` в модели): из открытых узлов, на следующий уровень которых хватает очков, сначала крупные (башни, умения, ключевые узлы),
+ * затем остальные — по наибольшему приросту силы на очко ДНК (ln(прирост) / цена); узлы без прироста силы не покупаются. `towers` (необязательно) — башни стратегии:
+ * узлы и ветки других башен не покупаются (стратегия их не строит). Возвращает новые уровни, остаток очков и список покупок.
+ */
+export function buyBest({ upgrades, levels, dna, towers = null }) {
+  // узлы башен на пути к башням стратегии и к «Лихорадке» (цепочка «требует») покупаются, даже если сама башня стратегии не нужна
+  const needed = new Set(towers ? [...towers.map(towerNodeId), 'fever'].flatMap((id) => nodeChain(upgrades, id)) : []);
+  const foreign = (id) => {
+    if (!towers || needed.has(id)) return false;
+    const u = upgrades[id];
+    const own = Object.keys(BRANCH_SHARE).find((t) => towerNodeId(t) === id) ?? (u.branch in BRANCH_SHARE ? u.branch : null);
+    return own !== null && !towers.includes(own);
+  };
+  const next = { ...levels };
+  const bought = [];
+  let left = dna;
+  for (;;) {
+    const opts = Object.keys(upgrades).filter((id) => {
+      const u = upgrades[id];
+      const price = u.prices[next[id] ?? 0];
+      return price !== undefined && price <= left && !foreign(id) && branchOpen(u.branch, next) && (!u.requires || (next[u.requires.id] ?? 0) >= u.requires.level) && (BIG_GAIN[id] !== undefined || nodeGain(upgrades, id, (next[id] ?? 0) + 1) > 1);
+    });
+    if (!opts.length) break;
+    const big = opts.filter((id) => BIG_GAIN[id] !== undefined);
+    const from = big.length ? big : opts;
+    const score = (id) => Math.log(nodeGain(upgrades, id, (next[id] ?? 0) + 1)) / upgrades[id].prices[next[id] ?? 0];
+    from.sort((a, b) => score(b) - score(a));
+    const id = from[0];
+    left -= upgrades[id].prices[next[id] ?? 0];
+    next[id] = (next[id] ?? 0) + 1;
+    bought.push(id);
+  }
+  return { levels: next, dna: left, bought };
+}
+
 /**
  * Порядок покупок бота (решение владельца 17 октября 2026): как у профиля тестировщика «урон» — сначала `damage`, затем ветка башни, которую бот ставит чаще всего (у профилей expert, strong, zone, average — Таблетка;
  * `tower` по умолчанию `pill`), затем остальные улучшения в прежнем порядке (`baseBuyOrder`: coins, lives, reward, далее таблица `meta.upgrades`). До 17 октября 2026 порядок был `baseBuyOrder`: ветка защиты шла раньше
@@ -597,10 +669,10 @@ export function baseBuyOrder(upgrades) {
 }
 
 /**
- * Порядок покупок для замера «одна башня» (docs/fizz-solo-plan.md): сначала улучшения ветки этой башни (в порядке таблицы; недоступные по уровню или без очков
+ * Порядок покупок для замера «одна башня» (docs/fizz-solo-plan.md): сначала узел башни и улучшения её ветки (в порядке таблицы; недоступные по уровню или без очков
  * пропускаются жадным выбором), затем обычный порядок. Игрок, который играет одной башней, качает именно её.
  */
 export function buyOrderSolo(upgrades, tower) {
-  const own = Object.keys(upgrades).filter((id) => upgrades[id].branch === tower);
+  const own = [...nodeChain(upgrades, towerNodeId(tower)), ...Object.keys(upgrades).filter((id) => upgrades[id].branch === tower)];
   return [...own, ...baseBuyOrder(upgrades).filter((id) => !own.includes(id))];
 }

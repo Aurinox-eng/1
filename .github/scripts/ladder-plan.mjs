@@ -1,8 +1,8 @@
 /**
  * План запуска ladder.yml («лестница», этап 5б): читает поля запуска, проверяет их и пишет в $GITHUB_OUTPUT:
- * profile, lanes (JSON-список номеров дорожек, например [1,2,3]), k, to_level, speed, cfg.
+ * profile (стратегия эксперта), mut, lanes (JSON-список номеров дорожек, например [1,2,3]), k, to_level, speed, cfg.
  * Поля берутся из переменных окружения (их ставит workflow при ручном запуске); если запуск от push (EVENT_NAME=push) — из файла
- * `.github/ladder-request.json` (ключи profile, lanes, k, to_level, speed, cfg): так лестницу запускает агент без кнопки — изменив файл и сделав push в рабочую ветку.
+ * `.github/ladder-request.json` (ключи profile, mut, lanes, k, to_level, speed, cfg): так лестницу запускает агент без кнопки — изменив файл и сделав push в рабочую ветку.
  * Значения в командную строку и оболочку не попадают.
  */
 import fs from 'node:fs';
@@ -10,7 +10,7 @@ import fs from 'node:fs';
 const env = { ...process.env };
 if (env.EVENT_NAME === 'push') {
   const request = JSON.parse(fs.readFileSync('.github/ladder-request.json', 'utf8'));
-  for (const name of ['PROFILE', 'LANES', 'K', 'TO_LEVEL', 'SPEED', 'CFG', 'FARM', 'MAX_REAL_SEC', 'K_TOTAL', 'MAX_PARALLEL', 'FROM_LEVEL', 'STATE_RUN']) {
+  for (const name of ['PROFILE', 'MUT', 'LANES', 'K', 'TO_LEVEL', 'SPEED', 'CFG', 'FARM', 'MAX_REAL_SEC', 'K_TOTAL', 'MAX_PARALLEL', 'FROM_LEVEL', 'STATE_RUN']) {
     const value = request[name.toLowerCase()];
     if (value !== undefined && value !== null) env[name] = String(value);
   }
@@ -27,8 +27,11 @@ const integer = (name, fallback, min, max) => {
   if (value < min || value > max) fail(`${name}=${value}: нужно от ${min} до ${max}`);
   return value;
 };
-const profile = (env.PROFILE ?? '').trim() || 'strong';
-if (!['novice', 'average', 'strong', 'expert', 'zone'].includes(profile)) fail(`PROFILE=«${profile}»: нужно novice, average, strong, expert или zone`);
+// Профиль один — expert (решение владельца 19 октября 2026); PROFILE — стратегия эксперта: expert, zone, solo:X, pair:a+b, focus:a+b; MUT — набор мутаций («alt» или «башня:мутация,мутация;…», пусто — по умолчанию)
+const profile = (env.PROFILE ?? '').trim() || 'expert';
+if (!/^(expert|zone|(solo|pair|focus):[a-z]+(\+[a-z]+)?)$/.test(profile)) fail(`PROFILE=«${profile}»: нужна стратегия эксперта — expert, zone, solo:X, pair:a+b, focus:a+b (профили novice, average, strong убраны)`);
+const mut = (env.MUT ?? '').trim() === '-' ? '' : (env.MUT ?? '').trim();
+if (mut && mut !== 'alt' && !/^[a-z]+:\w+(,\w+)*(;[a-z]+:\w+(,\w+)*)*$/.test(mut)) fail(`MUT=«${mut}»: нужно «alt» или «башня:мутация,мутация;…» (пусто — по умолчанию)`);
 const lanes = integer('LANES', 6, 1, 10);
 const k = integer('K', 8, 1, 20);
 const kTotal = (env.K_TOTAL ?? '').trim() ? integer('K_TOTAL', k, k, 40) : k; // всего партий на уровне (по умолчанию k): больше k — уровень играется несколькими задачами подряд (предел задачи 5 ч 50 мин)
@@ -47,8 +50,8 @@ if (stateRun && !/^\d{6,20}$/.test(stateRun)) fail(`STATE_RUN=«${stateRun}»: �
 if (fromLevel > 1 && !stateRun) fail('FROM_LEVEL больше 1: нужен STATE_RUN — номер прогона с вложениями ladder-state-L<FROM_LEVEL − 1>-lane<N>');
 if (fromLevel === 1 && stateRun) fail('STATE_RUN задан, а FROM_LEVEL = 1: состояние с уровня 1 не берётся ни откуда');
 const laneList = Array.from({ length: lanes }, (_, i) => i + 1);
-const out = { profile, lanes: JSON.stringify(laneList), k: String(k), k_total: String(kTotal), chunked, to_level: String(toLevel), speed, cfg, farm, max_real_sec: String(maxRealSec), max_parallel: String(maxParallel), from_level: String(fromLevel), state_run: stateRun };
-console.log(`Лестница: профиль ${profile}, дорожек ${lanes}, до ${k} партий за задачу${chunked === 'true' ? `, всего до ${kTotal} на уровне` : ''}, уровни ${fromLevel}–${toLevel}${stateRun ? ` (состояние из прогона ${stateRun})` : ''}, speed ${speed}${cfg ? `, cfg ${cfg}` : ''}${farm === '1' ? ', контроль фарма' : ''}, потолок партии ${maxRealSec} с реального времени, одновременно не больше ${maxParallel} дорожек`);
+const out = { profile, mut, lanes: JSON.stringify(laneList), k: String(k), k_total: String(kTotal), chunked, to_level: String(toLevel), speed, cfg, farm, max_real_sec: String(maxRealSec), max_parallel: String(maxParallel), from_level: String(fromLevel), state_run: stateRun };
+console.log(`Лестница: эксперт, стратегия ${profile}${mut ? `, мутации ${mut}` : ''}, дорожек ${lanes}, до ${k} партий за задачу${chunked === 'true' ? `, всего до ${kTotal} на уровне` : ''}, уровни ${fromLevel}–${toLevel}${stateRun ? ` (состояние из прогона ${stateRun})` : ''}, speed ${speed}${cfg ? `, cfg ${cfg}` : ''}${farm === '1' ? ', контроль фарма' : ''}, потолок партии ${maxRealSec} с реального времени, одновременно не больше ${maxParallel} дорожек`);
 const lines = Object.entries(out).map(([key, value]) => `${key}=${value}`);
 if (process.env.GITHUB_OUTPUT) fs.appendFileSync(process.env.GITHUB_OUTPUT, `${lines.join('\n')}\n`);
 else console.log(lines.join('\n'));
