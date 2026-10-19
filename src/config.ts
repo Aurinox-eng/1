@@ -391,7 +391,7 @@ export const CONFIG = {
         { mix: { coccus: 43, rod: 21, swarm: 36, runner: 16, splitter: 11, armored: 4, slick: 6 } }, // 47
         { mix: { coccus: 43, rod: 21, swarm: 36, runner: 16, splitter: 11, armored: 4, slick: 6 }, wall: ['armored', 6] }, // 48
         { mix: { coccus: 45, rod: 23, swarm: 36, runner: 17, splitter: 11, armored: 5, slick: 7 } }, // 49
-        { mix: { coccus: 66, rod: 33, swarm: 48, runner: 25, splitter: 16, armored: 7, slick: 10 }, boss: 'giantColony' }, // 50 Гигантская колония 29365 HP
+          { mix: { coccus: 76, rod: 38, swarm: 60, runner: 28, splitter: 19, armored: 8, slick: 11 }, boss: 'giantColony' }, // 50 Гигантская колония 33815 HP
           ] as PlanWave[],
         },
       },
@@ -944,9 +944,9 @@ export const CONFIG = {
     armadillo: { base: 'armored', hp: 3061, speedFactor: 0.55, armor: 13, lifeDamage: 5, color: 0xb88cff, phases: [{ below: 0.5, armor: 0, speedMul: 1.5 }] },
     /** Матка роя (40-я волна): раз в 3 с выпускает 6 роёв; каждые 15 с — капсула на 3 с (неуязвима, видна как пузырь). */
     swarmQueen: { base: 'brood', hp: 6891, speedFactor: 0.7, armor: 0, lifeDamage: 5, color: 0x5fe0d0, spawnKind: 'swarm', spawnEverySec: 3, spawnCount: 6, capsuleEverySec: 15, capsuleSec: 3 },
-    /** Гигантская колония (50-я волна): три фазы — 100–66 % медленно и выпускает кокков; 66–33 % броня 6 и палочки пачками; 33–0 % скорость ×1,6 и самолечение 1 % прочности в секунду. */
+    /** Гигантская колония (50-я волна; прочность 33 815 — стена босса 3,8 вместо 3,3: без «Лихорадки» сильнейшая стратегия её не проходит, решение владельца 19 октября 2026, сводное сообщение, п. 3.2): три фазы — 100–66 % медленно и выпускает кокков; 66–33 % броня 6 и палочки пачками; 33–0 % скорость ×1,6 и самолечение 1 % прочности в секунду. */
     giantColony: {
-      base: 'giant', hp: 29365, speedFactor: 0.4, armor: 0, lifeDamage: -1, color: 0xff6a5a, spawnKind: 'coccus', spawnEverySec: 4, spawnCount: 4,
+      base: 'giant', hp: 33815, speedFactor: 0.4, armor: 0, lifeDamage: -1, color: 0xff6a5a, spawnKind: 'coccus', spawnEverySec: 4, spawnCount: 4,
       phases: [{ below: 0.66, armor: 6, spawnKind: 'rod', spawnEverySec: 5, spawnCount: 3 }, { below: 0.33, armor: 0, speedMul: 1.6, regenShare: 0.01, spawnCount: 0 }],
     },
   } as Record<BossId, BossSpec>,
