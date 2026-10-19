@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { CONFIG } from './config';
-import { QA_MODE } from './debug';
+import { QA_MODE, QA_NORENDER } from './debug';
 import { t } from './i18n';
 import { getLang, setLang } from './lang';
 import { startInMenu } from './progress';
@@ -38,6 +38,8 @@ const game = new Phaser.Game({
   // предупреждение «AudioContext was not allowed to start». На этапе 3 эту строку уберём.
   audio: { noAudio: true },
   render: { antialias: true, powerPreference: 'high-performance' },
+  // Боты без рисования (?qa&norender): цикл кадров по таймеру (не по requestAnimationFrame), до 120 кадров в секунду
+  ...(QA_NORENDER ? { fps: { target: 120, forceSetTimeOut: true } } : {}),
   banner: false,
   // Первая сцена в списке запускается сама: меню или, при адресе с `?level=N` (и в режиме проверки без `&menu`), сразу партия
   scene: startInMenu() ? [MenuScene, LevelsScene, GameScene, UpgradesScene, AlmanacScene] : [GameScene, MenuScene, LevelsScene, UpgradesScene, AlmanacScene],

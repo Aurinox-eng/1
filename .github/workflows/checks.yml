@@ -1,8 +1,8 @@
-# Автопроверки игры в браузере (qa/smoke.mjs, все 37 сценариев) при каждом push в любую ветку claude/… (рабочая ветка меняется от сессии к сессии, поэтому не одна ветка по имени); также вручную: вкладка Actions → «Проверки (smoke)» → Run workflow.
+# Автопроверки игры в браузере (qa/smoke.mjs; группы сценариев — .github/smoke-groups.json, набор выбирает задача «План проверок») при каждом push в любую ветку claude/… (рабочая ветка меняется от сессии к сессии, поэтому не одна ветка по имени); также вручную: вкладка Actions → «Проверки (smoke)» → Run workflow.
 # Сценарии разложены по параллельным задачам (в каждой они идут по одному — несколько браузеров одновременно на одной машине тормозят и дают ложные красные).
 # Упала любая проверка — задача красная, и GitHub присылает письмо о неудачном запуске (включается в GitHub → Settings → Notifications → Actions →
 # «Send notifications for failed workflows only» + Email). Снимки всех сценариев — во вложениях прогона (smoke-shots-…), чтобы вид можно было посмотреть и при зелёных проверках.
-# Правки только в docs/ и *.md проверки не запускают: на игру они не влияют.
+# Правки только в docs/, *.md и в файлах публикации (preview.yml, pages.yml, publish-pages.sh) проверки не запускают: на игру они не влияют.
 name: Проверки (smoke)
 
 on:
@@ -11,10 +11,22 @@ on:
     paths-ignore:
       - 'docs/**'
       - '**.md'
+      # публикация сборок веток и Pages на игру не влияют
+      - '.github/workflows/preview.yml'
+      - '.github/workflows/pages.yml'
+      - '.github/scripts/publish-pages.sh'
   workflow_dispatch:
     inputs:
       ref:
         description: 'Ветка или коммит (пусто — та ветка, с которой запущено)'
+        type: string
+        default: ''
+      scope:
+        description: 'Какие сценарии: full — все; auto — по изменениям (если изменён только qa/smoke.mjs — сценарии, которые доходят до изменённых строк, иначе все); или список сценариев и групп через пробел (almanac merge)'
+        type: string
+        default: 'full'
+      base:
+        description: 'Для auto: с каким коммитом сравнивать (пусто — общий предок с main)'
         type: string
         default: ''
 
@@ -27,46 +39,37 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # План: какие сценарии запускать (быстрая проверка, ступень 1 — решение владельца 18 октября 2026; .github/scripts/smoke-scope.mjs). Push — всегда полный набор.
+  # Группы сценариев — .github/smoke-groups.json (сценарии в каждой группе идут по одному: несколько браузеров на одной машине тормозят и дают ложные красные).
+  plan:
+    name: План проверок
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      matrix: ${{ steps.scope.outputs.matrix }}
+      any: ${{ steps.scope.outputs.any }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          fetch-depth: 0
+      - id: scope
+        env:
+          SCOPE: ${{ github.event_name == 'workflow_dispatch' && inputs.scope || 'full' }}
+          BASE: ${{ inputs.base }}
+        run: |
+          git fetch --quiet origin main || true
+          node .github/scripts/smoke-scope.mjs
+
   smoke:
     name: ${{ matrix.group }}
+    needs: plan
+    if: needs.plan.outputs.any == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 120
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - group: 'Экран и камера (desktop-ru, phone-ru)'
-            key: screen-ru
-            scenarios: 'desktop-ru phone-ru'
-          - group: 'Экран на английском, клетки, граф (desktop-en, phone-en, rules, graph)'
-            key: screen-en
-            scenarios: 'desktop-en phone-en rules graph'
-          - group: 'Бактерии и бой (combat, dash, split, spore, armored, intro, danger, rotate, step-dps, sound)'
-            key: bacteria
-            scenarios: 'combat dash split spore armored intro danger rotate step-dps sound'
-          - group: 'Башни: панель, цены, Сироп, Шипучка, Шприц, Таблетка, Ампула, Антибиотик (towers, часть 1)'
-            key: towers-a
-            scenarios: 'towers'
-            towers_only: 'texts,panel,controls,prices,syrup,fizz,syringe,pill,ampule,antibiotic'
-          - group: 'Башни и бактерии: Лампа, Витамин, все вместе, виды бактерий, Холод, Пластырь (towers, часть 2)'
-            key: towers-b
-            scenarios: 'towers'
-            towers_only: 'lamp,vitamin,mixed,swarm,runner,healer,regen,commander,brood,giant,leaper,phago,stealth,toxin,frost,patch,mutant,parasite'
-          - group: 'Карточка, слияние, мутации (card, merge, mutations, sell, special, strip, sell-gap)'
-            key: card
-            scenarios: 'card merge mutations sell special strip sell-gap'
-          - group: 'Альманах, числа урона, строка проигрыша, очередь уведомлений, тряска (almanac, almanac-pause, damage-numbers, lose-line, toast-queue, shake)'
-            key: almanac
-            scenarios: 'almanac almanac-pause damage-numbers lose-line toast-queue shake'
-          - group: 'Конец уровня, экономика, игровая сборка (lose, win, restart-button, deflation, camera-fit, colors, locked, production)'
-            key: end
-            scenarios: 'lose-ru lose-en win-ru win-en restart-button deflation camera-fit colors locked production'
-          - group: 'Очки ДНК, улучшения, уровни (meta-save, meta-dna, meta-shop, meta-effects, tree-effects, tree-shop, level-waves, progress-save, stars, menu-flow, menu-reset, levels-lock)'
-            key: meta
-            scenarios: 'meta-save meta-dna meta-shop meta-effects tree-effects tree-shop level-waves progress-save stars menu-flow menu-reset levels-lock'
-          - group: 'Полная партия (fullgame)'
-            key: fullgame
-            scenarios: 'fullgame'
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     steps:
       - uses: actions/checkout@v4
         with:

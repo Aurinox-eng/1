@@ -2,8 +2,8 @@
  * Эталонные наборы улучшений для ступенчатого замера уровней 2–10 (этап 5б, docs/stage-5b-plan.md, раздел 5).
  *
  * Модель. К приходу на уровень N игрок накопил очки ДНК: `start + perLevel × (N − 2)` (вариант А плана: 250 и 340). Перед k-й партией на уровне
- * к ним добавляется `(k − 1) × fail` (каждая проигранная партия «сильного» даёт ≈ 105 очков). Набор покупается тем же жадным порядком, что у бота
- * (`buyGreedy` в qa/lib.mjs): сначала улучшения этапа 6а, потом остальные по таблице, ветка башни — только если башня открыта на уровне N.
+ * к ним добавляется `(k − 1) × fail`. Набор покупается тем же порядком, что у бота (`buyBest` в qa/lib.mjs: крупные узлы — башни, «Лихорадка», ключевые — первыми,
+ * затем наибольший прирост силы на очко ДНК; ветка башни — после узла башни). Числа модели по умолчанию — прежние (этап 5б), для уровня 1 нового формата — docs/redesign-model-2026-10-19.mjs.
  *
  * Запуск (только расчёт, браузер не нужен):
  *   node qa/ladder-sets.mjs                       таблица для варианта А, партии 1 и 3
@@ -15,7 +15,7 @@
  *   node qa/ladder-sets.mjs --solo=fizz --levels=5,10   только эти уровни (по умолчанию 2–10)
  * Строка `meta` вставляется в поле «meta» запуска balance.yml (или в `--meta=` бота).
  */
-import { buyGreedy, buyOrder, buyOrderSolo, parseArgs, readMetaTable, readTowerUnlock } from './lib.mjs';
+import { buyBest, buyGreedy, buyOrderSolo, parseArgs, readMetaTable } from './lib.mjs';
 
 /** Очки к k-й партии на уровне N по модели. */
 export function modelDna(level, attempt, { start = 250, perLevel = 340, fail = 105 } = {}) {
@@ -25,10 +25,9 @@ export function modelDna(level, attempt, { start = 250, perLevel = 340, fail = 1
 /** Эталонный набор: { level, attempt, dna, spent, meta (строка «id:уровень,…»), levels }. */
 export function referenceSet(level, attempt, model = {}, solo = null) {
   const { upgrades } = readMetaTable();
-  const unlock = readTowerUnlock();
   const dna = modelDna(level, attempt, model);
   const empty = Object.fromEntries(Object.keys(upgrades).map((id) => [id, 0]));
-  const bought = buyGreedy({ upgrades, order: solo ? buyOrderSolo(upgrades, solo) : buyOrder(upgrades), unlock, level, levels: empty, dna });
+  const bought = solo ? buyGreedy({ upgrades, order: buyOrderSolo(upgrades, solo), levels: empty, dna }) : buyBest({ upgrades, levels: empty, dna });
   const meta = Object.entries(bought.levels)
     .filter(([, n]) => n > 0)
     .map(([id, n]) => `${id}:${n}`)

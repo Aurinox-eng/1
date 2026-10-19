@@ -16,6 +16,10 @@ on:
     paths-ignore:
       - 'docs/**'
       - '**.md'
+      # публикация сборок веток и Pages на скорость игры не влияют
+      - '.github/workflows/preview.yml'
+      - '.github/workflows/pages.yml'
+      - '.github/scripts/publish-pages.sh'
   workflow_dispatch:
 
 permissions:

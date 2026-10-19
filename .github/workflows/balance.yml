@@ -19,11 +19,15 @@ on:
         type: string
         default: ''
       profiles:
-        description: 'Профили через запятую: novice, average, strong, expert (или all)'
+        description: 'Стратегии эксперта через запятую (профиль один — expert): expert, zone, solo:X, pair:a+b, focus:a+b, core:a+b'
         type: string
-        default: novice,average,strong,expert
+        default: expert
+      muts:
+        description: 'Наборы мутаций через «|»: «-» — по умолчанию, «alt» — второй набор, или «башня:мутация,мутация;…»'
+        type: string
+        default: '-'
       runs:
-        description: 'Партий на каждый профиль и набор исключений (партия на 30 волн — 15–45 минут)'
+        description: 'Партий на каждую стратегию и набор исключений (партия на 30 волн — 15–45 минут)'
         type: string
         default: '5'
       shards:
@@ -35,11 +39,11 @@ on:
         type: string
         default: '-'
       lamps:
-        description: 'Лампы против скрытных (--lamps): 1 — прежний вариант, veteran — «опытный» (Лампа за 3 волны до выхода скрытных), first — «первая встреча» (Лампа по плашке скрытной); несколько через «;», «-» — без Ламп; только профили strong и expert; не сочетается с «solos» (пусто — как раньше)'
+        description: 'Лампы против скрытных (--lamps): 1 — прежний вариант, veteran — «опытный» (Лампа за 3 волны до выхода скрытных), first — «первая встреча» (Лампа по плашке скрытной); несколько через «;», «-» — без Ламп; только стратегия expert; не сочетается с «solos» (пусто — как раньше)'
         type: string
         default: ''
       solos:
-        description: 'Варианты «одна башня» (--solo) через «;»: «-;fizz» — обычная игра и только Шипучка + 1 Сироп; башни: pill, fizz, syringe, ampule, antibiotic, lamp, vitamin, frost, patch; только профили strong и expert (пусто или «-» — без ограничения)'
+        description: 'Варианты «одна башня» (--solo) через «;»: «-;fizz» — обычная игра и только Шипучка + 1 Сироп; башни: pill, fizz, syringe, ampule, antibiotic, lamp, vitamin, frost, patch; только стратегия expert (пусто или «-» — без ограничения)'
         type: string
         default: '-'
       cfg:
@@ -66,6 +70,10 @@ on:
         description: 'Потолок реального времени одной партии, секунд (пусто — как в боте, 3600; при большом потолке игрового времени поднять до 7200)'
         type: string
         default: ''
+      norender:
+        description: '1 — бот без рисования сцены (--norender, ≈ ×3–5 быстрее; волны гибели совпадают с рисованием — сверка 19 октября 2026); 0 — с рисованием (нужно для снимков)'
+        type: string
+        default: '1'
       campaign:
         description: 'Серии партий (этап 6а): 0 — обычный замер; N — каждая из «партий» играет до N партий подряд с очками ДНК и улучшениями, до первой победы'
         type: string
@@ -97,6 +105,7 @@ jobs:
         env:
           EVENT_NAME: ${{ github.event_name }}
           PROFILES: ${{ inputs.profiles }}
+          MUTS: ${{ inputs.muts }}
           RUNS: ${{ inputs.runs }}
           SHARDS: ${{ inputs.shards }}
           EXCLUDES: ${{ inputs.excludes }}
@@ -150,6 +159,7 @@ jobs:
       - name: Бот
         env:
           PROFILE: ${{ matrix.profile }}
+          MUT: ${{ matrix.mut }}
           RUNS: ${{ matrix.runs }}
           EXCLUDE: ${{ matrix.exclude }}
           SOLO: ${{ matrix.solo }}
@@ -162,14 +172,17 @@ jobs:
           MAX_GAME_SEC: ${{ matrix.max_game_sec }}
           MAX_REAL_SEC: ${{ matrix.max_real_sec }}
           TAG: ${{ matrix.tag }}
+          NORENDER: ${{ inputs.norender }}
         run: |
-          args=(--profile="$PROFILE" --runs="$RUNS" --speed="$SPEED" --canvas --level="$LEVEL" --tag="$TAG")
+          args=(--strategy="$PROFILE" --runs="$RUNS" --speed="$SPEED" --canvas --level="$LEVEL" --tag="$TAG")
+          if [ -n "$MUT" ]; then args+=(--mut="$MUT"); fi
           if [ -n "$EXCLUDE" ]; then args+=(--exclude="$EXCLUDE"); fi
           if [ -n "$SOLO" ]; then args+=(--solo="$SOLO"); fi
           if [ "$LAMPS" = "1" ]; then args+=(--lamps); elif [ -n "$LAMPS" ]; then args+=(--lamps="$LAMPS"); fi
           if [ -n "$CFG" ]; then args+=(--cfg="$CFG"); fi
           if [ -n "$CAMPAIGN" ] && [ "$CAMPAIGN" != "0" ]; then args+=(--campaign="$CAMPAIGN"); fi
           if [ -n "$META" ]; then args+=(--meta="$META"); fi
+          if [ "$NORENDER" = "1" ]; then args+=(--norender); fi
           if [ -n "$MAX_GAME_SEC" ]; then args+=(--max-game-sec="$MAX_GAME_SEC"); fi
           if [ -n "$MAX_REAL_SEC" ]; then args+=(--max-real-sec="$MAX_REAL_SEC"); fi
           node qa/bot.mjs "${args[@]}" 2>&1 | tee bot.log

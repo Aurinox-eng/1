@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { CONFIG } from '../config';
+import { CONFIG, type BossId, type BossSpec, type Ward } from '../config';
 import { EDGES_FROM } from '../level';
 import { pointAt, type Edge } from '../pathing';
 import { COLORS, TOWER_MARK } from '../theme';
@@ -8,6 +8,13 @@ import type { Tower } from './Tower';
 import { bodyHalfSize, crackCount, drawCracks, drawShape, hasRadialCracks, shellWidth, SPLITTER_LOBE_OFFSET } from './bacteriumArt';
 
 export type BacteriumKind = keyof typeof CONFIG.types;
+
+/** Необязательные свойства бактерии при выходе: множитель брони (рост с волной или уровнем), босс (таблица `bosses`), награда в монетах (уровень нового формата: доля дохода волны; иначе — из таблицы видов). */
+export interface BacteriumExtra {
+  armorMul?: number;
+  boss?: BossId;
+  reward?: number;
+}
 
 /** Рамка рисунка тела типа (и трещин у некруглых типов). */
 function bodyBox(kind: BacteriumKind): ArtBox {
@@ -109,6 +116,8 @@ export class Bacterium {
   /** Яд башни «Антибиотик»: сколько секунд ещё идёт и сколько HP в секунду снимает (0 — не отравлена). Пока бактерия отравлена, она не лечится. */
   poisonLeft = 0;
   poisonDps = 0;
+  /** Яд с ключом «Эпидемия»: после гибели бактерии переходит на ближайшую. */
+  epidemic = false;
   /** Поглотитель: сколько ударов по бактерии было (яд не считается), сколько из них поглощено; последний удар поглощён ли. */
   hits = 0;
   absorbed = 0;
@@ -120,11 +129,43 @@ export class Bacterium {
   numAt = -1;
   /** Мутант: вид (id) башни, ударившей по бактерии последней; null — ещё не били. Удар башни того же вида слабее (`types.mutant.memoryMul`), смена вида штрафа не даёт. */
   memory: string | null = null;
+  /** Жёсткое свойство на этом уровне (`HardWalls`, выставляет сцена при выходе): чем бактерию не ранить; null — нет. Пока свойство действует, вокруг тела серое кольцо. */
+  ward: Ward | null = null;
+  private wardRing: Phaser.GameObjects.Image | null = null;
   /** Ловушка Пластыря: сколько секунд бактерия ещё приклеена (0 — свободна) и сколько HP в секунду теряет. Пока приклеена, не идёт. */
   trapLeft = 0;
   trapDps = 0;
   /** Паразит: башня, к которой присосался (null — пока ни к какой или башня исчезла); выставляет сцена. */
   latchedTo: Tower | null = null;
+  /** Босс (строка таблицы `bosses`) и его id; у обычной бактерии — null. */
+  readonly boss: BossSpec | null;
+  readonly bossId: BossId | null;
+  /** Монет за уничтожение. */
+  readonly reward: number;
+  /** Во сколько раз чаще идут рывки (палочка рядом с Вожаком палочек); сцена выставляет каждый кадр. */
+  dashRate = 1;
+  /** Босс: часы выпуска бактерий, выпустил ли уже бактерий на доле прочности `burstAt`. */
+  spawnClock = 0;
+  burstDone = false;
+  /** Ключ «Хрупкость» Холода: во сколько раз сильнее удары по замёрзшей (1 — нет). */
+  private brittleMul = 1;
+  /** Ключ «Прожектор» Лампы: сколько секунд ещё и во сколько раз сильнее удары по бактерии в круге Лампы. */
+  private spotLeft = 0;
+  private spotMul = 1;
+  /** Ключ «Сквозной разряд» Шприца: сколько секунд бактерия ещё без брони. */
+  private armorBreakLeft = 0;
+  /** Сколько секунд прошло с оттаивания (повторная заморозка — не раньше `mutationCaps.refreezeSec`). */
+  private sinceThaw = Infinity;
+  /** Множитель брони вида (рост с волной или уровнем); дети делящейся и босса берут его у родителя. */
+  readonly armorMul: number;
+  /** Капсула Матки роя: сколько секунд ещё неуязвима, часы до следующей капсулы, картинка пузыря. */
+  private capsuleLeft = 0;
+  private capsuleClock = 0;
+  private bubble: Phaser.GameObjects.Image | null = null;
+  /** Во сколько раз рисунок тела крупнее вида-основы (босс — `bossRules.scale`). */
+  private readonly visual: number;
+  /** Тело и трещины лежат в своём контейнере: его масштаб — размер босса и сплющивание при рывке; кольца и полоска — в общем, без масштаба. */
+  private readonly shape: Phaser.GameObjects.Container;
 
   private readonly baseSpeed: number;
   /** Замедление от «Сиропа»: сколько секунд ещё действует и во сколько раз медленнее идёт (1 — не замедлена). */
@@ -176,19 +217,25 @@ export class Bacterium {
     kind: BacteriumKind,
     edge: Edge,
     s = 0,
-    /** Множитель прочности (рост от волны к волне, `waves.hpGrowthPerWave`). */
+    /** Множитель прочности (рост от волны к волне). */
     hpMul = 1,
+    extra: BacteriumExtra = {},
   ) {
     this.scene = scene;
     this.kind = kind;
     this.hpMul = hpMul;
     const cfg = CONFIG.types[kind];
-    this.maxHp = cfg.hp * hpMul;
+    this.bossId = extra.boss ?? null;
+    this.boss = this.bossId ? CONFIG.bosses[this.bossId] : null;
+    this.armorMul = extra.armorMul ?? 1;
+    this.reward = extra.reward ?? cfg.reward;
+    this.visual = this.boss ? CONFIG.bossRules.scale : 1;
+    this.maxHp = this.boss ? this.boss.hp : cfg.hp * hpMul;
     this.hp = this.maxHp;
-    this.radius = extentOf(kind);
-    const spread = 1 + (Math.random() * 2 - 1) * CONFIG.bacteria.speedSpread;
-    this.baseSpeed = CONFIG.bacteria.baseSpeed * cfg.speedFactor * spread;
-    this.dashClock = Math.random() * Math.max(1, cfg.dashEverySec);
+    this.radius = extentOf(kind) * this.visual;
+    const spread = this.boss ? 1 : 1 + (Math.random() * 2 - 1) * CONFIG.bacteria.speedSpread;
+    this.baseSpeed = CONFIG.bacteria.baseSpeed * (this.boss ? this.boss.speedFactor : cfg.speedFactor) * spread;
+    this.dashClock = Math.random() * Math.max(1, this.dashEvery);
     this.leapClock = Math.random() * Math.max(0, cfg.leapEverySec);
     this.edge = edge;
     this.s = Math.max(0, Math.min(edge.length, s));
@@ -198,7 +245,10 @@ export class Bacterium {
     this.cracks = artImage(scene, bodyTexture(scene, kind, shellWidth(kind, this.hp)), box).setVisible(false);
     // Круглые типы: трещины повёрнуты на свой угол у каждой бактерии (как раньше: от угла seed)
     if (hasRadialCracks(kind)) this.cracks.setRotation(this.seed);
-    this.container = scene.add.container(0, 0, [this.body, this.cracks]);
+    this.shape = scene.add.container(0, 0, [this.body, this.cracks]).setScale(this.visual);
+    this.container = scene.add.container(0, 0, [this.shape]);
+    // Босс: кольцо своего цвета вокруг тела
+    if (this.boss) this.container.add(ringImage(scene, 0, 0, this.radius + 10, 6, this.boss.color, 0.95));
     // Лекарь: кольцо-аура радиуса лечения, командир — радиуса ускорения (под телом)
     if (cfg.healRadius > 0) {
       const aura = discImage(scene, cfg.healRadius, COLORS.aura, 0.07, COLORS.aura, 3, 0.38);
@@ -235,6 +285,9 @@ export class Bacterium {
    */
   slow(factor: number, seconds: number): void {
     if (factor >= 1 || seconds <= 0 || this.hp <= 0 || CONFIG.types[this.kind].slowImmune > 0) return;
+    // Вожак палочек замедляется не сильнее своего предела
+    if (this.boss?.slowFloor) factor = Math.max(factor, this.boss.slowFloor);
+    if (factor >= 1) return;
     this.slowBy = this.slowLeft > 0 ? Math.min(this.slowBy, factor) : factor;
     this.slowLeft = Math.max(this.slowLeft, seconds);
     if (!this.slowRing) {
@@ -258,10 +311,11 @@ export class Bacterium {
 
   /**
    * Яд: следующие `seconds` секунд бактерия теряет `dps` HP в секунду (броню не учитывает) и не лечится. Повторный укол продлевает время до `seconds`
-   * (не суммируя) и берёт большую силу.
+   * (не суммируя) и берёт большую силу. `epidemic` — яд наложил Антибиотик с ключом «Эпидемия»: после гибели он перейдёт на соседа.
    */
-  poison(dps: number, seconds: number): void {
+  poison(dps: number, seconds: number, epidemic = false): void {
     if (dps <= 0 || seconds <= 0 || this.hp <= 0) return;
+    this.epidemic = this.poisonLeft > 0 ? this.epidemic || epidemic : epidemic;
     this.poisonDps = this.poisonLeft > 0 ? Math.max(this.poisonDps, dps) : dps;
     this.poisonLeft = Math.max(this.poisonLeft, seconds);
     if (!this.poisonRing) {
@@ -290,10 +344,16 @@ export class Bacterium {
     return died;
   }
 
-  /** Заморозка: бактерия стоит на месте `seconds` секунд (повторная заморозка продлевает до `seconds`, не складывается). Не действует на тех, кто не замерзает (`freezeImmune`). */
-  freeze(seconds: number): void {
-    if (seconds <= 0 || this.hp <= 0 || CONFIG.types[this.kind].freezeImmune > 0) return;
-    this.freezeLeft = Math.max(this.freezeLeft, seconds);
+  /** Можно ли заморозить сейчас: вид замерзает, бактерия не заморожена и с оттаивания прошло не меньше `mutationCaps.refreezeSec` (окно неуязвимости, документ дизайна, п. 4.2). */
+  get freezable(): boolean {
+    return this.hp > 0 && this.freezeLeft <= 0 && CONFIG.types[this.kind].freezeImmune === 0 && this.sinceThaw >= CONFIG.mutationCaps.refreezeSec;
+  }
+
+  /** Заморозка: бактерия стоит на месте `seconds` секунд (только если `freezable`); `brittle` — во сколько раз сильнее удары по ней, пока заморожена (ключ «Хрупкость»). */
+  freeze(seconds: number, brittle = 1): void {
+    if (seconds <= 0 || !this.freezable) return;
+    this.freezeLeft = seconds;
+    this.brittleMul = brittle;
     if (!this.ice) {
       this.ice = iceImage(this.scene, this.radius);
       this.container.add(this.ice);
@@ -363,15 +423,121 @@ export class Bacterium {
     this.markDot.setTint(TOWER_MARK[towerId] ?? 0xffffff);
   }
 
+  /** Числа текущей фазы босса (последняя фаза, до доли прочности которой он опустился); у обычной бактерии и босса без фаз — null. */
+  private phase(): NonNullable<BossSpec['phases']>[number] | null {
+    const phases = this.boss?.phases;
+    if (!phases) return null;
+    const share = this.hp / this.maxHp;
+    let found: NonNullable<BossSpec['phases']>[number] | null = null;
+    for (const p of phases) if (share <= p.below) found = p;
+    return found;
+  }
+
+  /** Босс в последней фазе (у босса без фаз — нет). */
+  get inFinalPhase(): boolean {
+    const count = this.boss?.phases?.length ?? 0;
+    return count > 0 && this.phaseIndex >= count;
+  }
+
+  /** Действует ли сейчас жёсткое свойство (для серого кольца): бегун вне лужи, бронированный с бронёй, слизень, босс в последней фазе. */
+  get guarded(): boolean {
+    switch (this.ward) {
+      case 'slow': return !this.slowed;
+      case 'pierce': return this.armor > 0;
+      case 'beam': case 'memory': return true;
+      case 'area': return this.inFinalPhase;
+      default: return false;
+    }
+  }
+
+  /** Номер фазы босса (0 — первая). */
+  get phaseIndex(): number {
+    const phases = this.boss?.phases;
+    if (!phases) return 0;
+    const share = this.hp / this.maxHp;
+    return phases.filter((p) => share <= p.below).length;
+  }
+
+  /** Броня сейчас: у босса — из таблицы или фазы; у вида — из таблицы, с ростом по волне или уровню; под «Сквозным разрядом» — 0. */
+  get armor(): number {
+    if (this.armorBreakLeft > 0) return 0;
+    if (this.boss) return this.phase()?.armor ?? this.boss.armor;
+    return CONFIG.types[this.kind].armor * this.armorMul;
+  }
+
+  /** Сколько бактерий и какого вида выпускает босс и как часто (с учётом фазы); null — не выпускает. */
+  get spawnPlan(): { kind: BacteriumKind; everySec: number; count: number } | null {
+    if (!this.boss) return null;
+    const p = this.phase();
+    const kind = p?.spawnKind ?? this.boss.spawnKind;
+    const everySec = p?.spawnEverySec ?? this.boss.spawnEverySec ?? 0;
+    const count = p?.spawnCount ?? this.boss.spawnCount ?? 0;
+    return kind && everySec > 0 && count > 0 ? { kind, everySec, count } : null;
+  }
+
+  /** Ключ «Сквозной разряд»: следующие `seconds` секунд бактерия без брони. */
+  breakArmor(seconds: number): void {
+    if (seconds > 0 && this.hp > 0) this.armorBreakLeft = Math.max(this.armorBreakLeft, seconds);
+  }
+
+  /** Ключ «Прожектор»: следующие `seconds` секунд удары по бактерии в `mul` раз сильнее (берётся сильнейший). */
+  spotlight(mul: number, seconds: number): void {
+    if (mul <= 1 || seconds <= 0 || this.hp <= 0) return;
+    this.spotMul = this.spotLeft > 0 ? Math.max(this.spotMul, mul) : mul;
+    this.spotLeft = Math.max(this.spotLeft, seconds);
+  }
+
+  /** Капсула Матки роя: пока она есть, бактерия неуязвима. */
+  get shielded(): boolean {
+    return this.capsuleLeft > 0;
+  }
+
+  /** Как часто идут рывки, секунд (у босса — своё число, у вида — из таблицы). */
+  private get dashEvery(): number {
+    return this.boss?.dashEverySec ?? CONFIG.types[this.kind].dashEverySec;
+  }
+
   update(dt: number): void {
     const cfg = CONFIG.types[this.kind];
     let factor = 1;
+    if (this.armorBreakLeft > 0) this.armorBreakLeft = Math.max(0, this.armorBreakLeft - dt);
+    if (this.spotLeft > 0) {
+      this.spotLeft -= dt;
+      if (this.spotLeft <= 0) {
+        this.spotLeft = 0;
+        this.spotMul = 1;
+      }
+    }
+    if (this.boss?.capsuleEverySec) {
+      // Капсула: раз в capsuleEverySec — неуязвимость на capsuleSec (пузырь вокруг тела)
+      if (this.capsuleLeft > 0) {
+        this.capsuleLeft -= dt;
+        if (this.capsuleLeft <= 0) {
+          this.capsuleLeft = 0;
+          this.bubble?.setVisible(false);
+        }
+      } else {
+        this.capsuleClock += dt;
+        if (this.capsuleClock >= this.boss.capsuleEverySec) {
+          this.capsuleClock -= this.boss.capsuleEverySec;
+          this.capsuleLeft = this.boss.capsuleSec ?? 0;
+          if (!this.bubble) {
+            this.bubble = discImage(this.scene, this.radius + 16, COLORS.ice, 0.22, COLORS.iceEdge, 4, 0.9);
+            this.container.add(this.bubble);
+          }
+          this.bubble.setVisible(true);
+        }
+      }
+    }
+    if (this.freezeLeft <= 0 && this.sinceThaw < Infinity) this.sinceThaw += dt;
     // Заморожена или приклеена: стоит на месте, часы рывков и прыжков не идут
     const held = this.freezeLeft > 0 || this.trapLeft > 0;
     if (this.freezeLeft > 0) {
       this.freezeLeft -= dt;
       if (this.freezeLeft <= 0) {
         this.freezeLeft = 0;
+        this.brittleMul = 1;
+        this.sinceThaw = 0;
         this.ice?.setVisible(false);
       }
     }
@@ -408,6 +574,14 @@ export class Bacterium {
         this.acidRing?.setVisible(false);
       }
     }
+    if (this.ward) {
+      const on = this.guarded;
+      if (on && !this.wardRing) {
+        this.wardRing = ringImage(this.scene, 0, 0, this.radius + 12, 5, COLORS.wardRing, 0.85);
+        this.container.add(this.wardRing);
+      }
+      this.wardRing?.setVisible(on);
+    }
     if (this.slowLeft > 0) {
       this.slowLeft -= dt;
       if (this.slowLeft <= 0) {
@@ -418,17 +592,22 @@ export class Bacterium {
         factor *= this.slowBy;
       }
     }
-    if (!held && cfg.dashEverySec > 0) {
-      // Рывок — последние dashSec секунд каждого периода dashEverySec
-      this.dashClock += dt;
-      const dashing = this.dashClock % cfg.dashEverySec >= cfg.dashEverySec - cfg.dashSec;
+    const dashEvery = this.dashEvery;
+    if (!held && dashEvery > 0) {
+      // Рывок — последние dashSec секунд каждого периода; рядом с Вожаком палочек периоды идут чаще (dashRate)
+      const dashSec = this.boss?.dashSec ?? cfg.dashSec;
+      this.dashClock += dt * this.dashRate;
+      const dashing = this.dashClock % dashEvery >= dashEvery - dashSec;
       if (dashing !== this.dashing) {
         this.dashing = dashing;
-        this.container.setScale(1, dashing ? 1.22 : 1);
+        this.shape.setScale(this.visual, this.visual * (dashing ? 1.22 : 1));
       }
-      if (dashing) factor *= cfg.dashFactor;
+      if (dashing) factor *= this.boss?.dashFactor ?? cfg.dashFactor;
     }
-    if (cfg.regenPerSec > 0) this.heal(cfg.regenPerSec * dt);
+    const phase = this.phase();
+    if (phase?.speedMul) factor *= phase.speedMul;
+    const regen = this.boss ? (phase?.regenShare ?? this.boss.regenShare ?? 0) : cfg.regenShare;
+    if (regen > 0) this.heal(regen * this.maxHp * dt);
     if (!held) this.advance(this.baseSpeed * factor * this.haste * dt);
   }
 
@@ -437,8 +616,14 @@ export class Bacterium {
    * Под кислотой удар сильнее. Возвращает true, если бактерия уничтожена.
    */
   hit(damage: number, pierce = false): boolean {
-    const { armor, absorbEvery } = CONFIG.types[this.kind];
+    const { absorbEvery } = CONFIG.types[this.kind];
+    const armor = this.armor;
     this.justAbsorbed = false;
+    if (this.capsuleLeft > 0) {
+      // Капсула: удар не проходит
+      this.lastDealt = 0;
+      return false;
+    }
     if (absorbEvery > 0) {
       // Поглотитель: каждый absorbEvery-й удар (3, 6, 9…) ничего не снимает
       this.hits++;
@@ -450,7 +635,7 @@ export class Bacterium {
         return false;
       }
     }
-    const raw = damage * (this.acidLeft > 0 ? this.acidBy : 1);
+    const raw = damage * (this.acidLeft > 0 ? this.acidBy : 1) * this.spotMul * (this.freezeLeft > 0 ? this.brittleMul : 1);
     const dealt = armor > 0 && !pierce ? Math.max(raw * CONFIG.combat.armorMinShare, raw - armor) : raw;
     this.lastDealt = Math.min(dealt, this.hp);
     this.hp = Math.max(0, this.hp - dealt);
@@ -462,6 +647,9 @@ export class Bacterium {
   /** Постепенный урон (яд лужи): броню и кислоту не учитывает; тело перерисовывается, когда HP изменилось заметно. Возвращает true, если бактерия погибла. */
   drain(amount: number): boolean {
     if (this.hp <= 0) return true;
+    if (this.capsuleLeft > 0) return false;
+    // жёсткое свойство: бронированного яд не берёт (пока есть броня), босса в последней фазе — тоже
+    if ((this.ward === 'pierce' && this.armor > 0) || (this.ward === 'area' && this.inFinalPhase)) return false;
     this.hp = Math.max(0, this.hp - amount);
     if (Math.abs(this.hp - this.drawnHp) >= 0.5 || this.hp <= 0) {
       this.redraw();
@@ -516,12 +704,9 @@ export class Bacterium {
     return CONFIG.types[this.kind].stealth;
   }
 
+  /** Сколько жизней отнимает, дойдя до организма; у босса уровня −1 — поражение сразу. */
   get lifeDamage(): number {
-    return CONFIG.types[this.kind].lifeDamage;
-  }
-
-  get reward(): number {
-    return CONFIG.types[this.kind].reward;
+    return this.boss ? this.boss.lifeDamage : CONFIG.types[this.kind].lifeDamage;
   }
 
   /** Передний край бактерии дошёл до красной линии организма. */
@@ -566,7 +751,8 @@ export class Bacterium {
 
   /** Полоска прочности: видна, пока HP меньше полного; цвет от зелёного к красному, ширина — по размеру бактерии. */
   private updateBar(): void {
-    if (this.hp >= this.maxHp || this.hp <= 0) {
+    // У босса — полоса прочности вверху экрана (рисует сцена)
+    if (this.hp >= this.maxHp || this.hp <= 0 || this.boss) {
       this.barBack?.setVisible(false);
       this.barFill?.setVisible(false);
       return;
