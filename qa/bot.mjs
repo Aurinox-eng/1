@@ -220,11 +220,13 @@ function numArg(name, fallback, { min = -Infinity, max = Infinity, int = false }
 if (args.profile !== undefined && !['expert', 'zone'].includes(String(args.profile))) die(`--profile=«${args.profile}»: профиль один — expert (стратегии — --strategy, --solo, --pair, --focus).`);
 // --strategy: default | zone | solo:X | pair:a+b | focus:a+b | core:a+b (то же, что --solo=X, --pair=a,b, --focus=a,b, --core=a,b; так стратегию задаёт одно поле workflow)
 const STRATEGY_SPEC = String(args.strategy ?? (args.profile === 'zone' ? 'zone' : 'default'));
-const specMatch = /^(solo|pair|focus|core):([\w+,]+)(?::(save))?$/.exec(STRATEGY_SPEC);
-if (!specMatch && !['default', 'expert', 'zone'].includes(STRATEGY_SPEC)) die(`--strategy=«${STRATEGY_SPEC}»: есть default, zone, solo:X, pair:a+b, focus:a+b, core:a+b, core:a+b:save.`);
-if (specMatch?.[3] && specMatch[1] !== 'core') die(`--strategy=${STRATEGY_SPEC}: «:save» — только для core.`);
+const specMatch = /^(solo|pair|focus|core):([\w+,]+)(?::(save|l1))?$/.exec(STRATEGY_SPEC);
+if (!specMatch && !['default', 'expert', 'zone'].includes(STRATEGY_SPEC)) die(`--strategy=«${STRATEGY_SPEC}»: есть default, zone, solo:X, pair:a+b, focus:a+b, core:a+b, core:a+b:save, <стратегия>:l1.`);
+if (specMatch?.[3] === 'save' && specMatch[1] !== 'core') die(`--strategy=${STRATEGY_SPEC}: «:save» — только для core.`);
 /** core:a+b:save — эксперт копит очки ДНК на башни ядра: пока они не открыты, покупает только узлы на пути к ним. */
-const CORE_SAVE = Boolean(specMatch?.[3]);
+const CORE_SAVE = specMatch?.[3] === 'save';
+/** <стратегия>:l1 — проба: башни уровня 1 (Сироп, Шипучка, Шприц) открыты с первой попытки без очков ДНК; покупки — по правилам стратегии («Лихорадка» — общий узел). */
+const L1_OPEN = specMatch?.[3] === 'l1';
 if (specMatch && args[specMatch[1]] !== undefined) die(`--strategy=${STRATEGY_SPEC} и --${specMatch[1]} вместе не задаются.`);
 if (specMatch) args[specMatch[1]] = specMatch[2].replace(/\+/g, ',');
 const STRATEGY = STRATEGY_SPEC === 'zone' ? 'zone' : 'default';
@@ -238,7 +240,7 @@ if ((PAIR && PAIR.length !== 2) || (FOCUS && FOCUS.length !== 2) || (CORE && COR
 /** Ядро, которое строится кучкой в радиусе слияния: --focus и --core. */
 const KERNEL = FOCUS ?? CORE;
 /** Стратегия партии (метка в итогах): default, zone, solo:X, pair:a+b, focus:a+b. */
-const STRATEGY_LABEL = (PAIR ? `pair:${PAIR.join('+')}` : FOCUS ? `focus:${FOCUS.join('+')}` : CORE ? `core:${CORE.join('+')}${CORE_SAVE ? ':save' : ''}` : args.solo !== undefined ? `solo:${args.solo}` : STRATEGY) + (args.mut === 'alt' ? ' · мутации alt' : args.mut !== undefined ? ' · мутации --mut' : '');
+const STRATEGY_LABEL = (PAIR ? `pair:${PAIR.join('+')}` : FOCUS ? `focus:${FOCUS.join('+')}` : CORE ? `core:${CORE.join('+')}${CORE_SAVE ? ':save' : ''}` : args.solo !== undefined ? `solo:${args.solo}` : STRATEGY) + (L1_OPEN ? ':l1' : '') + (args.mut === 'alt' ? ' · мутации alt' : args.mut !== undefined ? ' · мутации --mut' : '');
 const PROFILES = [PROFILE];
 const profileTitle = () => `${PROFILE_TITLE}${STRATEGY_LABEL === 'default' ? '' : ` (${STRATEGY_LABEL})`}`;
 const RUNS = numArg('runs', 10, { min: 1, max: 1000, int: true });
@@ -454,7 +456,7 @@ function buyUpgrades(levels, dna) {
 const BUY_TOWERS = SOLO_ALLOWED ? [...SOLO_ALLOWED].filter((id) => !EXCLUDE.has(id)) : STRATEGY === 'zone' ? [...ZONE_TOWERS] : EXCLUDE.size ? KNOWN_TOWERS.filter((id) => !EXCLUDE.has(id)) : null;
 /** Начальные улучшения лестницы и серии партий: стратегии с ограничением башен (--solo/--pair/--focus, zone) — узлы своих башен открыты с первой попытки, как в серии 10.2
  *  (решение владельца 19 октября 2026, сообщение 4, п. 1.1), остальное — с нуля; эксперт без ограничения (обычная игра, --core) — всё с нуля. */
-const startLevels = () => ({ ...emptyLevels(), ...(SOLO_ALLOWED || STRATEGY === 'zone' ? OPEN_NODES : {}) });
+const startLevels = () => ({ ...emptyLevels(), ...(SOLO_ALLOWED || STRATEGY === 'zone' ? OPEN_NODES : {}), ...(L1_OPEN ? { towerSyrup: 1, towerFizz: 1, towerSyringe: 1 } : {}) });
 
 /** Узлы башен, которые стратегия открывает для замера первой попытки (раздел 10.2 документа дизайна: «без улучшений вне партии, но с открытыми башнями набора»): --solo/--pair/--focus — свои башни;
  *  default — башни уровня 1 (Сироп, Шипучка, Шприц), zone — Сироп. В лестнице и серии партий эти узлы открыты с первой попытки у стратегий с ограничением башен (startLevels), эксперт (default, core) покупает башни за очки ДНК. */
