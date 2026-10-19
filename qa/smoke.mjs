@@ -497,8 +497,8 @@ async function openGame(context, baseUrl, prefix, { speed = 1, cfg = '', isTouch
   // `levels.starDna:0` идёт первым: очки за звёзды не мешают проверкам очков ДНК; сценарий звёзд подменяет это число своим (позднее в списке — главнее)
   // `waves.hpScale:1` тоже идёт первым: с 8 октября 2026 игра умножает HP всех бактерий на waves.hpScale (2,5), а проверки ждут HP из таблицы типов (бронированная 20, гигант 100,
   // регенератор 10, кокк с hp:1 гибнет с одного выстрела Таблетки) — множитель сводится к 1 (и множитель уровня 1 `waves.level1HpFactor` — тоже); сценарий может подменить его своим числом (позднее в списке — главнее)
-  // `meta.dna.floor:0` и `combat.armorGrowth.perLevel:0` (пакет «Уровень 1», 19 октября 2026): нижняя граница очков за попытку и рост брони по уровням не мешают прежним расчётам; сценарии, которые их проверяют, подменяют числа своими
-  const allCfg = ['levels.starDna:0', 'lives.start:3', 'meta.dna.coinsCapShare:0', 'meta.dna.floor:0', 'combat.armorGrowth.perLevel:0', 'waves.hpScale:1', 'waves.level1HpFactor:1', cfg, process.env.QA_EXTRA_CFG].filter(Boolean).join(',');
+  // `meta.dna.floor:0`, `meta.dna.flawlessShare:0` и `combat.armorGrowth.perLevel:0` (пакет «Уровень 1», 19 октября 2026): нижняя граница очков за попытку, добавка «без потерь» и рост брони по уровням не мешают прежним расчётам; сценарии, которые их проверяют, подменяют числа своими
+  const allCfg = ['levels.starDna:0', 'lives.start:3', 'meta.dna.coinsCapShare:0', 'meta.dna.floor:0', 'meta.dna.flawlessShare:0', 'combat.armorGrowth.perLevel:0', 'waves.hpScale:1', 'waves.level1HpFactor:1', cfg, process.env.QA_EXTRA_CFG].filter(Boolean).join(',');
   // QA_CANVAS=1 (GitHub, группы со временем и скоростью): рисование через canvas — на сервере без видеокарты программный WebGL даёт 2–6 кадров/с, шаг игрового времени
   // ограничен 50 мс, и проверки, считающие секунды, скорости и паузы между ударами, ломаются; canvas даёт ≈ 20 кадров/с (docs/performance.md)
   // canvas: true — рисование через canvas для отдельного сценария. Проба 3 октября: красные проверки со временем (Шприц, скорость, командир) от этого не прошли — причина в скорости сервера; сейчас нигде не включено
@@ -2046,8 +2046,9 @@ async function runLoseLine(browser, baseUrl) {
 }
 
 /**
- * Очередь уведомлений (решение владельца 16 октября 2026): на старте уровня 1 «Открыта башня: …» и «Новая бактерия: …» идут по очереди (вторая не стирает первую);
- * ответ на нажатие (тап по закрытой башне: «откроется на уровне N») очереди не ждёт — показывается сразу, прерванная новость встаёт в начало очереди и возвращается после него.
+ * Очередь уведомлений (решение владельца 16 октября 2026): ответ на нажатие (тап по закрытой башне: «открывается в древе улучшений») очереди не ждёт — показывается сразу,
+ * прерванная новость встаёт в начало очереди и возвращается после него. С пакетом «Уровень 1» (конфликт 3 документа дизайна, принят) «Открыта башня» на старте уровня не показывается:
+ * башни открываются узлами древа, уведомление — на экране «Улучшения» при покупке.
  */
 async function runToastQueue(browser, baseUrl) {
   const p = '[очередь уведомлений]';
@@ -2055,19 +2056,18 @@ async function runToastQueue(browser, baseUrl) {
   const game = await openGame(context, baseUrl, p, { speed: 2, cfg: 'waves.firstDelaySec:90' });
   const towerNews = readI18n('newTowerToast')[0].replace('{name}', '');
   const bacNews = readI18n('newBacteriaToast')[0].replace('{name}', '');
-  const lockedText = readI18n('hintLocked')[0].replace('{n}', '');
+  const lockedText = readI18n('hintLockedTree')[0];
   const s0 = await game.state();
-  check(`${p} на старте уровня 1 показана «${towerNews.trim()}», очередь пуста: «${bacNews.trim()}» появится в момент выхода бактерии, а не перед волной`,
-    s0.toast.news && (s0.toast.text ?? '').startsWith(towerNews) && s0.toast.queued.length === 0, JSON.stringify(s0.toast));
+  check(`${p} на старте уровня нет «${towerNews.trim()}» (башни открываются в древе), очередь пуста`, !(s0.toast.text ?? '').startsWith(towerNews) && s0.toast.queued.length === 0, JSON.stringify(s0.toast));
+  // кнопка «Начать волну»: первый кокк выходит сразу — «Новая бактерия»
+  await game.input.tap(game.g(s0.ui.waveButton.x, s0.ui.waveButton.y));
+  await waitFor(game.page, (x) => (x.toast.text ?? '').startsWith(bacNews), 20000, `«${bacNews.trim()}» при выходе первого кокка`);
   // тап по закрытой башне — ответ на нажатие: показан сразу, новость возвращается в начало очереди
   await game.selectTower('syringe');
   const s1 = await game.state();
-  check(`${p} тап по закрытой башне: сообщение «${lockedText.trim()}…» показано сразу, прерванная «${towerNews.trim()}» первая в очереди`,
-    !s1.toast.news && (s1.toast.text ?? '').startsWith(lockedText.trim()) && s1.toast.queued.length === 1 && s1.toast.queued[0].startsWith(towerNews), JSON.stringify(s1.toast));
-  // кнопка «Начать волну»: первый кокк выходит сразу, его «Новая бактерия» встаёт в очередь за уведомлениями, которые ещё на экране
-  const startButton = s1.ui.waveButton;
-  await game.input.tap(game.g(startButton.x, startButton.y));
-  // дальше: ответ гаснет, возвращается «Открыта башня», затем «Новая бактерия»; в очереди пусто
+  check(`${p} тап по закрытой башне: сообщение «${lockedText}» показано сразу, прерванная «${bacNews.trim()}» первая в очереди`,
+    !s1.toast.news && (s1.toast.text ?? '') === lockedText && s1.toast.queued.length === 1 && s1.toast.queued[0].startsWith(bacNews), JSON.stringify(s1.toast));
+  // дальше: ответ гаснет, возвращается «Новая бактерия»; в очереди пусто
   const seen = [s1.toast.text];
   const started = Date.now();
   while (Date.now() - started < 40000) {
@@ -2077,8 +2077,8 @@ async function runToastQueue(browser, baseUrl) {
     if (text !== null && text.startsWith(bacNews)) break;
     await sleep(60);
   }
-  const kinds = seen.map((text) => (text.startsWith(towerNews) ? 'башня' : text.startsWith(bacNews) ? 'бактерия' : 'ответ'));
-  check(`${p} порядок на экране: ответ → «Открыта башня» → «Новая бактерия» (ничего не потеряно)`, kinds.join(',') === 'ответ,башня,бактерия', `показано: ${JSON.stringify(seen)}`);
+  const kinds = seen.map((text) => (text.startsWith(bacNews) ? 'бактерия' : 'ответ'));
+  check(`${p} порядок на экране: ответ → «Новая бактерия» (прерванная новость не потеряна)`, kinds.join(',') === 'ответ,бактерия', `показано: ${JSON.stringify(seen)}`);
   const s2 = await game.state();
   check(`${p} очередь пуста, когда показана последняя новость`, s2.toast.queued.length === 0 && s2.toast.news, JSON.stringify(s2.toast));
   await game.page.close();
@@ -2592,8 +2592,9 @@ async function runSplit(browser, baseUrl) {
   await game.page.close();
 
   // ---- C. регрессия: много распадов подряд, ни в одном кокки не слипаются (раньше у конца ребра было 25 и 34 px вместо 44)
+  // Разбор опроса парами: детей здесь два (splitCount 2 подменой; по таблице с пакета «Уровень 1» их три — число детей проверяет часть A)
   const MANY = 40;
-  game = await openGame(context, baseUrl, p, { speed: 4, cfg: `${wavesOnlyCfg({ splitter: MANY })},waves.intervalStartSec:0.8,waves.intervalEndSec:0.8,waves.firstDelaySec:1,${FIXED_BALANCE.join(',')},${NO_LIFE_LOSS},towers.pill.range:1400,towers.pill.cooldownMs:300,towers.pill.damage:20,economy.startCoins:${BASE.price * 7}` });
+  game = await openGame(context, baseUrl, p, { speed: 4, cfg: `${wavesOnlyCfg({ splitter: MANY })},types.splitter.splitCount:2,waves.intervalStartSec:0.8,waves.intervalEndSec:0.8,waves.firstDelaySec:1,${FIXED_BALANCE.join(',')},${NO_LIFE_LOSS},towers.pill.range:1400,towers.pill.cooldownMs:300,towers.pill.damage:20,economy.startCoins:${BASE.price * 7}` });
   await game.placeTowers(Object.values(FREE));
   const seenC = new Set();
   const pairs = [];
@@ -3647,7 +3648,8 @@ async function towersSyrup(browser, baseUrl) {
   // ---- S2: поверх старой лужи новая не кладётся. Лужа почти останавливает бактерию (slowFactor 0,02), выстрел «в точку под ней» (puddleLeadPx 0), пауза 1 с
   const COOL = 1000;
   const r2 = await syrupPlay(context, baseUrl, p, {
-    cfg: [`towers.syrup.cooldownMs:${COOL}`, 'towers.syrup.puddleLeadPx:0', 'towers.syrup.slowFactor:0.02', 'types.coccus.hp:99'],
+    // нижняя граница замедления (meta.minSlowFactor 0,25, пакет «Уровень 1») снята: иначе бактерия выходит из лужи и новая лужа законна
+    cfg: [`towers.syrup.cooldownMs:${COOL}`, 'towers.syrup.puddleLeadPx:0', 'towers.syrup.slowFactor:0.02', 'meta.minSlowFactor:0.01', 'types.coccus.hp:99'],
     count: 1,
     interval: 1,
     stopWhen: (st, log) => {
@@ -5927,14 +5929,14 @@ function* samplePairs(log) {
 }
 
 /**
- * Лекарь: пока жив, лечит всех остальных в радиусе healRadius на healPerSec HP в секунду, себя не лечит. Таблетка ранит бактерий по очереди
+ * Лекарь: пока жив, лечит всех остальных в радиусе healRadius на долю healShare их полной прочности в секунду (раздел 3 документа дизайна), себя не лечит. Таблетка ранит бактерий по очереди
  * (первой в радиусе — ближайшую к организму). Лекарь у проверки медленный и очень прочный (подмена): он идёт позади кокков, не попадает под выстрелы и живёт всю
  * партию, пока кокки ранены. «Дефицит» — HP ниже полного. Проверка по парам соседних замеров: у бактерии с дефицитом, пока лекарь жив и в радиусе,
- * HP растёт ровно на healPerSec × dt (между ударами башни).
+ * HP растёт ровно на healShare × полная прочность × dt (между ударами башни).
  */
 async function typesHealer(browser, baseUrl) {
   const p = '[бактерии: лекарь]';
-  const perSec = readConfigNumber('healer', 'healPerSec');
+  const perSec = readConfigNumber('healer', 'healShare'); // доля полной прочности в секунду
   const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
   const play = async (name, wave, extra, { place }) => {
     const cfg = `${wave},waves.firstDelaySec:1,waves.intervalStartSec:1.2,waves.intervalEndSec:1.2,${FIXED_BALANCE.join(',')},${extra},towers.pill.damage:2,economy.startCoins:${BASE.price},${NO_LIFE_LOSS}`;
@@ -5966,7 +5968,7 @@ async function typesHealer(browser, baseUrl) {
       }
       r.deficit++;
       if (b.hp > a.hp + 1e-9) {
-        if (b.hp < b.maxHp - 1e-9) r.healed.push((b.hp - a.hp) / (dt * perSec));
+        if (b.hp < b.maxHp - 1e-9) r.healed.push((b.hp - a.hp) / (dt * perSec * a.maxHp));
       } else if (b.hp === a.hp) r.stagnation.push(`#${a.id} на ${f2(b.e)} с`);
     }
     return r;
@@ -5976,7 +5978,7 @@ async function typesHealer(browser, baseUrl) {
   // ---- A. радиус лечения огромный (подмена): лечится каждая раненая бактерия — темп точный
   const A = classify(await play('радиус не ограничен', wave, `${slowHealer},types.healer.healRadius:3000`, { place: atTrunk }));
   const mean = A.healed.length ? A.healed.reduce((x, y) => x + y, 0) / A.healed.length : NaN;
-  check(`${p} лекарь лечит со скоростью ${perSec} HP/с: ${A.healed.length} приростов у раненых бактерий, в среднем ${f2(mean)} от ожидаемого (ждали 0,85…1,15); замеров раненых при живом лекаре ${A.deficit}, из них без прироста и без удара ${A.stagnation.length}`, A.healed.length >= 6 && mean >= 0.85 && mean <= 1.15 && A.stagnation.length === 0, A.stagnation.slice(0, 3).join('; ') || `приростов ${A.healed.length}`);
+  check(`${p} лекарь лечит на ${perSec} полной прочности в секунду: ${A.healed.length} приростов у раненых бактерий, в среднем ${f2(mean)} от ожидаемого (ждали 0,85…1,15); замеров раненых при живом лекаре ${A.deficit}, из них без прироста и без удара ${A.stagnation.length}`, A.healed.length >= 6 && mean >= 0.85 && mean <= 1.15 && A.stagnation.length === 0, A.stagnation.slice(0, 3).join('; ') || `приростов ${A.healed.length}`);
   // ---- B. радиус лечения 1 px (подмена): лекарь никого не достаёт — раненые не лечатся
   const B = classify(await play('радиус 1 px', wave, `${slowHealer},types.healer.healRadius:1`, { place: atTrunk }));
   check(`${p} радиус лечения учитывается: при радиусе 1 px раненые бактерии не лечатся (замеров раненых при живом лекаре ${B.deficit} ≥ 6, с приростом ${B.healed.length})`, B.deficit >= 6 && B.healed.length === 0, `раненых ${B.deficit}, приростов ${B.healed.length}`);
@@ -5997,10 +5999,10 @@ async function typesHealer(browser, baseUrl) {
   await context.close();
 }
 
-/** Регенератор: сам лечится на regenPerSec HP/с (не выше полного HP), без лекаря. Одна Таблетка ранит его один раз. */
+/** Регенератор: сам лечится на долю regenShare полной прочности в секунду (не выше полного HP), без лекаря. Одна Таблетка ранит его один раз. */
 async function typesRegen(browser, baseUrl) {
   const p = '[бактерии: регенератор]';
-  const perSec = readConfigNumber('regen', 'regenPerSec');
+  const perSec = readConfigNumber('regen', 'regenShare'); // доля полной прочности в секунду
   const hp = readConfigNumber('regen', 'hp');
   const hit = Math.min(4, hp - 1);
   const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
@@ -6019,11 +6021,11 @@ async function typesRegen(browser, baseUrl) {
     maxHp = Math.max(maxHp, b.hp);
     if (b.hp < a.hp - 1e-9) hitSeen = true;
     if (!hitSeen || a.hp >= a.maxHp - 1e-9 || b.hp < a.hp - 1e-9) continue;
-    if (b.hp > a.hp + 1e-9 && b.hp < b.maxHp - 1e-9) ratios.push((b.hp - a.hp) / (dt * perSec));
+    if (b.hp > a.hp + 1e-9 && b.hp < b.maxHp - 1e-9) ratios.push((b.hp - a.hp) / (dt * perSec * a.maxHp));
     else if (b.hp === a.hp) stuck.push(f2(b.e));
   }
   const mean = ratios.length ? ratios.reduce((x, y) => x + y, 0) / ratios.length : NaN;
-  check(`${p} регенератор после удара (−${hit} из ${hp} HP) сам лечится на ${perSec} HP/с: ${ratios.length} приростов, в среднем ${f2(mean)} от ожидаемого (ждали 0,85…1,15), замеров без прироста у раненого ${stuck.length}`, hitSeen && ratios.length >= 5 && mean >= 0.85 && mean <= 1.15 && stuck.length === 0, hitSeen ? `приростов ${ratios.length}` : 'удара по регенератору не было');
+  check(`${p} регенератор после удара (−${hit} из ${hp} HP) сам лечится на ${perSec} полной прочности в секунду: ${ratios.length} приростов, в среднем ${f2(mean)} от ожидаемого (ждали 0,85…1,15), замеров без прироста у раненого ${stuck.length}`, hitSeen && ratios.length >= 5 && mean >= 0.85 && mean <= 1.15 && stuck.length === 0, hitSeen ? `приростов ${ratios.length}` : 'удара по регенератору не было');
   check(`${p} лечение не поднимает HP выше полного: наибольшее HP ${f2(maxHp)} из ${hp}; партия окончена (${end.state})`, maxHp <= hp + 1e-9 && (end.state === 'won' || end.state === 'lost'), `HP ${f2(maxHp)}`);
   await context.close();
 }
@@ -6478,7 +6480,7 @@ function cardTexts() {
     // пачка 2: Лампа (угол конуса в градусах — от угла башни в таблице × множитель; урон; длина) и Витамин (прибавка к скорости, радиус)
     ['lampNarrow', 'coneMul', (v) => String(Math.round(TW.lamp.coneDeg * v))],
     ['lampNarrow', 'damageMul', (v) => ru(v)],
-    ['lampWide', 'coneMul', (v) => String(Math.round(TW.lamp.coneDeg * v))],
+    ['lampWide', 'coneMul', (v) => String(Math.round(Math.min(CAPS.coneDeg, TW.lamp.coneDeg * v)))],
     ['lampBlaze', 'damageMul', (v) => ru(v)],
     ['lampFar', 'rangeMul', (v) => ru(v)],
     ['vitaminBoost', 'auraBonusMul', (v) => ru(v)],
@@ -7469,7 +7471,7 @@ async function runStrip(browser, baseUrl) {
     await shot(game.page, 'strip-desktop-ru-list');
     await ctx.close();
   }
-  // уровень 1: открытые башни первыми, закрытые в конце
+  // уровень 1 без узлов древа: открытые башни первыми, закрытые в конце
   {
     const q = `${p} [уровень 1]`;
     const ctx = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
@@ -7477,7 +7479,8 @@ async function runStrip(browser, baseUrl) {
     const s = await game.state();
     const byX = [...s.ui.towerButtons].sort((a, b) => a.x - b.x);
     const ids = byX.filter((b) => !b.locked).map((b) => b.id);
-    check(`${q} в начале списка открытые на уровне 1 башни (${open(1).join(', ')}), за ними закрытые`, ids.join() === open(1).join() && byX.slice(ids.length).every((b) => b.locked), `порядок ${byX.map((b) => b.id + (b.locked ? '🔒' : '')).join(', ')}`);
+    // без узлов древа (сохранение пустое, без &towers=all) открыта только Таблетка (документ дизайна, раздел 5: башни — узлы древа)
+    check(`${q} в начале списка открытая без древа Таблетка, за ней закрытые`, ids.join() === 'pill' && byX.slice(ids.length).every((b) => b.locked), `порядок ${byX.map((b) => b.id + (b.locked ? '🔒' : '')).join(', ')}`);
     await frames(game.page, 3);
     await shot(game.page, 'strip-desktop-ru-level1');
     await ctx.close();
@@ -7810,7 +7813,8 @@ async function runProgressSave(browser, baseUrl) {
   let s = await g2.state();
   check(`${p} в начале уровня игра не встаёт на паузу (state 'playing', уведомления идут строкой сверху)`, s.state === 'playing', `состояние ${s.state}`);
   m = await metaOf(g2.page);
-  check(`${p} при старте записаны уведомления о башнях t:pill и t:syrup; бактерия b:coccus ещё не записана (её уведомление — при выходе)`, ['t:pill', 't:syrup'].every((k) => m.seen.includes(k)) && !m.seen.includes('b:coccus'), m.seen.join());
+  // «Открыта башня» на старте уровня нет (пакет «Уровень 1», конфликт 3): записей о башнях при старте не появляется
+  check(`${p} при старте записей нет: о башнях на старте уведомлений нет, бактерия b:coccus ещё не записана (её уведомление — при выходе)`, !m.seen.some((k) => k.startsWith('t:')) && !m.seen.includes('b:coccus'), m.seen.join());
   const waveBtn = s.ui.waveButton;
   await g2.input.tap(g2.g(waveBtn.x, waveBtn.y));
   await waitFor(g2.page, (x) => x.introduced.includes('coccus'), 20000, 'выход первого кокка после тапа по «Начать волну»', 20);
@@ -7820,7 +7824,7 @@ async function runProgressSave(browser, baseUrl) {
   await waitFor(g2.page, (x) => x.state === 'playing', 20000, 'запуск после обновления');
   s = await g2.state();
   m = await metaOf(g2.page);
-  check(`${p} после обновления страницы записи на месте (t:pill, t:syrup, b:coccus), игра идёт`, s.state === 'playing' && ['t:pill', 't:syrup', 'b:coccus'].every((k) => m.seen.includes(k)), `состояние ${s.state}, записано ${m.seen.join()}`);
+  check(`${p} после обновления страницы запись b:coccus на месте, игра идёт`, s.state === 'playing' && m.seen.includes('b:coccus'), `состояние ${s.state}, записано ${m.seen.join()}`);
   await ctx2.close();
 }
 
@@ -8208,7 +8212,7 @@ async function runMetaDna(browser, baseUrl) {
   // первые победы над мини-боссами и боссом; «без потерь» +25 % за волны один раз; повтор ×replayFactor; предел добавки за монеты — до умножения на replayFactor
   {
     const D = readMetaTable().dna;
-    const calc = await openGame(context, baseUrl, p, { speed: 1, cfg: `meta.dna.coinsCapShare:0.1,meta.dna.floor:${D.floor}` });
+    const calc = await openGame(context, baseUrl, p, { speed: 1, cfg: `meta.dna.coinsCapShare:0.1,meta.dna.floor:${D.floor},meta.dna.flawlessShare:${D.flawlessShare}` });
     const ask = (input) => calc.page.evaluate((x) => window.__pvbMeta.dnaFor(x), { level: 1, waves: 0, won: false, replay: false, coinsLeft: 0, bossBits: 0, flawless: false, hasBoss: true, ...input });
     const sum = (r) => r.waves + r.win + r.coins + r.bosses + r.flawless + r.floor;
     const rows = [[7, 1], [19, 1], [49, 1], [50, 1], [10, 2], [30, 3]];
@@ -8220,8 +8224,9 @@ async function runMetaDna(browser, baseUrl) {
     check(`${p} нижняя граница: 2 волны дают ${low.waves}, доплата ${low.floor}, всего ${sum(low)} (ждали ${D.floor})`, sum(low) === D.floor && low.floor === D.floor - low.waves, JSON.stringify(low));
     const bosses = await ask({ waves: 50, won: true, bossBits: 0b11111 });
     check(`${p} первая победа над уровнем с боссом: мини-боссы 4 × ${D.miniBossFirst} + босс ${D.bossFirst} = ${4 * D.miniBossFirst + D.bossFirst}, добавки за победу нет (получено ${bosses.bosses}, победа ${bosses.win})`, bosses.bosses === 4 * D.miniBossFirst + D.bossFirst && bosses.win === 0, JSON.stringify(bosses));
-    const flaw = await ask({ waves: 50, won: true, flawless: true });
-    check(`${p} победа без потерь: +${D.flawlessShare * 100} % очков за волны = ${Math.round(dnaWavesReward(D, 50, 1) * D.flawlessShare)} (получено ${flaw.flawless})`, flaw.flawless === Math.round(dnaWavesReward(D, 50, 1) * D.flawlessShare), JSON.stringify(flaw));
+    // уровень 2: уровень 1 в этом браузере уже выигран без потерь раньше (в сохранении flawless[0] = 1, добавка один раз)
+    const flaw = await ask({ waves: 30, level: 2, won: true, flawless: true });
+    check(`${p} победа без потерь: +${D.flawlessShare * 100} % очков за волны = ${Math.round(dnaWavesReward(D, 30, 2) * D.flawlessShare)} (получено ${flaw.flawless})`, flaw.flawless === Math.round(dnaWavesReward(D, 30, 2) * D.flawlessShare), JSON.stringify(flaw));
     const noBoss = await ask({ waves: 30, won: true, hasBoss: false });
     check(`${p} уровень без босса (прежний формат): добавка за первую победу ${D.winBonus} (получено ${noBoss.win})`, noBoss.win === D.winBonus, JSON.stringify(noBoss));
     const reward = dnaWavesReward(D, 50, 1);
@@ -8301,7 +8306,9 @@ async function runMetaShop(browser, baseUrl) {
     const context = await newDeviceContext(browser, device, lang);
     // «lives» открывается, когда куплены его родители (по таблице: coins до уровня 3, а он — damage до уровня 2). Эти уровни задаёт адрес (&meta=…, условия дерева при этом не проверяются),
     // покупаются уже сам «lives» и следующий уровень «coins». Цена первого уровня «reward» поднята до 99999: очков на него не хватит.
-    const pre = prereqLevels(UP, 'lives');
+    // родители «reward» (damage до уровня 2) тоже по адресу: проверка «не хватает очков» идёт на открытом узле
+    const pre = { ...prereqLevels(UP, 'lives') };
+    for (const [id, n] of Object.entries(prereqLevels(UP, 'reward'))) pre[id] = Math.max(pre[id] ?? 0, n);
     const coinsNow = pre.coins ?? 0;
     const livesMax = UP.lives.prices.length;
     const dnaStart = sumOf(UP.lives.prices) + (UP.coins.prices[coinsNow] ?? 0) + 100;
@@ -8583,8 +8590,10 @@ async function runTreeShop(browser, baseUrl) {
     if (openTowerBranch) {
       const rid = branchRoot(openTowerBranch);
       const kid = grandchildOf(rid);
+      // родитель корня ветки докупается до нужного уровня (у «Силы таблетки» — «Сильное вещество» 2)
+      for (const [pid, lv] of Object.entries(prereqLevels(UP, rid)).reverse()) m = await raiseNode(app, pid, lv);
       m = await selectNode(app, rid);
-      check(`${p} ветка «${openTowerBranch}» открыта на карте, родитель «${UP[rid].requires?.id}» куплен: «${rid}» открыт, условия нет, купить можно`, nodeOf(m, rid).open && nodeOf(m, rid).canBuy && m.screen.detail.texts[3] === '', JSON.stringify(m.screen.detail.texts));
+      check(`${p} ветка «${openTowerBranch}» открыта на карте, родитель «${UP[rid].requires?.id}» куплен до уровня ${UP[rid].requires?.level}: «${rid}» открыт, условия нет, купить можно`, nodeOf(m, rid).open && nodeOf(m, rid).canBuy && m.screen.detail.texts[3] === '', JSON.stringify(m.screen.detail.texts));
       if (kid) await parentChild(app, rid, kid);
     }
     m = await metaOf(app.page);
@@ -8838,7 +8847,7 @@ async function runColors(browser, baseUrl) {
     const ctx = await newDeviceContext(browser, device, lang);
     // бегун очень быстрый и проскакивает раньше всех: для снимка он идёт со скоростью остальных (вид не меняется)
     const cfg = `${wavesOnlyCfg(Object.fromEntries(kinds.map((k) => [k, 4])))},types.runner.speedFactor:1,types.spore.speedFactor:1,waves.firstDelaySec:1,waves.intervalStartSec:0.4,waves.intervalEndSec:0.4,bacteria.baseSpeed:70,economy.startCoins:1000,${NO_LIFE_LOSS}`;
-    const game = await openGame(ctx, baseUrl, q, { speed: 3, cfg, isTouch: device.hasTouch });
+    const game = await openGame(ctx, baseUrl, q, { query: ALL_TOWERS, speed: 3, cfg, isTouch: device.hasTouch });
     await panTo(game, 'left'); // «ствол» в левой части карты: при старте камеры он за краем экрана
     const from = await game.page.evaluate(([x, y]) => window.__pvb.worldToClient(x, y), z);
     await game.input.drag(from, game.g(540, 360), { steps: 10 });
@@ -8884,6 +8893,16 @@ function almanacRows(tab, li) {
   return ids.map((id) => ({ name: readI18n(tab === 'towers' ? `tower${capId(id)}` : `bacName${capId(id)}`)[li], line: readI18n(tab === 'towers' ? `almTower${capId(id)}` : `almBac${capId(id)}`)[li] }));
 }
 const rowsMatch = (texts, rows) => texts.length === rows.length && rows.every((r, i) => texts[i].startsWith(`${r.name}: `) && texts[i].length > r.name.length + 2);
+/**
+ * Вкладка «Бактерии» (пакет «Уровень 1», раздел 9 документа дизайна): виды открытых уровней — «Название: описание», остальные — силуэт «???: Ещё не встречалась».
+ * У нового игрока открыт уровень 1: его виды (план волн — смесь и стены) обязаны быть названы.
+ */
+function bacteriaRowsMatch(texts, li) {
+  const rows = almanacRows('bacteria', li);
+  const closed = `${readI18n('almUnknown')[li]}: ${readI18n('almBacClosed')[li]}`;
+  const level1 = new Set(PLAN.flatMap((w) => [...Object.keys(w.mix), ...(w.wall ? [w.wall[0]] : [])]));
+  return texts.length === rows.length && rows.every((r, i) => (texts[i].startsWith(`${r.name}: `) && texts[i].length > r.name.length + 2) || (!level1.has(KINDS[i]) && texts[i] === closed));
+}
 
 /**
  * Строка итога попытки (решение владельца 18 октября 2026, ответ 7; src/attempt.ts): после быстрого проигрыша на уровне 1 строка начинается с «ТПБ <версия> | У1 | п.1 | гибель N/30 | жизни 0/M»,
@@ -9005,7 +9024,7 @@ async function runAlmanac(browser, baseUrl) {
     await shot(app.page, `almanac-towers-${deviceKey}-${lang}`);
     await app.tapRect(u.buttons.bacteria);
     u = await waitUiWhere(app.page, (x) => x && x.scene === 'almanac' && x.texts.length === KINDS.length, 5000, 'вкладка «Бактерии» (строки сменились)').catch(async () => (await app.ui()) ?? { scene: 'нет экрана', texts: [] });
-    check(`${p} вкладка «Бактерии»: ${KINDS.length} строк, каждая «Название: описание» из i18n.ts`, u.scene === 'almanac' && rowsMatch(u.texts, almanacRows('bacteria', li)), `экран ${u.scene}, строк ${u.texts.length}: ${JSON.stringify(u.texts).slice(0, 300)}`);
+    check(`${p} вкладка «Бактерии»: ${KINDS.length} строк, «Название: описание» из i18n.ts; виды уровня 1 названы, остальные — «???»`, u.scene === 'almanac' && bacteriaRowsMatch(u.texts, li), `экран ${u.scene}, строк ${u.texts.length}: ${JSON.stringify(u.texts).slice(0, 300)}`);
     await frames(app.page, 3);
     await shot(app.page, `almanac-bacteria-${deviceKey}-${lang}`);
     // Обратно на «Башни», затем «Назад» в меню
@@ -9221,7 +9240,7 @@ async function runMenuReset(browser, baseUrl) {
     check(`${p} «${readI18n('resetYes')[li]}» обнуляет сохранение: очки ДНК ${after.meta.dna}, звёзды уровня 1: ${after.meta.progress.stars[0]}, лучшая волна ${after.meta.progress.best[0]}, улучшения «damage» ${after.meta.levels.damage ?? 0}, подсказок ${after.meta.seen.length}; окно закрыто, в меню «${balanceText(0)}»`,
       after.meta.dna === 0 && after.meta.progress.stars[0] === 0 && after.meta.progress.best[0] === 0 && (after.meta.levels.damage ?? 0) === 0 && after.meta.seen.length === 0 && !u.buttons.resetYes && u.texts.includes(balanceText(0)), JSON.stringify({ meta: after.meta, texts: u.texts }));
     check(`${p} звук после сброса не тронут (в хранилище «${after.sound}», было «1»)`, after.sound === '1', '');
-    // после сброса игрок снова «новый»: уведомление об открытой башне при старте и «Новая бактерия» при выходе кокка показываются снова
+    // после сброса игрок снова «новый»: «Новая бактерия» при выходе кокка показывается снова
     await page.evaluate(() => window.localStorage.setItem('pvb.meta5', JSON.stringify({ v: 3, dna: 77, levels: { damage: 2 }, progress: { stars: [2], best: [30] }, seen: ['t:pill', 't:syrup', 'b:coccus'] })));
     await page.reload({ waitUntil: 'load' });
     u = await app.waitUi('menu', 'меню перед вторым сбросом');
@@ -9232,7 +9251,8 @@ async function runMenuReset(browser, baseUrl) {
     await app.waitUi('menu', 'меню после второго сброса');
     const towerNewsText = readI18n('newTowerToast')[li].replace('{name}', '');
     const afterReset = await startAndSpawn('после сброса');
-    check(`${p} после «${readI18n('resetYes')[li]}» уведомления показываются снова, как у нового игрока: при старте «${towerNewsText.trim()}», при выходе кокка «${bacNews.trim()}» (показано: ${JSON.stringify(afterReset.shown)})`, (afterReset.startToast ?? '').startsWith(towerNewsText) && afterReset.shown.some((text) => text.startsWith(bacNews)), JSON.stringify(afterReset));
+    // «Открыта башня» на старте уровня не показывается (пакет «Уровень 1», конфликт 3: уведомление — на экране «Улучшения» при покупке узла башни)
+    check(`${p} после «${readI18n('resetYes')[li]}» уведомления показываются снова, как у нового игрока: при выходе кокка «${bacNews.trim()}»; на старте «${towerNewsText.trim()}» нет (показано: ${JSON.stringify(afterReset.shown)})`, !(afterReset.startToast ?? '').startsWith(towerNewsText) && afterReset.shown.some((text) => text.startsWith(bacNews)), JSON.stringify(afterReset));
     await context.close();
   }
 }
