@@ -152,7 +152,7 @@ if (['stage-1', 'stage-1b', 'stage-1b-qa', 'td-1-mockup', 'tmp'].includes(tag)) 
   process.exit(2);
 }
 
-const SCENARIOS = ['desktop-ru', 'phone-ru', 'desktop-en', 'phone-en', 'rules', 'graph', 'combat', 'dash', 'split', 'spore', 'armored', 'intro', 'lose-ru', 'lose-en', 'win-ru', 'win-en', 'towers', 'card', 'merge', 'mutations', 'sell', 'special', 'danger', 'rotate', 'production', 'fullgame', 'locked', 'strip', 'almanac', 'almanac-pause', 'damage-numbers', 'sell-gap', 'restart-button', 'deflation', 'camera-fit', 'colors', 'meta-save', 'meta-dna', 'meta-shop', 'meta-effects', 'tree-effects', 'tree-shop', 'level-waves', 'progress-save', 'stars', 'menu-flow', 'menu-reset', 'levels-lock', 'step-dps', 'sound', 'lose-line', 'attempt-line', 'toast-queue', 'shake']
+const SCENARIOS = ['desktop-ru', 'phone-ru', 'desktop-en', 'phone-en', 'rules', 'graph', 'combat', 'dash', 'split', 'spore', 'armored', 'intro', 'lose-ru', 'lose-en', 'win-ru', 'win-en', 'towers', 'card', 'merge', 'mutations', 'sell', 'special', 'danger', 'rotate', 'production', 'fullgame', 'locked', 'strip', 'almanac', 'almanac-pause', 'damage-numbers', 'sell-gap', 'restart-button', 'deflation', 'camera-fit', 'colors', 'meta-save', 'meta-dna', 'meta-shop', 'meta-effects', 'tree-effects', 'tree-shop', 'level-waves', 'progress-save', 'stars', 'menu-flow', 'menu-reset', 'levels-lock', 'step-dps', 'sound', 'lose-line', 'attempt-line', 'toast-queue', 'shake', 'bosses']
 const only = args.only === undefined ? null : String(args.only);
 if (only !== null && !SCENARIOS.includes(only)) {
   console.error(`Неизвестный сценарий --only=${only}. Есть: ${SCENARIOS.join(', ')}`);
@@ -7719,6 +7719,50 @@ async function runLevelWaves(browser, baseUrl) {
   await context.close();
 }
 
+/**
+ * Пакет «Уровень 1» (документ дизайна docs/redesign-2026-10-19.md, разделы 2, 5 и 7): мини-босс выходит на своей волне; «Лихорадка» есть только после покупки узла древа и включается кнопкой
+ * (действует durationSec, перезарядка rechargeSec); финальный босс, дошедший до организма, — поражение сразу, сколько бы жизней ни было.
+ */
+async function runBosses(browser, baseUrl) {
+  const p = '[боссы и «Лихорадка»]';
+  const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
+  const bossWaves = PLAN.map((w, i) => (w.boss ? [i + 1, w.boss] : null)).filter(Boolean);
+  check(`${p} в плане уровня 1 боссы на волнах ${bossWaves.map(([n, id]) => `${n} (${id})`).join(', ')}; последний — на последней волне`, bossWaves.length >= 2 && bossWaves.at(-1)[0] === PLAN.length, JSON.stringify(bossWaves));
+  const [miniWave, miniId] = bossWaves[0];
+  const fever = { sec: readConfigNumber('fever', 'durationSec'), recharge: readConfigNumber('fever', 'rechargeSec') };
+
+  // 1) мини-босс своей волны; без узла «Лихорадка» кнопки нет
+  let game = await openGame(context, baseUrl, p, { speed: 4, cfg: 'lives.start:500', query: `&levelwaves&level=1&towers=all&wave=${miniWave}` });
+  let s = await game.state();
+  check(`${p} без узла «Лихорадка» кнопки нет (fever.owned = false)`, s.fever && s.fever.owned === false, JSON.stringify(s.fever));
+  s = await waitForGame(game.page, (x) => x.bacteria.some((b) => b.boss) || x.state !== 'playing', `выход мини-босса волны ${miniWave}`, { gameSec: 120 });
+  const mini = s.bacteria.find((b) => b.boss);
+  check(`${p} волна ${s.wave}: вышел мини-босс «${mini?.boss}» (ждали «${miniId}» на волне ${miniWave})`, s.wave === miniWave && mini?.boss === miniId, `волна ${s.wave}, босс ${mini?.boss}, состояние ${s.state}`);
+  await game.page.close();
+
+  // 2) «Лихорадка» после покупки узла: кнопка есть, тап включает (действует и перезаряжается)
+  game = await openGame(context, baseUrl, p, { speed: 1, cfg: 'lives.start:500', query: '&levelwaves&level=1&meta=towerSyrup:1,towerFizz:1,fever:1' });
+  s = await game.state();
+  check(`${p} узел «Лихорадка» куплен — кнопка есть, готова (fever.wait = 0)`, s.fever?.owned === true && s.fever.wait === 0 && s.fever.uses === 0, JSON.stringify(s.fever));
+  await game.input.tap(game.g(W - 52, readConfigNumber('map', 'topH') + 50));
+  s = await waitFor(game.page, (x) => x.fever.uses > 0, 3000, 'включение «Лихорадки» тапом по кнопке');
+  check(`${p} тап по кнопке включил «Лихорадку»: действует ≤ ${fever.sec} с, перезарядка ≤ ${fever.recharge} с`, s.fever.uses === 1 && s.fever.left > 0 && s.fever.left <= fever.sec && s.fever.wait > fever.recharge - fever.sec - 1 && s.fever.wait <= fever.recharge, JSON.stringify(s.fever));
+  await game.input.tap(game.g(W - 52, readConfigNumber('map', 'topH') + 50));
+  await sleep(400);
+  s = await game.state();
+  check(`${p} повторный тап во время перезарядки не включает её снова`, s.fever.uses === 1, JSON.stringify(s.fever));
+  await game.page.close();
+
+  // 3) финальный босс дошёл до организма — поражение сразу (жизней много, обычные бактерии волны их не исчерпают)
+  game = await openGame(context, baseUrl, p, { speed: 4, cfg: 'lives.start:5000', query: `&levelwaves&level=1&wave=${PLAN.length}` });
+  s = await waitForGame(game.page, (x) => x.state !== 'playing', 'конец партии на волне финального босса', { gameSec: 600, pollMs: 200 });
+  const leaks = (await game.page.evaluate(() => window.__pvb.getEvents(0))).filter((e) => e.type === 'leak' && e.boss);
+  // событие leak финального босса: damage — сколько жизней было до него (игра обнуляет их все)
+  const final = leaks.find((e) => e.boss === bossWaves.at(-1)[1]);
+  check(`${p} финальный босс «${bossWaves.at(-1)[1]}» дошёл до организма — поражение сразу (жизней было ${final?.damage ?? '?'} из 5000, стало ${s.lives})`, s.state === 'lost' && s.lives === 0 && final?.damage > 1, `состояние ${s.state}, жизни ${s.lives}, утечки боссов ${JSON.stringify(leaks)}`);
+  await context.close();
+}
+
 /** План волн уровня 1 (levels.specs.0.plan.waves в config.ts): строки `{ mix: {...}, wall: ['вид', N], boss: 'id' }`. */
 const PLAN = (() => {
   const src = fs.readFileSync(path.join(ROOT, 'src', 'config.ts'), 'utf8');
@@ -9326,6 +9370,7 @@ try {
   if (wants('tree-shop')) await safe('[вкладки улучшений]', () => runTreeShop(browser, qaServer.url));
   if (wants('tree-effects')) await safe('[улучшения древа]', () => runTreeEffects(browser, qaServer.url));
   if (wants('level-waves')) await safe('[состав волн уровней]', () => runLevelWaves(browser, qaServer.url));
+  if (wants('bosses')) await safe('[боссы и «Лихорадка»]', () => runBosses(browser, qaServer.url));
   if (wants('progress-save')) await safe('[прогресс: сохранение]', () => runProgressSave(browser, qaServer.url));
   if (wants('stars')) await safe('[звёзды]', () => runStars(browser, qaServer.url));
   if (wants('menu-flow')) await safe('[меню и выбор уровня]', () => runMenuFlow(browser, qaServer.url));
