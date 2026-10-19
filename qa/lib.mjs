@@ -8,6 +8,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
 import { preview } from 'vite';
+// прибавка силы от Шприца — одно число для модели и лестницы ботов (решение владельца 19 октября 2026, сообщение 4, п. 2)
+import { SYRINGE_GAIN } from '../docs/redesign-model-2026-10-19.mjs';
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -179,14 +181,13 @@ export function readWaveList() {
   });
 }
 
-/** С какого уровня открыта каждая башня: `levels.towerUnlock` из src/config.ts, например { pill: 1, syrup: 1, fizz: 5, syringe: 10, ampule: 3, antibiotic: 6, lamp: 5, vitamin: 7, frost: 8, patch: 9 }. */
-export function readTowerUnlock() {
-  const src = readSource('src/config.ts');
-  const found = /towerUnlock:\s*\{([^}]*)\}/.exec(src);
-  if (!found) throw new Error('В config.ts нет таблицы levels.towerUnlock');
-  const table = {};
-  for (const [, key, value] of found[1].matchAll(/(\w+):\s*(\d+)/g)) table[key] = Number(value);
-  return table;
+/** Id узла башни в древе улучшений (`meta.upgrades`): `tower` + id башни с заглавной буквы (`fizz` → `towerFizz`); у Таблетки узла нет — она открыта с начала (как `towerNodeId` в src/meta.ts). */
+export const towerNodeId = (tower) => `tower${tower.charAt(0).toUpperCase()}${tower.slice(1)}`;
+
+/** Открыта ли ветка древа при уровнях узлов `levels` (как `isBranchOpen` в src/meta.ts): «Организм», «Защита», узлы башен и умения — всегда; ветка башни — когда куплен узел башни (Таблетка — всегда). */
+export function branchOpen(branch, levels) {
+  if (['body', 'defense', 'towers', 'skills', 'pill'].includes(branch)) return true;
+  return (levels?.[towerNodeId(branch)] ?? 0) > 0;
 }
 
 /**
@@ -514,13 +515,15 @@ export async function heapMb(cdp) {
 }
 
 /** Очки ДНК за `wavesCleared` пройденных волн по таблице `readMetaTable().dna` (та же формула, что в `src/meta.ts`: waveBase·k + waveStep·k·(k + 1)/2, округление до ближайшего целого). */
-export function dnaWavesReward(dna, wavesCleared) {
+export function dnaWavesReward(dna, wavesCleared, level = 1) {
   const k = Math.max(0, Math.floor(wavesCleared));
-  return Math.round(dna.waveBase * k + (dna.waveStep * k * (k + 1)) / 2);
+  const mul = dna.levelMul?.[Math.min(dna.levelMul.length, Math.max(1, level)) - 1] ?? 1;
+  return Math.round((dna.waveBase * k + (dna.waveStep * k * (k + 1)) / 2) * mul);
 }
 
 /**
- * Очки ДНК и улучшения вне партии из src/config.ts (раздел meta): { dna: { waveBase, waveStep, winBonus, replayFactor, coinsPerPoint, coinsCapShare }, upgrades: { id: { branch, effect, perLevel, prices: [...] } } }.
+ * Очки ДНК и улучшения вне партии из src/config.ts (раздел meta): { dna: { waveBase, waveStep, levelMul, floor, miniBossFirst, bossFirst, flawlessShare, winBonus, replayFactor, coinsPerPoint, coinsCapShare },
+ * upgrades: { id: { branch, effect, perLevel, prices: [...], requires } } }.
  * Порядок ключей — порядок строк в таблице (как на экране «Улучшения»).
  */
 export function readMetaTable() {
@@ -540,40 +543,122 @@ export function readMetaTable() {
     upgrades[m[1]] = { branch: m[2], effect: m[3], perLevel: Number(m[4]), prices: m[5].split(',').map((x) => Number(x.trim())).filter((x) => Number.isFinite(x)), requires: m[6] ? { id: m[6], level: Number(m[7]) } : null };
   }
   if (!Object.keys(upgrades).length) throw new Error('В разделе «meta» config.ts не нашлось улучшений');
-  // уровни узла `waveOpen.node` открываются лучшими волнами на уровнях (решение владельца 18 октября 2026): таблица квот и границы волн
-  const wo = /waveOpen:\s*\{\s*node:\s*'(\w+)',\s*fromWave:\s*(\d+),\s*toWave:\s*(\d+),\s*quota:\s*\[([^\]]*)\]/.exec(body);
-  const waveOpen = wo ? { node: wo[1], fromWave: Number(wo[2]), toWave: Number(wo[3]), quota: wo[4].split(',').map((x) => Number(x.trim())) } : null;
-  if (waveOpen && upgrades[waveOpen.node]) upgrades[waveOpen.node].waveOpen = true;
-  return { waveOpen, dna: { waveBase: num('waveBase'), waveStep: num('waveStep'), winBonus: num('winBonus'), replayFactor: num('replayFactor'), coinsPerPoint: num('coinsPerPoint'), coinsCapShare: num('coinsCapShare') }, upgrades };
+  const levelMul = /levelMul:\s*\[([^\]]*)\]/.exec(body);
+  return {
+    dna: {
+      waveBase: num('waveBase'),
+      waveStep: num('waveStep'),
+      levelMul: levelMul ? levelMul[1].split(',').map((x) => Number(x.trim())).filter((x) => Number.isFinite(x)) : [1],
+      floor: num('floor'),
+      miniBossFirst: num('miniBossFirst'),
+      bossFirst: num('bossFirst'),
+      flawlessShare: num('flawlessShare'),
+      winBonus: num('winBonus'),
+      replayFactor: num('replayFactor'),
+      coinsPerPoint: num('coinsPerPoint'),
+      coinsCapShare: num('coinsCapShare'),
+    },
+    upgrades,
+  };
 }
 
 /**
- * Сколько уровней узла `waveOpen.node` открыто лучшими волнами (как `waveOpenCap` в `src/meta.ts`): по каждому уровню ⌊квота · clamp((лучшая волна − fromWave) / (toWave − fromWave), 0, 1)⌋, сумма.
- * `best` — число пройденных волн по уровням (индекс 0 — уровень 1; победа — число волн уровня).
+ * Жадная покупка улучшений вне партии: пока хватает очков, берётся первое по порядку `order` улучшение, у которого есть следующий уровень по цене не выше остатка,
+ * ветка открыта (`branchOpen`: ветка башни — после узла башни) и родитель куплен до нужного уровня. `upgrades` — таблица из `readMetaTable().upgrades`,
+ * `levels` — текущие уровни улучшений ({id: число}). Возвращает новые уровни, остаток очков и список покупок.
  */
-export function waveOpenCap(waveOpen, best) {
-  if (!waveOpen) return 0;
-  let sum = 0;
-  waveOpen.quota.forEach((q, i) => {
-    const share = Math.min(1, Math.max(0, ((best?.[i] ?? 0) - waveOpen.fromWave) / (waveOpen.toWave - waveOpen.fromWave)));
-    sum += Math.floor(q * share + 1e-9);
-  });
-  return sum;
-}
-
-/**
- * Жадная покупка улучшений вне партии (один порядок для бота и для расчёта эталонных наборов, docs/stage-5b-plan.md, раздел 5): пока хватает очков,
- * берётся первое по порядку `order` улучшение, у которого есть следующий уровень по цене не выше остатка; ветка башни доступна, если башня открыта
- * на уровне `level` (`unlock` — таблица «башня → с какого уровня»; ветки «Организм» и «Защита» — всегда).
- * `upgrades` — таблица из `readMetaTable().upgrades`, `levels` — текущие уровни улучшений ({id: число}). Возвращает новые уровни, остаток очков и список покупок.
- */
-export function buyGreedy({ upgrades, order, unlock, level, levels, dna, caps = null }) {
+export function buyGreedy({ upgrades, order, levels, dna }) {
   const next = { ...levels };
   const bought = [];
   let left = dna;
   for (;;) {
-    const id = order.find((x) => upgrades[x] && (unlock[upgrades[x].branch] ?? 1) <= level && upgrades[x].prices[next[x] ?? 0] !== undefined && upgrades[x].prices[next[x] ?? 0] <= left && (!upgrades[x].requires || (next[upgrades[x].requires.id] ?? 0) >= upgrades[x].requires.level) && (next[x] ?? 0) < (upgrades[x].waveOpen ? (caps?.[x] ?? 0) : Infinity));
+    const id = order.find((x) => upgrades[x] && branchOpen(upgrades[x].branch, next) && upgrades[x].prices[next[x] ?? 0] !== undefined && upgrades[x].prices[next[x] ?? 0] <= left && (!upgrades[x].requires || (next[upgrades[x].requires.id] ?? 0) >= upgrades[x].requires.level));
     if (!id) break;
+    left -= upgrades[id].prices[next[id] ?? 0];
+    next[id] = (next[id] ?? 0) + 1;
+    bought.push(id);
+  }
+  return { levels: next, dna: left, bought };
+}
+
+/** Множитель силы обороны от l-го уровня узла «+шаг» при доле башни share в уроне обороны: (1 + шаг·share·l) / (1 + шаг·share·(l − 1)) (как `pct` в docs/redesign-model-2026-10-19.mjs). */
+const pctGain = (step, share = 1) => (l) => (1 + step * share * l) / (1 + step * share * (l - 1));
+/** Доля башни в уроне обороны эксперта (для веток башен; как в модели): Таблетка — основа, Сироп — лужа (замедление), Витамин — аура на всех. */
+const BRANCH_SHARE = { pill: 0.5, syrup: 0.6, fizz: 0.3, syringe: 0.3, ampule: 0.2, antibiotic: 0.2, lamp: 0.08, vitamin: 1, frost: 0.25, patch: 0.1 };
+/** Крупные узлы (башни, умения, ключевые узлы) и их оценка силы (модель, раздел 5 документа дизайна): покупаются первыми, как только хватает очков. */
+const BIG_GAIN = {
+  towerSyrup: 1.2, towerFizz: 1.2, towerSyringe: SYRINGE_GAIN, towerAmpule: 1.12, towerLamp: 1.06, towerAntibiotic: 1.1, towerVitamin: 1.1, towerFrost: 1.07, towerPatch: 1.05,
+  fever: 1, pillKey: 1.1, fizzKey: 1.08, syringeKey: 1.07, ampuleKey: 1.07, antibioticKey: 1.06, syrupKey: 1.05, lampKey: 1.05, vitaminKey: 1.04, frostKey: 1.05, patchKey: 1.03,
+};
+/** Прирост силы от следующего уровня узла `id` (множитель; 1 — силы не прибавляет, такой узел лучший порядок не покупает). */
+function nodeGain(upgrades, id, level) {
+  const u = upgrades[id];
+  if (BIG_GAIN[id] !== undefined) return BIG_GAIN[id];
+  const share = BRANCH_SHARE[u.branch] ?? 1;
+  switch (u.effect) {
+    case 'damage': return pctGain(u.perLevel)(level);
+    case 'towerDamage': return pctGain(u.perLevel, share)(level);
+    case 'puddleSec': return pctGain(u.perLevel * 0.6, share)(level);
+    case 'cooldown': return pctGain(-u.perLevel, share)(level);
+    case 'auraBoost': return pctGain(-u.perLevel, share)(level);
+    case 'freezeTime': return pctGain(u.perLevel, share)(level);
+    case 'range': case 'beamWidth': return pctGain(0.02, share)(level);
+    case 'price': return pctGain(-u.perLevel, share)(level);
+    case 'coins': return 1 + (u.perLevel / 1345) * 0.6; // монеты на старте: заметны в начале попытки (к 15-й волне уровня 1 у игрока ≈ 1 345 монет)
+    case 'reward': return pctGain(u.perLevel * 0.6)(level);
+    default: return 1;
+  }
+}
+
+/** Узел и все узлы, которые он требует (по цепочке `requires`), от корня к узлу; узла нет в таблице — пусто. */
+export function nodeChain(upgrades, id) {
+  const out = [];
+  for (let x = id; x && upgrades[x] && !out.includes(x); x = upgrades[x].requires?.id) out.unshift(x);
+  return out;
+}
+
+/**
+ * Лучший найденный порядок покупок очков ДНК (раздел 10.1 документа дизайна, п. 7; как `spend` в модели): из открытых узлов, на следующий уровень которых хватает очков, сначала крупные (башни, умения, ключевые узлы),
+ * затем остальные — по наибольшему приросту силы на очко ДНК (ln(прирост) / цена); узлы без прироста силы не покупаются. `towers` (необязательно) — башни стратегии:
+ * ДНК — только на узлы и ветки своих башен и общие узлы (решение владельца 19 октября 2026, сообщение 4, п. 1.2); узлы других башен не покупаются, даже если общий узел
+ * («Лихорадка») их требует. `saveFor` (необязательно) — башни ядра, на которые игрок копит: пока они не открыты, ДНК идёт только на цепочку к ним (без покупок по пути).
+ * Возвращает новые уровни, остаток очков и список покупок.
+ */
+export function buyBest({ upgrades, levels, dna, towers = null, saveFor = null }) {
+  // узлы башен на пути к своим башням (цепочка «требует»), если своя башня ещё не открыта
+  const needed = new Set(towers ? towers.filter((id) => !(levels[towerNodeId(id)] > 0)).map(towerNodeId).flatMap((id) => nodeChain(upgrades, id)) : []);
+  const foreign = (id) => {
+    if (!towers || needed.has(id)) return false;
+    const u = upgrades[id];
+    const own = Object.keys(BRANCH_SHARE).find((t) => towerNodeId(t) === id) ?? (u.branch in BRANCH_SHARE ? u.branch : null);
+    return own !== null && !towers.includes(own);
+  };
+  const next = { ...levels };
+  const bought = [];
+  let left = dna;
+  // следующий некупленный узел на пути к неоткрытой башне ядра (null — копить не на что)
+  const saveTarget = () => (saveFor ?? []).filter((t) => !(next[towerNodeId(t)] > 0)).flatMap((t) => nodeChain(upgrades, towerNodeId(t))).find((id) => !(next[id] > 0)) ?? null;
+  for (;;) {
+    const target = saveTarget();
+    if (target) {
+      const price = upgrades[target].prices[next[target] ?? 0];
+      if (price > left) break;
+      left -= price;
+      next[target] = (next[target] ?? 0) + 1;
+      bought.push(target);
+      continue;
+    }
+    const opts = Object.keys(upgrades).filter((id) => {
+      const u = upgrades[id];
+      const price = u.prices[next[id] ?? 0];
+      return price !== undefined && price <= left && !foreign(id) && branchOpen(u.branch, next) && (!u.requires || (next[u.requires.id] ?? 0) >= u.requires.level) && (BIG_GAIN[id] !== undefined || nodeGain(upgrades, id, (next[id] ?? 0) + 1) > 1);
+    });
+    if (!opts.length) break;
+    const big = opts.filter((id) => BIG_GAIN[id] !== undefined);
+    const from = big.length ? big : opts;
+    const score = (id) => Math.log(nodeGain(upgrades, id, (next[id] ?? 0) + 1)) / upgrades[id].prices[next[id] ?? 0];
+    from.sort((a, b) => score(b) - score(a));
+    const id = from[0];
     left -= upgrades[id].prices[next[id] ?? 0];
     next[id] = (next[id] ?? 0) + 1;
     bought.push(id);
@@ -588,7 +673,7 @@ export function buyGreedy({ upgrades, order, unlock, level, levels, dna, caps = 
  */
 export function buyOrder(upgrades, tower = 'pill') {
   const own = Object.keys(upgrades).filter((id) => upgrades[id].branch === tower);
-  const first = ['damage', ...Object.keys(upgrades).filter((id) => upgrades[id].waveOpen), ...own];
+  const first = ['damage', ...own];
   return [...first, ...baseBuyOrder(upgrades).filter((id) => !first.includes(id))];
 }
 
@@ -599,10 +684,10 @@ export function baseBuyOrder(upgrades) {
 }
 
 /**
- * Порядок покупок для замера «одна башня» (docs/fizz-solo-plan.md): сначала улучшения ветки этой башни (в порядке таблицы; недоступные по уровню или без очков
+ * Порядок покупок для замера «одна башня» (docs/fizz-solo-plan.md): сначала узел башни и улучшения её ветки (в порядке таблицы; недоступные по уровню или без очков
  * пропускаются жадным выбором), затем обычный порядок. Игрок, который играет одной башней, качает именно её.
  */
 export function buyOrderSolo(upgrades, tower) {
-  const own = Object.keys(upgrades).filter((id) => upgrades[id].branch === tower);
+  const own = [...nodeChain(upgrades, towerNodeId(tower)), ...Object.keys(upgrades).filter((id) => upgrades[id].branch === tower)];
   return [...own, ...baseBuyOrder(upgrades).filter((id) => !own.includes(id))];
 }

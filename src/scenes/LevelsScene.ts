@@ -2,7 +2,7 @@ import Phaser from 'phaser';
 import { CONFIG, type KindId } from '../config';
 import { t, type TextKey } from '../i18n';
 import { isLevelOpen, levelBest, levelStars } from '../meta';
-import { levelNewKinds, levelNewTowers } from '../progress';
+import { levelNewKinds } from '../progress';
 import { addButton, drawLock, drawStar, setScreenInfo, textStyle, type LevelCardInfo, type Rect } from '../screens';
 import { sfx } from '../sound';
 import { COLORS, TEXT_COLORS } from '../theme';
@@ -15,7 +15,6 @@ const CARD = { w: 220, h: 256, gap: 30, cols: 5, left: 30, top: 104, rowGap: 16 
 const cap = (word: string): string => word.charAt(0).toUpperCase() + word.slice(1);
 const levelName = (level: number): string => t(`levelName${level}` as TextKey);
 const kindName = (kind: KindId): string => t(`bacName${cap(kind)}` as TextKey);
-const towerName = (id: string): string => t(`tower${cap(id)}` as TextKey);
 
 /** Выбор уровня: 10 карточек (номер, название, что нового, звёзды или замок), тап по открытой начинает партию, по закрытой — «нельзя». */
 export class LevelsScene extends Phaser.Scene {
@@ -65,14 +64,13 @@ export class LevelsScene extends Phaser.Scene {
       add(y0 + 100, t('levelLocked', { n: level - 1 }), 20, TEXT_COLORS.dim, true);
       drawLock(g, cx, y0 + CARD.h - 50, 44);
     } else {
-      // Нижняя часть карточки — «Лучшая волна» (если уровень проигран) и звёзды; «Открыто» и «Новая» идут сверху вниз по реальной высоте текста и сжимаются по размеру шрифта, пока не уместятся над ней
+      // Нижняя часть карточки — «Лучшая волна» (если уровень проигран) и звёзды; «Новая» (бактерии) идёт сверху вниз по реальной высоте текста и сжимается по размеру шрифта, пока не уместится над ней.
+      // Башни открываются в древе улучшений, поэтому строки «Открыто» на карточке уровня нет (документ дизайна docs/redesign-2026-10-19.md, раздел 5.1)
       const showBest = stars === 0 && best > 0;
       const lowerTop = showBest ? y0 + CARD.h - 84 : y0 + CARD.h - 62;
       const limit = lowerTop - 6;
-      const towers = levelNewTowers(level);
       const kinds = levelNewKinds(level);
       const parts: string[] = [];
-      if (towers.length > 0) parts.push(t('levelOpens', { names: towers.map(towerName).join(', ') }));
       if (kinds.length > 0) parts.push(t('levelNewBac', { names: kinds.map(kindName).join(', ') }));
       const objs = parts.map((text) => add(0, text, 20, TEXT_COLORS.soft, true));
       let size = 20;

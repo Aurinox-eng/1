@@ -10,15 +10,18 @@
  *                                        — временно подменяет числа из config.ts (для подбора баланса)
  *   http://localhost:5173/?qa&canvas     — рисовать через canvas вместо WebGL (быстрее на слабой машине без видеокарты; для бота баланса)
  *   http://localhost:5173/?qa&menu       — открыть игру на главном меню (в режиме проверки без этого параметра игра открывается сразу на партии; в игровой сборке меню открывается, если в адресе нет ?level=N)
- *   http://localhost:5173/?qa&levelwaves — в режиме проверки волны и награды берутся из таблицы уровня (`levels.specs`); без параметра все уровни идут с волнами уровня 1 (так работают прежние проверки и бот)
+ *   http://localhost:5173/?qa&levelwaves — в режиме проверки волны, награды и карта берутся из таблицы уровня (`levels.specs`; уровень 1 — новый формат: 50 волн, боссы, карта «Горло»);
+ *                                        без параметра все уровни идут прежним тестовым уровнем (карта «корни», волны `waves.list`, 30 волн): на нём построены проверки механик
  *   http://localhost:5173/?qa&stress&fps — стресс-сценарий для замера скорости (40 башен, ≈200 бактерий, ×3) со счётчиком кадров
  *   http://localhost:5173/?qa&stress=fizz&fps — второй стресс-сценарий: 12 Шипучек 4-го уровня («Цепная» + «Кислота»), ≈200 бактерий, ×3 (взрывы)
  *   http://localhost:5173/?qa&entrance=<номер ребра> — все бактерии волн выходят по одному входу (номер ребра берётся из `getGraph().entrances`): без этого вход случайный, и проверка «башня у входа» зависит от жребия
  *   http://localhost:5173/?fps          — счётчик кадров в углу; работает и в игровой сборке (только показывает число)
- *   http://localhost:5173/?level=5       — номер уровня (какие башни открыты); работает и в игровой сборке, пока нет меню уровней (этап 5)
+ *   http://localhost:5173/?level=5       — номер уровня; работает и в игровой сборке (уровень должен быть открыт у игрока)
+ *   http://localhost:5173/?qa&towers=all — открыты все башни (без узлов древа)
+ *   http://localhost:5173/?qa&wave=30    — партия начинается с волны 30 (проверки боссов)
  *   http://localhost:5173/?qa&meta=lives:1,coins:2,damage:3,reward:0,dna:50 — подменяет уровни улучшений вне партии и очки ДНК (в сохранение ничего не пишется)
  *   http://localhost:5173/?lang=en       — принудительно выбирает язык (проверка переводов)
- *   http://localhost:5173/?qa&best=30,19 — лучшие волны уровней 1, 2, … (открытие уровней «Сильного вещества II»; в сохранение ничего не пишется)
+ *   http://localhost:5173/?qa&best=30,19 — лучшие волны уровней 1, 2, … (в сохранение ничего не пишется)
  *   http://localhost:5173/?qa&pilleyes=0 — Таблетки без глаз (снимки пилота этапа 8, qa/art-shots.mjs); по умолчанию глаза есть (theme.PILL_EYES)
  *   http://localhost:5173/?qa&artsheet   — лист образцов: новые и прежние рисунки рядом; &artsheet=b1|b2 — все бактерии, =t1|t2 — все башни (только режим проверки; в игровую сборку не попадает)
  */
@@ -48,7 +51,7 @@ export const ART_SHEET_PAGE: string = params.get('artsheet') ?? '';
 
 /** Не показывать плашки с описанием (только вместе с ?qa): нужно проверкам, которые проверяют не плашки, а бой и интерфейс. */
 
-/** Волны, рост прочности и награды берутся из таблицы уровней (`levels.specs`). В игровой сборке — всегда; в режиме проверки — только с `&levelwaves`: у проверок и бота волны уровня 1 на любом уровне. */
+/** Волны, рост прочности, награды и карта берутся из таблицы уровней (`levels.specs`). В игровой сборке — всегда; в режиме проверки — только с `&levelwaves` (без него — прежний тестовый уровень). */
 export const LEVEL_WAVES: boolean = !QA_MODE || params.has('levelwaves');
 
 /** Стресс-сценарий для замера скорости (только вместе с ?qa): 40 башен разных уровней, ≈200 бактерий всех типов, скорость ×3, без волн и без поражения. */
@@ -59,22 +62,33 @@ export const STRESS_FIZZ: boolean = STRESS && params.get('stress') === 'fizz';
 /** Вход (номер ребра), по которому выходят ВСЕ бактерии волн (только вместе с ?qa&entrance=N); null — вход случайный, как в игре. */
 export const QA_ENTRANCE: number | null = QA_MODE && params.has('entrance') && Number.isFinite(Number(params.get('entrance'))) ? Number(params.get('entrance')) : null;
 
+/** `?qa&towers=all` — открыты все башни (без узлов древа): сценариям проверки, которые проверяют сами башни. Без параметра башни открываются, как в игре, узлами древа (`&meta=towerFizz:1,…`). */
+export const ALL_TOWERS: boolean = QA_MODE && params.get('towers') === 'all';
+
+/** `?qa&wave=N` — партия начинается с волны N (предыдущие считаются пройденными, монеты — как на старте): проверкам боссов и поздних волн. Без параметра — с первой волны. */
+export const QA_START_WAVE: number = QA_MODE && Number.isFinite(Number(params.get('wave'))) && Number(params.get('wave')) > 1 ? Math.floor(Number(params.get('wave'))) : 1;
+
+/** `?qa&norender` — сцена партии не рисуется, цикл кадров идёт по таймеру: боты идут в 3–5 раз быстрее (ответ владельца 12, сверка с рисованием 19 октября 2026 — docs/process-speedup-2026-10-18.md, раздел 4.3). */
+export const QA_NORENDER: boolean = QA_MODE && params.has('norender');
+
 /** Множитель игрового времени (1 = обычная скорость). Работает только вместе с ?qa. */
 export const TIME_SCALE: number = QA_MODE ? Math.min(10, Math.max(0.1, Number(params.get('speed')) || 1)) : 1;
 
 /**
  * Событие журнала игры (только режим проверки). `t` — игровое время (`elapsed`) в момент события, остальные поля зависят от типа:
- *  spawn   — бактерия вышла: id, kind, edge (ребро входа);
+ *  spawn   — бактерия вышла: id, kind, edge (ребро входа), boss (id босса или null);
  *  kill    — бактерия убита: id, kind, gain (монет за неё), coins (монет после);
  *  blast   — взрыв Шипучки: x, y, radius, hits (сколько задето), kills (сколько убито), chain (второй взрыв «Цепной»);
  *  beam    — удар очереди луча Шприца: col, row (башня), index (номер удара с нуля), hits (сколько на линии), kills;
  *  latch   — паразит присосался: id, col, row (башня), dist (расстояние до неё в этот момент);
  *  chip    — подсказка «◀ Организм» сменила состояние: visible, danger, nearest (до организма от ближайшей бактерии, px; null — бактерий нет);
- *  leak    — бактерия дошла до организма: id, kind, wave (номер волны), damage (сколько жизней она отнимает), absorbed (true — погашена «Щитом у линии», жизни не отняты).
+ *  leak    — бактерия дошла до организма: id, kind, wave (номер волны), damage (сколько жизней она отнимает), absorbed (true — погашена «Щитом у линии», жизни не отняты), boss (id босса или нет);
+ *  boss    — босс побеждён: id, boss (id босса), bits (побеждённые боссы партии, биты);
+ *  fever   — включена «Лихорадка»: uses (сколько раз за партию).
  * Журнал пишет сама игра в тот кадр, когда событие случилось, поэтому проверкам не нужно «ловить» его опросом состояния, а реальное время (и скорость сервера) на него не влияет.
  */
 export interface QaEvent {
-  type: 'spawn' | 'kill' | 'blast' | 'beam' | 'latch' | 'chip' | 'leak';
+  type: 'spawn' | 'kill' | 'blast' | 'beam' | 'latch' | 'chip' | 'leak' | 'boss' | 'fever';
   t: number;
   [key: string]: unknown;
 }
@@ -159,6 +173,8 @@ export interface DebugSnapshot {
   /** «Следующий уровень» (только после победы, не на последнем уровне) и «В меню» на экране конца уровня; «В меню» на паузе (или null). */
   nextButton: { x: number; y: number; w: number; h: number } | null;
   menuButton: { x: number; y: number; w: number; h: number } | null;
+  /** «Скопировать итог» на экране конца уровня (или null). */
+  copyButton: { x: number; y: number; w: number; h: number } | null;
   pauseResumeButton: { x: number; y: number; w: number; h: number } | null;
   pauseMenuButton: { x: number; y: number; w: number; h: number } | null;
   pauseAlmanacButton: { x: number; y: number; w: number; h: number } | null;
@@ -173,9 +189,19 @@ export interface DebugSnapshot {
   stars: number;
   starDna: number;
   /** Разбивка очков ДНК за партию на экране конца уровня (волны, победа, новые звёзды) и строка, которую видит игрок. */
-  dnaParts: { waves: number; win: number; coins: number; stars: number };
+  dnaParts: { waves: number; win: number; coins: number; bosses: number; flawless: number; floor: number; stars: number };
+  /** Уровень нового формата: сколько волн, монет на старте и пауза между волнами (null — прежний формат); id карты; побеждённые за партию боссы (биты); «Лихорадка»; строка «не хватает N ДНК»; фаза волн и её таймер. */
+  plan: { waves: number; startCoins: number; pauseSec: number } | null;
+  mapId: string;
+  bossBits: number;
+  fever: { owned: boolean; left: number; wait: number; uses: number };
+  needLine: string;
+  phase: string;
+  phaseTimer: number;
   /** Строки очков ДНК на экране конца уровня (итог; из чего сложился; монеты — только после победы; пометка пройденного уровня) и остаток монет, из которого посчитана добавка. */
   endDnaLines: string[];
+  /** Строка итога попытки (src/attempt.ts): пусто, пока партия идёт. */
+  attemptLine: string;
   /** Уведомление сверху окна карты: что показано сейчас (null — ничего), новость это или ответ на нажатие, и какие новости ждут в очереди (по порядку показа). */
   toast: { text: string | null; news: boolean; queued: string[] };
   coinsLeft: number;
@@ -357,7 +383,9 @@ export function applyConfigOverrides(config: Record<string, unknown>): void {
     const holder = target as Record<string, unknown> | undefined;
     // Состав волны (`waves.list.N.<тип>`): в строках таблицы только типы уровня 1, а проверкам нужны все 13 — любой тип из таблицы `types` можно добавить в строку
     const kinds = (config as { types?: Record<string, unknown> }).types ?? {};
-    const addsKind = keys[0] === 'waves' && keys[1] === 'list' && keys.length === 3 && last !== undefined && last in kinds;
+    // то же для состава волны уровня (`levels.specs.N.plan.waves.M.mix.<тип>`): замер другого состава волн без правки config.ts
+    const planMix = keys[0] === 'levels' && keys[1] === 'specs' && keys[3] === 'plan' && keys[4] === 'waves' && keys[6] === 'mix' && keys.length === 7;
+    const addsKind = ((keys[0] === 'waves' && keys[1] === 'list' && keys.length === 3) || planMix) && last !== undefined && last in kinds;
     if (last && holder && (typeof holder[last] === 'number' || addsKind) && valueText !== undefined && valueText !== '' && Number.isFinite(value)) {
       holder[last] = value;
     } else {

@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Карты уровней 1–4</title>
+<!--
+  МАКЕТ карт уровней 1–4 для документа дизайна docs/redesign-2026-10-19.md, раздел 7 (это картинка, а не игра: логики нет).
+  Бактерии идут справа налево, организм слева (красная линия). Сеть дорожек — граф: развилка — путь выбирается наугад, слияние — пути сходятся.
+  Ярус — ступень сети, на которой дорожки ветвятся или сливаются (счёт справа налево); на нынешней карте их два.
+  Клетки: синие — можно строить (не на дорожке и не дальше 240 px от неё, как сейчас), золотые — площадки дальнего огня (уровень 4: видны
+  два витка спирали, Ампула с дальностью 520 бьёт по обоим). Размер поля — как сейчас: 24 × 19 клеток по 77,25 px, слева зона организма 150 px.
+  Открыть: docs/mockups/maps-levels-1-4.html (все четыре) или ?map=1 … ?map=4 (одна крупно).
+-->
+<style>
+  :root { --bg: #0a1222; --panel: #101b33; --ink: #e6ecf7; --muted: #8fa0bf; --path: #2c4a7c; --edge: #4f7fd0; --cell: #1b3158; --pad: #b08a2a; --org: #c8394a; }
+  html, body { margin: 0; background: var(--bg); color: var(--ink); font-family: Arial, "Liberation Sans", sans-serif; }
+  .wrap { max-width: 1320px; margin: 0 auto; padding: 16px; }
+  h1 { font-size: 20px; margin: 4px 0 12px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; }
+  .card { background: var(--panel); border-radius: 12px; padding: 12px; }
+  .card h2 { font-size: 16px; margin: 0 0 6px; }
+  .card p { font-size: 13px; color: var(--muted); margin: 6px 0 0; line-height: 1.4; }
+  svg { width: 100%; height: auto; display: block; border-radius: 8px; background: #0d1830; }
+  .legend { font-size: 12px; color: var(--muted); margin: 12px 0 0; }
+  .legend span { display: inline-block; width: 12px; height: 12px; border-radius: 3px; vertical-align: -2px; margin: 0 4px 0 12px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Карты уровней 1–4 (макет)</h1>
+  <div id="maps" class="grid"></div>
+  <div class="legend">
+    <span style="background:var(--cell)"></span>можно строить
+    <span style="background:var(--pad)"></span>площадка дальнего огня
+    <span style="background:var(--org)"></span>организм
+    <span style="background:var(--edge)"></span>дорожка (стрелки — куда идут бактерии)
+  </div>
+</div>
+<script>
+const COLS = 24, ROWS = 19, T = 40, ORG = 2; // клетка в макете 40 px (в игре 77,25), зона организма — 2 клетки слева
+const W = (ORG + COLS) * T, H = ROWS * T;
+const BUILD_MAX = 240 / 77.25; // клеток от дорожки, дальше строить нельзя (как сейчас)
+const PATH_HALF = 43 / 77.25 + 0.55; // клетка под дорожкой, если её центр ближе (как сейчас: level.ts)
+
+// Карты: узлы [колонка, ряд] (колонка 24.6 — за правым краем, -0.5 — в организме), рёбра [из, в, изгиб рядов (необяз.)]
+const MAPS = {
+  1: {
+    name: 'Уровень 1 «Горло»: два яруса',
+    note: 'Два входа сходятся в одно горло (ярус 1), длинная S-кривая, у организма развилка на два выхода (ярус 2). Слияние у 16-й колонки — место для первой обороны: обе дорожки рядом. Длина пути ≈ 34 клетки (2 600 px), как сейчас.',
+    nodes: { A: [24.6, 4], B: [24.6, 14], M: [16, 9], S1: [11, 4], S2: [7, 13], F: [4, 9], X1: [-0.5, 4.5], X2: [-0.5, 13.5] },
+    edges: [['A', 'M'], ['B', 'M'], ['M', 'S1'], ['S1', 'S2'], ['S2', 'F'], ['F', 'X1'], ['F', 'X2']],
+  },
+  2: {
+    name: 'Уровень 2 «Нос»: два канала и перемычка',
+    note: 'Две ноздри — два отдельных канала (верх и низ) до самого организма; посередине перемычка: бактерия на развилке может перейти в другой канал (ярус 1 — развилка, ярус 2 — слияние у выхода). Оборону приходится делить: одна связка башен не держит оба канала.',
+    nodes: { A: [24.6, 3.5], B: [24.6, 15.5], U1: [17, 3.5], L1: [17, 15.5], UB: [12, 4.5], LB: [12, 14.5], U2: [6, 4], L2: [6, 15], X: [-0.5, 9.5] },
+    edges: [['A', 'U1'], ['B', 'L1'], ['U1', 'UB'], ['L1', 'LB'], ['U1', 'LB'], ['UB', 'U2'], ['LB', 'L2'], ['U2', 'X'], ['L2', 'X']],
+  },
+  3: {
+    name: 'Уровень 3 «Лёгкие»: три яруса',
+    note: 'Четыре входа (альвеолы) → ярус 1: попарно сливаются в два бронха → ярус 2: каждый бронх раздваивается, ветви перекрещиваются и сливаются заново → ярус 3: всё сходится в трахею у организма. Больше маршрутов (8), длиннее средний путь; узкое место — трахея, но там мало клеток.',
+    nodes: {
+      A: [24.6, 2], B: [24.6, 7], C: [24.6, 12], D: [24.6, 17],
+      P1: [19, 4.5], P2: [19, 14.5],
+      Q1: [14.5, 2.5], Q2: [14.5, 7.5], Q3: [14.5, 11.5], Q4: [14.5, 16.5],
+      R1: [9.5, 6], R2: [9.5, 13],
+      Z: [5, 9.5], X: [-0.5, 9.5],
+    },
+    edges: [['A', 'P1'], ['B', 'P1'], ['C', 'P2'], ['D', 'P2'], ['P1', 'Q1'], ['P1', 'Q2'], ['P2', 'Q3'], ['P2', 'Q4'], ['Q1', 'R1'], ['Q2', 'R2'], ['Q3', 'R1'], ['Q4', 'R2'], ['R1', 'Z'], ['R2', 'Z'], ['Z', 'X']],
+  },
+  4: {
+    name: 'Уровень 4 «Желудок»: складки и площадки дальнего огня',
+    note: 'Один вход, длинная змейка по складкам желудка (три прохода справа налево и обратно), у организма развилка на два выхода. Между проходами — площадки дальнего огня (золотые): оттуда Ампула (дальность 520) достаёт до двух соседних проходов сразу, а строить разрешено только там, где до дорожки не дальше 240 px (п. 3.3 рецензий: общее правило не меняется). Путь длиннее, чем на уровнях 1–3, — бактерии под огнём дольше, но их больше и они крепче.',
+    nodes: { A: [24.6, 2.5], B: [5, 2.5], C: [5, 8], D: [20, 8], E: [20, 13.5], F: [9, 13.5], X1: [-0.5, 13.5], G: [9, 17], X2: [-0.5, 17] },
+    edges: [['A', 'B', 0, 1], ['B', 'C', 0, 1], ['C', 'D', 0, 1], ['D', 'E', 0, 1], ['E', 'F', 0, 1], ['F', 'X1', 0, 1], ['F', 'G', 0, 1], ['G', 'X2', 0, 1]],
+    pads: true,
+  },
+};
+
+const px = ([c, r]) => [(ORG + c) * T, (r + 0.5) * T];
+/** Кубическая кривая с горизонтальными касательными (как pathing.ts), изгиб — сдвиг середины по рядам. */
+function curve(a, b, bend = 0, straight = 0) {
+  const [x1, y1] = px(a), [x2, y2] = px(b);
+  if (straight) return { d: `M${x1},${y1} L${x2},${y2}`, p: [[x1, y1], [x1 + (x2 - x1) / 3, y1 + (y2 - y1) / 3], [x1 + (2 * (x2 - x1)) / 3, y1 + (2 * (y2 - y1)) / 3], [x2, y2]] };
+  const dx = (x2 - x1) * 0.5, dy = (y2 - y1) * 0.2; // касательные почти горизонтальные, с небольшим наклоном — без резких изломов
+  return { d: `M${x1},${y1} C${x1 + dx},${y1 + dy + bend * T} ${x2 - dx},${y2 - dy + bend * T} ${x2},${y2}`, p: [[x1, y1], [x1 + dx, y1 + dy + bend * T], [x2 - dx, y2 - dy + bend * T], [x2, y2]] };
+}
+const bez = (p, t) => { const u = 1 - t; return [0, 1].map((i) => u * u * u * p[0][i] + 3 * u * u * t * p[1][i] + 3 * u * t * t * p[2][i] + t * t * t * p[3][i]); };
+
+function render(id, big) {
+  const m = MAPS[id];
+  const curves = m.edges.map(([a, b, bend, straight]) => curve(m.nodes[a], m.nodes[b], bend ?? 0, straight ?? 0));
+  const pts = curves.flatMap((c) => Array.from({ length: 60 }, (_, i) => bez(c.p, i / 59)));
+  const dist = (x, y) => Math.min(...pts.map(([px2, py]) => Math.hypot(px2 - x, py - y))) / T;
+  let cells = '';
+  let open = 0;
+  for (let c = 0; c < COLS; c++) for (let r = 0; r < ROWS; r++) {
+    const [x, y] = px([c, r]);
+    const cx = x + T / 2, cy = y;
+    const d = dist(cx, cy);
+    if (d < PATH_HALF || d > BUILD_MAX) continue;
+    open++;
+    // площадка дальнего огня: внутри спирали, видны два витка в пределах 520 px (≈ 6,7 клетки)
+    let pad = false;
+    if (m.pads) {
+      const near = curves.filter((cv) => Array.from({ length: 30 }, (_, i) => bez(cv.p, i / 29)).some(([qx, qy]) => Math.hypot(qx - cx, qy - cy) / T < 520 / 77.25)).length;
+      pad = near >= 4 && c >= 6 && c <= 19 && r >= 3 && r <= 13;
+    }
+    cells += `<rect x="${x + 3}" y="${y - T / 2 + 3}" width="${T - 6}" height="${T - 6}" rx="6" fill="${pad ? 'var(--pad)' : 'var(--cell)'}" opacity="${pad ? 0.95 : 0.8}"/>`;
+  }
+  const paths = curves.map((c) => `<path d="${c.d}" stroke="var(--path)" stroke-width="${T * 1.1}" fill="none" stroke-linecap="round" stroke-linejoin="round"/>`).join('');
+  const lines = curves.map((c) => `<path d="${c.d}" stroke="var(--edge)" stroke-width="3" fill="none" marker-end="url(#arr)" stroke-dasharray="10 8"/>`).join('');
+  const nodeDots = Object.entries(m.nodes).map(([k, n]) => { const [x, y] = px(n); const out = m.edges.filter((e) => e[0] === k).length, inn = m.edges.filter((e) => e[1] === k).length; const kind = out > 1 ? '#f2c14e' : inn > 1 ? '#7fd38a' : null; return kind && x > 0 && x < W ? `<circle cx="${x}" cy="${y}" r="9" fill="${kind}" stroke="#0d1830" stroke-width="3"/>` : ''; }).join('');
+  const svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${m.name}">
+    <defs><marker id="arr" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M10,0 L0,5 L10,10 z" fill="var(--edge)"/></marker></defs>
+    <rect x="0" y="0" width="${ORG * T}" height="${H}" fill="var(--org)" opacity="0.25"/><rect x="${ORG * T - 4}" y="0" width="4" height="${H}" fill="var(--org)"/>
+    <text x="10" y="24" fill="var(--ink)" font-size="16">Организм</text>
+    ${cells}${paths}${lines}${nodeDots}
+  </svg>`;
+  return `<div class="card"${big ? ' style="grid-column:1/-1"' : ''}><h2>${m.name}</h2>${svg}<p>${m.note} Клеток под башни: ${open}. Жёлтая точка — развилка, зелёная — слияние.</p></div>`;
+}
+const one = new URLSearchParams(location.search).get('map');
+document.getElementById('maps').innerHTML = one ? render(one, true) : Object.keys(MAPS).map((k) => render(k)).join('');
+</script>
+</body>
+</html>

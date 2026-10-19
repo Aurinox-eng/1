@@ -9,7 +9,7 @@ import Phaser from 'phaser';
 import { CONFIG } from './config';
 import { QA_EVENTS_MAX, QA_MODE, STRESS_FIZZ, type DebugSnapshot, type QaEvent } from './debug';
 import { refundBonus } from './meta';
-import { BLOCKED_TILES, EDGES, LEVEL, PATH_TILES, WORLD, cellKey } from './level';
+import { BLOCKED_TILES, EDGES, LEVEL, MAP_ID, PATH_TILES, WORLD, cellKey } from './level';
 import { Bacterium, type BacteriumKind } from './objects/Bacterium';
 import { Tower, type TowerId } from './objects/Tower';
 import { pointAt, tileCenter } from './pathing';
@@ -101,6 +101,7 @@ export function qaSnapshot(s: GameSceneInternals): DebugSnapshot {
     upgradesButton: s.upgradesButton ? { ...s.upgradesButton } : null,
     nextButton: s.nextButton ? { ...s.nextButton } : null,
     menuButton: s.menuButton ? { ...s.menuButton } : null,
+    copyButton: s.copyButton ? { ...s.copyButton } : null,
     pauseResumeButton: s.pauseResumeButton ? { ...s.pauseResumeButton } : null,
     pauseMenuButton: s.pauseMenuButton ? { ...s.pauseMenuButton } : null,
     pauseAlmanacButton: s.pauseAlmanacButton ? { ...s.pauseAlmanacButton } : null,
@@ -116,6 +117,7 @@ export function qaSnapshot(s: GameSceneInternals): DebugSnapshot {
     coinsLeft: s.coinsLeft,
     overlayBox: { ...s.overlayBox },
     endDnaLines: [...s.endDnaLines],
+    attemptLine: s.attemptText,
     toast: s.panel.toastInfo(),
     selected: s.selected,
     towers: s.towers.map((tw: any) => ({
@@ -189,7 +191,19 @@ export function qaSnapshot(s: GameSceneInternals): DebugSnapshot {
       trapLeft: b.trapLeft,
       memory: b.memory,
       latchedTo: b.latchedTo ? { col: b.latchedTo.col, row: b.latchedTo.row } : null,
+      boss: b.bossId,
+      armor: b.armor,
+      reward: b.reward,
+      shielded: b.shielded,
+      phase: b.phaseIndex,
     })),
+    plan: s.params.plan ? { waves: s.params.plan.waves.length, startCoins: s.params.plan.startCoins, pauseSec: s.params.plan.pauseSec } : null,
+    mapId: MAP_ID,
+    bossBits: s.bossBits,
+    fever: { owned: s.feverGfx !== null, left: s.feverLeft, wait: s.feverWait, uses: s.feverUses },
+    needLine: s.needLine,
+    phase: s.phase,
+    phaseTimer: s.phaseTimer,
     projectiles: s.projectiles.length + s.groundShots.length + s.bursts.length,
     ui: s.panel.geometry(),
     pointerListeners: s.input.listenerCount('pointerdown'),

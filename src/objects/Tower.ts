@@ -1157,6 +1157,8 @@ export class Tower {
   coneFresh = false;
   /** Башня в облаке токсина: не стреляет (сцена выставляет каждый кадр). */
   private suppressed = false;
+  /** Башня в ауре Витамина с ключом «Иммунитет»: спора её не глушит, облако токсина не мешает (сцена выставляет каждый кадр). */
+  immune = false;
   private coneClock = 0;
   private coneOn = false;
   private cone: Phaser.GameObjects.Image | null = null;
@@ -1560,9 +1562,9 @@ export class Tower {
     return found;
   }
 
-  /** Подействует ли выстрел на бактерию: Холод — если она может замёрзнуть и ещё не заморожена; Пластырь — если может прилипнуть и ещё не приклеена; остальные башни бьют всех. */
+  /** Подействует ли выстрел на бактерию: Холод — если она может замёрзнуть (не заморожена, вид замерзает, окно после оттаивания прошло); Пластырь — если может прилипнуть и ещё не приклеена; остальные башни бьют всех. */
   private canAffect(b: Bacterium): boolean {
-    if (this.cfg.targeting === 'freeze') return !b.frozen && CONFIG.types[b.kind].freezeImmune === 0;
+    if (this.cfg.targeting === 'freeze') return b.freezable;
     if (this.cfg.targeting === 'trap') return !b.trapped && CONFIG.types[b.kind].trapImmune === 0;
     return true;
   }

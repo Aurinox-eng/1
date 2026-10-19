@@ -7,7 +7,7 @@ name: Лестница (боты по уровням)
 run-name: ${{ github.event_name == 'push' && format('Лестница · по файлу запроса · {0}', github.sha) || format('Лестница · {0} · {1} дор. · до {2} парт. · уровни 1–{3}', inputs.profile, inputs.lanes, inputs.k, inputs.to_level) }}
 
 on:
-  # Без кнопки: изменить `.github/ladder-request.json` (поля profile, lanes, k, to_level, speed, cfg, farm) и сделать push в рабочую ветку; кнопка Run workflow
+  # Без кнопки: изменить `.github/ladder-request.json` (поля profile, mut, lanes, k, to_level, speed, cfg, farm) и сделать push в рабочую ветку; кнопка Run workflow
   # появляется на вкладке Actions, только когда этот файл уже лежит в main.
   push:
     branches: ['claude/**']
@@ -19,9 +19,13 @@ on:
         type: string
         default: ''
       profile:
-        description: 'Профиль бота: novice, average, strong, expert или zone («всё у Z»: Таблетки и Сироп вокруг развилки Z)'
+        description: 'Стратегия эксперта (профиль один): expert, zone, solo:X, pair:a+b, focus:a+b, core:a+b'
         type: string
-        default: strong
+        default: expert
+      mut:
+        description: 'Набор мутаций: пусто — по умолчанию, alt — второй набор, или «башня:мутация,мутация;…»'
+        type: string
+        default: ''
       lanes:
         description: 'Сколько дорожек (независимых игроков), 1–10'
         type: string
@@ -66,6 +70,10 @@ on:
         description: 'Номер прогона (run id), из вложений которого берётся состояние дорожек при from_level больше 1 (его дорожки должны быть теми же профилем и номерами)'
         type: string
         default: ''
+      norender:
+        description: '1 — бот без рисования сцены (≈ ×3–5 быстрее, волны гибели совпадают с рисованием — сверка 19 октября 2026); 0 — с рисованием'
+        type: string
+        default: '1'
       max_parallel:
         description: 'Сколько дорожек одной серии идёт одновременно (по умолчанию 7). На аккаунте 20 мест на все задачи: две серии по 7 дорожек занимают 14, и для проверок (smoke) остаётся не меньше 6; больше двух серий одновременно не запускать'
         type: string
@@ -81,6 +89,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       profile: ${{ steps.plan.outputs.profile }}
+      mut: ${{ steps.plan.outputs.mut }}
       lanes: ${{ steps.plan.outputs.lanes }}
       k: ${{ steps.plan.outputs.k }}
       to_level: ${{ steps.plan.outputs.to_level }}
@@ -108,6 +117,7 @@ jobs:
         env:
           EVENT_NAME: ${{ github.event_name }}
           PROFILE: ${{ inputs.profile }}
+          MUT: ${{ inputs.mut }}
           LANES: ${{ inputs.lanes }}
           K: ${{ inputs.k }}
           TO_LEVEL: ${{ inputs.to_level }}
@@ -139,6 +149,7 @@ jobs:
       prev: 0
       sha: ${{ needs.plan.outputs.sha }}
       profile: ${{ needs.plan.outputs.profile }}
+      mut: ${{ needs.plan.outputs.mut }}
       lanes_json: ${{ needs.plan.outputs.lanes }}
       k: ${{ needs.plan.outputs.k }}
       speed: ${{ needs.plan.outputs.speed }}
@@ -149,6 +160,7 @@ jobs:
       chunked: ${{ needs.plan.outputs.chunked }}
       budget_sec: ${{ inputs.budget_sec || '19800' }}
       max_parallel: ${{ needs.plan.outputs.max_parallel }}
+      norender: ${{ inputs.norender || '1' }}
 
   l02:
     name: Уровень 2
@@ -161,6 +173,7 @@ jobs:
       prev: 1
       sha: ${{ needs.plan.outputs.sha }}
       profile: ${{ needs.plan.outputs.profile }}
+      mut: ${{ needs.plan.outputs.mut }}
       lanes_json: ${{ needs.plan.outputs.lanes }}
       k: ${{ needs.plan.outputs.k }}
       speed: ${{ needs.plan.outputs.speed }}
@@ -171,6 +184,7 @@ jobs:
       chunked: ${{ needs.plan.outputs.chunked }}
       budget_sec: ${{ inputs.budget_sec || '19800' }}
       max_parallel: ${{ needs.plan.outputs.max_parallel }}
+      norender: ${{ inputs.norender || '1' }}
 
   l03:
     name: Уровень 3
@@ -183,6 +197,7 @@ jobs:
       prev: 2
       sha: ${{ needs.plan.outputs.sha }}
       profile: ${{ needs.plan.outputs.profile }}
+      mut: ${{ needs.plan.outputs.mut }}
       lanes_json: ${{ needs.plan.outputs.lanes }}
       k: ${{ needs.plan.outputs.k }}
       speed: ${{ needs.plan.outputs.speed }}
@@ -193,6 +208,7 @@ jobs:
       chunked: ${{ needs.plan.outputs.chunked }}
       budget_sec: ${{ inputs.budget_sec || '19800' }}
       max_parallel: ${{ needs.plan.outputs.max_parallel }}
+      norender: ${{ inputs.norender || '1' }}
 
   l04:
     name: Уровень 4
@@ -205,6 +221,7 @@ jobs:
       prev: 3
       sha: ${{ needs.plan.outputs.sha }}
       profile: ${{ needs.plan.outputs.profile }}
+      mut: ${{ needs.plan.outputs.mut }}
       lanes_json: ${{ needs.plan.outputs.lanes }}
       k: ${{ needs.plan.outputs.k }}
       speed: ${{ needs.plan.outputs.speed }}
@@ -215,6 +232,7 @@ jobs:
       chunked: ${{ needs.plan.outputs.chunked }}
       budget_sec: ${{ inputs.budget_sec || '19800' }}
       max_parallel: ${{ needs.plan.outputs.max_parallel }}
+      norender: ${{ inputs.norender || '1' }}
 
   l05:
     name: Уровень 5
@@ -227,6 +245,7 @@ jobs:
       prev: 4
       sha: ${{ needs.plan.outputs.sha }}
       profile: ${{ needs.plan.outputs.profile }}
+      mut: ${{ needs.plan.outputs.mut }}
       lanes_json: ${{ needs.plan.outputs.lanes }}
       k: ${{ needs.plan.outputs.k }}
       speed: ${{ needs.plan.outputs.speed }}
@@ -237,6 +256,7 @@ jobs:
       chunked: ${{ needs.plan.outputs.chunked }}
       budget_sec: ${{ inputs.budget_sec || '19800' }}
       max_parallel: ${{ needs.plan.outputs.max_parallel }}
+      norender: ${{ inputs.norender || '1' }}
 
   l06:
     name: Уровень 6
@@ -249,6 +269,7 @@ jobs:
       prev: 5
       sha: ${{ needs.plan.outputs.sha }}
       profile: ${{ needs.plan.outputs.profile }}
+      mut: ${{ needs.plan.outputs.mut }}
       lanes_json: ${{ needs.plan.outputs.lanes }}
       k: ${{ needs.plan.outputs.k }}
       speed: ${{ needs.plan.outputs.speed }}
@@ -259,6 +280,7 @@ jobs:
       chunked: ${{ needs.plan.outputs.chunked }}
       budget_sec: ${{ inputs.budget_sec || '19800' }}
       max_parallel: ${{ needs.plan.outputs.max_parallel }}
+      norender: ${{ inputs.norender || '1' }}
 
   l07:
     name: Уровень 7
@@ -271,6 +293,7 @@ jobs:
       prev: 6
       sha: ${{ needs.plan.outputs.sha }}
       profile: ${{ needs.plan.outputs.profile }}
+      mut: ${{ needs.plan.outputs.mut }}
       lanes_json: ${{ needs.plan.outputs.lanes }}
       k: ${{ needs.plan.outputs.k }}
       speed: ${{ needs.plan.outputs.speed }}
@@ -281,6 +304,7 @@ jobs:
       chunked: ${{ needs.plan.outputs.chunked }}
       budget_sec: ${{ inputs.budget_sec || '19800' }}
       max_parallel: ${{ needs.plan.outputs.max_parallel }}
+      norender: ${{ inputs.norender || '1' }}
 
   l08:
     name: Уровень 8
@@ -293,6 +317,7 @@ jobs:
       prev: 7
       sha: ${{ needs.plan.outputs.sha }}
       profile: ${{ needs.plan.outputs.profile }}
+      mut: ${{ needs.plan.outputs.mut }}
       lanes_json: ${{ needs.plan.outputs.lanes }}
       k: ${{ needs.plan.outputs.k }}
       speed: ${{ needs.plan.outputs.speed }}
@@ -303,6 +328,7 @@ jobs:
       chunked: ${{ needs.plan.outputs.chunked }}
       budget_sec: ${{ inputs.budget_sec || '19800' }}
       max_parallel: ${{ needs.plan.outputs.max_parallel }}
+      norender: ${{ inputs.norender || '1' }}
 
   l09:
     name: Уровень 9
@@ -315,6 +341,7 @@ jobs:
       prev: 8
       sha: ${{ needs.plan.outputs.sha }}
       profile: ${{ needs.plan.outputs.profile }}
+      mut: ${{ needs.plan.outputs.mut }}
       lanes_json: ${{ needs.plan.outputs.lanes }}
       k: ${{ needs.plan.outputs.k }}
       speed: ${{ needs.plan.outputs.speed }}
@@ -325,6 +352,7 @@ jobs:
       chunked: ${{ needs.plan.outputs.chunked }}
       budget_sec: ${{ inputs.budget_sec || '19800' }}
       max_parallel: ${{ needs.plan.outputs.max_parallel }}
+      norender: ${{ inputs.norender || '1' }}
 
   l10:
     name: Уровень 10
@@ -337,6 +365,7 @@ jobs:
       prev: 9
       sha: ${{ needs.plan.outputs.sha }}
       profile: ${{ needs.plan.outputs.profile }}
+      mut: ${{ needs.plan.outputs.mut }}
       lanes_json: ${{ needs.plan.outputs.lanes }}
       k: ${{ needs.plan.outputs.k }}
       speed: ${{ needs.plan.outputs.speed }}
@@ -347,6 +376,7 @@ jobs:
       chunked: ${{ needs.plan.outputs.chunked }}
       budget_sec: ${{ inputs.budget_sec || '19800' }}
       max_parallel: ${{ needs.plan.outputs.max_parallel }}
+      norender: ${{ inputs.norender || '1' }}
 
   report:
     name: Итоговая таблица
@@ -366,10 +396,16 @@ jobs:
           pattern: ladder-res-*
           path: results
           merge-multiple: true
+      # первые задачи уровней, доигранных двумя задачами: файлы с тем же именем, что у продолжения, — отдельной папкой (их «⚠» и ошибки — в раздел «Проблемы»)
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          pattern: ladder-chunk-*
+          path: chunks
       - name: Собрать таблицу
         run: |
-          mkdir -p out
-          node qa/bot-report.mjs results --title="Итог лестницы" > out/summary.md
+          mkdir -p out chunks
+          node qa/bot-report.mjs results --chunks=chunks --title="Итог лестницы" > out/summary.md
           cat out/summary.md >> "$GITHUB_STEP_SUMMARY"
           echo "================ ИТОГ ЛЕСТНИЦЫ (то же, что в Summary) ================"
           cat out/summary.md

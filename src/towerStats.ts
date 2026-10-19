@@ -1,4 +1,4 @@
-import { damageMul, upgradeBonus } from './meta';
+import { damageMul, keyOwned, upgradeBonus } from './meta';
 import { CONFIG, type MutationSpec, type Targeting, type TowerSide, type UpgradeBranch, type UpgradeEffect } from './config';
 
 export type TowerKey = keyof typeof CONFIG.towers;
@@ -53,6 +53,16 @@ export interface TowerStats extends TowerRow {
   acidMul: number;
   secondBeam: boolean;
   spiral: number;
+  /** Ключевые узлы древа (`keyNodes`; 0 / false — узел не куплен): доля урона рикошета Таблетки; осколков взрыва Шипучки; секунд без брони у первой цели луча Шприца;
+   *  доля урона взрыва убитой Ампулой бактерии; яд Антибиотика переходит на соседа; множитель урона по бактериям в круге Лампы; башни в ауре Витамина не глушатся; множитель урона по замёрзшим. */
+  ricochet: number;
+  shards: number;
+  armorBreakSec: number;
+  killBurst: number;
+  epidemic: boolean;
+  spotlight: number;
+  immunity: boolean;
+  brittle: number;
 }
 
 /** Цена постройки башни в монетах: строка таблицы с учётом улучшения «цена башни» (округляется вверх до целого). Слияние бесплатно, продажа считается от этой цены. */
@@ -60,8 +70,6 @@ export function towerPrice(id: TowerKey): number {
   return Math.max(1, Math.ceil(CONFIG.towers[id].price * (1 + upgradeBonus('price', id as UpgradeBranch)) - 1e-9));
 }
 
-/** Самый широкий конус Лампы после мутаций, градусов (правило отрисовки и попадания, не число баланса). */
-const MAX_CONE_DEG = 120;
 
 /** Самый высокий уровень башни. */
 export const MAX_TOWER_LEVEL = CONFIG.towerLevels.length;
@@ -115,7 +123,20 @@ export function computeStats(id: TowerKey, level: number, picks: readonly string
     acidMul: 1,
     secondBeam: false,
     spiral: 0,
+    ricochet: 0,
+    shards: 0,
+    armorBreakSec: 0,
+    killBurst: 0,
+    epidemic: false,
+    spotlight: 1,
+    immunity: false,
+    brittle: 1,
   };
+  const caps = CONFIG.mutationCaps;
+  // Насколько мутации подняли урон в секунду (для потолка `mutationCaps.dpsMul`): урон, частота, лишние цели, удары очереди, яд
+  let mutDamage = 1;
+  let mutRate = 1;
+  let mutDot = 1;
   s.damage = base.damage * lv.damageMul;
   s.dotPerSec = base.dotPerSec * lv.damageMul;
   s.trapDps = base.trapDps * lv.damageMul;
@@ -128,7 +149,7 @@ export function computeStats(id: TowerKey, level: number, picks: readonly string
   s.slowFactor = base.slowFactor < 1 ? Math.pow(base.slowFactor, lv.slowPower) : 1;
   s.beamPulses = base.beamPulses > 0 ? base.beamPulses + lv.pulsesAdd : 0;
   // Мутации складываются при слиянии (решение владельца 8 октября 2026, docs/expert-plan.md, раздел 4): в списке `picks` бывают повторы;
-  // k-й экземпляр одной и той же мутации даёт долю `mutationStack.copyShares[k]` своего эффекта (100 % / 50 % / 25 %). Особые мутации (бронебойность, второй луч и т. п.) работают один раз.
+  // k-й экземпляр одной и той же мутации даёт долю `mutationStack.copyShares[k]` своего эффекта (100 % / 50 % / 25 % / 0). Особые мутации (бронебойность, второй луч и т. п.) работают один раз.
   const shares = CONFIG.mutationStack.copyShares;
   const seen = new Map<string, number>();
   for (const pickId of picks) {
@@ -139,17 +160,23 @@ export function computeStats(id: TowerKey, level: number, picks: readonly string
     const share = shares[Math.min(k, shares.length - 1)];
     const scaled = (mul: number): number => 1 + (mul - 1) * share;
     const whole = (n: number): number => (k === 0 ? n : Math.floor(n * share + 0.5));
-    if (spec.damageMul) s.damage *= scaled(spec.damageMul);
-    if (spec.cooldownMul) s.cooldownMs *= scaled(spec.cooldownMul);
+    if (spec.damageMul) {
+      s.damage *= scaled(spec.damageMul);
+      mutDamage *= scaled(spec.damageMul);
+    }
+    if (spec.cooldownMul) {
+      s.cooldownMs *= scaled(spec.cooldownMul);
+      mutRate /= scaled(spec.cooldownMul);
+    }
     if (spec.blastMul) s.blastRadius *= scaled(spec.blastMul);
     if (spec.puddleRadiusMul) s.puddleRadius *= scaled(spec.puddleRadiusMul);
-    if (spec.slowFactor !== undefined) s.slowFactor = k === 0 ? Math.min(s.slowFactor, spec.slowFactor) : Math.max(0.1, s.slowFactor * (1 - (1 - spec.slowFactor) * share));
+    if (spec.slowFactor !== undefined && share > 0) s.slowFactor = k === 0 ? Math.min(s.slowFactor, spec.slowFactor) : s.slowFactor * (1 - (1 - spec.slowFactor) * share);
     if (spec.pulsesAdd && s.beamPulses > 0) s.beamPulses += whole(spec.pulsesAdd);
     if (spec.armorPierce) s.armorPierce = true;
     if (spec.extraTargets) s.extraTargets += whole(spec.extraTargets);
     if (spec.toughest) s.toughest = true;
     if (spec.poisonPerSec) s.poisonPerSec += spec.poisonPerSec * share;
-    if (spec.puddleCount) s.puddleCount = k === 0 ? Math.max(s.puddleCount, spec.puddleCount) : s.puddleCount + (k === 1 ? 1 : 0);
+    if (spec.puddleCount && share > 0) s.puddleCount = k === 0 ? Math.max(s.puddleCount, spec.puddleCount) : s.puddleCount + (k === 1 ? 1 : 0);
     if (spec.chain) s.chain = true;
     if (spec.acidSec) {
       s.acidSec = Math.max(s.acidSec, spec.acidSec);
@@ -158,14 +185,25 @@ export function computeStats(id: TowerKey, level: number, picks: readonly string
     if (spec.secondBeam) s.secondBeam = true;
     if (spec.spiral) s.spiral += spec.spiral * share;
     if (spec.dotSecMul) s.dotSec *= scaled(spec.dotSecMul);
-    if (spec.dotDpsMul) s.dotPerSec *= scaled(spec.dotDpsMul);
-    if (spec.coneMul) s.coneDeg = Math.min(MAX_CONE_DEG, s.coneDeg * scaled(spec.coneMul));
+    if (spec.dotDpsMul) {
+      s.dotPerSec *= scaled(spec.dotDpsMul);
+      mutDot *= scaled(spec.dotDpsMul);
+    }
+    if (spec.coneMul) s.coneDeg = Math.min(caps.coneDeg, s.coneDeg * scaled(spec.coneMul));
     if (spec.rangeMul) s.range *= scaled(spec.rangeMul);
     if (spec.auraBonusMul) auraBonus *= scaled(spec.auraBonusMul);
     if (spec.freezeMul) s.freezeSec *= scaled(spec.freezeMul);
     if (spec.trapSecMul) s.trapSec *= scaled(spec.trapSecMul);
     if (spec.trapDpsMul) s.trapDps *= scaled(spec.trapDpsMul);
   }
+  // Потолки мутаций (документ дизайна docs/redesign-2026-10-19.md, п. 4.2): лишних целей и ударов очереди не больше заданного; урон в секунду от всех мутаций — не выше dpsMul к башне без мутаций
+  const basePulses = base.beamPulses > 0 ? base.beamPulses + lv.pulsesAdd : 0;
+  s.extraTargets = Math.min(caps.extraTargetsMax, s.extraTargets);
+  if (s.beamPulses > 0) s.beamPulses = Math.min(caps.pulsesMax, s.beamPulses);
+  const mutDps = mutDamage * mutRate * (1 + s.extraTargets) * (basePulses > 0 ? s.beamPulses / basePulses : 1);
+  if (mutDps > caps.dpsMul) s.damage *= caps.dpsMul / mutDps;
+  const mutDotDps = mutDot * mutRate * (1 + s.extraTargets);
+  if (mutDotDps > caps.dpsMul) s.dotPerSec *= caps.dpsMul / mutDotDps;
   // Улучшения вне партии ветки этой башни (docs/upgrades.md, раздел 12): пауза, радиусы, лужа, замедление, луч
   const bonus = (effect: UpgradeEffect): number => upgradeBonus(effect, id as UpgradeBranch);
   s.damage *= 1 + bonus('towerDamage');
@@ -175,8 +213,9 @@ export function computeStats(id: TowerKey, level: number, picks: readonly string
   s.puddleSec *= 1 + bonus('puddleSec');
   s.puddleRadius *= 1 + bonus('puddleRadius');
   if (s.slowFactor < 1 && bonus('slowFactor') !== 0) s.slowFactor = Math.max(CONFIG.meta.minSlowFactor, s.slowFactor + bonus('slowFactor'));
+  if (s.slowFactor < 1) s.slowFactor = Math.max(CONFIG.meta.minSlowFactor, s.slowFactor);
   if (s.beamPulses > 0) {
-    s.beamPulses += Math.floor(bonus('pulses'));
+    s.beamPulses = Math.min(caps.pulsesMax, s.beamPulses + Math.floor(bonus('pulses')));
     s.beamHalfWidthPx += bonus('beamWidth');
   }
   // Аура Витамина: множитель паузы уровня (1-й уровень — auraMul, дальше на auraStep меньше) и улучшения ветки; прибавку (1 − множитель) усиливают мутации
@@ -189,5 +228,21 @@ export function computeStats(id: TowerKey, level: number, picks: readonly string
   s.dotPerSec *= (1 + bonus('towerDamage')) * damageMul();
   s.trapDps *= (1 + bonus('towerDamage')) * damageMul();
   s.freezeSec *= 1 + bonus('freezeTime');
+  // Заморозка Холода — не дольше доли его паузы (иначе бактерия в радиусе не оттаивала бы)
+  if (s.freezeSec > 0) s.freezeSec = Math.min(s.freezeSec, (s.cooldownMs / 1000) * caps.freezeShareOfCooldown);
+  // Ключевой узел ветки этой башни (документ дизайна, раздел 5.2)
+  if (keyOwned(id)) {
+    const k = CONFIG.keyNodes;
+    if (id === 'pill') s.ricochet = k.pill.damageShare;
+    else if (id === 'syrup') s.puddleCount += k.syrup.extraPuddles;
+    else if (id === 'fizz') s.shards = k.fizz.shards;
+    else if (id === 'syringe') s.armorBreakSec = k.syringe.armorBreakSec;
+    else if (id === 'ampule') s.killBurst = k.ampule.damageShare;
+    else if (id === 'antibiotic') s.epidemic = true;
+    else if (id === 'lamp') s.spotlight = k.lamp.damageMul;
+    else if (id === 'vitamin') s.immunity = k.vitamin.immune > 0;
+    else if (id === 'frost') s.brittle = k.frost.damageMul;
+    else if (id === 'patch') s.extraTargets = Math.min(caps.extraTargetsMax, s.extraTargets + k.patch.extraTargets);
+  }
   return s;
 }

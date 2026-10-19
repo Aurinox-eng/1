@@ -1,7 +1,8 @@
 import Phaser from 'phaser';
 import { CONFIG } from '../config';
 import { t } from '../i18n';
-import { hasProgress, metaDna, resetProgress } from '../meta';
+import { attemptLog, hasProgress, metaDna, resetProgress } from '../meta';
+import { copyText } from '../attempt';
 import { setCurrentLevel } from '../progress';
 import { forgetNews } from './GameScene';
 import { sfx } from '../sound';
@@ -77,11 +78,32 @@ export class MenuScene extends Phaser.Scene {
         })
       : null;
 
+    // «Скопировать все попытки» (строки итога последних попыток, по строке на попытку): маленькая кнопка в левом нижнем углу, левее «Альманаха»; показывается, когда в журнале есть строки
+    const log = attemptLog();
+    let copyAll: Rect | null = null;
+    if (log.length > 0) {
+      // под кнопкой — получилось ли скопировать (сама кнопка надпись не меняет)
+      const status = this.add.text(190, 700, '', textStyle(20, TEXT_COLORS.soft, false)).setOrigin(0.5);
+      copyAll = addButton(this, {
+        x: 190,
+        y: 650,
+        w: 340,
+        h: 56,
+        label: t('copyAllAttempts'),
+        fontSize: 24,
+        fill: 0x2a3550,
+        line: 0x4a5c82,
+        onTap: () => {
+          void copyText(log.join('\n')).then((ok) => status.setText(t(ok ? 'copyAttemptDone' : 'copyAttemptFail')));
+        },
+      });
+    }
+
     // Знак авторского права внизу по центру: ниже кнопки «Альманах» (низ — y 678), над краем экрана остаётся запас
     const copyright = this.add.text(W / 2, H - 18, t('copyright'), textStyle(20, TEXT_COLORS.soft, false)).setOrigin(0.5);
     setScreenInfo(() =>
       this.scene.isActive()
-        ? { scene: 'menu', buttons: { play, upgrades, almanac, sound, ...(reset ? { reset } : {}), ...(dialog ? { resetYes: dialog.yes, resetNo: dialog.no } : {}) }, texts: [title.text, balance.text, ...(dialog ? dialog.texts : [])], labels: { copyright: { x: copyright.x, y: copyright.y, w: copyright.width, h: copyright.height }, ...(dialog ? { resetPlate: dialog.plate } : {}) } }
+        ? { scene: 'menu', buttons: { play, upgrades, almanac, sound, ...(reset ? { reset } : {}), ...(copyAll ? { copyAll } : {}), ...(dialog ? { resetYes: dialog.yes, resetNo: dialog.no } : {}) }, texts: [title.text, balance.text, ...(dialog ? dialog.texts : [])], labels: { copyright: { x: copyright.x, y: copyright.y, w: copyright.width, h: copyright.height }, ...(dialog ? { resetPlate: dialog.plate } : {}) } }
         : null,
     );
   }

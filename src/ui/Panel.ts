@@ -2,7 +2,7 @@ import Phaser from 'phaser';
 import { CONFIG } from '../config';
 import { t, type TextKey } from '../i18n';
 import { createTowerArt, type TowerId } from '../objects/Tower';
-import { isTowerOpen, unlockLevel } from '../progress';
+import { isTowerOpen } from '../progress';
 import { towerPrice } from '../towerStats';
 import { COLORS, FONT, TEXT_COLORS } from '../theme';
 import { drawPlate, roundButton, waveButton as waveButtonTexture } from './panelArt';
@@ -135,9 +135,10 @@ export class Panel {
     private readonly scene: Phaser.Scene,
     private readonly callbacks: PanelCallbacks,
   ) {
-    // Открытые — по таблице башен; закрытые — по порядку открытия (с какого уровня башня доступна; при равенстве — по таблице)
+    // Открытые — по таблице башен; закрытые — по цене узла в древе (по порядку открытия)
     const open = TOWER_IDS.filter((id) => isTowerOpen(id));
-    const locked = TOWER_IDS.filter((id) => !open.includes(id)).sort((a, b) => unlockLevel(a) - unlockLevel(b));
+    const nodePrice = (id: TowerId): number => CONFIG.meta.upgrades[`tower${id.charAt(0).toUpperCase()}${id.slice(1)}`]?.prices[0] ?? 0;
+    const locked = TOWER_IDS.filter((id) => !open.includes(id)).sort((a, b) => nodePrice(a) - nodePrice(b));
     this.order = [...open, ...locked];
 
     // ---- верхняя полоса: только вывод
@@ -512,7 +513,7 @@ export class Panel {
       veil.fillStyle(0x070d1c, 0.7).fillRoundedRect(0, 0, CARD.w, CARD.h, 12);
       box.add(veil);
       box.add(this.lockIcon(CARD.w / 2, 36));
-      const lock = this.text(CARD.w / 2, 74, t('lockedLevel', { n: unlockLevel(id) }), 17, TEXT_COLORS.soft).setDepth(0);
+      const lock = this.text(CARD.w / 2, 74, t('lockedTree'), 17, TEXT_COLORS.soft).setDepth(0);
       if (lock.width > CARD.w - 10) lock.setScale((CARD.w - 10) / lock.width);
       box.add(lock);
     }
