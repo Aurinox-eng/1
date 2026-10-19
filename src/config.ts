@@ -334,8 +334,9 @@ export const CONFIG = {
           incomeBase: 25,
           incomePerWave: 7,
           incomeMiniBoss: 60,
-          /** Прочность одной бактерии: HP вида × hpScale × (n/8)^1,75 после 8-й волны (×2,03 на 12-й, ×10,1 на 30-й, ×24,6 на 50-й). */
-          hpScale: 1,
+          /** Прочность одной бактерии: HP вида × hpScale × (n/8)^1,75 после 8-й волны (×2,03 на 12-й, ×10,1 на 30-й, ×24,6 на 50-й).
+           *  hpScale 1,4 — по серии 10.2 (19 октября 2026): сильнейшая стратегия (сосредоточение Таблетка + Шприц) сильнее модели в 0,0305 / 0,022 ≈ 1,39 раза, прочность поднята под 10 попыток модели. */
+          hpScale: 1.4,
           hpFlatUntil: 8,
           hpExp: 1.75,
           /** Броня растёт с волной: × (1 + 0,03 · (n − 1)) — бронированная 3 на 1-й волне, 5,2 на 25-й, 7,4 на 50-й. */
@@ -934,19 +935,19 @@ export const CONFIG = {
   // ------------------------------------------------------------
   //  БОССЫ И МИНИ-БОССЫ (документ дизайна docs/redesign-2026-10-19.md, раздел 7.2; колонки — у типа `BossSpec`)
   // ------------------------------------------------------------
-  //  Прочность — доля прочности своей волны по модели: 35 % у мини-боссов, 50 % у босса. Дошедший мини-босс отнимает 5 жизней, дошедший босс — поражение сразу.
+  //  Прочность — доля прочности своей волны по модели: 35 % у мини-боссов, 50 % у босса; ×1,4 по серии 10.2 (как `plan.hpScale` уровня 1). Дошедший мини-босс отнимает 5 жизней, дошедший босс — поражение сразу.
   bosses: {
     /** Колония (10-я волна): медленная (×0,5); на половине прочности и при гибели выпускает по 6 кокков. */
-    colony: { base: 'coccus', hp: 226, speedFactor: 0.5, armor: 0, lifeDamage: 5, color: 0x7be07b, burstAt: 0.5, burstKind: 'coccus', burstCount: 6, burstOnDeath: true },
+    colony: { base: 'coccus', hp: 316, speedFactor: 0.5, armor: 0, lifeDamage: 5, color: 0x7be07b, burstAt: 0.5, burstKind: 'coccus', burstCount: 6, burstOnDeath: true },
     /** Вожак палочек (20-я волна): рывок раз в 2 с; палочки ближе 150 px делают рывки вдвое чаще; замедляется не сильнее ×0,6. */
-    rodLeader: { base: 'rod', hp: 1029, speedFactor: 1, armor: 0, lifeDamage: 5, color: 0x5aa8ff, dashEverySec: 2, dashSec: 1, dashFactor: 2.5, rallyRadius: 150, rallyDashMul: 2, slowFloor: 0.6 },
+    rodLeader: { base: 'rod', hp: 1441, speedFactor: 1, armor: 0, lifeDamage: 5, color: 0x5aa8ff, dashEverySec: 2, dashSec: 1, dashFactor: 2.5, rallyRadius: 150, rallyDashMul: 2, slowFloor: 0.6 },
     /** Броненосец (30-я волна): броня 13; на половине прочности сбрасывает панцирь — броня 0, скорость ×1,5. */
-    armadillo: { base: 'armored', hp: 3061, speedFactor: 0.55, armor: 13, lifeDamage: 5, color: 0xb88cff, phases: [{ below: 0.5, armor: 0, speedMul: 1.5 }] },
+    armadillo: { base: 'armored', hp: 4285, speedFactor: 0.55, armor: 13, lifeDamage: 5, color: 0xb88cff, phases: [{ below: 0.5, armor: 0, speedMul: 1.5 }] },
     /** Матка роя (40-я волна): раз в 3 с выпускает 6 роёв; каждые 15 с — капсула на 3 с (неуязвима, видна как пузырь). */
-    swarmQueen: { base: 'brood', hp: 6891, speedFactor: 0.7, armor: 0, lifeDamage: 5, color: 0x5fe0d0, spawnKind: 'swarm', spawnEverySec: 3, spawnCount: 6, capsuleEverySec: 15, capsuleSec: 3 },
+    swarmQueen: { base: 'brood', hp: 9647, speedFactor: 0.7, armor: 0, lifeDamage: 5, color: 0x5fe0d0, spawnKind: 'swarm', spawnEverySec: 3, spawnCount: 6, capsuleEverySec: 15, capsuleSec: 3 },
     /** Гигантская колония (50-я волна; прочность 33 815 — стена босса 3,8 вместо 3,3: без «Лихорадки» сильнейшая стратегия её не проходит, решение владельца 19 октября 2026, сводное сообщение, п. 3.2): три фазы — 100–66 % медленно и выпускает кокков; 66–33 % броня 6 и палочки пачками; 33–0 % скорость ×1,6 и самолечение 1 % прочности в секунду. */
     giantColony: {
-      base: 'giant', hp: 33815, speedFactor: 0.4, armor: 0, lifeDamage: -1, color: 0xff6a5a, spawnKind: 'coccus', spawnEverySec: 4, spawnCount: 4,
+      base: 'giant', hp: 47341, speedFactor: 0.4, armor: 0, lifeDamage: -1, color: 0xff6a5a, spawnKind: 'coccus', spawnEverySec: 4, spawnCount: 4,
       phases: [{ below: 0.66, armor: 6, spawnKind: 'rod', spawnEverySec: 5, spawnCount: 3 }, { below: 0.33, armor: 0, speedMul: 1.6, regenShare: 0.01, spawnCount: 0 }],
     },
   } as Record<BossId, BossSpec>,
