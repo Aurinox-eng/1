@@ -17,6 +17,8 @@ interface Finger {
 export interface GestureHandlers {
   /** Можно ли сейчас двигать карту и тапать по ней (нет паузы, конца уровня). */
   isActive: () => boolean;
+  /** Нажатие не начинает жест карты, хотя карта уже активна: его приняла кнопка интерфейса в этом же кадре (например, «Продолжить» сняла паузу). */
+  startBlocked: () => boolean;
   /** Короткое касание без сдвига; координаты — на экране игры. */
   onTap: (sx: number, sy: number) => void;
   /** Мышь движется над картой (для «призрака» башни). */
@@ -53,7 +55,7 @@ export class MapGestures {
   }
 
   private onDown(pointer: Phaser.Input.Pointer): void {
-    if (!this.handlers.isActive() || !this.inView(pointer)) return;
+    if (!this.handlers.isActive() || this.handlers.startBlocked() || !this.inView(pointer)) return;
     if (!pointer.wasTouch && pointer.button !== 0) return; // только левая кнопка мыши или касание
     this.handlers.onHoverEnd();
     this.fingers.set(pointer.id, { startX: pointer.x, startY: pointer.y, x: pointer.x, y: pointer.y, downAt: performance.now(), moved: false });

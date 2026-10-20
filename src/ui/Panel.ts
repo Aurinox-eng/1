@@ -207,7 +207,15 @@ export class Panel {
     scene.add.image(PAUSE_BTN.x, CTRL_Y, roundButton(scene, PAUSE_BTN.r)).setDepth(D.item + 1);
     scene.add.rectangle(PAUSE_BTN.x - 9, CTRL_Y, 8, 30, 0xffffff).setDepth(D.item + 2);
     scene.add.rectangle(PAUSE_BTN.x + 9, CTRL_Y, 8, 30, 0xffffff).setDepth(D.item + 2);
-    scene.add.zone(PAUSE_BTN.x, CTRL_Y, PAUSE_BTN.r * 2, PAUSE_BTN.r * 2).setDepth(D.item + 4).setInteractive({ useHandCursor: true }).on('pointerdown', callbacks.onPause);
+    // Нажатие кнопки паузы до карты и до «тап по экрану продолжает игру» не доходит (решение владельца 20 октября 2026, сообщение 2, п. 1.3)
+    scene.add
+      .zone(PAUSE_BTN.x, CTRL_Y, PAUSE_BTN.r * 2, PAUSE_BTN.r * 2)
+      .setDepth(D.item + 4)
+      .setInteractive({ useHandCursor: true })
+      .on('pointerdown', (_pointer: Phaser.Input.Pointer, _lx: number, _ly: number, event: Phaser.Types.Input.EventData) => {
+        event.stopPropagation();
+        callbacks.onPause();
+      });
 
     // ---- подсказка «◀ Организм» у левого края окна карты
     this.chipBg = scene.add.graphics();

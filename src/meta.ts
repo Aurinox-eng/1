@@ -1,14 +1,16 @@
 /**
  * Очки ДНК и улучшения вне партии: текущее состояние, начисление, покупка и бонусы для партии (проект — docs/upgrades.md).
  *
- * Состояние читается из сохранения один раз при загрузке страницы и после каждого изменения записывается обратно.
+ * Состояние читается из сохранения при загрузке страницы; каждое изменение (покупка, начисление, попытка, звёзды, плашки) сначала перечитывает последнее сохранённое состояние,
+ * применяется к нему и записывается обратно, а запись из другой вкладки (событие `storage`) сразу обновляет снимок: устаревшая вкладка не стирает чужой прогресс
+ * (решение владельца 20 октября 2026, сообщение 2, п. 1.4; сборки main и …/1/work/ делят ключ `pvb.meta5`).
  * В режиме проверки (`?qa&meta=lives:1,coins:2,damage:3,reward:0,dna:50`) начальное состояние берётся из адреса, а в сохранение ничего не пишется;
  * `?qa&stars=3,2,0` задаёт звёзды уровней 1, 2, 3… (остальные — 0), в сохранение тоже ничего не пишется.
  * Прогресс по уровням (звёзды, лучшая волна, показанные плашки) — этап 5, docs/stage-5-plan.md.
  */
 import { CONFIG, type UpgradeBranch, type UpgradeEffect } from './config';
 import { QA_MODE } from './debug';
-import { emptyMeta, loadMeta, MAX_LOG, maxLevel, saveMeta, UPGRADE_IDS, type MetaSave, type UpgradeId } from './save';
+import { emptyMeta, loadMeta, MAX_LOG, maxLevel, META_KEY, saveMeta, tryLoadMeta, UPGRADE_IDS, type MetaSave, type UpgradeId } from './save';
 import { setLevelReachedCheck, setTowerOwnedCheck } from './progress';
 
 function readOverride(): MetaSave | null {
@@ -51,8 +53,25 @@ if (bestOverride) bestOverride.forEach((n, i) => { if (i < state.progress.best.l
 /** С подменой из адреса (`&meta=`, `&stars=`, `&best=`) в сохранение ничего не пишется. */
 const noPersist = override !== null || starsOverride !== null || bestOverride !== null;
 
+/** Хранилище принимает записи: после неудачной записи память страницы новее хранилища, и перечитывать его нельзя (стёрлись бы свои изменения). */
+let storageOk = true;
+
 function persist(): void {
-  if (!noPersist) saveMeta(state);
+  if (!noPersist) storageOk = saveMeta(state);
+}
+
+/** Перечитывает последнее сохранённое состояние (его могла записать другая вкладка) — перед каждым изменением; с подменой из адреса и без хранилища снимок живёт только в памяти. */
+function refresh(): void {
+  if (noPersist || !storageOk) return;
+  const fresh = tryLoadMeta();
+  if (fresh) state = fresh;
+}
+
+/** Другая вкладка записала сохранение: снимок этой вкладки обновляется сразу (экран «Улучшения», счёт ДНК в меню). */
+if (!noPersist) {
+  window.addEventListener('storage', (event) => {
+    if (event.key === META_KEY || event.key === null) refresh();
+  });
 }
 
 /** Сбрасывает весь прогресс вне партии (очки ДНК, улучшения, уровни и звёзды, показанные подсказки) и записывает пустое сохранение; звук, скорость и язык хранятся отдельно и не затрагиваются. */
@@ -107,6 +126,7 @@ export function canBuy(id: UpgradeId): boolean {
 
 /** Покупает следующий уровень улучшения; false, если куплен наибольший уровень, узел закрыт или не хватает очков. */
 export function buyUpgrade(id: UpgradeId): boolean {
+  refresh();
   const price = nextPrice(id);
   if (price === null || state.dna < price || !isNodeOpen(id)) return false;
   state = { ...state, dna: state.dna - price, levels: { ...state.levels, [id]: state.levels[id] + 1 }, bought: [...state.bought, id] };
@@ -159,6 +179,7 @@ export function boughtSinceLast(): [UpgradeId, number][] {
 
 /** Конец попытки: счётчик попыток уровня +1, строка итога — в журнал (последние MAX_LOG), список покупок с прошлой попытки очищается. */
 export function finishAttempt(level: number, line: string): void {
+  refresh();
   const attempts = [...state.attempts];
   attempts[level - 1] = (attempts[level - 1] ?? 0) + 1;
   state = { ...state, attempts, log: [...state.log, line].slice(-MAX_LOG), bought: [] };
@@ -239,6 +260,7 @@ export function dnaForGame(input: DnaInput): number {
 
 /** Начисляет очки ДНК за партию на счёт, записывает первые победы над боссами и «без потерь»; возвращает, сколько начислено. */
 export function awardDna(input: DnaInput): number {
+  refresh();
   const parts = dnaParts(input);
   const gained = parts.waves + parts.win + parts.coins + parts.bosses + parts.flawless + parts.floor;
   const i = input.level - 1;
@@ -299,6 +321,7 @@ export interface ResultRecord {
 export function recordResult(level: number, wavesCleared: number, stars: number): ResultRecord {
   const i = level - 1;
   if (i < 0 || i >= state.progress.stars.length) return { stars: 0, newStars: 0, starDna: 0 };
+  refresh();
   const best = state.progress.best.slice();
   const starList = state.progress.stars.slice();
   best[i] = Math.max(best[i], Math.max(0, Math.floor(wavesCleared)));
@@ -321,7 +344,9 @@ export function metaSeen(): string[] {
 }
 
 export function markSeen(key: string): void {
-  if (!SEEN_STORED || state.seen.includes(key) || key.length > 40 || state.seen.length >= 200) return;
+  if (!SEEN_STORED || key.length > 40) return;
+  refresh();
+  if (state.seen.includes(key) || state.seen.length >= 200) return;
   state = { ...state, seen: [...state.seen, key] };
   persist();
 }

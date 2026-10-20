@@ -214,6 +214,7 @@ export function qaSnapshot(s: GameSceneInternals): DebugSnapshot {
       damageNumbers: s.effects.damageNumbers,
       placements: s.effects.placements,
       lifeLosses: s.effects.lifeLosses,
+      lifeFlashes: s.effects.lifeFlashes,
       zaps: s.effects.zaps,
       blasts: s.effects.blasts,
       beams: s.effects.beams,
