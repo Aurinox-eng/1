@@ -31,7 +31,7 @@ const integer = (name, fallback, min, max) => {
 const profile = (env.PROFILE ?? '').trim() || 'expert';
 if (!/^(expert|zone|(solo|pair|focus|core):[a-z]+(\+[a-z]+)?(:l1|:r[2-9])?|core:[a-z]+\+[a-z]+:(save|late([0-9]{1,2})?))$/.test(profile)) fail(`PROFILE=«${profile}»: нужна стратегия эксперта — expert, zone, solo:X, pair:a+b, focus:a+b, core:a+b, core:a+b:save, core:a+b:late[N], <стратегия>:l1 (профили novice, average, strong убраны)`);
 const mut = (env.MUT ?? '').trim() === '-' ? '' : (env.MUT ?? '').trim();
-if (mut && mut !== 'alt' && !/^[a-z]+:\w+(,\w+)*(;[a-z]+:\w+(,\w+)*)*$/.test(mut)) fail(`MUT=«${mut}»: нужно «alt» или «башня:мутация,мутация;…» (пусто — по умолчанию)`);
+if (mut && mut !== 'alt' && !/^(noalt(:\w+(,\w+)*)?|[a-z]+:\w+(,\w+)*)(;(noalt(:\w+(,\w+)*)?|[a-z]+:\w+(,\w+)*))*$/.test(mut)) fail(`MUT=«${mut}»: нужно «alt» или «башня:мутация,мутация;…» (пусто — по умолчанию)`);
 const lanes = integer('LANES', 6, 1, 10);
 const k = integer('K', 8, 1, 20);
 const kTotal = (env.K_TOTAL ?? '').trim() ? integer('K_TOTAL', k, k, 40) : k; // всего партий на уровне (по умолчанию k): больше k — уровень играется несколькими задачами подряд (предел задачи 5 ч 50 мин)
