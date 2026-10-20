@@ -715,8 +715,12 @@ export class GameScene extends Phaser.Scene {
     }
     blocks.push(...rest);
     if (wave.boss) blocks.splice(Math.min(blocks.length, Math.max(head, Math.round(blocks.length * plan.bossEnterShare))), 0, [{ kind: CONFIG.bosses[wave.boss].base, edge: null, gapSec: 0, boss: wave.boss }]);
-    // Промежуток после каждого блока: длительность волны поровну между блоками
-    const gapAfter = duration / Math.max(1, blocks.length);
+    // Длительность волны — по разделу 9 документа дизайна (решение владельца 20 октября 2026, сообщение 2, п. 2.2): промежутки внутри пачек (рой, стена) входят в неё, а не идут сверх;
+    // остаток — поровну после каждого блока. Если промежутки пачек длиннее волны, они сжимаются пропорционально.
+    const inner = blocks.reduce((sum, block) => sum + block.slice(0, -1).reduce((s, item) => s + item.gapSec, 0), 0);
+    const squeeze = inner > duration ? duration / inner : 1;
+    if (squeeze < 1) for (const block of blocks) for (const item of block.slice(0, -1)) item.gapSec *= squeeze;
+    const gapAfter = Math.max(0, duration - inner * squeeze) / Math.max(1, blocks.length);
     for (const block of blocks) block[block.length - 1].gapSec = gapAfter;
     const queue = blocks.flat();
     const income = plan.incomeBase + plan.incomePerWave * n;
