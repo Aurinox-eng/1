@@ -113,11 +113,15 @@ export const BOSS_FIRST = 150; // за первую победу над босс
 export const FLAWLESS = 0.25; // без потери жизней: +25 % ДНК за волны (один раз на уровень)
 
 // ---------------------------------------------------------------- партия и лестница
+/** Поздние волны уровня 1 (`plan.hpLateFrom`, `plan.hpLateExp` в config.ts; решение владельца 20 октября 2026, сообщение 3, п. 3.1): после волны LATE.from прочность × (n / from)^(exp − 1,75) к прежней. */
+export const LATE = { from: 30, exp: 1.75 };
+export const setLateExp = (exp) => { LATE.exp = exp; };
+export const lateMul = (level, n) => (level === 1 && n > LATE.from && n !== BOSS ? Math.pow(n / LATE.from, LATE.exp - 1.75) : 1);
 export function deathWave(level, state, e) {
   for (let n = 1; n <= WAVES; n++) {
     const coinsPlayer = coinsAt(n, state.extraStart ?? 0);
     const coinsBase = coinsAt(n);
-    const req = preq(level, n) * E0 * coinsBase; // урон/с, нужный на волне n
+    const req = preq(level, n) * lateMul(level, n) * E0 * coinsBase; // урон/с, нужный на волне n (босс 50-й — своя прочность, поздний рост его не меняет)
     // «Лихорадка» действует на волнах мини-боссов и босса (её включают перед боссом): сила × FEVER_BOSS
     const fever = state.fever && (MINI.includes(n) || n === BOSS) ? FEVER_BOSS : 1;
     const have = e * coinsPlayer * state.P * fever;

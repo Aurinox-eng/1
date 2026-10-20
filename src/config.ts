@@ -49,7 +49,7 @@ export interface PlanWave {
   boss?: BossId;
 }
 /**
- * План уровня нового формата (раздел 2 и 9 документа дизайна). Прочность одной бактерии на волне n: HP вида × hpScale × (n ≤ hpFlatUntil ? 1 : (n / hpFlatUntil)^hpExp);
+ * План уровня нового формата (раздел 2 и 9 документа дизайна). Прочность одной бактерии на волне n: HP вида × hpScale × (n ≤ hpFlatUntil ? 1 : (n / hpFlatUntil)^hpExp), после волны hpLateFrom — × (n / hpLateFrom)^hpLateExp от волны hpLateFrom;
  * броня вида × (1 + armorPerWave · (n − 1)). Длительность выхода волны: min(spawnMaxSec, spawnBaseSec + spawnPerWaveSec · n), у волны мини-босса ещё +miniBossSec, у волны босса — bossSec;
  * интервал между выходами = длительность ÷ число блоков (одиночная бактерия, пачка роя или стена — блок). Доход волны: incomeBase + incomePerWave · n монет, делится поровну
  * между бактериями волны (дети делящейся и боссов денег не дают); мини-босс несёт ещё incomeMiniBoss.
@@ -71,6 +71,10 @@ export interface LevelPlan {
   hpScale: number;
   hpFlatUntil: number;
   hpExp: number;
+  /** Поздние волны (решение владельца 20 октября 2026, сообщение 3, п. 3.1: прочность снижать только у волн 31–50): после волны hpLateFrom рост — (n / hpLateFrom)^hpLateExp от прочности волны hpLateFrom;
+   *  нет полей или hpLateExp = hpExp — как раньше. */
+  hpLateFrom?: number;
+  hpLateExp?: number;
   armorPerWave: number;
   /** Жёсткие свойства видов на уровне (вариант «жёсткие стены»; нет — выключены). */
   hardWalls?: HardWalls;
@@ -359,6 +363,9 @@ export const CONFIG = {
           hpScale: 1,
           hpFlatUntil: 8,
           hpExp: 1.75,
+          /** С 31-й волны рост прочности — (n / 30)^hpLateExp от прочности 30-й волны; 1,75 — как у волн 9–30 (прежний рост). Подбор — после бота (сообщение владельца 3 от 20 октября 2026, п. 3). */
+          hpLateFrom: 30,
+          hpLateExp: 1.75,
           /** Броня растёт с волной: × (1 + 0,03 · (n − 1)) — бронированная 3 на 1-й волне, 5,2 на 25-й, 7,4 на 50-й. */
           armorPerWave: 0.03,
           /** Жёсткие свойства видов (`HardWalls`): пока выключены — вариант на решении владельца (19 октября 2026, сообщение 7); замер — подменой --cfg levels.specs.0.plan.hardWalls.<свойство>:1. */
