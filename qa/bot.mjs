@@ -94,6 +94,9 @@ const EXPERT_NOISE = 0.03; // шум оценки клеток (доля): ид�
 const DECIDE_EVERY_SEC = 2; // как часто эксперт принимает решения, игровых секунд
 const OVERLAP_DISCOUNT = 0.5; // охват, уже накрытый другой башней, ценится в столько раз (для луча Шприца без «умной» оценки)
 const SYRUP_OVERLAP = 0.8; // …но замедляющей башне выгодно стоять там, где уже стреляют: скидка мягче
+/** Связка луча и лужи: участок дорожки, где луч Шприца проходит через зону луж Сиропа, ценится в (1 + BEAM_PUDDLE_BONUS) раз — и при выборе клетки Сиропа, и при выборе направления луча
+ *  (бегуна при жёстком свойстве ранит только удар в луже; 20 октября 2026, сообщение владельца 3: «его круг не даёт луж там, где бьёт ядро»). */
+const BEAM_PUDDLE_BONUS = 2;
 const FIZZ_BY_WAVE = 5; // эксперт копит на первую Шипучку, пока идёт не позже этой волны (рой — с 4-й), даже если уже потерял жизни: Таблетками рой всё равно не остановить
 const EXPERT_OVERLAP = 0.9; // эксперт знает, что все дорожки сходятся у «ствола» у организма: охват, уже накрытый другой башней, почти не обесценивается (башни кучкой у ствола бьют ВСЕХ бактерий)
 const EXPERT_ADJACENT_FACTOR = 1; // … и соседство с другой башней ему не мешает
@@ -641,7 +644,7 @@ function buildWorld(graph, map, cols, rows) {
       let value = 0;
       for (const si of rayOf(type, cell, dir)) {
         const sg = segs[si];
-        value += weighted ? sg.len * sg.w * Math.pow(OVERLAP_DISCOUNT, covCount ? covCount[si] : 0) : sg.len;
+        value += weighted ? sg.len * sg.w * Math.pow(OVERLAP_DISCOUNT, covCount ? covCount[si] : 0) * (covCount?.puddle?.[si] ? 1 + BEAM_PUDDLE_BONUS : 1) : sg.len;
       }
       if (value > best.value) best = { dir, value };
     }
@@ -757,6 +760,7 @@ function buildWorld(graph, map, cols, rows) {
         const sg = segs[si];
         if (!sideOk(T, cell, sg)) continue;
         let v = sg.len * sg.w * Math.pow(discount, covCount[si]);
+        if (type === 'syrup' && covCount.beam?.[si]) v *= 1 + BEAM_PUDDLE_BONUS;
         if (smart && T.targeting === 'area' && sg.merge) v *= MERGE_FACTOR;
         sum += v;
         values.push([sg, v]);
@@ -766,12 +770,19 @@ function buildWorld(graph, map, cols, rows) {
     /** Сколько башен уже накрывает каждый отрезок дорожки (по радиусам стоящих башен). */
     coverCounts(towers) {
       const counts = new Int32Array(segs.length);
+      // отдельно: сколько лучей и сколько Сиропов накрывают отрезок (связка луча и лужи, BEAM_PUDDLE_BONUS)
+      counts.beam = new Int32Array(segs.length);
+      counts.puddle = new Int32Array(segs.length);
       for (const tw of towers) {
         const cell = byKey.get(`${tw.col},${tw.row}`);
         const T = TABLE[tw.id];
         if (!cell || !T || T.targeting === 'snipe' || T.targeting === 'aura' || T.targeting === 'freeze' || T.targeting === 'trap') continue; // Ампула накрывает полкарты: в «накрытое другими башнями» её не записываем, иначе клетки остальных башен обесценятся; Витамин, Холод и Пластырь урона не наносят и дорожку не «накрывают»
         const list = T.targeting === 'beam' ? rayOf(tw.id, cell, tw.aim ?? 0) : inRange(T.range)[cell.idx];
-        for (const si of list) counts[si]++;
+        for (const si of list) {
+          counts[si]++;
+          if (T.targeting === 'beam') counts.beam[si]++;
+          if (tw.id === 'syrup') counts.puddle[si]++;
+        }
       }
       return counts;
     },
