@@ -116,6 +116,8 @@ export class Effects {
   popups = 0;
   placements = 0;
   lifeLosses = 0;
+  /** Сколько красных вспышек потери жизни показано (не больше одной за `feedback.lifeFlashMinGapMs`; потерь жизни может быть больше). */
+  lifeFlashes = 0;
   zaps = 0;
   blasts = 0;
   beams = 0;
@@ -475,15 +477,31 @@ export class Effects {
     this.layer.bringToTop(a.img);
   }
 
-  /** Бактерия дошла до организма: красная вспышка на всём экране и тряска. */
+  /** Прямоугольник красной вспышки потери жизни: один на сцену, создаётся при первой потере. */
+  private lifeFlashRect: Phaser.GameObjects.Rectangle | null = null;
+  private lifeFlashTween: Phaser.Tweens.Tween | null = null;
+  /** Когда началась последняя вспышка (реальное время, мс); −∞ — вспышек не было. */
+  private lifeFlashAt = -Infinity;
+
+  /**
+   * Бактерия дошла до организма: красная вспышка на всём экране и тряска. Вспышка одна за раз и не чаще чем через `feedback.lifeFlashMinGapMs` по реальному времени
+   * (WCAG 2.1, критерий 2.3.1; решение владельца 20 октября 2026, сообщение 2, п. 1.5): потеря жизни раньше новой вспышки не даёт.
+   */
   lifeLost(): void {
     this.lifeLosses++;
-    const { width, height } = CONFIG.screen;
-    const flash = this.scene.add
-      .rectangle(width / 2, height / 2, width, height, COLORS.loseLine, 0.45)
-      .setDepth(90)
-      .setBlendMode(Phaser.BlendModes.ADD);
-    this.scene.tweens.add({ targets: flash, alpha: 0, duration: 380, onComplete: () => flash.destroy() });
+    const { lifeFlashMs, lifeFlashMinGapMs, lifeFlashAlpha } = CONFIG.feedback;
+    const now = performance.now();
+    if (now - this.lifeFlashAt >= lifeFlashMinGapMs && lifeFlashMs > 0 && lifeFlashAlpha > 0) {
+      this.lifeFlashAt = now;
+      this.lifeFlashes++;
+      if (!this.lifeFlashRect) {
+        const { width, height } = CONFIG.screen;
+        this.lifeFlashRect = this.scene.add.rectangle(width / 2, height / 2, width, height, COLORS.loseLine, 1).setDepth(90).setBlendMode(Phaser.BlendModes.ADD);
+      }
+      this.lifeFlashTween?.stop();
+      const flash = this.lifeFlashRect.setAlpha(lifeFlashAlpha).setVisible(true);
+      this.lifeFlashTween = this.scene.tweens.add({ targets: flash, alpha: 0, duration: lifeFlashMs, onComplete: () => flash.setVisible(false) });
+    }
     const { lifeLostShakeMs, lifeLostShakeIntensity } = CONFIG.feedback;
     if (lifeLostShakeMs > 0 && lifeLostShakeIntensity > 0) {
       this.shake(lifeLostShakeMs, lifeLostShakeIntensity);

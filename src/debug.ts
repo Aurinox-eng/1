@@ -84,11 +84,12 @@ export const TIME_SCALE: number = QA_MODE ? Math.min(10, Math.max(0.1, Number(pa
  *  chip    — подсказка «◀ Организм» сменила состояние: visible, danger, nearest (до организма от ближайшей бактерии, px; null — бактерий нет);
  *  leak    — бактерия дошла до организма: id, kind, wave (номер волны), damage (сколько жизней она отнимает), absorbed (true — погашена «Щитом у линии», жизни не отняты), boss (id босса или нет);
  *  boss    — босс побеждён: id, boss (id босса), bits (побеждённые боссы партии, биты);
- *  fever   — включена «Лихорадка»: uses (сколько раз за партию).
+ *  fever   — включена «Лихорадка»: uses (сколько раз за партию);
+ *  menuExit — «В меню» с паузы: cleared (пройдено волн), dna (начислено очков ДНК), attempt (true — засчитана попытка; без пройденных волн — false).
  * Журнал пишет сама игра в тот кадр, когда событие случилось, поэтому проверкам не нужно «ловить» его опросом состояния, а реальное время (и скорость сервера) на него не влияет.
  */
 export interface QaEvent {
-  type: 'spawn' | 'kill' | 'blast' | 'beam' | 'latch' | 'chip' | 'leak' | 'boss' | 'fever';
+  type: 'spawn' | 'kill' | 'blast' | 'beam' | 'latch' | 'chip' | 'leak' | 'boss' | 'fever' | 'menuExit';
   t: number;
   [key: string]: unknown;
 }
@@ -316,7 +317,7 @@ export interface DebugSnapshot {
   /** Сколько обработчиков нажатия навешено на сцену (при перезапуске не должно расти — иначе утечка). */
   pointerListeners: number;
   /** Сколько раз сработали вспышка, частицы, «+монеты», кольцо постановки, красная вспышка потери жизни, кольцо глушения башни, взрыв шипучки, удар луча шприца и всплеск лужи. */
-  effects: { flashes: number; bursts: number; popups: number; damageNumbers: number; placements: number; lifeLosses: number; zaps: number; blasts: number; beams: number; splats: number; frosts: number };
+  effects: { flashes: number; bursts: number; popups: number; damageNumbers: number; placements: number; lifeLosses: number; lifeFlashes: number; zaps: number; blasts: number; beams: number; splats: number; frosts: number };
   /** Звук: состояние аудио («running» — играет) и сколько звуков сыграно с загрузки страницы. */
   sound: { state: string; played: number; muted: boolean };
 }
