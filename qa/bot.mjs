@@ -332,8 +332,8 @@ const SOLO_ALLOWED = SOLO ? new Set([SOLO, ...(SOLO_SUPPORT.includes(SOLO) ? ['p
  *  и Таблетки за 70 забирали все монеты: у «Таблетка + Шприц» к 44-й волне 31 Таблетка и один Шприц I, у «Сироп + Шприц» — два Шприца на 6–11 Сиропов). */
 const STRICT_CYCLE = Boolean(PAIR || FOCUS || CORE);
 const SOLO_CYCLE = SOLO ? (SOLO_SUPPORT.includes(SOLO) ? ['pill'] : [SOLO]) : PAIR ?? FOCUS ? [...Array(CYCLE_RATIO).fill((PAIR ?? FOCUS)[0]), (PAIR ?? FOCUS)[1]] : CORE_LATE ? [...CORE] : CORE ? [...CORE, ...CORE, 'syrup', ...CORE, ...CORE, 'fizz'] : null;
-/** core:a+b:late — круг с волны LATE_WAVE: ядро и по Таблетке и Шипучке на каждую пару башен ядра. */
-const LATE_CYCLE = CORE_LATE ? [...CORE, 'pill', 'fizz'] : null;
+/** core:a+b:late — круг с волны LATE_WAVE: на каждую пару башен ядра — две Таблетки и Шипучка (с одной Таблеткой на пару эксперт стоял на слизнях, лестницы 20 октября 2026). */
+const LATE_CYCLE = CORE_LATE ? [...CORE, 'pill', 'fizz', 'pill'] : null;
 /** Башни, которые стратегия должна иметь открытыми в одиночной партии (первая попытка серии 10.2): узлы древа добавляются к улучшениям партии (иначе кнопка башни в игре закрыта). */
 const STRATEGY_TOWERS = [...(SOLO ? [SOLO] : []), ...(PAIR ?? []), ...(FOCUS ?? []), ...(CORE ? [...CORE, 'syrup', 'fizz'] : [])].filter((id, i, a) => id !== 'pill' && a.indexOf(id) === i);
 for (const id of EXCLUDE) if (!KNOWN_TOWERS.includes(id)) die(`--exclude: нет башни «${id}». Есть: ${KNOWN_TOWERS.join(', ')}.`);
@@ -464,8 +464,11 @@ function treeLeft(levels) {
 }
 
 /** Покупка очков ДНК между партиями в лучшем найденном порядке (`buyBest` в qa/lib.mjs: крупные узлы первыми, затем наибольший прирост силы на очко ДНК). */
-function buyUpgrades(levels, dna) {
-  return buyBest({ upgrades: META.upgrades, levels, dna, towers: BUY_TOWERS, saveFor: CORE_SAVE ? CORE : null });
+function buyUpgrades(levels, dna, reached = 0) {
+  // core:…:late — когда игрок уже доходит до волны LATE_WAVE (там в круге Таблетки и Шипучка против слизней и босса), очки ДНК идут и на их ветки; раньше — только на ветки ядра, как у пары
+  // (по лестницам 20 октября 2026: без этого эксперт с 11-й по 20-ю попытку стоял на слизнях, 36–37-я волна, с неулучшенными Таблетками)
+  const late = CORE_LATE && reached >= LATE_WAVE && CORE.every((id) => levels[towerNodeId(id)] > 0);
+  return buyBest({ upgrades: META.upgrades, levels, dna, towers: late ? [...BUY_TOWERS, 'pill', 'fizz'] : BUY_TOWERS, saveFor: CORE_SAVE ? CORE : null });
 }
 /** Башни, узлы и ветки которых покупает стратегия (null — все): --solo/--pair/--focus — только свои башни (Таблетка — если стратегия её строит), --core — башни своего круга (ядро, Сироп, Шипучка;
  *  ветку Таблетки core:syrup+syringe не качает: Таблетка у неё одна, с начала партии), zone — Таблетка и Сироп; без исключённых (--exclude). */
@@ -1669,7 +1672,7 @@ async function ladderLane(profile, run) {
       lane.dna += gained;
       // лучшая волна уровня — число пройденных волн (как `progress.best` в игре): победа — все волны, проигрыш — без текущей
       lane.best[level - 1] = Math.max(lane.best[level - 1] ?? 0, game.result === 'won' ? game.waveTotal : Math.max(0, game.wave - 1));
-      const buy = buyUpgrades(lane.levels, lane.dna);
+      const buy = buyUpgrades(lane.levels, lane.dna, lane.best[level - 1] ?? 0);
       lane.levels = buy.levels;
       lane.dna = buy.dna;
       rec.waves.push(game.result === 'won' ? game.waveTotal : game.wave);
@@ -1771,7 +1774,7 @@ try {
           entry.waves.push(game.result === 'won' ? game.waveTotal : game.wave);
           const gained = dnaForGame(game, false, progress, LEVEL);
           dna += gained;
-          const buy = buyUpgrades(levels, dna);
+          const buy = buyUpgrades(levels, dna, Math.max(0, ...entry.waves.map((w) => w - 1)));
           levels = buy.levels;
           dna = buy.dna;
           entry.bought.push(buy.bought);
