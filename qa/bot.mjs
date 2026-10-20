@@ -890,7 +890,9 @@ function makePlayer({ world, rng, buttons }) {
       const damageCount = view.towers.filter((tw) => hitsHard(tw.id)).reduce((sum, tw) => sum + 2 ** ((tw.level ?? 1) - 1), 0);
       const opening = damageCount < OPENING_DAMAGE_TOWERS;
       if (opening) {
-        const cheapest = KNOWN_TOWERS.filter((id) => available(id) && hitsHard(id)).sort((a, b) => TABLE[a].price - TABLE[b].price)[0];
+        // core:…:late до волны LATE_WAVE начинает, как пара ядра: с башни ядра, а не с Таблеток (иначе две Таблетки забирают монеты Шприца: гибель 16 против 18–19 у пары, пробный замер 20 октября 2026)
+        const pairLike = CORE_LATE && view.s.wave < LATE_WAVE && CORE.every((id) => available(id));
+        const cheapest = (pairLike ? CORE : KNOWN_TOWERS).filter((id) => available(id) && hitsHard(id)).sort((a, b) => TABLE[a].price - TABLE[b].price)[0];
         order = cheapest ? [{ idx: -1, type: cheapest }] : order.filter((o) => hitsHard(o.type));
       }
       // «Особо сильный» знает, что с 4-й волны идёт рой, а одними Таблетками он не остановим: до 5-й волны копит монеты на первую Шипучку и ничего другого не покупает (слияния Таблеток при этом идут как обычно)
