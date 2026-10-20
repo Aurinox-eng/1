@@ -30,9 +30,9 @@
     "towers_only": "lamp,vitamin,mixed,swarm,runner,healer,regen,commander,brood,giant,leaper,phago,stealth,toxin,frost,patch,mutant,parasite"
   },
   {
-    "group": "Карточка, слияние, мутации (card, merge, mutations, sell, special, strip, sell-gap)",
+    "group": "Карточка, слияние, мутации, «Продолжить» в режиме постройки (card, merge, mutations, sell, special, strip, sell-gap, resume-tap)",
     "key": "card",
-    "scenarios": "card merge mutations sell special strip sell-gap",
+    "scenarios": "card merge mutations sell special strip sell-gap resume-tap",
     "towers_only": ""
   },
   {
@@ -48,9 +48,9 @@
     "towers_only": ""
   },
   {
-    "group": "Очки ДНК, улучшения, уровни (meta-save, meta-dna, meta-shop, meta-effects, tree-effects, tree-shop, level-waves, progress-save, stars, menu-flow, menu-reset, levels-lock)",
+    "group": "Очки ДНК, улучшения, уровни, выход в меню, две вкладки (meta-save, meta-dna, meta-shop, meta-effects, tree-effects, tree-shop, level-waves, progress-save, stars, menu-flow, menu-reset, levels-lock, menu-exit, two-tabs)",
     "key": "meta",
-    "scenarios": "meta-save meta-dna meta-shop meta-effects tree-effects tree-shop level-waves progress-save stars menu-flow menu-reset levels-lock",
+    "scenarios": "meta-save meta-dna meta-shop meta-effects tree-effects tree-shop level-waves progress-save stars menu-flow menu-reset levels-lock menu-exit two-tabs",
     "towers_only": ""
   },
   {

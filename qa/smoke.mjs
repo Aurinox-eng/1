@@ -93,6 +93,10 @@
  *                          (state 'paused', getState отвечает), тап по экрану возобновляет игру
  *   damage-numbers         числа урона над бактериями: после попаданий башни effects.damageNumbers растёт
  *   sell-gap               карточка башни: между «Слить» и «Продать» по горизонтали зазор ≥ 40 px; в режиме слияния кнопка «Продать» скрыта (sell.w = 0), отмена слияния её возвращает
+ *   menu-exit              «В меню» с паузы (20 октября 2026): до первой пройденной волны ДНК и попытки не меняются; «Заново» на паузе ничего не начисляет; после N ≥ 1 волн — ДНК ровно за N волн
+ *                          (настоящий meta.dna, без доплаты), попытка засчитана, строка журнала «выход в меню N/30»
+ *   resume-tap             «Продолжить» в режиме постройки над свободной клеткой (компьютер ru, телефон en): пауза снята, монеты и башни прежние; контроль — тот же тап без паузы ставит башню
+ *   two-tabs               две вкладки одного браузера на экране «Улучшения»: покупка во второй, затем в первой — в сохранении обе, устаревшая вкладка чужое не стирает
  *   colors                 снимки для глаз: делящаяся, бегун, лекарь, спора и лужа Сиропа рядом на одном экране (компьютер ru, телефон en; на компьютере ещё крупно)
  * Дополнительно: --only=combat (или любое другое имя из списка) запускает один сценарий; для production нужна свежая
  * `npm run build`, для остальных — `npm run build:qa`.
@@ -152,7 +156,7 @@ if (['stage-1', 'stage-1b', 'stage-1b-qa', 'td-1-mockup', 'tmp'].includes(tag)) 
   process.exit(2);
 }
 
-const SCENARIOS = ['desktop-ru', 'phone-ru', 'desktop-en', 'phone-en', 'rules', 'graph', 'combat', 'dash', 'split', 'spore', 'armored', 'intro', 'lose-ru', 'lose-en', 'win-ru', 'win-en', 'towers', 'card', 'merge', 'mutations', 'sell', 'special', 'danger', 'rotate', 'production', 'fullgame', 'locked', 'strip', 'almanac', 'almanac-pause', 'damage-numbers', 'sell-gap', 'restart-button', 'deflation', 'camera-fit', 'colors', 'meta-save', 'meta-dna', 'meta-shop', 'meta-effects', 'tree-effects', 'tree-shop', 'level-waves', 'progress-save', 'stars', 'menu-flow', 'menu-reset', 'levels-lock', 'step-dps', 'sound', 'lose-line', 'attempt-line', 'toast-queue', 'shake', 'bosses']
+const SCENARIOS = ['desktop-ru', 'phone-ru', 'desktop-en', 'phone-en', 'rules', 'graph', 'combat', 'dash', 'split', 'spore', 'armored', 'intro', 'lose-ru', 'lose-en', 'win-ru', 'win-en', 'towers', 'card', 'merge', 'mutations', 'sell', 'special', 'danger', 'rotate', 'production', 'fullgame', 'locked', 'strip', 'almanac', 'almanac-pause', 'damage-numbers', 'sell-gap', 'restart-button', 'deflation', 'camera-fit', 'colors', 'meta-save', 'meta-dna', 'meta-shop', 'meta-effects', 'tree-effects', 'tree-shop', 'level-waves', 'progress-save', 'stars', 'menu-flow', 'menu-reset', 'levels-lock', 'step-dps', 'sound', 'lose-line', 'attempt-line', 'toast-queue', 'shake', 'bosses', 'menu-exit', 'resume-tap', 'two-tabs']
 const only = args.only === undefined ? null : String(args.only);
 if (only !== null && !SCENARIOS.includes(only)) {
   console.error(`Неизвестный сценарий --only=${only}. Есть: ${SCENARIOS.join(', ')}`);
@@ -479,7 +483,7 @@ const newDeviceContext = (browser, device, lang) =>
   });
 
 /** Открывает игру. Возвращает всё нужное для ввода: страницу, ввод (мышь или касания), перевод координат. */
-async function openGame(context, baseUrl, prefix, { speed = 1, cfg = '', isTouch = false, query = '', canvas = false } = {}) {
+async function openGame(context, baseUrl, prefix, { speed = 1, cfg = '', isTouch = false, query = '', canvas = false, realMeta = false } = {}) {
   const page = await context.newPage();
   watchConsole(page, prefix);
   // Журнал касаний на стороне страницы (время начала и конца касания, мс): по нему видно, почему тап не принят — игра считает тапом касание не дольше camera.tapMaxMs
@@ -498,7 +502,9 @@ async function openGame(context, baseUrl, prefix, { speed = 1, cfg = '', isTouch
   // `waves.hpScale:1` тоже идёт первым: с 8 октября 2026 игра умножает HP всех бактерий на waves.hpScale (2,5), а проверки ждут HP из таблицы типов (бронированная 20, гигант 100,
   // регенератор 10, кокк с hp:1 гибнет с одного выстрела Таблетки) — множитель сводится к 1 (и множитель уровня 1 `waves.level1HpFactor` — тоже); сценарий может подменить его своим числом (позднее в списке — главнее)
   // `meta.dna.floor:0`, `meta.dna.flawlessShare:0` и `combat.armorGrowth.perLevel:0` (пакет «Уровень 1», 19 октября 2026): нижняя граница очков за попытку, добавка «без потерь» и рост брони по уровням не мешают прежним расчётам; сценарии, которые их проверяют, подменяют числа своими
-  const allCfg = ['levels.starDna:0', 'lives.start:3', 'meta.dna.coinsCapShare:0', 'meta.dna.floor:0', 'meta.dna.flawlessShare:0', 'combat.armorGrowth.perLevel:0', 'waves.hpScale:1', 'waves.level1HpFactor:1', cfg, process.env.QA_EXTRA_CFG].filter(Boolean).join(',');
+  // realMeta: true — раздел meta.dna из config.ts как есть (без трёх подмен выше): сценарии выхода в меню проверяют настоящее начисление (решение владельца 20 октября 2026, сообщение 2, п. 1.7)
+  const metaCfg = realMeta ? [] : ['meta.dna.coinsCapShare:0', 'meta.dna.floor:0', 'meta.dna.flawlessShare:0'];
+  const allCfg = ['levels.starDna:0', 'lives.start:3', ...metaCfg, 'combat.armorGrowth.perLevel:0', 'waves.hpScale:1', 'waves.level1HpFactor:1', cfg, process.env.QA_EXTRA_CFG].filter(Boolean).join(',');
   // QA_CANVAS=1 (GitHub, группы со временем и скоростью): рисование через canvas — на сервере без видеокарты программный WebGL даёт 2–6 кадров/с, шаг игрового времени
   // ограничен 50 мс, и проверки, считающие секунды, скорости и паузы между ударами, ломаются; canvas даёт ≈ 20 кадров/с (docs/performance.md)
   // canvas: true — рисование через canvas для отдельного сценария. Проба 3 октября: красные проверки со временем (Шприц, скорость, командир) от этого не прошли — причина в скорости сервера; сейчас нигде не включено
@@ -1666,6 +1672,12 @@ async function runLose(browser, baseUrl, lang, deviceKey, full) {
     if (cycle === 1) {
       check(`${p} без башен бактерии доходят до организма: жизни ${CFG.lives} → 0, состояние «проигрыш»`, s.state === 'lost' && s.lives === 0 && lives.join('→').startsWith(`${CFG.lives}`) && lives.every((v, i) => i === 0 || v < lives[i - 1]), `жизни по ходу: ${lives.join(' → ')}, состояние ${s.state}`);
       check(`${p} дошло до организма ≥ ${CFG.lives}, красная вспышка потери жизни сработала, убитых нет`, s.leaked >= CFG.lives && s.effects.lifeLosses >= 1 && s.effects.lifeLosses <= s.leaked && s.kills === 0, `дошло ${s.leaked}, вспышек ${s.effects.lifeLosses}, убито ${s.kills}`);
+      // Вспышка одна за раз и не чаще 3 раз в секунду (WCAG 2.1, 2.3.1; решение владельца 20 октября 2026, сообщение 2, п. 1.5): вспышек не больше потерь жизни и не больше, чем помещается промежутков feedback.lifeFlashMinGapMs
+      const flashGap = readConfigNumber('feedback', 'lifeFlashMinGapMs');
+      const pageMs = await page.evaluate(() => performance.now()); // с загрузки страницы (реальное время): вспышек не больше, чем помещается промежутков за это время
+      const flashCap = Math.floor(pageMs / flashGap) + 1;
+      check(`${p} красных вспышек ${s.effects.lifeFlashes} из ${s.effects.lifeLosses} потерь жизни: не меньше одной, не больше потерь и не больше ${flashCap} за ${f1(pageMs / 1000)} с страницы (промежуток ${flashGap} мс ≥ 334 мс)`,
+        flashGap >= 334 && s.effects.lifeFlashes >= 1 && s.effects.lifeFlashes <= s.effects.lifeLosses && s.effects.lifeFlashes <= flashCap, `вспышек ${s.effects.lifeFlashes}, потерь ${s.effects.lifeLosses}, промежуток ${flashGap}`);
       // Строка проигрыша: «Больше всего жизней отняла: <порода> (<число>)» — без советов, чем бить (решение владельца 16 октября 2026)
       const leakTemplate = readI18n('loseLeakOnly')[lang === 'ru' ? 0 : 1];
       const leakRe = new RegExp(`^${leakTemplate.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\\\{kind\\\}/, '(.+)').replace(/\\\{n\\\}/, '(\\d+)')}$`);
@@ -7151,6 +7163,12 @@ async function specialCard(context, baseUrl) {
     const wantB = b.perShot / b.pause;
     const gotB = first(s.ui.card.lines.stats[0]);
     check(`${p} Витамин рядом: пауза ×${f2(tw2.auraMul)} (в бою), «${s.ui.card.lines.stats[0]}» = ${r1(wantB)} (было ${r1(wantA)})`, tw2.auraMul < 1 && Math.abs(gotB - wantB) <= 0.06 && wantB > wantA * 1.05, `auraMul ${tw2.auraMul}, на карточке ${gotB}, ждали ${wantB}`);
+    // Строка «Пауза» — та же действующая пауза, по которой считается урон в секунду, с пометкой «(×m, Витамин)», как у паразита (решение владельца 20 октября 2026, сообщение 2, п. 1.6)
+    const pauseLine = s.ui.card.lines.stats[2] ?? '';
+    const pauseWant = r1(b.pause);
+    const vitName = readI18n('towerVitamin')[0];
+    check(`${p} Витамин рядом: строка паузы «${pauseLine}» — действующая пауза ${ru1(pauseWant)} с (${f2(tw2.stats.cooldownMs / 1000)} × ${f2(tw2.auraMul)}), с множителем «×» и пометкой «${vitName}»`,
+      Math.abs(first(pauseLine) - pauseWant) <= 0.051 && pauseLine.includes('×') && pauseLine.includes(vitName) && !pauseLine.includes('{'), JSON.stringify({ pauseLine, pauseWant }));
     await game.page.close();
   }
   // ---- «×N» у повторных мутаций: «Бронебойная» работает один раз — без «×2», «Скорострел» складывается — «×2»
@@ -8219,7 +8237,7 @@ async function runMetaDna(browser, baseUrl) {
   c = await playCoins('economy.startCoins:1500,meta.dna.coinsCapShare:0.5', '&stars=1');
   raw = rawOf(c, 0.5);
   check(`${p} пройденный уровень: добавка за монеты тоже × replayFactor 0,1: ⌊${raw} × 0,1⌋ = ${Math.floor(raw * 0.1)}, за волну ⌊1 × 20 × 0,1⌋ = 2, бонуса за победу нет (начислено ${c.dnaGained})`, raw >= 10 && c.dnaParts.coins === Math.floor(raw * 0.1) && c.dnaParts.win === 0 && c.dnaGained === 2 + Math.floor(raw * 0.1), JSON.stringify(c.dnaParts));
-  // Формула очков ДНК (документ дизайна docs/redesign-2026-10-19.md, раздел 6) через функцию игры, без прохождения волн: за k волн (2k + 0,1·k(k+1)) × множитель уровня; не меньше floor за попытку;
+  // Формула очков ДНК (документ дизайна docs/redesign-2026-10-19.md, раздел 6) через функцию игры, без прохождения волн: за k волн (2k + 0,1·k(k+1)) × множитель уровня; нижней границы за попытку нет (с 20 октября 2026);
   // первые победы над мини-боссами и боссом; «без потерь» +25 % за волны один раз; повтор ×replayFactor; предел добавки за монеты — до умножения на replayFactor
   {
     const D = readMetaTable().dna;
@@ -8232,7 +8250,10 @@ async function runMetaDna(browser, baseUrl) {
     const want = rows.map(([k, level]) => dnaWavesReward(D, k, level));
     check(`${p} очки за волны: (2k + 0,1·k(k+1)) × множитель уровня (${D.levelMul.slice(0, 3).join('; ')}): ${rows.map(([k, l]) => `${k} волн уровня ${l}`).join(', ')} → ${want.join(', ')} (получено ${got.join(', ')})`, JSON.stringify(got) === JSON.stringify(want) && D.waveBase === 2 && D.waveStep === 0.2 && want[3] === 355, JSON.stringify({ got, want }));
     const low = await ask({ waves: 2 });
-    check(`${p} нижняя граница: 2 волны дают ${low.waves}, доплата ${low.floor}, всего ${sum(low)} (ждали ${D.floor})`, sum(low) === D.floor && low.floor === D.floor - low.waves, JSON.stringify(low));
+    // нижней границы нет (решение владельца 20 октября 2026, сообщение 2, п. 1.1; было 12): попытка платит только за пройденные волны, без доплаты
+    const none = await ask({ waves: 0 });
+    check(`${p} нижней границы нет: в config.ts meta.dna.floor = ${D.floor} (ждали 0); 2 волны дают ${low.waves} = ${dnaWavesReward(D, 2, 1)} без доплаты (доплата ${low.floor}), 0 волн — 0 (получено ${sum(none)})`,
+      D.floor === 0 && low.floor === 0 && sum(low) === dnaWavesReward(D, 2, 1) && sum(none) === 0, JSON.stringify({ low, none }));
     const bosses = await ask({ waves: 50, won: true, bossBits: 0b11111 });
     check(`${p} первая победа над уровнем с боссом: мини-боссы 4 × ${D.miniBossFirst} + босс ${D.bossFirst} = ${4 * D.miniBossFirst + D.bossFirst}, добавки за победу нет (получено ${bosses.bosses}, победа ${bosses.win})`, bosses.bosses === 4 * D.miniBossFirst + D.bossFirst && bosses.win === 0, JSON.stringify(bosses));
     // уровень 2: уровень 1 в этом браузере уже выигран без потерь раньше (в сохранении flawless[0] = 1, добавка один раз)
@@ -8992,6 +9013,229 @@ async function runAttemptLine(browser, baseUrl) {
   await context.close();
 }
 
+// ================================================================== Решения владельца 20 октября 2026 (сообщение 2, п. 1.1–1.4, 1.7): выход в меню, «Продолжить» в режиме постройки, две вкладки
+
+/** Сохранение из хранилища страницы (общего для вкладок одного браузера) или null. */
+const readSave5 = (page) => page.evaluate(() => JSON.parse(window.localStorage.getItem('pvb.meta5') ?? 'null'));
+
+/** Пауза кнопкой панели; возвращает состояние на паузе (через 0,5 с: кнопки паузы принимают нажатие через 0,25 с после её начала). */
+async function pauseGame(game, label) {
+  const s = await game.state();
+  await game.input.tap(game.g(s.ui.pauseButton.x, s.ui.pauseButton.y));
+  await waitFor(game.page, (x) => x.state === 'paused', 10000, `пауза (${label})`);
+  await sleep(500);
+  return game.state();
+}
+
+/** «В меню» с паузы: тап по кнопке и ожидание главного меню (до трёх тапов, как в menu-flow). */
+async function tapToMenu(game, paused, label) {
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    await game.input.tap(game.g(paused.pauseMenuButton.x, paused.pauseMenuButton.y));
+    try {
+      await waitUiWhere(game.page, (u) => u !== null && u.scene === 'menu', 3000, `меню (${label})`);
+      if (attempt > 1) console.log(`⚠ ${label}: тап по «В меню» дошёл только с попытки ${attempt}`);
+      return;
+    } catch (error) {
+      if (attempt === 3) throw error;
+    }
+  }
+}
+
+/**
+ * «В меню» с паузы (решение владельца 20 октября 2026, сообщение 2, п. 1.1–1.2): раздел meta.dna — настоящий (realMeta: без подмены meta.dna.floor:0 из allCfg).
+ * (а) до первой пройденной волны: очки ДНК, счётчик попыток и журнал не меняются (прежде — 12 бесплатных ДНК); (б) «Заново» на паузе после пройденных волн ничего не начисляет и попытку
+ * не засчитывает; (в) «В меню» после N ≥ 1 пройденных волн: ДНК растёт ровно на начисление за N волн (2N + 0,1·N(N+1), без доплаты), попытка засчитана — счётчик +1, в журнале строка
+ * с пометкой «выход в меню N/30» и «ДНК +X».
+ */
+async function runMenuExit(browser, baseUrl) {
+  const p = '[выход в меню]';
+  const D = readMetaTable().dna;
+  check(`${p} в config.ts нижней границы очков за попытку нет: meta.dna.floor = ${D.floor} (ждали 0)`, D.floor === 0, String(D.floor));
+  const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
+  const attemptsOf = (save) => save?.attempts?.[0] ?? 0;
+  const logOf = (save) => save?.log ?? [];
+  // ---- (а) 0 пройденных волн: первая волна не выходит
+  {
+    const game = await openGame(context, baseUrl, `${p} 0 волн`, { realMeta: true, cfg: 'waves.firstDelaySec:9999' });
+    const save0 = await readSave5(game.page);
+    const dna0 = (await metaOf(game.page)).dna;
+    const paused = await pauseGame(game, '0 волн');
+    await tapToMenu(game, paused, `${p} 0 волн`);
+    await sleep(300);
+    const save1 = await readSave5(game.page);
+    const dna1 = (await metaOf(game.page)).dna;
+    check(`${p} «В меню» до первой пройденной волны (волна ${paused.wave}): очки ДНК ${dna0} → ${dna1} (не меняются), попыток ${attemptsOf(save0)} → ${attemptsOf(save1)}, строк журнала ${logOf(save0).length} → ${logOf(save1).length}`,
+      paused.wave === 0 && dna1 === dna0 && (save1?.dna ?? 0) === (save0?.dna ?? 0) && attemptsOf(save1) === attemptsOf(save0) && logOf(save1).length === logOf(save0).length, JSON.stringify({ wave: paused.wave, dna0, dna1, save1 }));
+    await game.page.close();
+  }
+  // ---- (б) и (в): волны идут быстро (пауза между волнами 1 с, ×4), жизней хватает; ждём 3-ю волну — пройдено 2
+  {
+    const cfg = 'waves.firstDelaySec:1,waves.pauseSec:1,waves.newTypePauseSec:0,waves.intervalStartSec:0.3,waves.intervalEndSec:0.3,lives.start:999';
+    const game = await openGame(context, baseUrl, `${p} N волн`, { realMeta: true, speed: 4, cfg });
+    const save0 = await readSave5(game.page);
+    const dna0 = (await metaOf(game.page)).dna;
+    await waitForGame(game.page, (x) => x.wave >= 3, '3-я волна (до «Заново»)', { gameSec: 120 });
+    let paused = await pauseGame(game, 'перед «Заново»');
+    // тап по кнопке на медленном сервере изредка не доходит с первого раза: до трёх тапов
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      await game.input.tap(game.g(paused.pauseRestartButton.x, paused.pauseRestartButton.y));
+      try {
+        await waitFreshRun(game.page, 'партия после «Заново» с паузы', { timeoutMs: 4000 });
+        break;
+      } catch (error) {
+        if (attempt === 3 || (await game.state()).state !== 'paused') throw error;
+      }
+    }
+    const saveR = await readSave5(game.page);
+    const dnaR = (await metaOf(game.page)).dna;
+    check(`${p} «Заново» на паузе после ${Math.max(0, paused.wave - 1)} пройденных волн ничего не начисляет и попытку не засчитывает: очки ДНК ${dna0} → ${dnaR}, попыток ${attemptsOf(save0)} → ${attemptsOf(saveR)}`,
+      paused.wave >= 3 && dnaR === dna0 && attemptsOf(saveR) === attemptsOf(save0) && logOf(saveR).length === logOf(save0).length, JSON.stringify({ wave: paused.wave, dna0, dnaR, saveR }));
+    await waitForGame(game.page, (x) => x.wave >= 3, '3-я волна (до «В меню»)', { gameSec: 120 });
+    paused = await pauseGame(game, 'перед «В меню»');
+    const cleared = Math.max(0, paused.wave - 1);
+    const want = dnaWavesReward(D, cleared, paused.level);
+    await tapToMenu(game, paused, `${p} N волн`);
+    await sleep(300);
+    const save1 = await readSave5(game.page);
+    const dna1 = (await metaOf(game.page)).dna;
+    check(`${p} «В меню» после ${cleared} пройденных волн уровня ${paused.level}: очки ДНК ${dna0} → ${dna1} — ровно за волны (2·${cleared} + 0,1·${cleared}·${cleared + 1}) × ${D.levelMul[paused.level - 1] ?? 1} = ${want}, без доплаты до минимума`,
+      cleared >= 1 && dna1 - dna0 === want && (save1?.dna ?? 0) === dna1, JSON.stringify({ wave: paused.wave, dna0, dna1, want }));
+    const line = logOf(save1).at(-1) ?? '';
+    const mark = i18nText('attemptExit', 0, { w: paused.wave, total: paused.waveTotal });
+    check(`${p} выход после пройденных волн — попытка: попыток ${attemptsOf(save0)} → ${attemptsOf(save1)}, в журнале новая строка с пометкой «${mark}» и «ДНК +${want}»: «${line.slice(0, 90)}…»`,
+      attemptsOf(save1) === attemptsOf(save0) + 1 && logOf(save1).length === logOf(save0).length + 1 && line.includes(` | ${mark} | `) && line.includes(`ДНК +${want}`) && !line.includes('гибель'), line);
+    await game.page.close();
+  }
+  await context.close();
+}
+
+/**
+ * «Продолжить» в режиме постройки (решение владельца 20 октября 2026, сообщение 2, п. 1.3): кнопка «Продолжить» над свободной клеткой; тап по ней снимает паузу и башню не ставит —
+ * монеты, число башен и постановок прежние. Контроль: такой же тап по той же точке без паузы ставит башню (точка — свободная клетка, проверка не пустая). Компьютер (мышь) и телефон (касание).
+ */
+async function runResumeTap(browser, baseUrl) {
+  for (const [deviceKey, lang] of [['desktop', 'ru'], ['phone', 'en']]) {
+    const device = VIEWPORTS[deviceKey];
+    const p = `[«Продолжить» в режиме постройки, ${device.label}, ${lang}]`;
+    const context = await newDeviceContext(browser, device, lang);
+    const game = await openGame(context, baseUrl, p, { cfg: 'waves.firstDelaySec:9999', isTouch: device.hasTouch });
+    const { page } = game;
+    await game.towerButton(); // режим постройки: выбрана Таблетка
+    // свободная клетка (не дорожка и не закрытая), центр которой — под кнопкой «Продолжить» (центр экрана, на 20 px ниже) с запасом 12 px от края кнопки
+    let s = await pauseGame(game, 'поиск клетки');
+    const btn = s.pauseResumeButton;
+    if (!btn) throw new Error('на паузе нет кнопки «Продолжить»');
+    const blocked = new Set((GRAPH?.blockedCells ?? []).map(([c, r]) => `${c},${r}`));
+    const centers = await page.evaluate(([cols, rows]) => {
+      const out = [];
+      for (let c = 0; c < cols; c++) for (let r = 0; r < rows; r++) out.push([c, r, window.__pvb.cellToClient(c, r)]);
+      return out;
+    }, [LEVEL.cols, LEVEL.rows]);
+    const spots = centers
+      .filter(([c, r]) => !GEO.isPathCell(c, r) && !blocked.has(`${c},${r}`))
+      .map(([c, r, pt]) => ({ col: c, row: r, pt, sc: game.screen.c2g(pt.x, pt.y) }))
+      .filter(({ sc }) => Math.abs(sc.x - btn.x) <= btn.w / 2 - 12 && Math.abs(sc.y - btn.y) <= btn.h / 2 - 12 && sc.y > s.view.y + 8 && sc.y < s.view.y + s.view.h - 8)
+      .sort((a, b) => Math.hypot(a.sc.x - btn.x, a.sc.y - btn.y) - Math.hypot(b.sc.x - btn.x, b.sc.y - btn.y));
+    check(`${p} под кнопкой «Продолжить» есть свободная клетка (найдено ${spots.length})`, spots.length > 0, JSON.stringify(btn));
+    if (spots.length === 0) {
+      await context.close();
+      continue;
+    }
+    let accepted = null;
+    // кандидаты — по очереди: клетка, на которую контрольный тап ставит башню, — проверка; клетка, куда башню поставить нельзя (правило клеток), пропускается
+    for (const spot of spots.slice(0, 4)) {
+      s = await game.state();
+      if (s.state !== 'paused') s = await pauseGame(game, `клетка ${spot.col};${spot.row}`);
+      const was = await game.state();
+      await game.input.tap(spot.pt);
+      await waitFor(page, (x) => x.state === 'playing', 5000, '«Продолжить» сняла паузу');
+      await sleep(700);
+      const after = await game.state();
+      const same = after.coins === was.coins && after.towers.length === was.towers.length && after.effects.placements === was.effects.placements;
+      if (!same) {
+        accepted = { spot, was, after, same, control: null };
+        break;
+      }
+      // контроль: тот же тап без паузы ставит башню
+      if (after.selected !== 'pill') await game.towerButton();
+      const placedBefore = (await game.state()).effects.placements;
+      await game.input.tap(spot.pt);
+      let control = null;
+      const started = Date.now();
+      while (Date.now() - started < 3000) {
+        const x = await game.state();
+        if (x.effects.placements > placedBefore) {
+          control = x;
+          break;
+        }
+        await sleep(40);
+      }
+      if (control) {
+        accepted = { spot, was, after, same, control };
+        break;
+      }
+    }
+    if (!accepted) {
+      check(`${p} нашлась клетка под «Продолжить», куда без паузы можно поставить башню (проверено ${Math.min(4, spots.length)})`, false, JSON.stringify(spots.slice(0, 4).map((x) => [x.col, x.row])));
+    } else {
+      const { spot, was, after, same, control } = accepted;
+      check(`${p} тап по «Продолжить» над свободной клеткой ${spot.col};${spot.row} снимает паузу и башню не ставит: монеты ${was.coins} → ${after.coins}, башен ${was.towers.length} → ${after.towers.length}, постановок ${was.effects.placements} → ${after.effects.placements}`,
+        same && after.state === 'playing' && after.pauseResumeButton === null, JSON.stringify({ coins: [was.coins, after.coins], towers: [was.towers.length, after.towers.length] }));
+      check(`${p} контроль: тот же тап по клетке ${spot.col};${spot.row} без паузы ставит башню (башен ${after.towers.length} → ${control ? control.towers.length : '—'})`,
+        control !== null && control.towers.length === after.towers.length + 1 && control.towers.some((t) => t.col === spot.col && t.row === spot.row), JSON.stringify(control ? control.towers.map((t) => [t.col, t.row]) : null));
+    }
+    await context.close();
+  }
+}
+
+/**
+ * Две вкладки (решение владельца 20 октября 2026, сообщение 2, п. 1.4): обе вкладки одного браузера открыты на экране «Улучшения» с одним сохранением; покупка во второй вкладке,
+ * затем покупка в первой (её снимок старше) — в сохранении обе покупки и списаны обе цены: устаревшая вкладка не стирает чужой прогресс; первая вкладка видит покупку второй.
+ */
+async function runTwoTabs(browser, baseUrl) {
+  const p = '[две вкладки]';
+  const UP = readMetaTable().upgrades;
+  // два узла, открытых с начала (без родителя, ветка открыта), самые дешёвые
+  const roots = Object.entries(UP)
+    .filter(([, u]) => !u.requires && branchOpen(u.branch, {}))
+    .sort((a, b) => a[1].prices[0] - b[1].prices[0])
+    .map(([id]) => id);
+  if (roots.length < 2) throw new Error(`узлов, открытых с начала, меньше двух: ${roots.join(', ')}`);
+  const [idB, idA] = roots;
+  const priceA = UP[idA].prices[0];
+  const priceB = UP[idB].prices[0];
+  const dna0 = priceA + priceB + 40;
+  const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
+  // сохранение записывается один раз на браузер (хранилище общее для вкладок), до загрузки первой вкладки
+  await context.addInitScript((save) => {
+    if (window.localStorage.getItem('qa-two-tabs-init')) return;
+    window.localStorage.setItem('qa-two-tabs-init', '1');
+    window.localStorage.setItem('pvb.meta5', save);
+  }, JSON.stringify({ v: 5, dna: dna0, levels: {} }));
+  const tab1 = await openMenu(context, baseUrl, `${p} вкладка 1`);
+  const tab2 = await openMenu(context, baseUrl, `${p} вкладка 2`);
+  for (const [tab, name] of [[tab1, 'вкладка 1'], [tab2, 'вкладка 2']]) {
+    await tab.page.bringToFront();
+    const u = await tab.ui();
+    await tab.tapRect(u.buttons.upgrades);
+    await tab.waitUi('upgrades', `«Улучшения» (${name})`);
+  }
+  const m1 = await metaOf(tab1.page);
+  const m2 = await metaOf(tab2.page);
+  check(`${p} обе вкладки читают одно сохранение: ${dna0} ДНК, «${idA}» и «${idB}» не куплены (вкладка 1: ${m1.dna}, вкладка 2: ${m2.dna})`, m1.dna === dna0 && m2.dna === dna0 && m1.levels[idA] === 0 && m2.levels[idB] === 0, JSON.stringify({ m1: m1.dna, m2: m2.dna }));
+  await tab2.page.bringToFront();
+  const r2 = await buyNode(tab2, idB);
+  check(`${p} вкладка 2 покупает «${idB}» за ${priceB}: уровень 1, ${dna0} → ${dna0 - priceB} ДНК`, r2.after.levels[idB] === 1 && r2.after.dna === dna0 - priceB, JSON.stringify({ level: r2.after.levels[idB], dna: r2.after.dna }));
+  await tab1.page.bringToFront();
+  await sleep(300);
+  const r1 = await buyNode(tab1, idA);
+  const save = await readSave5(tab1.page);
+  check(`${p} затем вкладка 1 покупает «${idA}» за ${priceA}: в сохранении обе покупки («${idB}» ${save?.levels?.[idB]}, «${idA}» ${save?.levels?.[idA]}) и ${save?.dna} ДНК = ${dna0} − ${priceB} − ${priceA} — покупка вкладки 2 не стёрта`,
+    save?.levels?.[idB] === 1 && save?.levels?.[idA] === 1 && save?.dna === dna0 - priceA - priceB, JSON.stringify(save && { dna: save.dna, a: save.levels?.[idA], b: save.levels?.[idB] }));
+  check(`${p} вкладка 1 видит покупку вкладки 2: «${idB}» ${r1.after.levels[idB]}, на счёте ${r1.after.dna} ДНК`, r1.after.levels[idB] === 1 && r1.after.levels[idA] === 1 && r1.after.dna === dna0 - priceA - priceB, JSON.stringify({ a: r1.after.levels[idA], b: r1.after.levels[idB], dna: r1.after.dna }));
+  await context.close();
+}
+
 /** Экран «Альманах» из главного меню: вкладки «Башни» (строка на башню таблицы `towers`: 10) и «Бактерии» (строка на тип таблицы `types`: 19), «Назад» → меню. Компьютер ru, телефон ru; en — один раз на компьютере. */
 async function runAlmanac(browser, baseUrl) {
   // ---- состав записей (по рецензии 18 октября 2026): Таблетка бьёт Бронированную первой в строке бактерии и не слаба против неё; Лампа сильна против Скрытной;
@@ -9447,6 +9691,9 @@ try {
   if (wants('toast-queue')) await safe('[очередь уведомлений]', () => runToastQueue(browser, qaServer.url));
   if (wants('shake')) await safe('[тряска только карты]', () => runShake(browser, qaServer.url));
   if (wants('step-dps')) await safe('[шаг игры и скорость]', () => runStepDps(browser, qaServer.url));
+  if (wants('menu-exit')) await safe('[выход в меню]', () => runMenuExit(browser, qaServer.url));
+  if (wants('resume-tap')) await safe('[«Продолжить» в режиме постройки]', () => runResumeTap(browser, qaServer.url));
+  if (wants('two-tabs')) await safe('[две вкладки]', () => runTwoTabs(browser, qaServer.url));
 } catch (error) {
   crashed = error;
   check('Проверка дошла до конца', false, error.message);
