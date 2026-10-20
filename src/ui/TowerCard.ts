@@ -247,7 +247,10 @@ export class TowerCard {
       });
     } else {
       this.statTexts.forEach((text, i) => {
-        text.setVisible(i < m.stats.length).setText(m.stats[i] ?? '').setPosition(midX, y + 9 + i * 18);
+        text.setVisible(i < m.stats.length).setText(m.stats[i] ?? '').setPosition(midX, y + 9 + i * 18).setScale(1);
+        // длинная строка (пауза с пометкой «×0,4, Витамин, Лихорадка») сжимается до места перед кнопками, а не налезает на них
+        const room = midRight - midX;
+        if (room > 0 && text.width > room) text.setScale(room / text.width);
       });
       const ty = y + 9 + Math.max(1, m.stats.length) * 18 + 2;
       this.shownStats = m.stats.slice();

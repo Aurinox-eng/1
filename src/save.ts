@@ -49,7 +49,8 @@ const MAX_BOUGHT = 400;
 
 /** Ключ хранилища. Сборки main, ветки стиля и рабочей ветки открываются с одного адреса (aurinox-eng.github.io) и делят одно хранилище; прежние сборки читают ключ `pvb.meta` и записывают обратно только знакомые
  *  им поля. Поэтому новое древо хранится под своим ключом, прогресс в нём начинается с нуля, прежнее сохранение не переносится и очки за него не возвращаются (решение владельца 19 октября 2026, сводное сообщение, п. 2). */
-const KEY = 'pvb.meta5';
+export const META_KEY = 'pvb.meta5';
+const KEY = META_KEY;
 
 /** Наибольший уровень улучшения (число цен в таблице). */
 export function maxLevel(id: UpgradeId): number {
@@ -110,18 +111,25 @@ export function sanitizeMeta(raw: unknown): MetaSave {
 }
 
 export function loadMeta(): MetaSave {
+  return tryLoadMeta() ?? emptyMeta();
+}
+
+/** Сохранение из хранилища; null — хранилище недоступно или запись не читается (тогда прогресс живёт в памяти страницы, и перечитывать нечего). */
+export function tryLoadMeta(): MetaSave | null {
   try {
     const text = window.localStorage.getItem(KEY);
     return text ? sanitizeMeta(JSON.parse(text)) : emptyMeta();
   } catch {
-    return emptyMeta();
+    return null;
   }
 }
 
-export function saveMeta(meta: MetaSave): void {
+/** Записывает сохранение; false — хранилище недоступно (прогресс живёт до закрытия страницы). */
+export function saveMeta(meta: MetaSave): boolean {
   try {
     window.localStorage.setItem(KEY, JSON.stringify(meta));
+    return true;
   } catch {
-    // хранилище недоступно — прогресс живёт до закрытия страницы
+    return false;
   }
 }

@@ -247,6 +247,8 @@ export class GameScene extends Phaser.Scene {
 
   /** Тап по экрану паузы не закрывает её раньше этого момента (реальные часы, мс) — иначе тап по кнопке «пауза» сразу её снимет. */
   private resumeAllowedAt = 0;
+  /** Кадр, в котором пауза снята (кнопкой «Продолжить», кнопкой паузы или тапом по экрану): касание, начатое в этом кадре, принадлежит интерфейсу паузы, а не карте. */
+  private resumeFrame = -1;
   /** Кнопка «Заново» не срабатывает раньше этого момента (реальные часы, мс) — чтобы не нажать случайно, продолжая быстро тапать. */
   private restartAllowedAt = 0;
 
@@ -385,6 +387,7 @@ export class GameScene extends Phaser.Scene {
     }
     this.panelKey = '';
     this.resumeAllowedAt = 0;
+    this.resumeFrame = -1;
     this.restartAllowedAt = 0;
     this.overlay = null;
 
@@ -436,6 +439,8 @@ export class GameScene extends Phaser.Scene {
 
     new MapGestures(this, this.rig, VIEW, {
       isActive: () => this.state === 'playing' && !isPortraitPhone(),
+      // Нажатие, которое сняло паузу, — не жест карты: иначе отпускание после «Продолжить» становилось тапом по карте и ставило башню под кнопкой (решение владельца 20 октября 2026, сообщение 2, п. 1.3)
+      startBlocked: () => this.game.loop.frame === this.resumeFrame,
       onTap: (sx, sy) => this.onTap(sx, sy),
       onHover: (sx, sy) => this.onHover(sx, sy),
       onHoverEnd: () => this.ghost.setVisible(false),
@@ -1747,12 +1752,28 @@ export class GameScene extends Phaser.Scene {
     return perShot / ((st.cooldownMs / 1000) * tower.auraMul * tower.latchMul);
   }
 
+  /**
+   * Строка «Пауза» карточки — действующая пауза, как в бою (та же, по которой считается «Урон в секунду»): с аурой Витамина и «Лихорадкой» короче, с присосавшимся паразитом длиннее;
+   * при любом из них — множитель и причина в скобках, как у паразита (решение владельца 20 октября 2026, сообщение 2, п. 1.6).
+   */
+  private pauseLine(tower: Tower): string {
+    const n = (x: number): string => num(Math.round(x * 10) / 10);
+    const base = tower.stats.cooldownMs / 1000;
+    const fever = this.feverLeft > 0 ? CONFIG.abilities.fever.cooldownMul : 1;
+    const why: string[] = [];
+    if (tower.auraMul / fever < 1 - 1e-9) why.push(t('towerVitamin'));
+    if (fever < 1 && tower.auraMul < 1 - 1e-9) why.push(t('feverName'));
+    if (why.length === 0) return tower.latchMul > 1 ? t('statCooldownLatched', { n: n(base * tower.latchMul), m: num(tower.latchMul) }) : t('statCooldown', { n: n(base) });
+    if (tower.latchMul > 1) why.push(t('statWhyParasite'));
+    const mul = tower.auraMul * tower.latchMul;
+    return t('statCooldownBoost', { n: n(base * mul), m: num(Math.round(mul * 100) / 100), why: why.join(', ') });
+  }
+
   /** Числа для карточки: у каждой башни свои три строки. */
   private cardStats(tower: Tower): string[] {
     const st = tower.stats;
     const n = (x: number): string => num(Math.round(x * 10) / 10);
-    // Присосавшийся паразит удлиняет паузу: показываем уже удлинённую и пометку
-    const pause = tower.latchMul > 1 ? t('statCooldownLatched', { n: n((st.cooldownMs / 1000) * tower.latchMul), m: num(tower.latchMul) }) : t('statCooldown', { n: n(st.cooldownMs / 1000) });
+    const pause = this.pauseLine(tower);
     if (st.targeting === 'puddle') return [t('statPuddle', { r: Math.round(st.puddleRadius), s: n(st.puddleSec) }), t('statSlow', { n: n(st.slowFactor) }), pause];
     if (st.targeting === 'beam') return [t('statDps', { n: n(this.dps(tower)) }), t(st.secondBeam ? 'statBeams' : 'statBeam', { n: st.secondBeam ? 2 : st.beamPulses }), pause];
     if (st.targeting === 'area') return [t('statDps', { n: n(this.dps(tower)) }), t('statBlast', { r: Math.round(st.blastRadius) }), pause];
@@ -1938,16 +1959,53 @@ export class GameScene extends Phaser.Scene {
     this.scene.pause();
   }
 
-  /** «В меню» с паузы: партия считается проигранной без экрана конца уровня — очки ДНК за пройденные волны начисляются, лучшая волна уровня записывается, звёзд нет. */
+  /**
+   * «В меню» с паузы (решение владельца 20 октября 2026, сообщение 2, п. 1.1–1.2): после хотя бы одной пройденной волны — попытка без экрана конца уровня: очки ДНК только за пройденные волны
+   * (нижней границы нет), лучшая волна уровня, строка итога с пометкой выхода в журнал, счётчик попыток +1; звёзд нет. Без пройденных волн — не попытка: ни ДНК, ни строки, ни счётчика.
+   */
   private leaveToMenu(): void {
     if (this.state !== 'paused' || performance.now() < this.resumeAllowedAt) return;
-    if (!this.dnaAwarded) {
+    const cleared = Math.max(0, this.waveIdx - 1);
+    if (!this.dnaAwarded && cleared >= 1) {
       this.dnaAwarded = true;
-      const cleared = Math.max(0, this.waveIdx - 1);
-      awardDna(this.dnaInput(cleared, false));
-      recordResult(currentLevel(), cleared, 0);
+      this.dnaReplay = isLevelBeaten(currentLevel());
+      this.dnaGained = awardDna(this.dnaInput(cleared, false));
+      this.stars = 0;
+      this.starDna = recordResult(currentLevel(), cleared, 0).starDna;
+      this.attemptText = this.buildAttemptLine(false, true);
+      finishAttempt(currentLevel(), this.attemptText);
     }
+    if (QA_MODE) qaLog(this, 'menuExit', { cleared, dna: this.dnaAwarded ? this.dnaGained : 0, attempt: this.dnaAwarded });
     this.scene.start('Menu');
+  }
+
+  /** Строка итога попытки (src/attempt.ts): номер попытки — до записи этой, покупки — с конца прошлой; `exit` — выход в меню с паузы (пометка вместо «гибель»). */
+  private buildAttemptLine(won: boolean, exit: boolean): string {
+    const level = currentLevel();
+    const waves: [number, number | null][] = [];
+    for (let w = 10; w <= this.waveTotal(); w += 10) waves.push([w, this.coinsAtWave.get(w) ?? null]);
+    return attemptLine({
+      level,
+      attempt: attemptNumber(level),
+      won,
+      exit,
+      wave: this.waveIdx,
+      waveTotal: this.waveTotal(),
+      stars: this.stars,
+      livesLeft: this.lives,
+      livesMax: this.maxLives(),
+      speedSec: this.speedSec,
+      elapsedSec: this.elapsed,
+      towers: this.towers.map((tower) => ({ id: tower.id, level: tower.level })),
+      merges: this.merges,
+      mutations: this.mutationsPicked,
+      builds: this.builds,
+      sells: this.sells,
+      coinsAtWave: waves,
+      dna: this.dnaGained + this.starDna,
+      entry: this.entryLevels,
+      bought: boughtSinceLast(),
+    });
   }
 
   /** Итог партии для очков ДНК: пройдено волн, победа, повтор пройденного уровня, остаток монет, побеждённые боссы, «без потерь». */
@@ -1988,6 +2046,7 @@ export class GameScene extends Phaser.Scene {
       this.pauseMenuButton = this.addEndButton(W / 2 + 180, H / 2 + 200, 320, 76, t('toMenu'), 0x2a3550, 0x4a5c82, () => this.leaveToMenu());
     } else if (this.state === 'paused') {
       this.state = 'playing';
+      this.resumeFrame = this.game.loop.frame;
       this.overlay?.destroy();
       this.overlay = null;
       this.pauseResumeButton = null;
@@ -2139,38 +2198,14 @@ export class GameScene extends Phaser.Scene {
       this.dnaParts = { ...parts, stars: this.starDna };
       this.coinsLeft = coinsLeft;
       // Строка итога попытки: номер попытки — до записи этой, покупки — с конца прошлой; после записи счётчик попыток уровня +1, строка — в журнал меню
-      const level = currentLevel();
-      const waves: [number, number | null][] = [];
-      for (let w = 10; w <= this.waveTotal(); w += 10) waves.push([w, this.coinsAtWave.get(w) ?? null]);
-      this.attemptText = attemptLine({
-        level,
-        attempt: attemptNumber(level),
-        won,
-        wave: this.waveIdx,
-        waveTotal: this.waveTotal(),
-        stars: this.stars,
-        livesLeft: this.lives,
-        livesMax: this.maxLives(),
-        speedSec: this.speedSec,
-        elapsedSec: this.elapsed,
-        towers: this.towers.map((tower) => ({ id: tower.id, level: tower.level })),
-        merges: this.merges,
-        mutations: this.mutationsPicked,
-        builds: this.builds,
-        sells: this.sells,
-        coinsAtWave: waves,
-        dna: this.dnaGained + this.starDna,
-        entry: this.entryLevels,
-        bought: boughtSinceLast(),
-      });
-      finishAttempt(level, this.attemptText);
+      this.attemptText = this.buildAttemptLine(won, false);
+      finishAttempt(currentLevel(), this.attemptText);
     }
     // Экран конца уровня: итог, из чего он сложился (волны + победа + звёзды; нулевые слагаемые, кроме волн, не показываются), монеты отдельной строкой (только после победы), пометка пройденного уровня
     const pieces = [t('dnaPartWaves', { n: this.dnaParts.waves })];
     if (this.dnaParts.win > 0) pieces.push(t('dnaPartWin', { n: this.dnaParts.win }));
     if (this.dnaParts.bosses > 0) pieces.push(t('dnaPartBosses', { n: this.dnaParts.bosses }));
     if (this.dnaParts.flawless > 0) pieces.push(t('dnaPartFlawless', { n: this.dnaParts.flawless }));
-    if (this.dnaParts.floor > 0) pieces.push(t('dnaPartFloor', { n: this.dnaParts.floor }));
     if (this.dnaParts.stars > 0) pieces.push(t('dnaPartStars', { n: this.dnaParts.stars }));
     const total = this.dnaParts.waves + this.dnaParts.win + this.dnaParts.coins + this.dnaParts.bosses + this.dnaParts.flawless + this.dnaParts.floor + this.dnaParts.stars;
     const rows: { row: number; text: string }[] = [
@@ -2256,7 +2291,14 @@ export class GameScene extends Phaser.Scene {
     g.fillStyle(fill, 1).fillRoundedRect(x - w / 2, y - h / 2, w, h, 18);
     g.lineStyle(4, line, 1).strokeRoundedRect(x - w / 2, y - h / 2, w, h, 18);
     const text = this.add.text(x, y, label, this.textStyle(fontSize)).setOrigin(0.5);
-    const zone = this.add.zone(x, y, w, h).setInteractive({ useHandCursor: true }).on('pointerdown', onTap);
+    // Нажатие кнопки затемнения дальше сцены не идёт: ни жесты карты, ни «тап по экрану продолжает игру» его не получают (решение владельца 20 октября 2026, сообщение 2, п. 1.3)
+    const zone = this.add
+      .zone(x, y, w, h)
+      .setInteractive({ useHandCursor: true })
+      .on('pointerdown', (_pointer: Phaser.Input.Pointer, _lx: number, _ly: number, event: Phaser.Types.Input.EventData) => {
+        event.stopPropagation();
+        onTap();
+      });
     this.overlay?.add([g, text, zone]);
     return { rect: { x, y, w, h }, label: text };
   }
