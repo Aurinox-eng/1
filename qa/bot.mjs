@@ -221,12 +221,17 @@ function numArg(name, fallback, { min = -Infinity, max = Infinity, int = false }
 if (args.profile !== undefined && !['expert', 'zone'].includes(String(args.profile))) die(`--profile=«${args.profile}»: профиль один — expert (стратегии — --strategy, --solo, --pair, --focus).`);
 // --strategy: default | zone | solo:X | pair:a+b | focus:a+b | core:a+b (то же, что --solo=X, --pair=a,b, --focus=a,b, --core=a,b; так стратегию задаёт одно поле workflow)
 const STRATEGY_SPEC = String(args.strategy ?? (args.profile === 'zone' ? 'zone' : 'default'));
-const specMatch = /^(solo|pair|focus|core):([\w+,]+)(?::(save|l1|r[2-9]))?$/.exec(STRATEGY_SPEC);
-if (!specMatch && !['default', 'expert', 'zone'].includes(STRATEGY_SPEC)) die(`--strategy=«${STRATEGY_SPEC}»: есть default, zone, solo:X, pair:a+b, focus:a+b, core:a+b, core:a+b:save, <стратегия>:l1.`);
-if (specMatch?.[3] === 'save' && specMatch[1] !== 'core') die(`--strategy=${STRATEGY_SPEC}: «:save» — только для core.`);
+const specMatch = /^(solo|pair|focus|core):([\w+,]+)(?::(save|late(?:\d{1,2})?|l1|r[2-9]))?$/.exec(STRATEGY_SPEC);
+if (!specMatch && !['default', 'expert', 'zone'].includes(STRATEGY_SPEC)) die(`--strategy=«${STRATEGY_SPEC}»: есть default, zone, solo:X, pair:a+b, focus:a+b, core:a+b, core:a+b:save, core:a+b:late[N], <стратегия>:l1.`);
+if (/^(save|late)/.test(specMatch?.[3] ?? '') && specMatch[1] !== 'core') die(`--strategy=${STRATEGY_SPEC}: «:save» и «:late» — только для core.`);
 /** core:a+b:save — эксперт копит очки ДНК на башни ядра: пока они не открыты, покупает только узлы на пути к ним и строит только Таблетки — без Сиропа и Шипучки в круге
  *  (решение владельца 19 октября 2026, сообщение 5, п. 2: Сироп в круге забирал монеты у Таблеток, гибель 12–13 → 10). */
-const CORE_SAVE = specMatch?.[3] === 'save';
+/** core:a+b:late[N] — эксперт «как пара a + b, затем Таблетки и Шипучка» (решение владельца 20 октября 2026, сообщение 1, п. 2.1: на каждой стене эксперт не слабее лучшей
+ *  ограниченной стратегии): копит очки ДНК на ядро, как :save; до волны N (по умолчанию LATE_WAVE) строит и качает как pair:a+b (по очереди, без кучки),
+ *  с волны N в круг добавляются Таблетка и Шипучка — к слизням (с 35-й) и боссу (последнюю фазу ранят только взрыв и луч). */
+const CORE_LATE = /^late/.test(specMatch?.[3] ?? '');
+const LATE_WAVE = CORE_LATE && specMatch[3].length > 4 ? Number(specMatch[3].slice(4)) : 31;
+const CORE_SAVE = specMatch?.[3] === 'save' || CORE_LATE;
 /** <стратегия>:l1 — проба: башни уровня 1 (Сироп, Шипучка, Шприц) открыты с первой попытки без очков ДНК; покупки — по правилам стратегии («Лихорадка» — общий узел). */
 const L1_OPEN = specMatch?.[3] === 'l1';
 /** pair:a+b:rN, focus:a+b:rN — в круге N башен a на одну b (по умолчанию поровну): доля второй башни для замера сильнейшей пары. */
@@ -243,9 +248,9 @@ const FOCUS = listArg('focus');
 const CORE = listArg('core');
 if ((PAIR && PAIR.length !== 2) || (FOCUS && FOCUS.length !== 2) || (CORE && CORE.length !== 2)) die('--pair, --focus и --core: две башни через запятую, например --pair=pill,fizz.');
 /** Ядро, которое строится кучкой в радиусе слияния: --focus и --core. */
-const KERNEL = FOCUS ?? CORE;
+const KERNEL = FOCUS ?? (CORE_LATE ? null : CORE);
 /** Стратегия партии (метка в итогах): default, zone, solo:X, pair:a+b, focus:a+b. */
-const STRATEGY_LABEL = (PAIR ? `pair:${PAIR.join('+')}` : FOCUS ? `focus:${FOCUS.join('+')}` : CORE ? `core:${CORE.join('+')}${CORE_SAVE ? ':save' : ''}` : args.solo !== undefined ? `solo:${args.solo}` : STRATEGY) + (L1_OPEN ? ':l1' : '') + (CYCLE_RATIO > 1 ? `:r${CYCLE_RATIO}` : '') + (args.mut === 'alt' ? ' · мутации alt' : args.mut !== undefined ? ' · мутации --mut' : '');
+const STRATEGY_LABEL = (PAIR ? `pair:${PAIR.join('+')}` : FOCUS ? `focus:${FOCUS.join('+')}` : CORE ? `core:${CORE.join('+')}${CORE_LATE ? `:late${LATE_WAVE}` : CORE_SAVE ? ':save' : ''}` : args.solo !== undefined ? `solo:${args.solo}` : STRATEGY) + (L1_OPEN ? ':l1' : '') + (CYCLE_RATIO > 1 ? `:r${CYCLE_RATIO}` : '') + (args.mut === 'alt' ? ' · мутации alt' : args.mut !== undefined ? ' · мутации --mut' : '');
 const PROFILES = [PROFILE];
 const profileTitle = () => `${PROFILE_TITLE}${STRATEGY_LABEL === 'default' ? '' : ` (${STRATEGY_LABEL})`}`;
 const RUNS = numArg('runs', 10, { min: 1, max: 1000, int: true });
@@ -326,7 +331,9 @@ const SOLO_ALLOWED = SOLO ? new Set([SOLO, ...(SOLO_SUPPORT.includes(SOLO) ? ['p
 /** --pair, --focus, --core: круг строго по порядку — бот копит на очередную башню круга и не отдаёт монеты более дешёвой (иначе в бою, когда «не спокойно», терпение 0
  *  и Таблетки за 70 забирали все монеты: у «Таблетка + Шприц» к 44-й волне 31 Таблетка и один Шприц I, у «Сироп + Шприц» — два Шприца на 6–11 Сиропов). */
 const STRICT_CYCLE = Boolean(PAIR || FOCUS || CORE);
-const SOLO_CYCLE = SOLO ? (SOLO_SUPPORT.includes(SOLO) ? ['pill'] : [SOLO]) : PAIR ?? FOCUS ? [...Array(CYCLE_RATIO).fill((PAIR ?? FOCUS)[0]), (PAIR ?? FOCUS)[1]] : CORE ? [...CORE, ...CORE, 'syrup', ...CORE, ...CORE, 'fizz'] : null;
+const SOLO_CYCLE = SOLO ? (SOLO_SUPPORT.includes(SOLO) ? ['pill'] : [SOLO]) : PAIR ?? FOCUS ? [...Array(CYCLE_RATIO).fill((PAIR ?? FOCUS)[0]), (PAIR ?? FOCUS)[1]] : CORE_LATE ? [...CORE] : CORE ? [...CORE, ...CORE, 'syrup', ...CORE, ...CORE, 'fizz'] : null;
+/** core:a+b:late — круг с волны LATE_WAVE: ядро и по Таблетке и Шипучке на каждую пару башен ядра. */
+const LATE_CYCLE = CORE_LATE ? [...CORE, 'pill', 'fizz'] : null;
 /** Башни, которые стратегия должна иметь открытыми в одиночной партии (первая попытка серии 10.2): узлы древа добавляются к улучшениям партии (иначе кнопка башни в игре закрыта). */
 const STRATEGY_TOWERS = [...(SOLO ? [SOLO] : []), ...(PAIR ?? []), ...(FOCUS ?? []), ...(CORE ? [...CORE, 'syrup', 'fizz'] : [])].filter((id, i, a) => id !== 'pill' && a.indexOf(id) === i);
 for (const id of EXCLUDE) if (!KNOWN_TOWERS.includes(id)) die(`--exclude: нет башни «${id}». Есть: ${KNOWN_TOWERS.join(', ')}.`);
@@ -462,7 +469,7 @@ function buyUpgrades(levels, dna) {
 }
 /** Башни, узлы и ветки которых покупает стратегия (null — все): --solo/--pair/--focus — только свои башни (Таблетка — если стратегия её строит), --core — башни своего круга (ядро, Сироп, Шипучка;
  *  ветку Таблетки core:syrup+syringe не качает: Таблетка у неё одна, с начала партии), zone — Таблетка и Сироп; без исключённых (--exclude). */
-const BUY_TOWERS = SOLO_ALLOWED ? [...SOLO_ALLOWED].filter((id) => !EXCLUDE.has(id)) : CORE ? [...new Set(SOLO_CYCLE)].filter((id) => !EXCLUDE.has(id)) : STRATEGY === 'zone' ? [...ZONE_TOWERS] : EXCLUDE.size ? KNOWN_TOWERS.filter((id) => !EXCLUDE.has(id)) : null;
+const BUY_TOWERS = SOLO_ALLOWED ? [...SOLO_ALLOWED].filter((id) => !EXCLUDE.has(id)) : CORE ? [...new Set(SOLO_CYCLE)].filter((id) => !EXCLUDE.has(id) && !(CORE_LATE && id === 'pill')) : STRATEGY === 'zone' ? [...ZONE_TOWERS] : EXCLUDE.size ? KNOWN_TOWERS.filter((id) => !EXCLUDE.has(id)) : null;
 /** Начальные улучшения лестницы и серии партий: стратегии с ограничением башен (--solo/--pair/--focus, zone) — узлы своих башен открыты с первой попытки, как в серии 10.2
  *  (решение владельца 19 октября 2026, сообщение 4, п. 1.1), остальное — с нуля; эксперт без ограничения (обычная игра, --core) — всё с нуля. */
 const startLevels = () => ({ ...emptyLevels(), ...(SOLO_ALLOWED || STRATEGY === 'zone' ? OPEN_NODES : {}), ...(L1_OPEN ? { towerSyrup: 1, towerFizz: 1, towerSyringe: 1 } : {}) });
@@ -768,7 +775,7 @@ function buildWorld(graph, map, cols, rows) {
 function makePlayer({ world, rng, buttons }) {
   const zone = STRATEGY === 'zone'; // «всё у Z»: только Таблетки и один Сироп, клетки — ближайшие к последней развилке у организма
   const available = (id) => TABLE[id] && buttons.includes(id) && !EXCLUDE.has(id) && (!SOLO_ALLOWED || SOLO_ALLOWED.has(id)) && (!zone || ZONE_TOWERS.has(id));
-  const cycle = zone ? ZONE_CYCLE : SOLO_CYCLE ?? DEFAULT_CYCLE;
+  const baseCycle = zone ? ZONE_CYCLE : SOLO_CYCLE ?? DEFAULT_CYCLE;
   /** Проверка «клетка в радиусе слияния от стоящей башни этого вида 1-го уровня (мутация не ждёт)»; null — таких башен нет (тогда как раньше). */
   const nearPartner = (view, type) => {
     const radius = (view.s.mergeRadiusPx ?? 0) * MERGE_NEAR_MARGIN;
@@ -867,6 +874,8 @@ function makePlayer({ world, rng, buttons }) {
         lastPtr = headKey;
         headSince = now;
       }
+      const cycle = LATE_CYCLE && view.s.wave >= LATE_WAVE ? LATE_CYCLE : baseCycle;
+      if (ptr >= cycle.length) ptr = 0;
       let order = [];
       const syrupDone = (SOLO || zone) && view.towers.some((tw) => tw.id === 'syrup'); // при --solo и zone Сироп один: построен — из круга уходит
       for (let k = 0; k < cycle.length; k++) {
@@ -938,7 +947,7 @@ function makePlayer({ world, rng, buttons }) {
       return { type: chosen.type, cell: best.c, cycleIdx: chosen.idx };
     },
     bought(choice) {
-      if (choice.cycleIdx >= 0) ptr = (choice.cycleIdx + 1) % cycle.length; // покупка «начала партии» (cycleIdx -1) место в списке не двигает
+      if (choice.cycleIdx >= 0) ptr = choice.cycleIdx + 1; // покупка «начала партии» (cycleIdx -1) место в списке не двигает; конец круга decide переводит в начало
     },
   };
 }
