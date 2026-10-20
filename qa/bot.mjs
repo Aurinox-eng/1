@@ -364,11 +364,18 @@ const MUTATION_IDS = readMutationIds();
 const MUT_IDS = { ...DEFAULT_MUT };
 // --mut=alt — второй набор (раздел 10.2: «2 набора мутаций»): на каждом пороге — другой из двух вариантов, чем в DEFAULT_MUT
 const MUT_ALT = args.mut === 'alt';
+/** Башни без чередования первого порога (запись «noalt» в --mut). */
+const NO_ALT = new Set();
 if (MUT_ALT) for (const [towerId, ids] of Object.entries(DEFAULT_MUT)) MUT_IDS[towerId] = ids.map((id, tier) => (MUTATION_IDS[towerId]?.[tier] ?? []).find((x) => x !== id) ?? id);
 else if (args.mut !== undefined) {
   if (args.mut === true) die('--mut=башня:мутация,мутация;… — после «=» нужна запись, например pill:pillRapid,pillDouble');
   for (const part of String(args.mut).split(';').filter(Boolean)) {
     const [towerId, list] = part.split(':');
+    // «noalt» — без чередования первого порога у всех башен, «noalt:syrup,fizz» — у названных (для сверки с прежним выбором: у всех башен вида один вариант)
+    if (towerId === 'noalt') {
+      for (const id of list ? list.split(',') : KNOWN_TOWERS) NO_ALT.add(id.trim());
+      continue;
+    }
     if (!TABLE[towerId] || !list) die(`--mut: не понял «${part}». Нужно башня:мутация,мутация (башни: ${KNOWN_TOWERS.join(', ')})`);
     MUT_IDS[towerId] = list.split(',').map((x) => x.trim());
   }
@@ -1151,7 +1158,7 @@ async function playGame(browser, baseUrl, run, metaLevels = null, salt = '', lev
      */
     const firstTierPick = async (tw, index) => {
       const variants = MUTATION_IDS[tw.id]?.[0] ?? [];
-      if (variants.length !== 2) return index;
+      if (variants.length !== 2 || NO_ALT.has(tw.id)) return index;
       const chosen = variants[index];
       const other = variants[1 - index];
       const singleFirst = SINGLE_FIRST.has(tw.id);
