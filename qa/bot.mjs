@@ -483,11 +483,21 @@ function treeLeft(levels) {
 }
 
 /** Покупка очков ДНК между партиями в лучшем найденном порядке (`buyBest` в qa/lib.mjs: крупные узлы первыми, затем наибольший прирост силы на очко ДНК). */
-function buyUpgrades(levels, dna, reached = 0) {
+/** Доли башен с уроном в обороне — по составу поля прошлой попытки (башен вида на конец партии ÷ всех башен с уроном); Сироп урона не наносит — его доля остаётся постоянной (BRANCH_SHARE). null — данных нет. */
+function fieldShares(towers) {
+  if (!towers) return null;
+  const hits = Object.entries(towers).filter(([id, n]) => n > 0 && id !== 'syrup' && TABLE[id] && (TABLE[id].damage > 0 || TABLE[id].dotPerSec > 0));
+  const total = hits.reduce((sum, [, n]) => sum + n, 0);
+  if (!total) return null;
+  const out = Object.fromEntries(KNOWN_TOWERS.filter((id) => id !== 'syrup').map((id) => [id, 0]));
+  for (const [id, n] of hits) out[id] = n / total;
+  return out;
+}
+function buyUpgrades(levels, dna, reached = 0, towers = null) {
   // core:…:late — когда игрок уже доходит до волны LATE_WAVE (там в круге Таблетки и Шипучка против слизней и босса), очки ДНК идут и на их ветки; раньше — только на ветки ядра, как у пары
   // (по лестницам 20 октября 2026: без этого эксперт с 11-й по 20-ю попытку стоял на слизнях, 36–37-я волна, с неулучшенными Таблетками)
   const late = CORE_LATE && !NO_LATE_BUY.value && reached >= LATE_WAVE && CORE.every((id) => levels[towerNodeId(id)] > 0);
-  return buyBest({ upgrades: META.upgrades, levels, dna, towers: late ? [...BUY_TOWERS, 'pill', 'fizz'] : BUY_TOWERS, saveFor: CORE_SAVE ? CORE : null });
+  return buyBest({ upgrades: META.upgrades, levels, dna, towers: late ? [...BUY_TOWERS, 'pill', 'fizz'] : BUY_TOWERS, saveFor: CORE_SAVE ? CORE : null, shares: fieldShares(towers) });
 }
 /** Башни, узлы и ветки которых покупает стратегия (null — все): --solo/--pair/--focus — только свои башни (Таблетка — если стратегия её строит), --core — башни своего круга (ядро, Сироп, Шипучка;
  *  ветку Таблетки core:syrup+syringe не качает: Таблетка у неё одна, с начала партии), zone — Таблетка и Сироп; без исключённых (--exclude). */
@@ -1737,7 +1747,7 @@ async function ladderLane(profile, run) {
       lane.dna += gained;
       // лучшая волна уровня — число пройденных волн (как `progress.best` в игре): победа — все волны, проигрыш — без текущей
       lane.best[level - 1] = Math.max(lane.best[level - 1] ?? 0, game.result === 'won' ? game.waveTotal : Math.max(0, game.wave - 1));
-      const buy = buyUpgrades(lane.levels, lane.dna, lane.best[level - 1] ?? 0);
+      const buy = buyUpgrades(lane.levels, lane.dna, lane.best[level - 1] ?? 0, game.towers);
       lane.levels = buy.levels;
       lane.dna = buy.dna;
       rec.waves.push(game.result === 'won' ? game.waveTotal : game.wave);
@@ -1839,7 +1849,7 @@ try {
           entry.waves.push(game.result === 'won' ? game.waveTotal : game.wave);
           const gained = dnaForGame(game, false, progress, LEVEL);
           dna += gained;
-          const buy = buyUpgrades(levels, dna, Math.max(0, ...entry.waves.map((w) => w - 1)));
+          const buy = buyUpgrades(levels, dna, Math.max(0, ...entry.waves.map((w) => w - 1)), game.towers);
           levels = buy.levels;
           dna = buy.dna;
           entry.bought.push(buy.bought);
