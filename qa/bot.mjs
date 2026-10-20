@@ -767,6 +767,15 @@ function buildWorld(graph, map, cols, rows) {
       }
       return sum;
     },
+    /** Точка (x, y) — под лучом башни tw (по её нынешнему направлению aim): в полосе длины луча и полуширины с запасом BEAM_MARGIN_PX. */
+    underBeam(tw, x, y) {
+      const T = TABLE[tw.id];
+      const [dx, dy] = dirs[tw.aim ?? 0];
+      const px = x - tw.x;
+      const py = y - tw.y;
+      const along = px * dx + py * dy;
+      return along >= 0 && along <= T.beamLengthPx && Math.abs(-px * dy + py * dx) <= T.beamHalfWidthPx + BEAM_MARGIN_PX;
+    },
     /** Сколько башен уже накрывает каждый отрезок дорожки (по радиусам стоящих башен). */
     coverCounts(towers) {
       const counts = new Int32Array(segs.length);
@@ -1409,9 +1418,10 @@ async function playGame(browser, baseUrl, run, metaLevels = null, salt = '', lev
       // «Лихорадка» (раздел 10.1, п. 3): готова и куплена — эксперт включает её на волне босса или мини-босса, когда босс вошёл в радиус башни с уроном
       if (s.state === 'playing' && s.fever?.owned && s.fever.wait === 0 && s.fever.left === 0) {
         const boss = s.bacteria.find((b) => b.boss);
-        // досягаемость башни: у луча (Шприц, beamPulses > 0) радиуса нет (range 0), луч 3000 px — всё поле; иначе «один Шприц» и «Сироп + Шприц» «Лихорадку» не включали никогда
-        const reach = (tw) => (tw.stats.beamPulses > 0 ? Infinity : tw.stats.range);
-        if (boss && s.towers.some((tw) => tw.stats.damage > 0 && Math.hypot(tw.x - boss.x, tw.y - boss.y) <= reach(tw))) {
+        // босс в досягаемости башни с уроном: у луча (Шприц, beamPulses > 0) — под линией луча по нынешнему направлению, у остальных — в радиусе. «Лихорадка» действует 8 с и перезаряжается 60 с:
+        // включённая, пока босс ещё не под лучами, пропадала (решение владельца 20 октября 2026, сообщение 4, п. 3.4; прежде у луча досягаемость считалась «всё поле»)
+        const hits = (tw) => (tw.stats.beamPulses > 0 ? WORLD.underBeam(tw, boss.x, boss.y) : Math.hypot(tw.x - boss.x, tw.y - boss.y) <= tw.stats.range);
+        if (boss && s.towers.some((tw) => tw.stats.damage > 0 && hits(tw))) {
           await input.tap(g2c(FEVER_BTN.x, FEVER_BTN.y));
           const after = await pollUntil(page, (x) => x.fever.uses > s.fever.uses || x.state !== 'playing', 1000);
           if (after.fever.uses > s.fever.uses) record.fevers.push(after.wave);
