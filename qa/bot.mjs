@@ -369,12 +369,19 @@ const MUT_IDS = { ...DEFAULT_MUT };
 const MUT_ALT = args.mut === 'alt';
 /** Башни без чередования первого порога (запись «noalt» в --mut). */
 const NO_ALT = new Set();
+/** Запись «nolatebuy» в --mut: без покупки веток Таблетки и Шипучки после выхода на волну N (core:…:late). */
+const NO_LATE_BUY = { value: false };
 if (MUT_ALT) for (const [towerId, ids] of Object.entries(DEFAULT_MUT)) MUT_IDS[towerId] = ids.map((id, tier) => (MUTATION_IDS[towerId]?.[tier] ?? []).find((x) => x !== id) ?? id);
 else if (args.mut !== undefined) {
   if (args.mut === true) die('--mut=башня:мутация,мутация;… — после «=» нужна запись, например pill:pillRapid,pillDouble');
   for (const part of String(args.mut).split(';').filter(Boolean)) {
     const [towerId, list] = part.split(':');
     // «noalt» — без чередования первого порога у всех башен, «noalt:syrup,fizz» — у названных (для сверки с прежним выбором: у всех башен вида один вариант)
+    // «nolatebuy» — core:…:late без правила e81a82e: очки ДНК только в ветки ядра и после выхода на волну N (сверка, сообщение владельца 4 от 20 октября 2026, п. 4)
+    if (towerId === 'nolatebuy') {
+      NO_LATE_BUY.value = true;
+      continue;
+    }
     if (towerId === 'noalt') {
       for (const id of list ? list.split(',') : KNOWN_TOWERS) NO_ALT.add(id.trim());
       continue;
@@ -479,7 +486,7 @@ function treeLeft(levels) {
 function buyUpgrades(levels, dna, reached = 0) {
   // core:…:late — когда игрок уже доходит до волны LATE_WAVE (там в круге Таблетки и Шипучка против слизней и босса), очки ДНК идут и на их ветки; раньше — только на ветки ядра, как у пары
   // (по лестницам 20 октября 2026: без этого эксперт с 11-й по 20-ю попытку стоял на слизнях, 36–37-я волна, с неулучшенными Таблетками)
-  const late = CORE_LATE && reached >= LATE_WAVE && CORE.every((id) => levels[towerNodeId(id)] > 0);
+  const late = CORE_LATE && !NO_LATE_BUY.value && reached >= LATE_WAVE && CORE.every((id) => levels[towerNodeId(id)] > 0);
   return buyBest({ upgrades: META.upgrades, levels, dna, towers: late ? [...BUY_TOWERS, 'pill', 'fizz'] : BUY_TOWERS, saveFor: CORE_SAVE ? CORE : null });
 }
 /** Башни, узлы и ветки которых покупает стратегия (null — все): --solo/--pair/--focus — только свои башни (Таблетка — если стратегия её строит), --core — башни своего круга (ядро, Сироп, Шипучка;

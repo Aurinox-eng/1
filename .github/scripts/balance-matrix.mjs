@@ -43,7 +43,7 @@ for (const p of profiles) {
 const mutList = [];
 for (const part of (env.MUTS ?? '').split('|')) {
   const v = part.trim() === '-' ? '' : part.trim();
-  if (v && v !== 'alt' && !/^(noalt(:\w+(,\w+)*)?|[a-z]+:\w+(,\w+)*)(;(noalt(:\w+(,\w+)*)?|[a-z]+:\w+(,\w+)*))*$/.test(v)) fail(`MUTS=«${v}»: нужно «-», «alt» или «башня:мутация,мутация;…» (варианты — через «|»)`);
+  if (v && v !== 'alt' && !/^(nolatebuy|noalt(:\w+(,\w+)*)?|[a-z]+:\w+(,\w+)*)(;(nolatebuy|noalt(:\w+(,\w+)*)?|[a-z]+:\w+(,\w+)*))*$/.test(v)) fail(`MUTS=«${v}»: нужно «-», «alt» или «башня:мутация,мутация;…» (варианты — через «|»)`);
   if (!mutList.includes(v)) mutList.push(v);
 }
 if (mutList.length === 0) mutList.push('');
