@@ -373,6 +373,8 @@ else if (args.mut !== undefined) {
     MUT_IDS[towerId] = list.split(',').map((x) => x.trim());
   }
 }
+/** Башни, у которых «одиночный» вариант первого порога — названный в мутациях (у Сиропа «Липкий»: одна копия уже даёт предельное замедление) и берётся первым; у остальных одиночный — другой вариант порога. */
+const SINGLE_FIRST = new Set(['syrup']);
 /** Номер варианта мутации (0/1) на каждом пороге для каждой башни. */
 const MUT_PICKS = {};
 for (const [towerId, ids] of Object.entries(MUT_IDS)) {
@@ -1142,10 +1144,38 @@ async function playGame(browser, baseUrl, run, metaLevels = null, salt = '', lev
       const now = after.towers.find((tw) => tw.col === cell.col && tw.row === cell.row);
       if (after.state === 'playing' && now?.aim !== best.dir) record.anomalies.push(`Шприц в ${cell.key}: ждали направление ${best.dir}, в игре ${now?.aim}`);
     };
+    /**
+     * Первый порог: варианты чередуются у башен одного вида так, чтобы башня IV собрала 3 + 1 копии (решение владельца 20 октября 2026, сообщение 3, п. 2.1: четвёртая копия даёт 0,
+     * а при одном варианте у всех башен вида каждая башня IV теряет один выбор). Считаются копии первого порога у стоящих башен вида: «одиночный» вариант берётся, когда его доля
+     * меньше четверти; у Сиропа одиночный — «Липкий» (одна копия уже даёт предельное замедление 0,25) и берётся первым, у остальных одиночный — второй вариант порога, четвёртым.
+     */
+    const firstTierPick = async (tw, index) => {
+      const variants = MUTATION_IDS[tw.id]?.[0] ?? [];
+      if (variants.length !== 2) return index;
+      const chosen = variants[index];
+      const other = variants[1 - index];
+      const singleFirst = SINGLE_FIRST.has(tw.id);
+      const main = singleFirst ? other : chosen;
+      const single = singleFirst ? chosen : other;
+      const s = await getState(page);
+      let nMain = 0;
+      let nSingle = 0;
+      for (const t of s?.towers ?? []) {
+        if (t.id !== tw.id) continue;
+        for (const id of t.picks ?? []) {
+          if (id === main) nMain++;
+          else if (id === single) nSingle++;
+        }
+      }
+      const total = nMain + nSingle;
+      const takeSingle = singleFirst ? 4 * nSingle <= total : 4 * (nSingle + 1) <= total + 1;
+      return variants.indexOf(takeSingle ? single : main);
+    };
     /** Выбирает мутацию для башни, которая её ждёт (tw.pending — номер порога): выбирает башню, жмёт кнопку варианта в карточке. */
     const pickMutation = async (tw) => {
-      const index = MUT_PICKS[tw.id]?.[tw.pending];
+      let index = MUT_PICKS[tw.id]?.[tw.pending];
       if (index === undefined) return false;
+      if (tw.pending === 0) index = await firstTierPick(tw, index);
       const sel = await selectTower(tw);
       const rect = sel?.ui.card.visible ? sel.ui.card.picks[index] : null;
       if (!rect?.visible) return false;
