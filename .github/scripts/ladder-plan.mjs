@@ -29,7 +29,7 @@ const integer = (name, fallback, min, max) => {
 };
 // Профиль один — expert (решение владельца 19 октября 2026); PROFILE — стратегия эксперта: expert, zone, solo:X, pair:a+b, focus:a+b; MUT — набор мутаций («alt» или «башня:мутация,мутация;…», пусто — по умолчанию)
 const profile = (env.PROFILE ?? '').trim() || 'expert';
-if (!/^(expert|zone|(solo|pair|focus|core):[a-z]+(\+[a-z]+)?(:l1|:r[2-9])?|core:[a-z]+\+[a-z]+:(save|late([0-9]{1,2})?))$/.test(profile)) fail(`PROFILE=«${profile}»: нужна стратегия эксперта — expert, zone, solo:X, pair:a+b, focus:a+b, core:a+b, core:a+b:save, core:a+b:late[N], <стратегия>:l1 (профили novice, average, strong убраны)`);
+if (!/^(expert|zone|(solo|pair|focus|core):[a-z]+(\+[a-z]+)?(:l1|:r[2-9])?|core:[a-z]+\+[a-z]+:(save|late([0-9]{1,2})?(x[1-4])?))$/.test(profile)) fail(`PROFILE=«${profile}»: нужна стратегия эксперта — expert, zone, solo:X, pair:a+b, focus:a+b, core:a+b, core:a+b:save, core:a+b:late[N], <стратегия>:l1 (профили novice, average, strong убраны)`);
 const mut = (env.MUT ?? '').trim() === '-' ? '' : (env.MUT ?? '').trim();
 if (mut && mut !== 'alt' && !/^(nolatebuy|noalt(:\w+(,\w+)*)?|[a-z]+:\w+(,\w+)*)(;(nolatebuy|noalt(:\w+(,\w+)*)?|[a-z]+:\w+(,\w+)*))*$/.test(mut)) fail(`MUT=«${mut}»: нужно «alt» или «башня:мутация,мутация;…» (пусто — по умолчанию)`);
 const lanes = integer('LANES', 6, 1, 10);
