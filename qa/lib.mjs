@@ -591,8 +591,9 @@ const BIG_GAIN = {
   fever: 1, pillKey: 1.1, fizzKey: 1.08, syringeKey: 1.07, ampuleKey: 1.07, antibioticKey: 1.06, syrupKey: 1.05, lampKey: 1.05, vitaminKey: 1.04, frostKey: 1.05, patchKey: 1.03,
 };
 /** Прирост силы от следующего уровня узла `id` (множитель; 1 — силы не прибавляет, такой узел лучший порядок не покупает). */
-/** Полуширина луча Шприца без улучшений, px (`towers.syringe.beamHalfWidthPx` в config.ts): узел «Ширина» +2 px за уровень — около +20 % полосы, а не 2 %. */
-const BEAM_HALF_WIDTH_PX = 10;
+/** Полоса попадания луча Шприца без улучшений, px: полуширина луча 10 + 0,7 радиуса бактерии (src/objects/Tower.ts; радиус палочки и бегуна — половина длины, extentOf) — у бегуна 28,2, кокка 31,
+ *  слизня 29,6, бронированной 43,6, палочки 46,4; берётся средняя ≈ 33. Узел «Ширина» +2 px за уровень — около +6 % за первый уровень (решение владельца 21 октября 2026, сообщение 1, п. 4; прежде считалось +20 %). */
+const BEAM_BAND_PX = 33;
 function nodeGain(upgrades, id, level, shares = null) {
   const u = upgrades[id];
   if (BIG_GAIN[id] !== undefined) return BIG_GAIN[id];
@@ -606,7 +607,7 @@ function nodeGain(upgrades, id, level, shares = null) {
     case 'auraBoost': return pctGain(-u.perLevel, share)(level);
     case 'freezeTime': return pctGain(u.perLevel, share)(level);
     case 'range': return pctGain(0.02, share)(level);
-    case 'beamWidth': return pctGain(u.perLevel / BEAM_HALF_WIDTH_PX, share)(level);
+    case 'beamWidth': return pctGain(u.perLevel / BEAM_BAND_PX, share)(level);
     case 'price': return pctGain(-u.perLevel, share)(level);
     case 'coins': return 1 + (u.perLevel / 1345) * 0.6; // монеты на старте: заметны в начале попытки (к 15-й волне уровня 1 у игрока ≈ 1 345 монет)
     case 'reward': return pctGain(u.perLevel * 0.6)(level);
