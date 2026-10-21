@@ -36,14 +36,14 @@ const strategyTitle = (p) => (p === 'expert' ? 'эксперт' : `экспер�
 const rawProfiles = (env.PROFILES ?? '').split(',').map((s) => s.trim()).filter(Boolean);
 const profiles = rawProfiles.includes('all') || rawProfiles.length === 0 ? ['expert'] : [...new Set(rawProfiles.map((p) => (p === 'default' ? 'expert' : p)))];
 for (const p of profiles) {
-  const m = /^(solo|pair|focus|core):([a-z+]+)(?::(?:save|l1|r[2-9]))?$/.exec(p);
+  const m = /^(solo|pair|focus|core):([a-z+]+)(?::(?:save|late(?:\d{1,2})?(?:x[1-4])?|l1|r[2-9]))?$/.exec(p);
   const ok = p === 'expert' || p === 'zone' || (m && m[2].split('+').every((id) => ALL_TOWERS.includes(id)) && (m[1] === 'solo' ? !m[2].includes('+') : m[2].split('+').length === 2));
   if (!ok) fail(`стратегия «${p}»: есть expert, zone, solo:X, pair:a+b, focus:a+b, core:a+b (башни: ${ALL_TOWERS.join(', ')}); профили novice, average, strong убраны (решение владельца 19 октября 2026)`);
 }
 const mutList = [];
 for (const part of (env.MUTS ?? '').split('|')) {
   const v = part.trim() === '-' ? '' : part.trim();
-  if (v && v !== 'alt' && !/^[a-z]+:\w+(,\w+)*(;[a-z]+:\w+(,\w+)*)*$/.test(v)) fail(`MUTS=«${v}»: нужно «-», «alt» или «башня:мутация,мутация;…» (варианты — через «|»)`);
+  if (v && v !== 'alt' && !/^(nolatebuy|noalt(:\w+(,\w+)*)?|[a-z]+:\w+(,\w+)*)(;(nolatebuy|noalt(:\w+(,\w+)*)?|[a-z]+:\w+(,\w+)*))*$/.test(v)) fail(`MUTS=«${v}»: нужно «-», «alt» или «башня:мутация,мутация;…» (варианты — через «|»)`);
   if (!mutList.includes(v)) mutList.push(v);
 }
 if (mutList.length === 0) mutList.push('');

@@ -720,8 +720,12 @@ export class GameScene extends Phaser.Scene {
     }
     blocks.push(...rest);
     if (wave.boss) blocks.splice(Math.min(blocks.length, Math.max(head, Math.round(blocks.length * plan.bossEnterShare))), 0, [{ kind: CONFIG.bosses[wave.boss].base, edge: null, gapSec: 0, boss: wave.boss }]);
-    // Промежуток после каждого блока: длительность волны поровну между блоками
-    const gapAfter = duration / Math.max(1, blocks.length);
+    // Длительность волны — по разделу 9 документа дизайна (решение владельца 20 октября 2026, сообщение 2, п. 2.2): промежутки внутри пачек (рой, стена) входят в неё, а не идут сверх;
+    // остаток — поровну после каждого блока. Если промежутки пачек длиннее волны, они сжимаются пропорционально.
+    const inner = blocks.reduce((sum, block) => sum + block.slice(0, -1).reduce((s, item) => s + item.gapSec, 0), 0);
+    const squeeze = inner > duration ? duration / inner : 1;
+    if (squeeze < 1) for (const block of blocks) for (const item of block.slice(0, -1)) item.gapSec *= squeeze;
+    const gapAfter = Math.max(0, duration - inner * squeeze) / Math.max(1, blocks.length);
     for (const block of blocks) block[block.length - 1].gapSec = gapAfter;
     const queue = blocks.flat();
     const income = plan.incomeBase + plan.incomePerWave * n;
@@ -766,7 +770,12 @@ export class GameScene extends Phaser.Scene {
   /** Во сколько раз прочнее бактерии текущей волны (рост `waves.hpGrowthPerWave` после волны `hpGrowthFromWave` и добавка `hpGrowthLatePerWave` после волны `hpGrowthLateFromWave`; у уровней со своим ростом — `growth` из таблицы уровней); всё умножается на `waves.hpScale` и на множитель уровня (`hpFactor`: у уровня 1 — `waves.level1HpFactor`); 1 — как в таблице типов. */
   private waveHpMul(): number {
     const plan = this.params.plan;
-    if (plan) return plan.hpScale * (this.waveIdx <= plan.hpFlatUntil ? 1 : Math.pow(this.waveIdx / plan.hpFlatUntil, plan.hpExp));
+    if (plan) {
+      const n = this.waveIdx;
+      const grow = (w: number) => (w <= plan.hpFlatUntil ? 1 : Math.pow(w / plan.hpFlatUntil, plan.hpExp));
+      const late = plan.hpLateFrom;
+      return plan.hpScale * (late !== undefined && plan.hpLateExp !== undefined && n > late ? grow(late) * Math.pow(n / late, plan.hpLateExp) : grow(n));
+    }
     const { perWave, fromWave, latePerWave, lateFromWave } = this.params.growth;
     return CONFIG.waves.hpScale * this.params.hpFactor * (1 + perWave * Math.max(0, this.waveIdx - fromWave) + latePerWave * Math.max(0, this.waveIdx - lateFromWave));
   }

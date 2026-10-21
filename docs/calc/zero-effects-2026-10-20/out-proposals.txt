@@ -1,0 +1,116 @@
+
+## Холод (вариант frost)
+frost L1 —: freeze 1,5 → 1,5; uptime 0,188 → 0,188
+frost L2 Deep: freeze 2,642 → 2,642; uptime 0,348 → 0,348
+frost L2 Frequent: freeze 1,761 → 1,761; uptime 0,331 → 0,331
+frost L3 Deep×2: freeze 3,6 → 3,874; uptime 0,5 → 0,538
+frost L3 Deep+Frequent: freeze 2,52 → 3,099; uptime 0,457 → 0,508
+frost L3 Frequent×2: freeze 2,066 → 2,066; uptime 0,408 → 0,408
+frost L4 Deep×4: freeze 3,4 → 4; uptime 0,5 → 0,571
+frost L4 Deep×4+Long: freeze 3,4 → 5,2; uptime 0,5 → 0,634
+frost L4 Deep×4+Wide: freeze 3,4 → 4; uptime 0,5 → 0,571
+frost L4 Deep×3+Frequent+Long: freeze 2,38 → 5,2; uptime 0,442 → 0,634
+frost L4 Deep×2+Frequent×2+Long: freeze 2,023 → 5,2; uptime 0,403 → 0,634
+frost L4 Frequent×4+Long: freeze 1,871 → 3,579; uptime 0,384 → 0,544
+frost L4 Frequent×4+Wide: freeze 1,871 → 2,386; uptime 0,384 → 0,443
+
+## Холод, минимальный (вариант frostMin)
+frost L1 —: freeze 1,5 → 1,5; uptime 0,188 → 0,188
+frost L2 Deep: freeze 2,642 → 2,642; uptime 0,348 → 0,348
+frost L2 Frequent: freeze 1,761 → 1,761; uptime 0,331 → 0,331
+frost L3 Deep×2: freeze 3,6 → 3,6; uptime 0,5 → 0,5
+frost L3 Deep+Frequent: freeze 2,52 → 2,52; uptime 0,457 → 0,457
+frost L3 Frequent×2: freeze 2,066 → 2,066; uptime 0,408 → 0,408
+frost L4 Deep×4: freeze 3,4 → 3,4; uptime 0,5 → 0,5
+frost L4 Deep×4+Long: freeze 3,4 → 4,42; uptime 0,5 → 0,596
+frost L4 Deep×4+Wide: freeze 3,4 → 3,4; uptime 0,5 → 0,5
+frost L4 Deep×3+Frequent+Long: freeze 2,38 → 3,094; uptime 0,442 → 0,508
+frost L4 Deep×2+Frequent×2+Long: freeze 2,023 → 2,63; uptime 0,403 → 0,467
+frost L4 Frequent×4+Long: freeze 1,871 → 2,386; uptime 0,384 → 0,443
+frost L4 Frequent×4+Wide: freeze 1,871 → 1,871; uptime 0,384 → 0,384
+
+## Витамин (вариант vitamin)
+vitamin L3 Boost+Far: aura 0,6 → 0,6
+vitamin L4 Boost+Far×3: aura 0,6 → 0,6
+vitamin L4 Boost+Far×3+Strong: aura 0,6 → 0,5
+vitamin L4 Boost×4+Strong: aura 0,6 → 0,5
+vitamin L4 Far×4: aura 0,65 → 0,65
+vitamin L4 Far×4+Strong: aura 0,6 → 0,5
+vitamin L4 Far×4+Double: aura 0,65 → 0,65
+
+## Витамин 0,55 (вариант vitamin55)
+vitamin L3 Boost+Far: aura 0,6 → 0,6
+vitamin L4 Boost+Far×3: aura 0,6 → 0,6
+vitamin L4 Boost+Far×3+Strong: aura 0,6 → 0,55
+vitamin L4 Boost×4+Strong: aura 0,6 → 0,55
+vitamin L4 Far×4: aura 0,65 → 0,65
+vitamin L4 Far×4+Strong: aura 0,6 → 0,55
+vitamin L4 Far×4+Double: aura 0,65 → 0,65
+
+## Антибиотик (вариант antibiotic)
+antibiotic L4 Long×4+Strong: dot 12,288 → 12,288
+antibiotic L4 Long×2+Quick×2+Strong: dot 10,296 → 12,288
+antibiotic L4 Quick×4+Strong: dot 9,395 → 12,288
+antibiotic L4 Long×4+Spread: dot 7,68 → 7,68; dot2 15,36 → 15,36
+antibiotic L4 Long×3+Quick+Spread: dot 6,24 → 7,68; dot2 12,48 → 15,36
+antibiotic L4 Quick×4+Spread: dot 4,698 → 7,68; dot2 9,395 → 15,36
+
+## Лишние цели в потолке (вариант extraHalf)
+pill L4 Rapid×4: dps1 15,387 → 15,387
+pill L4 Rapid×4+Hunter: dps1 18,824 → 18,824; dps2 18,824 → 18,824
+pill L4 Rapid×4+Double: dps1 9,412 → 12,549; dps2 18,824 → 25,098
+pill L4 Rapid+Pierce×3+Double: dps1 9,412 → 11,584; dps2 18,824 → 23,167
+pill L4 Rapid×2+Pierce×2+Double: dps1 9,412 → 12,549; dps2 18,824 → 25,098
+ampule L4 Rapid×4: dps1 33,572 → 33,572
+ampule L4 Rapid×4+Twin: dps1 20,535 → 27,38; dps2 41,07 → 54,759
+ampule L4 Rapid×4+Might: dps1 41,07 → 41,07; dps2 41,07 → 41,07
+
+## Лишние цели в потолке (вариант extraZero)
+pill L4 Rapid×4: dps1 15,387 → 15,387
+pill L4 Rapid×4+Hunter: dps1 18,824 → 18,824; dps2 18,824 → 18,824
+pill L4 Rapid×4+Double: dps1 9,412 → 15,387; dps2 18,824 → 30,774
+pill L4 Rapid+Pierce×3+Double: dps1 9,412 → 11,584; dps2 18,824 → 23,167
+pill L4 Rapid×2+Pierce×2+Double: dps1 9,412 → 14,041; dps2 18,824 → 28,082
+ampule L4 Rapid×4: dps1 33,572 → 33,572
+ampule L4 Rapid×4+Twin: dps1 20,535 → 33,572; dps2 41,07 → 67,144
+ampule L4 Rapid×4+Might: dps1 41,07 → 41,07; dps2 41,07 → 41,07
+
+## Потолок урона 3,0 (вариант dps3)
+syringe L4 More×2+Pierce×2+Twin: beam1 70,588 → 84,706
+syringe L4 More×2+Pierce: beam1 70,588 → 70,588
+pill L4 Rapid×3+Pierce+Hunter: dps1 18,824 → 22,588
+lamp L4 Narrow×3+Wide+Blaze: dps1 11,294 → 13,553; cone 34,56 → 34,56
+
+## Сироп (вариант syrup)
+syrup L2 Sticky: slow 0,25 → 0,25; slowSec 0,6 → 0,9
+syrup L3 Sticky×2: slow 0,25 → 0,25; slowSec 0,6 → 1,125
+syrup L4 Sticky×4+Twin: slow 0,25 → 0,25; slowSec 0,6 → 1,266
+syrup L4 Wide×4+Twin: slow 0,265 → 0,265; slowSec 0,6 → 0,6
+
+## Лампа (вариант lamp)
+lamp L2 Wide: cone 75 → 62,5
+lamp L3 Wide×2: cone 75 → 70,313
+lamp L3 Narrow+Wide: cone 48 → 37,5
+lamp L3 Wide+Narrow: cone 45 → 37,5
+lamp L4 Wide×4: cone 75 → 74,707
+lamp L4 Wide×3+Narrow: cone 45 → 44,824; dps1 6,776 → 6,776
+
+## Лампа (вариант lampPost)
+lamp L2 Wide: cone 75 → 75
+lamp L3 Wide×2: cone 75 → 75
+lamp L3 Narrow+Wide: cone 48 → 48
+lamp L3 Wide+Narrow: cone 45 → 48
+lamp L4 Wide×4: cone 75 → 75
+lamp L4 Wide×3+Narrow: cone 45 → 71,76; dps1 6,776 → 6,776
+
+## Бронебойность (вариант pierce)
+pill L2 Pierce: dps1 2 → 2,4
+pill L3 Pierce×2: dps1 4 → 5,28
+pill L4 Pierce×4+Hunter: dps1 11,294 → 15,654
+ampule L3 Pierce×2: dps1 8,727 → 11,52
+ampule L4 Pierce×4+Might: dps1 26,284 → 36,43
+
+## Доли копий (вариант shares)
+pill L4 Rapid×4: dps1 15,387 → 16,091
+fizz L4 Fast×4+Chain: dps1 17,755 → 18,567
+frost L4 Frequent×4+Wide: freeze 1,871 → 1,801; uptime 0,384 → 0,375
