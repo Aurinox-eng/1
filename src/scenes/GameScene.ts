@@ -23,7 +23,7 @@ import { beamReach, createTowerArt, defaultAim, drawAimLine, Tower, type TowerId
 import { artStats, ringImage } from '../art';
 import { pointAt, tileCenter, unitCenter, type Edge } from '../pathing';
 import { sfx } from '../sound';
-import { computeStats, MAX_TOWER_LEVEL, mutationById, mutationOptions, mutationStacks, towerPrice, type TowerStats } from '../towerStats';
+import { computeStats, MAX_TOWER_LEVEL, mutationById, mutationOptions, mutationStacks, statDps, towerPrice, type MutationCap, type TowerStats } from '../towerStats';
 import { COLORS, FONT, TEXT_COLORS } from '../theme';
 import { FPS_ENABLED, FpsMeter, frameReport, installFrameStats } from '../perf';
 import { Panel, TOP_H, VIEW } from '../ui/Panel';
@@ -1747,14 +1747,53 @@ export class GameScene extends Phaser.Scene {
    * Вторая цель «Двойного выстрела» и второй луч в число не входят: это другие цели.
    */
   private dps(tower: Tower): number {
-    const st = tower.stats;
-    let perShot = st.damage;
-    if (st.targeting === 'beam') {
-      const pulses = Math.max(1, st.beamPulses);
-      const step = st.spiral * CONFIG.towerLevels[Math.min(tower.level, CONFIG.towerLevels.length) - 1].damageMul;
-      perShot = pulses * st.damage + (step * pulses * (pulses - 1)) / 2;
-    }
-    return perShot / ((st.cooldownMs / 1000) * tower.auraMul * tower.latchMul);
+    return statDps(tower.stats, tower.level) / (tower.auraMul * tower.latchMul);
+  }
+
+  /**
+   * Вариант мутации на карточке выбора (решение владельца 20 октября 2026, сообщение 2, п. 3.1): что изменится — «было → станет» по `computeStats` (числа без ауры, паразита и «Лихорадки»),
+   * и потолок, в который числа упрутся после выбора (документ дизайна, п. 4.2). Ничего не меняется (копия с долей 0, второй «включатель») — «без изменений».
+   */
+  private mutationChange(tower: Tower, pickId: string): string {
+    const a = computeStats(tower.id, tower.level, tower.picks);
+    const b = computeStats(tower.id, tower.level, [...tower.picks, pickId]);
+    const n = (x: number): string => num(Math.round(x * 10) / 10);
+    const n2 = (x: number): string => num(Math.round(x * 100) / 100);
+    const rows: [TextKey, number, number, (x: number) => string][] = [
+      ['chgDps', statDps(a, tower.level), statDps(b, tower.level), n],
+      ['chgTargets', 1 + a.extraTargets, 1 + b.extraTargets, String],
+      ['chgPulses', a.beamPulses, b.beamPulses, String],
+      ['chgBeams', a.secondBeam ? 2 : 1, b.secondBeam ? 2 : 1, String],
+      ['chgPause', a.cooldownMs / 1000, b.cooldownMs / 1000, n2],
+      ['chgBlast', a.blastRadius, b.blastRadius, (x) => String(Math.round(x))],
+      ['chgPuddle', a.puddleRadius, b.puddleRadius, (x) => String(Math.round(x))],
+      ['chgPuddles', a.puddleCount, b.puddleCount, String],
+      ['chgSlow', a.slowFactor, b.slowFactor, n2],
+      ['chgPoison', a.poisonPerSec, b.poisonPerSec, n],
+      ['chgDot', a.dotPerSec, b.dotPerSec, n],
+      ['chgDotSec', a.dotSec, b.dotSec, n],
+      ['chgAcid', a.acidMul, b.acidMul, n2],
+      ['chgCone', a.coneDeg, b.coneDeg, (x) => String(Math.round(x))],
+      ['chgRange', a.range, b.range, (x) => String(Math.round(x))],
+      ['chgAura', a.auraMul, b.auraMul, n2],
+      ['chgFreeze', a.freezeSec, b.freezeSec, n],
+      ['chgTrap', a.trapSec, b.trapSec, n],
+      ['chgTrapDps', a.trapDps, b.trapDps, n],
+    ];
+    const parts = rows.filter(([, x, y, f]) => f(x) !== f(y)).map(([key, x, y, f]) => t(key, { a: f(x), b: f(y) }));
+    const caps = CONFIG.mutationCaps;
+    const capText: Record<MutationCap, string> = {
+      dps: t('capDps', { n: num(caps.dpsMul) }),
+      targets: t('capTargets', { n: 1 + caps.extraTargetsMax }),
+      pulses: t('capPulses', { n: caps.pulsesMax }),
+      cone: t('capCone', { n: caps.coneDeg }),
+      freeze: t('capFreeze', { n: num(caps.freezeShareOfCooldown) }),
+      aura: t('capAura', { n: num(CONFIG.meta.minAuraMul) }),
+      slow: t('capSlow', { n: num(CONFIG.meta.minSlowFactor) }),
+      copy: t('capCopy'),
+    };
+    const line = parts.length > 0 ? parts.join(', ') : t('chgNone');
+    return b.caps.length > 0 ? `${line} · ${t('capLine', { list: b.caps.map((c) => capText[c]).join(', ') })}` : line;
   }
 
   /**
@@ -1820,7 +1859,7 @@ export class GameScene extends Phaser.Scene {
       level: tower.level,
       maxLevel: MAX_TOWER_LEVEL,
       stats: this.cardStats(tower),
-      pending: tier === null ? null : mutationOptions(tower.id, tier).map((m) => label(m.id)),
+      pending: tier === null ? null : mutationOptions(tower.id, tier).map((m) => ({ ...label(m.id), change: this.mutationChange(tower, m.id) })),
       picked: [...new Map(tower.picks.map((id) => [id, tower.picks.filter((p) => p === id).length] as const))].map(([id, n]) => {
         const l = label(id);
         return n > 1 && mutationStacks(tower.id, id) ? { ...l, name: `${l.name} ×${n}` } : l;

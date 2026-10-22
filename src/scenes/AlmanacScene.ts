@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { ALMANAC_BEATEN_BY, ALMANAC_TOWERS } from '../almanac';
-import { CONFIG, type BossId, type HardWalls } from '../config';
+import { CONFIG, type BossId, type BossPhase, type HardWalls, type KindId } from '../config';
 import { num, t, type TextKey } from '../i18n';
 import type { BacteriumKind } from '../objects/Bacterium';
 import { styleIcon } from '../objects/styleArt';
@@ -22,16 +22,18 @@ const LINE_W = 470;
 const MARKS_X = 830;
 const MARK = 46;
 
-type Tab = 'towers' | 'bacteria';
+type Tab = 'towers' | 'bacteria' | 'bosses';
 
 const TOWERS = Object.keys(CONFIG.towers) as TowerId[];
 const KINDS = Object.keys(CONFIG.types) as BacteriumKind[];
+const BOSSES = Object.keys(CONFIG.bosses) as BossId[];
 
 const cap = (id: string): string => id.charAt(0).toUpperCase() + id.slice(1);
 
 /** Открыта ли запись: башня — куплена в древе (Таблетка — с начала); бактерия — встречается на открытом уровне. Закрытая запись показывается силуэтом (конфликт 2 документа дизайна, принят владельцем 19 октября 2026). */
 function isOpenEntry(tab: Tab, id: string): boolean {
   if (tab === 'towers') return isTowerOpen(id);
+  if (tab === 'bosses') return bossPlaces(id as BossId).some(({ level }) => isLevelOpen(level));
   for (let level = 1; level <= CONFIG.levels.count; level++) if (isLevelOpen(level) && levelKinds(level).includes(id as BacteriumKind)) return true;
   return false;
 }
@@ -39,38 +41,79 @@ function isOpenEntry(tab: Tab, id: string): boolean {
 /** Цена узла башни в древе (очков ДНК). */
 const towerNodePrice = (id: string): number => CONFIG.meta.upgrades[`tower${cap(id)}`]?.prices[0] ?? 0;
 
-/** Жёсткое свойство вида (`plan.hardWalls`) и ключ его строки в Альманахе; у босса последней волны — по виду-основе (`bossArea`). */
-const WARD_LINES: [keyof HardWalls, BacteriumKind | null, TextKey][] = [
+/** Жёсткое свойство вида (`plan.hardWalls`) и ключ его строки в Альманахе (свойство последней фазы босса — в записи босса, `bossInfo`). */
+const WARD_LINES: [keyof HardWalls, BacteriumKind, TextKey][] = [
   ['runnerSlow', 'runner', 'almWardRunner'],
   ['armoredPierce', 'armored', 'almWardArmored'],
   ['slickBeam', 'slick', 'almWardSlick'],
-  ['bossArea', null, 'almWardBoss'],
 ];
 
+/** Номера уровней, на которых включено жёсткое свойство `ward`. */
+const wardLevels = (ward: keyof HardWalls): number[] => CONFIG.levels.specs.flatMap((spec, i) => (spec.plan?.hardWalls?.[ward] ? [i + 1] : []));
+
+/** Строка о жёстком свойстве вида с номерами уровней, где оно включено (решение владельца 19 октября 2026, сообщение 7, п. 3: одной строкой с числами); нет таких уровней — пусто. */
+function wardNote(kind: BacteriumKind): string {
+  return WARD_LINES.filter(([ward, wardKind]) => wardKind === kind && wardLevels(ward).length > 0)
+    .map(([ward, , key]) => t(key, { levels: wardLevels(ward).join(', '), s: num(CONFIG.towers.syrup.slowSec) }))
+    .join('\n');
+}
+
+/** Где выходит босс: уровни нового формата и номер волны (с 1), последняя ли это волна уровня. */
+function bossPlaces(id: BossId): { level: number; wave: number; last: boolean }[] {
+  return CONFIG.levels.specs.flatMap((spec, i) => {
+    const waves = spec.plan?.waves ?? [];
+    return waves.flatMap((w, j) => (w.boss === id ? [{ level: i + 1, wave: j + 1, last: j === waves.length - 1 }] : []));
+  });
+}
+
+/** Название вида строчными (внутри строки: «выпускает: кокк ×6»). */
+const kindName = (kind: KindId): string => t(`bacName${cap(kind)}` as TextKey).toLocaleLowerCase();
+
 /**
- * Строка о жёстком свойстве вида с номерами уровней, где оно включено (решение владельца 19 октября 2026, сообщение 7, п. 3: одной строкой с числами); нет таких уровней — пусто.
- * Свойства видов — только у открытой записи (`open`). Свойство босса — под видом-основой, как только открыт уровень с этим боссом, даже если сам вид ещё не встречался:
- * боссы своих строк не имеют, а описание вида-основы (у гиганта — «отнимает 3 жизни») к боссу не относится.
+ * Запись босса (решение владельца 20 октября 2026, сообщение 2, п. 3.2): строка — где выходит, прочность и что будет, если дойдёт; примечание — поведение и фазы с числами из `bosses` в config.ts.
+ * У босса последней волны с жёстким свойством `bossArea` — кого ранит последняя фаза (решение владельца 22 октября 2026, сообщение 2, п. 3.2).
  */
-function wardNote(kind: BacteriumKind, open: boolean): string {
-  const lines: string[] = [];
-  for (const [ward, wardKind, key] of WARD_LINES) {
-    const levels: number[] = [];
-    let boss: BossId | undefined;
-    CONFIG.levels.specs.forEach((spec, i) => {
-      const plan = spec.plan;
-      if (!plan?.hardWalls?.[ward]) return;
-      const last = plan.waves[plan.waves.length - 1]?.boss;
-      if (wardKind ? wardKind !== kind || !open : !last || CONFIG.bosses[last].base !== kind || !isLevelOpen(i + 1)) return;
-      levels.push(i + 1);
-      boss ??= last;
-    });
-    if (levels.length === 0) continue;
-    const phases = boss ? CONFIG.bosses[boss].phases : undefined;
-    const below = phases?.[phases.length - 1]?.below ?? 0;
-    lines.push(t(key, { levels: levels.join(', '), boss: boss ? t(`boss${cap(boss)}` as TextKey) : '', p: Math.round(below * 100) }));
-  }
-  return lines.join('\n');
+function bossInfo(id: BossId): { head: string; notes: string } {
+  const b = CONFIG.bosses[id];
+  const place = bossPlaces(id)[0];
+  const pct = (share: number): number => Math.round(share * 100);
+  const reach = b.lifeDamage < 0 ? t('almBossReachLose') : t('almBossReachLives', { n: b.lifeDamage });
+  const head = t('almBossHead', { level: place?.level ?? 1, wave: place?.wave ?? 0, hp: b.hp, reach });
+  const traits: string[] = [t('almBossSpeed', { n: num(b.speedFactor) })];
+  if (b.armor > 0) traits.push(t('almBossArmor', { n: b.armor }));
+  if (b.burstAt && b.burstKind && b.burstCount)
+    traits.push(t(b.burstOnDeath ? 'almBossBurstDeath' : 'almBossBurst', { p: pct(b.burstAt), kind: kindName(b.burstKind), n: b.burstCount }));
+  if (b.dashEverySec && b.dashFactor) traits.push(t('almBossDash', { m: num(b.dashFactor), d: num(b.dashSec ?? 0), s: num(b.dashEverySec) }));
+  if (b.rallyRadius && b.rallyDashMul) traits.push(t('almBossRally', { r: b.rallyRadius, k: num(b.rallyDashMul) }));
+  if (b.slowFloor) traits.push(t('almBossSlowFloor', { n: num(b.slowFloor) }));
+  if (b.spawnKind && b.spawnEverySec && b.spawnCount) traits.push(t('almBossSpawn', { s: num(b.spawnEverySec), kind: kindName(b.spawnKind), n: b.spawnCount }));
+  if (b.capsuleEverySec && b.capsuleSec) traits.push(t('almBossCapsule', { e: num(b.capsuleEverySec), s: num(b.capsuleSec) }));
+  if (b.regenShare) traits.push(t('almBossRegen', { n: num(pct(b.regenShare)) }));
+  const lines = [traits.join('; ')];
+  const ward = place?.last ? wardLevels('bossArea').filter((level) => bossPlaces(id).some((p) => p.level === level && p.last)) : [];
+  const phases: BossPhase[] = b.phases ?? [];
+  phases.forEach((ph, i) => {
+    const items: string[] = [];
+    if (ph.armor !== undefined) items.push(t('almBossArmor', { n: ph.armor }));
+    if (ph.speedMul) items.push(t('almBossSpeed', { n: num(ph.speedMul) }));
+    if (ph.regenShare) items.push(t('almBossRegen', { n: num(pct(ph.regenShare)) }));
+    if (ph.spawnCount === 0) items.push(t('almBossNoSpawn'));
+    else if (ph.spawnKind && ph.spawnCount) items.push(t('almBossSpawn', { s: num(ph.spawnEverySec ?? b.spawnEverySec ?? 0), kind: kindName(ph.spawnKind), n: ph.spawnCount }));
+    if (i === phases.length - 1 && ward.length > 0) items.push(t('almBossWard', { levels: ward.join(', ') }));
+    lines.push(t('almBossPhase', { p: pct(ph.below), list: items.join(', ') }));
+  });
+  return { head, notes: lines.join('\n') };
+}
+
+/** Строка потолков над списком башен (решение владельца 20 октября 2026, сообщение 2, п. 3.2): числа — `mutationCaps`, `meta.minAuraMul`, `mutationStack.copyShares`. */
+function capsLine(): string {
+  const c = CONFIG.mutationCaps;
+  return t('almCaps', {
+    d: num(c.dpsMul),
+    a: num(CONFIG.meta.minAuraMul),
+    f: num(c.freezeShareOfCooldown),
+    c: CONFIG.mutationStack.copyShares.map((x) => Math.round(x * 100)).join(' / '),
+  });
 }
 
 /**
@@ -85,7 +128,7 @@ export class AlmanacScene extends Phaser.Scene {
   private scrollY = 0;
   private maxScroll = 0;
   private tabGraphics!: Phaser.GameObjects.Graphics;
-  private tabRects: Record<Tab, Rect> = { towers: { x: 0, y: 0, w: 0, h: 0 }, bacteria: { x: 0, y: 0, w: 0, h: 0 } };
+  private tabRects: Record<Tab, Rect> = { towers: { x: 0, y: 0, w: 0, h: 0 }, bacteria: { x: 0, y: 0, w: 0, h: 0 }, bosses: { x: 0, y: 0, w: 0, h: 0 } };
   private backRect: Rect = { x: 0, y: 0, w: 0, h: 0 };
   private rowTexts: string[] = [];
 
@@ -108,8 +151,9 @@ export class AlmanacScene extends Phaser.Scene {
 
     this.tabGraphics = this.add.graphics();
     const count = (tab: Tab, ids: string[]): { n: number; m: number } => ({ n: ids.filter((id) => isOpenEntry(tab, id)).length, m: ids.length });
-    this.tabRects.towers = this.addTab(W / 2 - 160, 100, 'towers', t('almTabTowers', count('towers', TOWERS)));
-    this.tabRects.bacteria = this.addTab(W / 2 + 160, 100, 'bacteria', t('almTabBacteria', count('bacteria', KINDS)));
+    this.tabRects.towers = this.addTab(W / 2 - 280, 100, 'towers', t('almTabTowers', count('towers', TOWERS)));
+    this.tabRects.bacteria = this.addTab(W / 2, 100, 'bacteria', t('almTabBacteria', count('bacteria', KINDS)));
+    this.tabRects.bosses = this.addTab(W / 2 + 280, 100, 'bosses', t('almTabBosses', count('bosses', BOSSES)));
 
     this.list = this.add.container(LIST.x, LIST.y);
     const maskShape = this.make.graphics({ x: 0, y: 0 }, false);
@@ -127,13 +171,13 @@ export class AlmanacScene extends Phaser.Scene {
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => setScreenInfo(null));
     setScreenInfo(() =>
       this.scene.isActive()
-        ? { scene: 'almanac', buttons: { back: this.backRect, towers: this.tabRects.towers, bacteria: this.tabRects.bacteria }, texts: this.rowTexts }
+        ? { scene: 'almanac', buttons: { back: this.backRect, towers: this.tabRects.towers, bacteria: this.tabRects.bacteria, bosses: this.tabRects.bosses }, texts: this.rowTexts }
         : null,
     );
   }
 
   private addTab(x: number, y: number, tab: Tab, label: string): Rect {
-    const w = 290;
+    const w = 260;
     const h = 56;
     const text = this.add.text(x, y, label, textStyle(30)).setOrigin(0.5);
     if (text.width > w - 16) text.setScale((w - 16) / text.width);
@@ -147,7 +191,7 @@ export class AlmanacScene extends Phaser.Scene {
   private drawTabs(): void {
     const g = this.tabGraphics;
     g.clear();
-    for (const tab of ['towers', 'bacteria'] as Tab[]) {
+    for (const tab of ['towers', 'bacteria', 'bosses'] as Tab[]) {
       const r = this.tabRects[tab];
       const on = tab === this.tab;
       g.fillStyle(on ? 0x2a5c9a : 0x1b2a4a, 1).fillRoundedRect(r.x - r.w / 2, r.y - r.h / 2, r.w, r.h, 14);
@@ -162,9 +206,16 @@ export class AlmanacScene extends Phaser.Scene {
     this.list.removeAll(true);
     this.list.y = LIST.y;
     this.rowTexts = [];
-    const ids: string[] = tab === 'towers' ? TOWERS : KINDS;
-    ids.forEach((id, i) => this.addRow(tab, id, i * ROW_H));
-    this.maxScroll = Math.max(0, ids.length * ROW_H - LIST.h);
+    let y = 0;
+    if (tab === 'towers') {
+      // Над башнями — строка потолков мутаций и улучшений (не ряд записи: в `rowTexts` её нет)
+      const caps = this.add.text(12, 6, capsLine(), { ...textStyle(18, TEXT_COLORS.soft, false), fontStyle: 'normal', wordWrap: { width: LIST.w - 24 } });
+      this.list.add(caps);
+      y = Math.ceil(caps.height) + 12;
+    }
+    const ids: string[] = tab === 'towers' ? TOWERS : tab === 'bacteria' ? KINDS : BOSSES;
+    for (const id of ids) y += this.addRow(tab, id, y);
+    this.maxScroll = Math.max(0, y - LIST.h);
   }
 
   private scrollBy(dy: number): void {
@@ -172,56 +223,80 @@ export class AlmanacScene extends Phaser.Scene {
     this.list.y = LIST.y - this.scrollY;
   }
 
-  private addRow(tab: Tab, id: string, y: number): void {
+  /** Ряд записи: рисунок, название, строка и примечание под ней; высота ряда — по тексту, не меньше ROW_H. Возвращает высоту ряда. */
+  private addRow(tab: Tab, id: string, y: number): number {
     const key = cap(id);
-    const g = this.add.graphics();
-    g.fillStyle(0x14264b, 1).fillRoundedRect(0, y + 4, LIST.w, ROW_H - 8, 14);
-    g.lineStyle(2, 0x3a5f9c, 1).strokeRoundedRect(0, y + 4, LIST.w, ROW_H - 8, 14);
-    this.list.add(g);
-    const cy = y + ROW_H / 2;
-
     const open = isOpenEntry(tab, id);
-    const name = tab === 'bacteria' && !open ? t('almUnknown') : t(tab === 'towers' ? (`tower${key}` as TextKey) : (`bacName${key}` as TextKey));
-    const line = open
-      ? t(tab === 'towers' ? (`almTower${key}` as TextKey) : (`almBac${key}` as TextKey))
-      : tab === 'towers'
-        ? t('almTowerClosed', { n: towerNodePrice(id) })
-        : t('almBacClosed');
+    const g = this.add.graphics();
+    this.list.add(g);
+    let name: string;
+    let line: string;
+    let note = '';
+    let lineW = LINE_W;
+    if (tab === 'towers') {
+      // Закрытая башня: название, строка роли и цена узла в древе под ней, рисунок — силуэтом (решение владельца 20 октября 2026, сообщение 2, п. 3.2)
+      name = t(`tower${key}` as TextKey);
+      line = t(`almTower${key}` as TextKey);
+      const limit = open ? CONFIG.towers[id as TowerId].blastFullTargets : 0;
+      if (!open) note = t('almTowerClosed', { n: towerNodePrice(id) });
+      else if (limit > 0) note = t('blastLimitNote', { n: limit, m: num(CONFIG.towers[id as TowerId].blastRestMul) });
+    } else if (tab === 'bacteria') {
+      name = open ? t(`bacName${key}` as TextKey) : t('almUnknown');
+      line = open ? t(`almBac${key}` as TextKey) : t('almBacClosed');
+      if (open) note = wardNote(id as BacteriumKind);
+    } else {
+      // Босс: справа значков нет — строка и примечание на всю ширину ряда
+      const info = bossInfo(id as BossId);
+      name = open ? t(`boss${key}` as TextKey) : t('almUnknown');
+      line = open ? info.head : t('almBacClosed');
+      if (open) note = info.notes;
+      lineW = LIST.w - LINE_X - 24;
+    }
     this.rowTexts.push(`${name}: ${line}`);
-    // Длинное название («Бронированная») сжимается по ширине, чтобы не заходить на описание (оно начинается с LINE_X)
+    // Строка из i18n.ts и проверка её текста не меняются; примечание мелко под ней, вместе — по центру ряда
+    const lineText = this.add.text(LINE_X, 0, line, { ...textStyle(22, TEXT_COLORS.main, false), fontStyle: 'normal', wordWrap: { width: lineW } });
+    this.list.add(lineText);
+    const noteText = note ? this.add.text(LINE_X, 0, note, { ...textStyle(17, TEXT_COLORS.soft, false), fontStyle: 'normal', wordWrap: { width: lineW } }) : null;
+    if (noteText) this.list.add(noteText);
+    const content = lineText.height + (noteText ? 4 + noteText.height : 0);
+    const rowH = Math.max(ROW_H, Math.ceil(content) + 24);
+    const cy = y + rowH / 2;
+    const top = cy - content / 2;
+    lineText.setY(top);
+    noteText?.setY(top + lineText.height + 4);
+    g.fillStyle(0x14264b, 1).fillRoundedRect(0, y + 4, LIST.w, rowH - 8, 14);
+    g.lineStyle(2, 0x3a5f9c, 1).strokeRoundedRect(0, y + 4, LIST.w, rowH - 8, 14);
+    // Длинное название («Бронированная», «Гигантская колония») сжимается по ширине, чтобы не заходить на описание (оно начинается с LINE_X)
     const nameText = this.add.text(NAME_X, cy, name, textStyle(28)).setOrigin(0, 0.5);
     if (nameText.width > LINE_X - NAME_X - 12) nameText.setScale((LINE_X - NAME_X - 12) / nameText.width);
     this.list.add(nameText);
-    // Под строкой мелко: у Шипучки — сколько целей взрыва получают полный урон, у вида с жёстким свойством — на каких уровнях и что его ранит (числа из config.ts);
-    // строка из i18n.ts и проверка её текста не меняются. Строка и примечание стоят по центру ряда вместе: перенос длинной строки их не сводит.
-    const limit = tab === 'towers' && open ? CONFIG.towers[id as TowerId].blastFullTargets : 0;
-    const note = limit > 0 ? t('blastLimitNote', { n: limit, m: num(CONFIG.towers[id as TowerId].blastRestMul) }) : tab === 'bacteria' ? wardNote(id as BacteriumKind, open) : '';
-    const lineText = this.add.text(LINE_X, cy, line, { ...textStyle(22, TEXT_COLORS.main, false), fontStyle: 'normal', wordWrap: { width: LINE_W } }).setOrigin(0, 0.5);
-    this.list.add(lineText);
-    if (note) {
-      const noteText = this.add.text(LINE_X, cy, note, { ...textStyle(17, TEXT_COLORS.soft, false), fontStyle: 'normal', wordWrap: { width: LINE_W } }).setOrigin(0, 0);
-      const top = cy - (lineText.height + 4 + noteText.height) / 2;
-      lineText.setOrigin(0, 0).setY(top);
-      noteText.setY(top + lineText.height + 4);
-      this.list.add(noteText);
-    }
 
+    if (tab === 'bosses') {
+      // Значок босса — вид-основа в кольце своего цвета
+      const boss = CONFIG.bosses[id as BossId];
+      const icon = this.bacteriumIcon(boss.base as BacteriumKind, ICON_X, cy, 30);
+      if (open) g.lineStyle(4, boss.color, 1).strokeCircle(ICON_X, cy, 36);
+      else this.silhouette(icon);
+      this.list.add(icon);
+      return rowH;
+    }
     if (!open) {
       // Закрытая запись: силуэт (тёмный рисунок) без значков «сильна / слаба / бьют»
       const icon = tab === 'towers' ? this.towerIcon(ICON_X, cy, id as TowerId, 0.78) : this.bacteriumIcon(id as BacteriumKind, ICON_X, cy, 30);
       this.silhouette(icon);
       this.list.add(icon);
-      return;
+      return rowH;
     }
     if (tab === 'towers') {
       this.list.add(this.towerIcon(ICON_X, cy, id as TowerId, 0.78));
       const entry = ALMANAC_TOWERS[id as TowerId];
-      this.addMarks(MARKS_X, y + 26, t('almStrong'), entry.strong.map((k) => this.bacteriumIcon(k)), COLORS.merge);
-      this.addMarks(MARKS_X, y + 66, t('almWeak'), entry.weak.map((k) => this.bacteriumIcon(k)), COLORS.loseLine);
+      this.addMarks(MARKS_X, cy - 20, t('almStrong'), entry.strong.map((k) => this.bacteriumIcon(k)), COLORS.merge);
+      this.addMarks(MARKS_X, cy + 20, t('almWeak'), entry.weak.map((k) => this.bacteriumIcon(k)), COLORS.loseLine);
     } else {
       this.list.add(this.bacteriumIcon(id as BacteriumKind, ICON_X, cy, 30));
       this.addMarks(MARKS_X, cy, t('almBeatenBy'), ALMANAC_BEATEN_BY[id as BacteriumKind].map((tower) => this.towerIcon(0, 0, tower, 0.6)), COLORS.merge);
     }
+    return rowH;
   }
 
   /** Подпись и ряд значков справа в строке; значки создаются без позиции и расставляются здесь. */
