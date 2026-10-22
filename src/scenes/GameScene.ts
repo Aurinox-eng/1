@@ -1759,6 +1759,7 @@ export class GameScene extends Phaser.Scene {
     const b = computeStats(tower.id, tower.level, [...tower.picks, pickId]);
     const n = (x: number): string => num(Math.round(x * 10) / 10);
     const n2 = (x: number): string => num(Math.round(x * 100) / 100);
+    const yesNo = (x: number): string => t(x > 0 ? 'chgYes' : 'chgNo');
     const rows: [TextKey, number, number, (x: number) => string][] = [
       ['chgDps', statDps(a, tower.level), statDps(b, tower.level), n],
       ['chgTargets', 1 + a.extraTargets, 1 + b.extraTargets, String],
@@ -1779,6 +1780,10 @@ export class GameScene extends Phaser.Scene {
       ['chgFreeze', a.freezeSec, b.freezeSec, n],
       ['chgTrap', a.trapSec, b.trapSec, n],
       ['chgTrapDps', a.trapDps, b.trapDps, n],
+      // «Включатели» (бронебойность, самая прочная цель, цепной взрыв) числами не видны — «нет → да»
+      ['chgPierce', Number(a.armorPierce), Number(b.armorPierce), yesNo],
+      ['chgToughest', Number(a.toughest), Number(b.toughest), yesNo],
+      ['chgChain', Number(a.chain), Number(b.chain), yesNo],
     ];
     const parts = rows.filter(([, x, y, f]) => f(x) !== f(y)).map(([key, x, y, f]) => t(key, { a: f(x), b: f(y) }));
     const caps = CONFIG.mutationCaps;
