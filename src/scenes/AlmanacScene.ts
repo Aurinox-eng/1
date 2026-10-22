@@ -48,6 +48,31 @@ const WARD_LINES: [keyof HardWalls, BacteriumKind, TextKey][] = [
   ['slickBeam', 'slick', 'almWardSlick'],
 ];
 
+/**
+ * Башня, которую жёсткое свойство вида делает бесполезной против него (решение владельца 22 октября 2026, сообщение 4, п. 2.1): луч Шприца проходит слизня насквозь.
+ * Пока на открытых уровнях этот вид выходит только со свойством, башни нет в «Бьют» у вида, а вид стоит у башни в «Слаба против»; открыт уровень, где вид выходит без свойства, — как в `almanac.ts`.
+ */
+const WARD_TOWERS: [keyof HardWalls, BacteriumKind, TowerId][] = [['slickBeam', 'slick', 'syringe']];
+
+/** Выходит ли вид `kind` на открытых уровнях только с жёстким свойством `ward` (на открытых уровнях без вида — тоже да). */
+function wardedOnOpenLevels(ward: keyof HardWalls, kind: BacteriumKind): boolean {
+  for (let level = 1; level <= CONFIG.levels.count; level++) {
+    if (!isLevelOpen(level) || !levelKinds(level).includes(kind)) continue;
+    if (!CONFIG.levels.specs[level - 1]?.plan?.hardWalls?.[ward]) return false;
+  }
+  return true;
+}
+
+/** «Бьют» бактерию: таблица `almanac.ts` без башен, которые жёсткое свойство вида на открытых уровнях делает бесполезными. */
+const beatenBy = (kind: BacteriumKind): TowerId[] =>
+  ALMANAC_BEATEN_BY[kind].filter((tower) => !WARD_TOWERS.some(([ward, k, tw]) => k === kind && tw === tower && wardedOnOpenLevels(ward, kind)));
+
+/** «Слаба против» башни: таблица `almanac.ts` и виды, которых она на открытых уровнях не ранит из-за жёсткого свойства. */
+const weakAgainst = (tower: TowerId): BacteriumKind[] => {
+  const extra = WARD_TOWERS.filter(([ward, kind, tw]) => tw === tower && wardedOnOpenLevels(ward, kind)).map(([, kind]) => kind);
+  return [...ALMANAC_TOWERS[tower].weak, ...extra.filter((kind) => !ALMANAC_TOWERS[tower].weak.includes(kind))];
+};
+
 /** Номера уровней, на которых включено жёсткое свойство `ward`. */
 const wardLevels = (ward: keyof HardWalls): number[] => CONFIG.levels.specs.flatMap((spec, i) => (spec.plan?.hardWalls?.[ward] ? [i + 1] : []));
 
@@ -291,10 +316,10 @@ export class AlmanacScene extends Phaser.Scene {
       this.list.add(this.towerIcon(ICON_X, cy, id as TowerId, 0.78));
       const entry = ALMANAC_TOWERS[id as TowerId];
       this.addMarks(MARKS_X, cy - 20, t('almStrong'), entry.strong.map((k) => this.bacteriumIcon(k)), COLORS.merge);
-      this.addMarks(MARKS_X, cy + 20, t('almWeak'), entry.weak.map((k) => this.bacteriumIcon(k)), COLORS.loseLine);
+      this.addMarks(MARKS_X, cy + 20, t('almWeak'), weakAgainst(id as TowerId).map((k) => this.bacteriumIcon(k)), COLORS.loseLine);
     } else {
       this.list.add(this.bacteriumIcon(id as BacteriumKind, ICON_X, cy, 30));
-      this.addMarks(MARKS_X, cy, t('almBeatenBy'), ALMANAC_BEATEN_BY[id as BacteriumKind].map((tower) => this.towerIcon(0, 0, tower, 0.6)), COLORS.merge);
+      this.addMarks(MARKS_X, cy, t('almBeatenBy'), beatenBy(id as BacteriumKind).map((tower) => this.towerIcon(0, 0, tower, 0.6)), COLORS.merge);
     }
     return rowH;
   }
