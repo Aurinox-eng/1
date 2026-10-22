@@ -39,6 +39,10 @@ export interface TowerRow {
   lightSec: number;
 }
 
+/** Потолок мутаций и улучшений (документ дизайна, п. 4.2), в который упёрлись числа башни: урон в секунду от мутаций (`mutationCaps.dpsMul`), лишние цели, удары очереди луча, угол конуса,
+ *  заморозка (доля паузы), пауза от ауры и замедление (нижние границы `meta.minAuraMul`, `meta.minSlowFactor`), копия мутации с долей 0 (`mutationStack.copyShares`). */
+export type MutationCap = 'dps' | 'targets' | 'pulses' | 'cone' | 'freeze' | 'aura' | 'slow' | 'copy';
+
 /** Итоговые числа башни: строка таблицы с учётом уровня и выбранных мутаций + свойства мутаций. */
 export interface TowerStats extends TowerRow {
   /** Какой башни числа (по нему бактерия-мутант узнаёт вид башни, ударившей последней). */
@@ -63,6 +67,19 @@ export interface TowerStats extends TowerRow {
   spotlight: number;
   immunity: boolean;
   brittle: number;
+  /** Потолки, в которые упёрлись числа (для карточки выбора мутации: «достигнутый потолок»). */
+  caps: MutationCap[];
+}
+
+/** Урон в секунду по одной цели без ауры, паразита и «Лихорадки»: удар (у луча — вся очередь с прибавкой «Спирали» за удар) на паузу; level — уровень башни (прибавка «Спирали» растёт с ним). */
+export function statDps(st: TowerStats, level: number): number {
+  let perShot = st.damage;
+  if (st.targeting === 'beam') {
+    const pulses = Math.max(1, st.beamPulses);
+    const step = st.spiral * CONFIG.towerLevels[Math.min(Math.max(1, level), MAX_TOWER_LEVEL) - 1].damageMul;
+    perShot = pulses * st.damage + (step * pulses * (pulses - 1)) / 2;
+  }
+  return perShot / (st.cooldownMs / 1000);
 }
 
 /** Цена постройки башни в монетах: строка таблицы с учётом улучшения «цена башни» (округляется вверх до целого). Слияние бесплатно, продажа считается от этой цены. */
@@ -131,8 +148,10 @@ export function computeStats(id: TowerKey, level: number, picks: readonly string
     spotlight: 1,
     immunity: false,
     brittle: 1,
+    caps: [],
   };
   const caps = CONFIG.mutationCaps;
+  const hit = new Set<MutationCap>();
   // Насколько мутации подняли урон в секунду (для потолка `mutationCaps.dpsMul`): урон, частота, лишние цели, удары очереди, яд
   let mutDamage = 1;
   let mutRate = 1;
@@ -158,6 +177,7 @@ export function computeStats(id: TowerKey, level: number, picks: readonly string
     const k = seen.get(pickId) ?? 0;
     seen.set(pickId, k + 1);
     const share = shares[Math.min(k, shares.length - 1)];
+    if (share === 0 && mutationStacks(id, pickId)) hit.add('copy');
     const scaled = (mul: number): number => 1 + (mul - 1) * share;
     const whole = (n: number): number => (k === 0 ? n : Math.floor(n * share + 0.5));
     if (spec.damageMul) {
@@ -189,7 +209,10 @@ export function computeStats(id: TowerKey, level: number, picks: readonly string
       s.dotPerSec *= scaled(spec.dotDpsMul);
       mutDot *= scaled(spec.dotDpsMul);
     }
-    if (spec.coneMul) s.coneDeg = Math.min(caps.coneDeg, s.coneDeg * scaled(spec.coneMul));
+    if (spec.coneMul) {
+      if (s.coneDeg * scaled(spec.coneMul) >= caps.coneDeg) hit.add('cone');
+      s.coneDeg = Math.min(caps.coneDeg, s.coneDeg * scaled(spec.coneMul));
+    }
     if (spec.rangeMul) s.range *= scaled(spec.rangeMul);
     if (spec.auraBonusMul) auraBonus *= scaled(spec.auraBonusMul);
     if (spec.freezeMul) s.freezeSec *= scaled(spec.freezeMul);
@@ -198,11 +221,15 @@ export function computeStats(id: TowerKey, level: number, picks: readonly string
   }
   // Потолки мутаций (документ дизайна docs/redesign-2026-10-19.md, п. 4.2): лишних целей и ударов очереди не больше заданного; урон в секунду от всех мутаций — не выше dpsMul к башне без мутаций
   const basePulses = base.beamPulses > 0 ? base.beamPulses + lv.pulsesAdd : 0;
+  if (s.extraTargets > caps.extraTargetsMax) hit.add('targets');
   s.extraTargets = Math.min(caps.extraTargetsMax, s.extraTargets);
+  if (s.beamPulses > caps.pulsesMax) hit.add('pulses');
   if (s.beamPulses > 0) s.beamPulses = Math.min(caps.pulsesMax, s.beamPulses);
   const mutDps = mutDamage * mutRate * (1 + s.extraTargets) * (basePulses > 0 ? s.beamPulses / basePulses : 1);
+  if (mutDps > caps.dpsMul + 1e-9 && s.damage > 0) hit.add('dps');
   if (mutDps > caps.dpsMul) s.damage *= caps.dpsMul / mutDps;
   const mutDotDps = mutDot * mutRate * (1 + s.extraTargets);
+  if (mutDotDps > caps.dpsMul + 1e-9 && s.dotPerSec > 0) hit.add('dps');
   if (mutDotDps > caps.dpsMul) s.dotPerSec *= caps.dpsMul / mutDotDps;
   // Улучшения вне партии ветки этой башни (docs/upgrades.md, раздел 12): пауза, радиусы, лужа, замедление, луч
   const bonus = (effect: UpgradeEffect): number => upgradeBonus(effect, id as UpgradeBranch);
@@ -212,7 +239,8 @@ export function computeStats(id: TowerKey, level: number, picks: readonly string
   s.blastRadius *= 1 + bonus('blast');
   s.puddleSec *= 1 + bonus('puddleSec');
   s.puddleRadius *= 1 + bonus('puddleRadius');
-  if (s.slowFactor < 1 && bonus('slowFactor') !== 0) s.slowFactor = Math.max(CONFIG.meta.minSlowFactor, s.slowFactor + bonus('slowFactor'));
+  if (s.slowFactor < 1 && bonus('slowFactor') !== 0) s.slowFactor = s.slowFactor + bonus('slowFactor');
+  if (s.slowFactor < CONFIG.meta.minSlowFactor - 1e-9) hit.add('slow');
   if (s.slowFactor < 1) s.slowFactor = Math.max(CONFIG.meta.minSlowFactor, s.slowFactor);
   if (s.beamPulses > 0) {
     s.beamPulses = Math.min(caps.pulsesMax, s.beamPulses + Math.floor(bonus('pulses')));
@@ -221,6 +249,7 @@ export function computeStats(id: TowerKey, level: number, picks: readonly string
   // Аура Витамина: множитель паузы уровня (1-й уровень — auraMul, дальше на auraStep меньше) и улучшения ветки; прибавку (1 − множитель) усиливают мутации
   if (base.auraMul < 1) {
     const raw = base.auraMul - base.auraStep * (Math.min(Math.max(1, level), MAX_TOWER_LEVEL) - 1) + bonus('auraBoost');
+    if (1 - (1 - raw) * auraBonus < CONFIG.meta.minAuraMul - 1e-9) hit.add('aura');
     s.auraMul = Math.min(1, Math.max(CONFIG.meta.minAuraMul, 1 - (1 - raw) * auraBonus));
   }
   // Улучшение вне партии «Сильное вещество»: урон всех башен (docs/upgrades.md)
@@ -229,6 +258,7 @@ export function computeStats(id: TowerKey, level: number, picks: readonly string
   s.trapDps *= (1 + bonus('towerDamage')) * damageMul();
   s.freezeSec *= 1 + bonus('freezeTime');
   // Заморозка Холода — не дольше доли его паузы (иначе бактерия в радиусе не оттаивала бы)
+  if (s.freezeSec > (s.cooldownMs / 1000) * caps.freezeShareOfCooldown + 1e-9) hit.add('freeze');
   if (s.freezeSec > 0) s.freezeSec = Math.min(s.freezeSec, (s.cooldownMs / 1000) * caps.freezeShareOfCooldown);
   // Ключевой узел ветки этой башни (документ дизайна, раздел 5.2)
   if (keyOwned(id)) {
@@ -242,7 +272,11 @@ export function computeStats(id: TowerKey, level: number, picks: readonly string
     else if (id === 'lamp') s.spotlight = k.lamp.damageMul;
     else if (id === 'vitamin') s.immunity = k.vitamin.immune > 0;
     else if (id === 'frost') s.brittle = k.frost.damageMul;
-    else if (id === 'patch') s.extraTargets = Math.min(caps.extraTargetsMax, s.extraTargets + k.patch.extraTargets);
+    else if (id === 'patch') {
+      if (s.extraTargets + k.patch.extraTargets > caps.extraTargetsMax) hit.add('targets');
+      s.extraTargets = Math.min(caps.extraTargetsMax, s.extraTargets + k.patch.extraTargets);
+    }
   }
+  s.caps = [...hit];
   return s;
 }

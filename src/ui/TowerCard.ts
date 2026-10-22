@@ -12,8 +12,8 @@ export interface CardModel {
   maxLevel: number;
   /** До трёх строк чисел башни. */
   stats: string[];
-  /** Два варианта мутации на выбор (если выбор ждёт) или null. */
-  pending: { name: string; desc: string }[] | null;
+  /** Два варианта мутации на выбор (если выбор ждёт) или null; change — «было → станет» и достигнутый потолок. */
+  pending: { name: string; desc: string; change: string }[] | null;
   /** Уже выбранные мутации. */
   picked: { name: string; desc: string }[];
   /** Башня с лучом: показываются кнопки поворота на 45° влево и вправо. */
@@ -49,7 +49,7 @@ export interface CardGeometry {
   rotateRight: Rect & { visible: boolean };
   close: Rect;
   /** Что написано на карточке: строки чисел башни и строка выбранных мутаций (для проверок: показанное должно совпадать с боем). */
-  lines: { stats: string[]; mutations: string; pending: string[] };
+  lines: { stats: string[]; mutations: string; pending: string[]; changes: string[] };
 }
 
 /** Высота кнопок «Слить», «Продать» и выбора мутации; ширина «Слить» и «Продать». Между «Слить» и «Продать» — зазор SELL_GAP (решение владельца 8 и 13 октября 2026: без подтверждений, зазор больше). */
@@ -80,6 +80,7 @@ export class TowerCard {
   private readonly statTexts: Phaser.GameObjects.Text[];
   private readonly pickNames: Phaser.GameObjects.Text[];
   private readonly pickDescs: Phaser.GameObjects.Text[];
+  private readonly pickChanges: Phaser.GameObjects.Text[];
   private readonly listText: Phaser.GameObjects.Text;
   private readonly hintText: Phaser.GameObjects.Text;
   private readonly mergeText: Phaser.GameObjects.Text;
@@ -95,6 +96,7 @@ export class TowerCard {
   private shownStats: string[] = [];
   private shownMutations = '';
   private shownPending: string[] = [];
+  private shownChanges: string[] = [];
   private sellVisible = true;
   private pickVisible = [false, false];
   /** Когда (performance.now) нажали кнопку карточки: нажатие, после которого карточка перерисовалась или закрылась, всё равно принадлежит карточке, а не карте под ней. */
@@ -118,6 +120,7 @@ export class TowerCard {
     this.statTexts = [0, 1, 2].map(() => this.text(0, 0, '', 15, TEXT_COLORS.soft, 0).setFontStyle('normal'));
     this.pickNames = [0, 1].map(() => this.text(0, 0, '', 17, TEXT_COLORS.main, 0));
     this.pickDescs = [0, 1].map(() => this.text(0, 0, '', 13, TEXT_COLORS.soft, 0).setFontStyle('normal').setWordWrapWidth(PICK_W - 20));
+    this.pickChanges = [0, 1].map(() => this.text(0, 0, '', 13, TEXT_COLORS.accent, 0).setFontStyle('normal'));
     this.listText = this.text(0, 0, '', 13, TEXT_COLORS.main, 0).setFontStyle('normal').setWordWrapWidth(330);
     this.hintText = this.text(0, 0, '', 18, TEXT_COLORS.accent, 0).setFontStyle('normal').setVisible(false);
     this.mergeText = this.text(0, 0, '', 24, TEXT_COLORS.main);
@@ -224,13 +227,16 @@ export class TowerCard {
     for (let i = 0; i < 2; i++) {
       this.pickNames[i].setVisible(false);
       this.pickDescs[i].setVisible(false);
+      this.pickChanges[i].setVisible(false);
     }
     this.statTexts.forEach((text) => text.setVisible(false));
     this.shownStats = [];
     this.shownMutations = '';
     this.shownPending = [];
+    this.shownChanges = [];
     if (m.pending) {
       this.shownPending = m.pending.slice(0, 2).map((o) => `${o.name} — ${o.desc}`);
+      this.shownChanges = m.pending.slice(0, 2).map((o) => o.change);
       // у башни с лучом справа от вариантов стоят кнопки поворота: варианты уже, чтобы не налезать на них
       const pickW = Math.min(PICK_W, Math.floor((midRight - midX - 8) / 2));
       m.pending.slice(0, 2).forEach((opt, i) => {
@@ -238,8 +244,12 @@ export class TowerCard {
         this.btns.fillStyle(0x2a4d8e, 1).fillRoundedRect(bx, cy - BTN_H / 2, pickW, BTN_H, 12);
         this.btns.lineStyle(3, COLORS.gold, 1).strokeRoundedRect(bx, cy - BTN_H / 2, pickW, BTN_H, 12);
         this.pickDescs[i].setWordWrapWidth(pickW - 20);
-        this.pickNames[i].setVisible(true).setText(opt.name).setPosition(bx + 10, cy - BTN_H / 2 + 8);
-        this.pickDescs[i].setVisible(true).setText(opt.desc).setPosition(bx + 10, cy - BTN_H / 2 + 31);
+        this.pickNames[i].setVisible(true).setText(opt.name).setPosition(bx + 10, cy - BTN_H / 2 + 6);
+        this.pickDescs[i].setVisible(true).setText(opt.desc).setPosition(bx + 10, cy - BTN_H / 2 + 27);
+        // «было → станет» и потолок — одной строкой под описанием, у нижнего края кнопки; длинная строка сжимается по ширине кнопки
+        const change = this.pickChanges[i].setVisible(true).setText(opt.change).setScale(1);
+        if (change.width > pickW - 20) change.setScale((pickW - 20) / change.width);
+        change.setPosition(bx + 10, cy + BTN_H / 2 - 6 - change.height * change.scaleY);
         const zone = i === 0 ? this.zones.pick0 : this.zones.pick1;
         zone.setSize(pickW, BTN_H).setPosition(bx + pickW / 2, cy);
         this.pickVisible[i] = true;
@@ -332,7 +342,7 @@ export class TowerCard {
     this.pickVisible = [false, false];
     this.rotVisible = false;
     this.rects.sell = { x: 0, y: 0, w: 0, h: 0 };
-    for (const text of [...this.statTexts, ...this.pickNames, ...this.pickDescs, this.listText, this.sellText, this.sellSub]) text.setVisible(false);
+    for (const text of [...this.statTexts, ...this.pickNames, ...this.pickDescs, ...this.pickChanges, this.listText, this.sellText, this.sellSub]) text.setVisible(false);
     const hintX = nameX + 180;
     const hintW = cancelX - BTN_W / 2 - 14 - hintX;
     this.hintText.setWordWrapWidth(hintW).setText(m.mergeHint ?? '').setPosition(hintX, cy - this.hintText.height / 2).setVisible(true);
@@ -389,14 +399,14 @@ export class TowerCard {
       rotateLeft: { ...r('rotL'), visible: this.shown && this.rotVisible },
       rotateRight: { ...r('rotR'), visible: this.shown && this.rotVisible },
       close: r('close'),
-      lines: { stats: this.shown ? [...this.shownStats] : [], mutations: this.shown ? this.shownMutations : '', pending: this.shown ? [...this.shownPending] : [] },
+      lines: { stats: this.shown ? [...this.shownStats] : [], mutations: this.shown ? this.shownMutations : '', pending: this.shown ? [...this.shownPending] : [], changes: this.shown ? [...this.shownChanges] : [] },
     };
   }
 
   private setShown(on: boolean): void {
     this.shown = on;
     for (const item of this.all) (item as unknown as { setVisible(v: boolean): unknown }).setVisible(on);
-    for (const text of [this.nameText, this.levelText, ...this.statTexts, ...this.pickNames, ...this.pickDescs, this.listText, this.mergeText, this.mergeSub, this.sellText, this.sellSub, this.closeText]) {
+    for (const text of [this.nameText, this.levelText, ...this.statTexts, ...this.pickNames, ...this.pickDescs, ...this.pickChanges, this.listText, this.mergeText, this.mergeSub, this.sellText, this.sellSub, this.closeText]) {
       text.setVisible(on);
     }
     this.hintText.setVisible(on && this.compact);
