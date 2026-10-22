@@ -369,7 +369,7 @@ export const CONFIG = {
           hpLateExp: 1.0,
           /** Броня растёт с волной: × (1 + 0,03 · (n − 1)) — бронированная 3 на 1-й волне, 5,2 на 25-й, 7,4 на 50-й. */
           armorPerWave: 0.03,
-          /** Жёсткие свойства видов (`HardWalls`): пока выключены — вариант на решении владельца (19 октября 2026, сообщение 7); замер — подменой --cfg levels.specs.0.plan.hardWalls.<свойство>:1. */
+          /** Жёсткие свойства видов (`HardWalls`): бегун, бронированный, «луч насквозь» у слизня и последняя фаза босса — включены, «память вида» — нет (решения владельца 20 октября 2026, сообщение 1, п. 1, и 22 октября 2026); замер другого набора — подменой --cfg levels.specs.0.plan.hardWalls.<свойство>:0|1. */
           hardWalls: { runnerSlow: 1, armoredPierce: 1, slickBeam: 1, slickMemory: 0, bossArea: 1 },
           /** Волны 1–50 (таблица 2.2): mix — обычные бактерии, wall — стена (вид, сколько штук одной пачкой), boss — босс волны (таблица `bosses`). */
           waves: [
@@ -382,7 +382,7 @@ export const CONFIG = {
         { mix: { coccus: 10, rod: 7, swarm: 12 } }, // 7
         { mix: { coccus: 12, rod: 8, swarm: 12 }, wall: ['rod', 3] }, // 8
         { mix: { coccus: 14, rod: 9, swarm: 12 } }, // 9
-        { mix: { coccus: 23, rod: 13, swarm: 12 }, boss: 'colony' }, // 10 Колония 226 HP
+        { mix: { coccus: 23, rod: 13, swarm: 12 }, boss: 'colony' }, // 10 Колония 169 HP
         { mix: { coccus: 16, rod: 10, swarm: 24 } }, // 11
         { mix: { coccus: 16, rod: 10, swarm: 24 }, wall: ['rod', 4] }, // 12
         { mix: { coccus: 26, rod: 13, swarm: 24 } }, // 13
@@ -392,7 +392,7 @@ export const CONFIG = {
         { mix: { coccus: 24, rod: 12, swarm: 24, runner: 9 } }, // 17
         { mix: { coccus: 24, rod: 12, swarm: 24, runner: 9 }, wall: ['rod', 6] }, // 18
         { mix: { coccus: 27, rod: 14, swarm: 24, runner: 10 } }, // 19
-        { mix: { coccus: 36, rod: 18, swarm: 24, runner: 14 }, boss: 'rodLeader' }, // 20 Вожак палочек 1029 HP
+        { mix: { coccus: 36, rod: 18, swarm: 24, runner: 14 }, boss: 'rodLeader' }, // 20 Вожак палочек 200 HP
         { mix: { coccus: 26, rod: 13, swarm: 24, runner: 10, splitter: 7 } }, // 21
         { mix: { coccus: 27, rod: 13, swarm: 24, runner: 10, splitter: 7 } }, // 22
         { mix: { coccus: 27, rod: 14, swarm: 24, runner: 10, splitter: 7 }, wall: ['splitter', 11] }, // 23
@@ -402,7 +402,7 @@ export const CONFIG = {
         { mix: { coccus: 28, rod: 14, swarm: 24, runner: 10, splitter: 7, armored: 3 } }, // 27
         { mix: { coccus: 28, rod: 14, swarm: 24, runner: 11, splitter: 7, armored: 3 } }, // 28
         { mix: { coccus: 29, rod: 15, swarm: 24, runner: 11, splitter: 7, armored: 3 } }, // 29
-        { mix: { coccus: 36, rod: 18, swarm: 24, runner: 14, splitter: 9, armored: 4 }, boss: 'armadillo' }, // 30 Броненосец 3061 HP
+        { mix: { coccus: 36, rod: 18, swarm: 24, runner: 14, splitter: 9, armored: 4 }, boss: 'armadillo' }, // 30 Броненосец 1530 HP
         { mix: { coccus: 33, rod: 16, swarm: 24, runner: 12, splitter: 8, armored: 3 } }, // 31
         { mix: { coccus: 33, rod: 17, swarm: 24, runner: 12, splitter: 8, armored: 3 } }, // 32
         { mix: { coccus: 34, rod: 17, swarm: 24, runner: 13, splitter: 8, armored: 3 }, wall: ['armored', 4] }, // 33
@@ -422,7 +422,7 @@ export const CONFIG = {
         { mix: { coccus: 43, rod: 21, swarm: 36, runner: 16, splitter: 11, armored: 4, slick: 6 } }, // 47
         { mix: { coccus: 43, rod: 21, swarm: 36, runner: 16, splitter: 11, armored: 4, slick: 6 }, wall: ['armored', 6] }, // 48
         { mix: { coccus: 65, rod: 32, swarm: 48, runner: 24, splitter: 16, armored: 6, slick: 10 } }, // 49
-        { mix: { coccus: 94, rod: 47, swarm: 72, runner: 35, splitter: 24, armored: 9, slick: 14 }, boss: 'giantColony' }, // 50 Гигантская колония 41912 HP
+        { mix: { coccus: 94, rod: 47, swarm: 72, runner: 35, splitter: 24, armored: 9, slick: 14 }, boss: 'giantColony' }, // 50 Гигантская колония 4000 HP
           ] as PlanWave[],
         },
       },
@@ -977,7 +977,7 @@ export const CONFIG = {
     /** Матка роя (40-я волна): раз в 3 с выпускает 6 роёв; каждые 15 с — капсула на 3 с (неуязвима, видна как пузырь). */
     swarmQueen: { base: 'brood', hp: 6891, speedFactor: 0.7, armor: 0, lifeDamage: 5, color: 0x5fe0d0, spawnKind: 'swarm', spawnEverySec: 3, spawnCount: 6, capsuleEverySec: 15, capsuleSec: 3 },
     /** Гигантская колония (50-я волна; прочность 4 000 — решение владельца 22 октября 2026, п. 1: эксперт побеждает в первой партии, дошедшей до 50-й волны, первая победа на 9–10-й попытке;
-     *  условие «без «Лихорадки» не проходится» (19 октября 2026, сводное сообщение, п. 3.2) для уровня 1 снято): три фазы — 100–66 % медленно и выпускает кокков; 66–33 % броня 6 и палочки пачками; 33–0 % скорость ×1,6 и самолечение 1 % прочности в секунду. */
+     *  условие, что босс уровня 1 без «Лихорадки» сильнейшей стратегией не проходится (19 октября 2026, сводное сообщение, п. 3.2), для уровня 1 снято): три фазы — 100–66 % медленно и выпускает кокков; 66–33 % броня 6 и палочки пачками; 33–0 % скорость ×1,6 и самолечение 1 % прочности в секунду. */
     giantColony: {
       base: 'giant', hp: 4000, speedFactor: 0.4, armor: 0, lifeDamage: -1, color: 0xff6a5a, spawnKind: 'coccus', spawnEverySec: 4, spawnCount: 4,
       phases: [{ below: 0.66, armor: 6, spawnKind: 'rod', spawnEverySec: 5, spawnCount: 3 }, { below: 0.33, armor: 0, speedMul: 1.6, regenShare: 0.01, spawnCount: 0 }],
@@ -1222,7 +1222,7 @@ export const CONFIG = {
       shield: { branch: 'defense', effect: 'shield', perLevel: 1, prices: [35, 45, 60, 75, 100], requires: ['lives', 1] },
       recycle: { branch: 'defense', effect: 'sellRefund', perLevel: 0.03, prices: [25, 30, 40, 55, 70], requires: ['coins', 5] },
       reinforce: { branch: 'defense', effect: 'waveCoins', perLevel: 3, prices: [25, 30, 40, 55, 70, 95, 120, 155], requires: ['reward', 3] },
-      /** Узлы башен (раздел 5.1): Сироп 25 → Шипучка 80 → Шприц 220 → Ампула 320 и Лампа 380 → Антибиотик 480 → Витамин 700 → Холод 800 → Пластырь 900. */
+      /** Узлы башен (раздел 5.1): Сироп 10 → Шипучка 20 → Шприц 40 (решение владельца 22 октября 2026) → Ампула 320 и Лампа 380 → Антибиотик 480 → Витамин 700 → Холод 800 → Пластырь 900. */
       towerSyrup: { branch: 'towers', effect: 'tower', perLevel: 1, prices: [10] },
       towerFizz: { branch: 'towers', effect: 'tower', perLevel: 1, prices: [20], requires: ['towerSyrup', 1] },
       towerSyringe: { branch: 'towers', effect: 'tower', perLevel: 1, prices: [40], requires: ['towerFizz', 1] },
