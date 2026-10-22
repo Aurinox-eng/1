@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { ALMANAC_BEATEN_BY, ALMANAC_TOWERS } from '../almanac';
-import { CONFIG } from '../config';
+import { CONFIG, type BossId, type HardWalls } from '../config';
 import { num, t, type TextKey } from '../i18n';
 import type { BacteriumKind } from '../objects/Bacterium';
 import { styleIcon } from '../objects/styleArt';
@@ -38,6 +38,40 @@ function isOpenEntry(tab: Tab, id: string): boolean {
 
 /** Цена узла башни в древе (очков ДНК). */
 const towerNodePrice = (id: string): number => CONFIG.meta.upgrades[`tower${cap(id)}`]?.prices[0] ?? 0;
+
+/** Жёсткое свойство вида (`plan.hardWalls`) и ключ его строки в Альманахе; у босса последней волны — по виду-основе (`bossArea`). */
+const WARD_LINES: [keyof HardWalls, BacteriumKind | null, TextKey][] = [
+  ['runnerSlow', 'runner', 'almWardRunner'],
+  ['armoredPierce', 'armored', 'almWardArmored'],
+  ['slickBeam', 'slick', 'almWardSlick'],
+  ['bossArea', null, 'almWardBoss'],
+];
+
+/**
+ * Строка о жёстком свойстве вида с номерами уровней, где оно включено (решение владельца 19 октября 2026, сообщение 7, п. 3: одной строкой с числами); нет таких уровней — пусто.
+ * Свойства видов — только у открытой записи (`open`). Свойство босса — под видом-основой, как только открыт уровень с этим боссом, даже если сам вид ещё не встречался:
+ * боссы своих строк не имеют, а описание вида-основы (у гиганта — «отнимает 3 жизни») к боссу не относится.
+ */
+function wardNote(kind: BacteriumKind, open: boolean): string {
+  const lines: string[] = [];
+  for (const [ward, wardKind, key] of WARD_LINES) {
+    const levels: number[] = [];
+    let boss: BossId | undefined;
+    CONFIG.levels.specs.forEach((spec, i) => {
+      const plan = spec.plan;
+      if (!plan?.hardWalls?.[ward]) return;
+      const last = plan.waves[plan.waves.length - 1]?.boss;
+      if (wardKind ? wardKind !== kind || !open : !last || CONFIG.bosses[last].base !== kind || !isLevelOpen(i + 1)) return;
+      levels.push(i + 1);
+      boss ??= last;
+    });
+    if (levels.length === 0) continue;
+    const phases = boss ? CONFIG.bosses[boss].phases : undefined;
+    const below = phases?.[phases.length - 1]?.below ?? 0;
+    lines.push(t(key, { levels: levels.join(', '), boss: boss ? t(`boss${cap(boss)}` as TextKey) : '', p: Math.round(below * 100) }));
+  }
+  return lines.join('\n');
+}
 
 /**
  * «Альманах» (решение владельца 8 октября 2026, docs/expert-plan.md, раздел 3): вместо плашек с автопаузой — один экран со списком башен и бактерий.
@@ -158,12 +192,18 @@ export class AlmanacScene extends Phaser.Scene {
     const nameText = this.add.text(NAME_X, cy, name, textStyle(28)).setOrigin(0, 0.5);
     if (nameText.width > LINE_X - NAME_X - 12) nameText.setScale((LINE_X - NAME_X - 12) / nameText.width);
     this.list.add(nameText);
-    // Шипучка: под строкой — сколько целей взрыва получают полный урон (числа из config.ts); строка из i18n.ts и проверка её текста не меняются
+    // Под строкой мелко: у Шипучки — сколько целей взрыва получают полный урон, у вида с жёстким свойством — на каких уровнях и что его ранит (числа из config.ts);
+    // строка из i18n.ts и проверка её текста не меняются. Строка и примечание стоят по центру ряда вместе: перенос длинной строки их не сводит.
     const limit = tab === 'towers' && open ? CONFIG.towers[id as TowerId].blastFullTargets : 0;
-    this.list.add(this.add.text(LINE_X, limit > 0 ? cy - 14 : cy, line, { ...textStyle(22, TEXT_COLORS.main, false), fontStyle: 'normal', wordWrap: { width: LINE_W } }).setOrigin(0, 0.5));
-    if (limit > 0) {
-      const note = t('blastLimitNote', { n: limit, m: num(CONFIG.towers[id as TowerId].blastRestMul) });
-      this.list.add(this.add.text(LINE_X, cy + 16, note, { ...textStyle(17, TEXT_COLORS.soft, false), fontStyle: 'normal', wordWrap: { width: LINE_W } }).setOrigin(0, 0.5));
+    const note = limit > 0 ? t('blastLimitNote', { n: limit, m: num(CONFIG.towers[id as TowerId].blastRestMul) }) : tab === 'bacteria' ? wardNote(id as BacteriumKind, open) : '';
+    const lineText = this.add.text(LINE_X, cy, line, { ...textStyle(22, TEXT_COLORS.main, false), fontStyle: 'normal', wordWrap: { width: LINE_W } }).setOrigin(0, 0.5);
+    this.list.add(lineText);
+    if (note) {
+      const noteText = this.add.text(LINE_X, cy, note, { ...textStyle(17, TEXT_COLORS.soft, false), fontStyle: 'normal', wordWrap: { width: LINE_W } }).setOrigin(0, 0);
+      const top = cy - (lineText.height + 4 + noteText.height) / 2;
+      lineText.setOrigin(0, 0).setY(top);
+      noteText.setY(top + lineText.height + 4);
+      this.list.add(noteText);
     }
 
     if (!open) {
