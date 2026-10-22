@@ -1202,9 +1202,9 @@ export class GameScene extends Phaser.Scene {
    */
   private damageBacterium(bacterium: Bacterium, st: TowerStats, quiet = false, damage: number = st.damage, light = false, acid = true): boolean {
     if (bacterium.hp <= 0) return false;
-    // Жёсткое свойство уровня: удар не ранит (число 0 серым); «память вида» запоминает башню и после отражённого удара
+    // Жёсткое свойство уровня: удар не ранит (серая пометка «неуязвим»); «память вида» запоминает башню и после отражённого удара
     if (this.wardBlocks(bacterium, st)) {
-      if (!light) this.effects.damageNumber(bacterium.id, bacterium.x, bacterium.y - bacterium.radius * 0.7, 0, 0, RESIST_COLOR);
+      if (!light) this.effects.immune(bacterium.id, bacterium.x, bacterium.y - bacterium.radius * 0.7, t('wardImmune'), RESIST_COLOR);
       return false;
     }
     if (bacterium.ward === 'memory') bacterium.remember(st.towerId);

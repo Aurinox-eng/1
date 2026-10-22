@@ -363,13 +363,14 @@ export const CONFIG = {
           hpScale: 1,
           hpFlatUntil: 8,
           hpExp: 1.75,
-          /** С 31-й волны рост прочности — (n / 30)^hpLateExp от прочности 30-й волны; 1,75 — как у волн 9–30 (прежний рост). Подбор — после бота (сообщение владельца 3 от 20 октября 2026, п. 3). */
+          /** С 31-й волны рост прочности — (n / 30)^hpLateExp от прочности 30-й волны: 1,0 — прямой рост (×1,67 к 30-й на 50-й волне; при 1,75, как у волн 9–30, было ×2,45).
+           *  Решение владельца 22 октября 2026, п. 1 (лестница эксперта 39679327696: первая победа на 9–10-й попытке; docs/balance-history.md, раздел «Эксперт late25x2: рост волн 31–50 и прочность босса»). */
           hpLateFrom: 30,
-          hpLateExp: 1.75,
+          hpLateExp: 1.0,
           /** Броня растёт с волной: × (1 + 0,03 · (n − 1)) — бронированная 3 на 1-й волне, 5,2 на 25-й, 7,4 на 50-й. */
           armorPerWave: 0.03,
           /** Жёсткие свойства видов (`HardWalls`): пока выключены — вариант на решении владельца (19 октября 2026, сообщение 7); замер — подменой --cfg levels.specs.0.plan.hardWalls.<свойство>:1. */
-          hardWalls: { runnerSlow: 0, armoredPierce: 0, slickBeam: 0, slickMemory: 0, bossArea: 0 },
+          hardWalls: { runnerSlow: 1, armoredPierce: 1, slickBeam: 1, slickMemory: 0, bossArea: 1 },
           /** Волны 1–50 (таблица 2.2): mix — обычные бактерии, wall — стена (вид, сколько штук одной пачкой), boss — босс волны (таблица `bosses`). */
           waves: [
         { mix: { coccus: 3 } }, // 1
@@ -378,12 +379,12 @@ export const CONFIG = {
         { mix: { coccus: 3, rod: 2 } }, // 4
         { mix: { coccus: 5, rod: 2 } }, // 5
         { mix: { coccus: 6, rod: 3 }, wall: ['rod', 1] }, // 6
-        { mix: { coccus: 19, rod: 9 } }, // 7
-        { mix: { coccus: 22, rod: 11 }, wall: ['rod', 4] }, // 8
-        { mix: { coccus: 24, rod: 12 } }, // 9
-        { mix: { coccus: 35, rod: 18 }, boss: 'colony' }, // 10 Колония 226 HP
-        { mix: { coccus: 25, rod: 13, swarm: 24 } }, // 11
-        { mix: { coccus: 25, rod: 12, swarm: 24 }, wall: ['rod', 5] }, // 12
+        { mix: { coccus: 10, rod: 7, swarm: 12 } }, // 7
+        { mix: { coccus: 12, rod: 8, swarm: 12 }, wall: ['rod', 3] }, // 8
+        { mix: { coccus: 14, rod: 9, swarm: 12 } }, // 9
+        { mix: { coccus: 23, rod: 13, swarm: 12 }, boss: 'colony' }, // 10 Колония 226 HP
+        { mix: { coccus: 16, rod: 10, swarm: 24 } }, // 11
+        { mix: { coccus: 16, rod: 10, swarm: 24 }, wall: ['rod', 4] }, // 12
         { mix: { coccus: 26, rod: 13, swarm: 24 } }, // 13
         { mix: { coccus: 26, rod: 13, swarm: 24 } }, // 14
         { mix: { coccus: 21, rod: 11, swarm: 12, runner: 8 }, wall: ['runner', 11] }, // 15
@@ -964,19 +965,21 @@ export const CONFIG = {
   // ------------------------------------------------------------
   //  БОССЫ И МИНИ-БОССЫ (документ дизайна docs/redesign-2026-10-19.md, раздел 7.2; колонки — у типа `BossSpec`)
   // ------------------------------------------------------------
-  //  Прочность — доля прочности своей волны по модели: 35 % у мини-боссов, 50 % у босса (стена 50-й волны 4,71: без «Лихорадки» эксперт её не проходит). Дошедший мини-босс отнимает 5 жизней, дошедший босс — поражение сразу.
+  //  Прочность уровня 1 — по замерам ботом (решения владельца 21 октября 2026, сообщение 1, и 22 октября 2026): Колония 169, Вожак палочек 200, Броненосец 1 530, Гигантская колония 4 000;
+  //  лестницы и проверки — docs/balance-history.md, раздел «Эксперт late25x2: рост волн 31–50 и прочность босса». Дошедший мини-босс отнимает 5 жизней, дошедший босс — поражение сразу.
   bosses: {
     /** Колония (10-я волна): медленная (×0,5); на половине прочности и при гибели выпускает по 6 кокков. */
-    colony: { base: 'coccus', hp: 226, speedFactor: 0.5, armor: 0, lifeDamage: 5, color: 0x7be07b, burstAt: 0.5, burstKind: 'coccus', burstCount: 6, burstOnDeath: true },
+    colony: { base: 'coccus', hp: 169, speedFactor: 0.5, armor: 0, lifeDamage: 5, color: 0x7be07b, burstAt: 0.5, burstKind: 'coccus', burstCount: 6, burstOnDeath: true },
     /** Вожак палочек (20-я волна): рывок раз в 2 с; палочки ближе 150 px делают рывки вдвое чаще; замедляется не сильнее ×0,6. */
-    rodLeader: { base: 'rod', hp: 1029, speedFactor: 1, armor: 0, lifeDamage: 5, color: 0x5aa8ff, dashEverySec: 2, dashSec: 1, dashFactor: 2.5, rallyRadius: 150, rallyDashMul: 2, slowFloor: 0.6 },
+    rodLeader: { base: 'rod', hp: 200, speedFactor: 1, armor: 0, lifeDamage: 5, color: 0x5aa8ff, dashEverySec: 2, dashSec: 1, dashFactor: 2.5, rallyRadius: 150, rallyDashMul: 2, slowFloor: 0.6 },
     /** Броненосец (30-я волна): броня 13; на половине прочности сбрасывает панцирь — броня 0, скорость ×1,5. */
-    armadillo: { base: 'armored', hp: 3061, speedFactor: 0.55, armor: 13, lifeDamage: 5, color: 0xb88cff, phases: [{ below: 0.5, armor: 0, speedMul: 1.5 }] },
+    armadillo: { base: 'armored', hp: 1530, speedFactor: 0.55, armor: 13, lifeDamage: 5, color: 0xb88cff, phases: [{ below: 0.5, armor: 0, speedMul: 1.5 }] },
     /** Матка роя (40-я волна): раз в 3 с выпускает 6 роёв; каждые 15 с — капсула на 3 с (неуязвима, видна как пузырь). */
     swarmQueen: { base: 'brood', hp: 6891, speedFactor: 0.7, armor: 0, lifeDamage: 5, color: 0x5fe0d0, spawnKind: 'swarm', spawnEverySec: 3, spawnCount: 6, capsuleEverySec: 15, capsuleSec: 3 },
-    /** Гигантская колония (50-я волна; прочность 33 815 — стена босса 3,8 вместо 3,3: без «Лихорадки» сильнейшая стратегия её не проходит, решение владельца 19 октября 2026, сводное сообщение, п. 3.2): три фазы — 100–66 % медленно и выпускает кокков; 66–33 % броня 6 и палочки пачками; 33–0 % скорость ×1,6 и самолечение 1 % прочности в секунду. */
+    /** Гигантская колония (50-я волна; прочность 4 000 — решение владельца 22 октября 2026, п. 1: эксперт побеждает в первой партии, дошедшей до 50-й волны, первая победа на 9–10-й попытке;
+     *  условие «без «Лихорадки» не проходится» (19 октября 2026, сводное сообщение, п. 3.2) для уровня 1 снято): три фазы — 100–66 % медленно и выпускает кокков; 66–33 % броня 6 и палочки пачками; 33–0 % скорость ×1,6 и самолечение 1 % прочности в секунду. */
     giantColony: {
-      base: 'giant', hp: 41912, speedFactor: 0.4, armor: 0, lifeDamage: -1, color: 0xff6a5a, spawnKind: 'coccus', spawnEverySec: 4, spawnCount: 4,
+      base: 'giant', hp: 4000, speedFactor: 0.4, armor: 0, lifeDamage: -1, color: 0xff6a5a, spawnKind: 'coccus', spawnEverySec: 4, spawnCount: 4,
       phases: [{ below: 0.66, armor: 6, spawnKind: 'rod', spawnEverySec: 5, spawnCount: 3 }, { below: 0.33, armor: 0, speedMul: 1.6, regenShare: 0.01, spawnCount: 0 }],
     },
   } as Record<BossId, BossSpec>,
@@ -1220,9 +1223,9 @@ export const CONFIG = {
       recycle: { branch: 'defense', effect: 'sellRefund', perLevel: 0.03, prices: [25, 30, 40, 55, 70], requires: ['coins', 5] },
       reinforce: { branch: 'defense', effect: 'waveCoins', perLevel: 3, prices: [25, 30, 40, 55, 70, 95, 120, 155], requires: ['reward', 3] },
       /** Узлы башен (раздел 5.1): Сироп 25 → Шипучка 80 → Шприц 220 → Ампула 320 и Лампа 380 → Антибиотик 480 → Витамин 700 → Холод 800 → Пластырь 900. */
-      towerSyrup: { branch: 'towers', effect: 'tower', perLevel: 1, prices: [25] },
-      towerFizz: { branch: 'towers', effect: 'tower', perLevel: 1, prices: [80], requires: ['towerSyrup', 1] },
-      towerSyringe: { branch: 'towers', effect: 'tower', perLevel: 1, prices: [220], requires: ['towerFizz', 1] },
+      towerSyrup: { branch: 'towers', effect: 'tower', perLevel: 1, prices: [10] },
+      towerFizz: { branch: 'towers', effect: 'tower', perLevel: 1, prices: [20], requires: ['towerSyrup', 1] },
+      towerSyringe: { branch: 'towers', effect: 'tower', perLevel: 1, prices: [40], requires: ['towerFizz', 1] },
       towerAmpule: { branch: 'towers', effect: 'tower', perLevel: 1, prices: [320], requires: ['towerSyringe', 1] },
       towerAntibiotic: { branch: 'towers', effect: 'tower', perLevel: 1, prices: [480], requires: ['towerAmpule', 1] },
       towerLamp: { branch: 'towers', effect: 'tower', perLevel: 1, prices: [380], requires: ['towerSyringe', 1] },

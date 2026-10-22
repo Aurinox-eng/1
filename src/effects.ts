@@ -319,12 +319,7 @@ export class Effects {
       a = this.damagePool.find((p) => !p.busy);
       if (!a) {
         if (this.damagePool.length < damageNumMax) {
-          const label = this.scene.add
-            .text(0, 0, '', { fontFamily: FONT, fontSize: '30px', fontStyle: 'bold', color: '#ffffff', stroke: TEXT_COLORS.stroke, strokeThickness: 5, resolution: 2 })
-            .setOrigin(0.5);
-          this.layer.add(label);
-          a = { label, key: '', target, value: 0, share: 0, fromY: y, ms: 0, scale: 1, busy: false };
-          this.damagePool.push(a);
+          a = this.newDamageLabel(target, y);
         } else {
           let weakest: DamageAnim | null = null;
           for (const p of this.damagePool) if (!weakest || p.share < weakest.share) weakest = p;
@@ -353,6 +348,46 @@ export class Effects {
     a.scale = damageNumSizes[Math.min(level, damageNumSizes.length - 1)];
     a.label.setPosition(a.label.x, a.fromY).setScale(a.scale).setAlpha(1).setVisible(true);
     this.layer.bringToTop(a.label);
+  }
+
+  /**
+   * Пометка «неуязвим» (text) над бактерией `target`, которую удар не ранил из-за жёсткого свойства уровня (решения владельца 19 октября 2026, сообщение 7, п. 3, и 20 октября 2026, сообщение 1, п. 4).
+   * Берётся из запаса чисел урона; пока над этой бактерией видно число или пометка, а рядом (ближе `damageNumNearPx`) — свежая пометка, новая не рисуется: луч по слизню не сыплет надписями.
+   */
+  immune(target: number, x: number, y: number, text: string, color: number): void {
+    const { damageNumMergeMs, damageNumNearPx, damageNumMax, damageNumSizes } = CONFIG.feedback;
+    if (this.damagePool.some((p) => p.busy && (p.target === target || (p.value === 0 && p.ms < damageNumMergeMs && Math.hypot(p.label.x - x, p.fromY - y) < damageNumNearPx)))) return;
+    let a = this.damagePool.find((p) => !p.busy);
+    if (!a) {
+      if (this.damagePool.length >= damageNumMax) return;
+      a = this.newDamageLabel(target, y);
+    }
+    a.target = target;
+    a.value = 0;
+    a.share = 0;
+    a.fromY = y;
+    a.ms = 0;
+    a.busy = true;
+    a.scale = damageNumSizes[1];
+    const hex = '#' + color.toString(16).padStart(6, '0');
+    const key = `${text}|${hex}`;
+    if (key !== a.key) {
+      a.key = key;
+      a.label.setText(text).setColor(hex);
+    }
+    a.label.setPosition(x, y).setScale(a.scale).setAlpha(1).setVisible(true);
+    this.layer.bringToTop(a.label);
+  }
+
+  /** Новая надпись для запаса чисел урона (уже в слое эффектов, скрыта до первого показа). */
+  private newDamageLabel(target: number, y: number): DamageAnim {
+    const label = this.scene.add
+      .text(0, 0, '', { fontFamily: FONT, fontSize: '30px', fontStyle: 'bold', color: '#ffffff', stroke: TEXT_COLORS.stroke, strokeThickness: 5, resolution: 2 })
+      .setOrigin(0.5);
+    this.layer.add(label);
+    const a: DamageAnim = { label, key: '', target, value: 0, share: 0, fromY: y, ms: 0, scale: 1, busy: false };
+    this.damagePool.push(a);
+    return a;
   }
 
   /** Облачко у дула пилотной башни при выстреле: два светлых кружка из общего запаса картинок (предел feedback.ringMax) разлетаются вперёд по стволу и гаснут за 120–140 мс. */
