@@ -37,6 +37,8 @@ class Sfx {
   played = 0;
   /** Выключен ли звук игроком. */
   muted = loadMuted();
+  /** Остановлен ли звук площадкой (`game_api_pause`, требование 1.3): `AudioContext` приостановлен, браузерные события ввода его не возобновляют. */
+  private suspended = false;
   /** Когда (время аудио, секунды) последний раз играл звук каждого вида частых звуков. */
   private lastAt = new Map<string, number>();
   /** Когда (время аудио, секунды) заканчиваются тоны, которые звучат сейчас. */
@@ -79,8 +81,21 @@ class Sfx {
     return true;
   }
 
+  /** Остановить или вернуть звук по событиям площадки `game_api_pause` и `game_api_resume`. */
+  setSuspended(on: boolean): void {
+    this.suspended = on;
+    const ctx = this.ctx;
+    if (!ctx) return;
+    try {
+      if (on) void ctx.suspend();
+      else void ctx.resume();
+    } catch {
+      /* звук не критичен */
+    }
+  }
+
   private unlock(): void {
-    if (CONFIG.feedback.soundVolume <= 0) return;
+    if (CONFIG.feedback.soundVolume <= 0 || this.suspended) return;
     try {
       if (!this.ctx) {
         const Ctor = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;

@@ -82,6 +82,7 @@
  *   progress-save          сохранение версии 2 (этап 5, шаг 2): прогресс по уровням (звёзды, лучшая волна) и показанные уведомления — чтение, версия 1 без прогресса, чужие и испорченные значения, показанные уведомления остаются записанными после обновления страницы (&persistseen)
  *   stars                  звёзды: победа без потерь — три, пороги по потерянным жизням, очки ДНК только за впервые полученные звёзды, результат не ухудшается, лучшая волна при проигрыше, звёзды на экране конца уровня
  *   sound                 звук (15 октября 2026): в стресс-сценарии одновременно звучит не больше soundMaxVoices тонов, с выключенным звуком (pvb.sound = 0) тонов нет
+ *   sdk                   SDK Яндекс Игр (этап 9, раздел 1 плана): подставной window.YaGames — LoadingAPI.ready() один раз, язык из SDK главнее языка браузера, game_api_pause глушит звук и ставит партию на паузу, game_api_resume возвращает звук, разметка GameplayAPI; без SDK — язык браузера
  *   step-dps              шаг игры и скорость (15 октября 2026): слитая Таблетка стреляет одинаково часто на ×1 и ×5 (расхождение не больше 1 %), скорострельность близка к 1000 / пауза
  *   menu-flow              главное меню и выбор уровня (этап 5, шаг 3; компьютер ru, телефон en): игра открывается на меню (`?qa&menu`), «Играть» → 10 карточек (уровень 1 открыт, остальные закрыты), тап по закрытой ничего не делает, по открытой — партия, пауза → «В меню», «Улучшения» из меню и возврат
  *   levels-lock            открытие уровней по звёздам (`&stars=`), экран конца уровня: «Следующий уровень» после победы (не на последнем уровне), «В меню», тап по «Следующий уровень» открывает уровень 2
@@ -156,7 +157,7 @@ if (['stage-1', 'stage-1b', 'stage-1b-qa', 'td-1-mockup', 'tmp'].includes(tag)) 
   process.exit(2);
 }
 
-const SCENARIOS = ['desktop-ru', 'phone-ru', 'desktop-en', 'phone-en', 'rules', 'graph', 'combat', 'dash', 'split', 'spore', 'armored', 'intro', 'lose-ru', 'lose-en', 'win-ru', 'win-en', 'towers', 'card', 'merge', 'mutations', 'sell', 'special', 'danger', 'rotate', 'production', 'fullgame', 'locked', 'strip', 'almanac', 'almanac-pause', 'damage-numbers', 'sell-gap', 'restart-button', 'deflation', 'camera-fit', 'colors', 'meta-save', 'meta-dna', 'meta-shop', 'meta-effects', 'tree-effects', 'tree-shop', 'level-waves', 'progress-save', 'stars', 'menu-flow', 'menu-reset', 'levels-lock', 'step-dps', 'sound', 'lose-line', 'attempt-line', 'toast-queue', 'shake', 'bosses', 'menu-exit', 'resume-tap', 'two-tabs']
+const SCENARIOS = ['desktop-ru', 'phone-ru', 'desktop-en', 'phone-en', 'rules', 'graph', 'combat', 'dash', 'split', 'spore', 'armored', 'intro', 'lose-ru', 'lose-en', 'win-ru', 'win-en', 'towers', 'card', 'merge', 'mutations', 'sell', 'special', 'danger', 'rotate', 'production', 'fullgame', 'locked', 'strip', 'almanac', 'almanac-pause', 'damage-numbers', 'sell-gap', 'restart-button', 'deflation', 'camera-fit', 'colors', 'meta-save', 'meta-dna', 'meta-shop', 'meta-effects', 'tree-effects', 'tree-shop', 'level-waves', 'progress-save', 'stars', 'menu-flow', 'menu-reset', 'levels-lock', 'step-dps', 'sound', 'sdk', 'lose-line', 'attempt-line', 'toast-queue', 'shake', 'bosses', 'menu-exit', 'resume-tap', 'two-tabs']
 const only = args.only === undefined ? null : String(args.only);
 if (only !== null && !SCENARIOS.includes(only)) {
   console.error(`Неизвестный сценарий --only=${only}. Есть: ${SCENARIOS.join(', ')}`);
@@ -2247,6 +2248,65 @@ async function runSound(browser, baseUrl) {
   const muted = await game.state();
   const created = await game.page.evaluate(() => window.__osc.length);
   check(`${p} звук выключен в хранилище: в состоянии игры muted = ${muted.sound.muted}, за 4 с в стресс-сценарии создано тонов: ${created}`, muted.sound.muted === true && created === 0, JSON.stringify({ sound: muted.sound, created }));
+  await game.page.close();
+  await context.close();
+}
+
+/** SDK Яндекс Игр (этап 9, раздел 1 плана): подставной `window.YaGames` — `LoadingAPI.ready()` один раз, язык из SDK главнее языка браузера, пауза и возобновление площадки глушат и возвращают звук и ставят партию на паузу, разметка GameplayAPI. Без SDK — язык браузера и ни одного вызова. */
+async function runSdk(browser, baseUrl) {
+  const p = '[SDK площадки]';
+  // ---- с SDK: браузер английский, SDK сообщает «ru»
+  let context = await newDeviceContext(browser, VIEWPORTS.desktop, 'en');
+  await context.addInitScript(() => {
+    const sdk = (window.__sdk = { calls: [], handlers: {} });
+    window.YaGames = {
+      init: async () => ({
+        features: {
+          LoadingAPI: { ready: () => sdk.calls.push('ready') },
+          GameplayAPI: { start: () => sdk.calls.push('start'), stop: () => sdk.calls.push('stop') },
+        },
+        environment: { i18n: { lang: 'ru' } },
+        on: (event, listener) => {
+          sdk.handlers[event] = listener;
+        },
+      }),
+    };
+  });
+  let game = await openGame(context, baseUrl, p, { speed: 1 });
+  for (let i = 0; i < 50 && !(await game.page.evaluate(() => window.__sdk.calls.includes('ready'))); i++) await sleep(100);
+  await sleep(500);
+  const calls = () => game.page.evaluate(() => window.__sdk.calls.slice());
+  const first = await calls();
+  const page = await game.page.evaluate(() => ({ lang: document.documentElement.lang, title: document.title }));
+  check(`${p} LoadingAPI.ready() вызван ровно один раз: вызовы ${first.join(', ')}`, first.filter((c) => c === 'ready').length === 1, first.join(', '));
+  check(`${p} язык из SDK (ru) главнее языка браузера (en): lang «${page.lang}», заголовок «${page.title}»`, page.lang === 'ru' && /Таблетки/.test(page.title), JSON.stringify(page));
+  check(`${p} разметка игрового процесса: партия идёт — вызван GameplayAPI.start()`, first.includes('start'), first.join(', '));
+  check(`${p} подписки на game_api_pause и game_api_resume сделаны`, await game.page.evaluate(() => typeof window.__sdk.handlers.game_api_pause === 'function' && typeof window.__sdk.handlers.game_api_resume === 'function'), '');
+  await game.page.keyboard.press('Shift'); // действие игрока: звук разрешён
+  await sleep(800);
+  const running = await game.state();
+  check(`${p} до паузы звук запущен: ${running.sound.state}, партия: ${running.state}`, running.sound.state === 'running' && running.state === 'playing', JSON.stringify({ sound: running.sound.state, state: running.state }));
+  await game.page.evaluate(() => window.__sdk.handlers.game_api_pause());
+  await sleep(600);
+  const paused = await game.state();
+  const afterPause = await calls();
+  check(`${p} game_api_pause: звук остановлен (${paused.sound.state}), партия на паузе (${paused.state}), вызван GameplayAPI.stop()`, paused.sound.state === 'suspended' && paused.state === 'paused' && afterPause.at(-1) === 'stop', JSON.stringify({ sound: paused.sound.state, state: paused.state, calls: afterPause }));
+  await game.page.keyboard.press('Shift'); // действие игрока на паузе не возвращает звук, пока площадка не прислала возобновление
+  await sleep(500);
+  const stillStopped = await game.state();
+  check(`${p} до game_api_resume звук остаётся остановленным: ${stillStopped.sound.state}`, stillStopped.sound.state === 'suspended', stillStopped.sound.state);
+  await game.page.evaluate(() => window.__sdk.handlers.game_api_resume());
+  await sleep(600);
+  const resumed = await game.state();
+  check(`${p} game_api_resume: звук возвращён (${resumed.sound.state}); партия ждёт кнопку «Продолжить» (${resumed.state})`, resumed.sound.state === 'running' && resumed.state === 'paused', JSON.stringify({ sound: resumed.sound.state, state: resumed.state }));
+  await game.page.close();
+  await context.close();
+  // ---- без SDK: язык браузера, вызовов нет
+  context = await newDeviceContext(browser, VIEWPORTS.desktop, 'en');
+  game = await openGame(context, baseUrl, p, { speed: 1 });
+  await sleep(800);
+  const plain = await game.page.evaluate(() => ({ lang: document.documentElement.lang, sdk: typeof window.YaGames }));
+  check(`${p} без SDK: язык браузера (en), объекта YaGames нет: ${JSON.stringify(plain)}`, plain.lang === 'en' && plain.sdk === 'undefined', JSON.stringify(plain));
   await game.page.close();
   await context.close();
 }
@@ -9686,6 +9746,7 @@ try {
   if (wants('menu-reset')) await safe('[сброс прогресса]', () => runMenuReset(browser, qaServer.url));
   if (wants('levels-lock')) await safe('[открытие уровней и конец уровня]', () => runLevelsLock(browser, qaServer.url));
   if (wants('sound')) await safe('[звук]', () => runSound(browser, qaServer.url));
+  if (wants('sdk')) await safe('[SDK площадки]', () => runSdk(browser, qaServer.url));
   if (wants('lose-line')) await safe('[строка проигрыша]', () => runLoseLine(browser, qaServer.url));
   if (wants('attempt-line')) await safe('[строка итога]', () => runAttemptLine(browser, qaServer.url));
   if (wants('toast-queue')) await safe('[очередь уведомлений]', () => runToastQueue(browser, qaServer.url));

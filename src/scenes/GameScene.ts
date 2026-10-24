@@ -22,6 +22,7 @@ import { Puddle } from '../objects/Puddle';
 import { beamReach, createTowerArt, defaultAim, drawAimLine, Tower, type TowerId } from '../objects/Tower';
 import { artStats, ringImage } from '../art';
 import { pointAt, tileCenter, unitCenter, type Edge } from '../pathing';
+import { gameplay } from '../sdk';
 import { sfx } from '../sound';
 import { computeStats, MAX_TOWER_LEVEL, mutationById, mutationOptions, mutationStacks, statDps, towerPrice, type MutationCap, type TowerStats } from '../towerStats';
 import { COLORS, FONT, TEXT_COLORS } from '../theme';
@@ -288,6 +289,9 @@ export class GameScene extends Phaser.Scene {
     if (QA_NORENDER) this.sys.setVisible(false); // боты без рисования: менеджер сцен не рисует эту сцену, игровая логика идёт как обычно
     // Сцена при перезапуске не создаётся заново, поэтому всё обнуляем вручную.
     this.state = 'playing';
+    // Разметка игрового процесса для площадки (GameplayAPI): партия идёт, пока сцена играет; уход со сцены её останавливает
+    gameplay(true);
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => gameplay(false));
     this.elapsed = 0;
     this.qaFrames = 0;
     this.qaBaseSec = 0;
@@ -2072,9 +2076,15 @@ export class GameScene extends Phaser.Scene {
     };
   }
 
+  /** Пауза по событию площадки `game_api_pause` (реклама, смена вкладки): ставит идущую партию на паузу; возобновляет её игрок кнопкой «Продолжить». */
+  pauseByPlatform(): void {
+    if (this.state === 'playing') this.togglePause();
+  }
+
   private togglePause(): void {
     if (isPortraitPhone()) return;
     if (this.state === 'playing') {
+      gameplay(false);
       this.state = 'paused';
       this.resumeAllowedAt = performance.now() + 250;
       this.ghost.setVisible(false);
@@ -2094,6 +2104,7 @@ export class GameScene extends Phaser.Scene {
       });
       this.pauseMenuButton = this.addEndButton(W / 2 + 180, H / 2 + 200, 320, 76, t('toMenu'), 0x2a3550, 0x4a5c82, () => this.leaveToMenu());
     } else if (this.state === 'paused') {
+      gameplay(true);
       this.state = 'playing';
       this.resumeFrame = this.game.loop.frame;
       this.overlay?.destroy();
@@ -2214,6 +2225,7 @@ export class GameScene extends Phaser.Scene {
 
   private endGame(won: boolean): void {
     this.state = won ? 'won' : 'lost';
+    gameplay(false);
     this.restartAllowedAt = performance.now() + CONFIG.gameOver.restartLockMs;
     this.ghost.setVisible(false);
     this.panel.clearToasts(); // уведомление (например, «Новая бактерия») гаснет, когда показывается экран победы или проигрыша
