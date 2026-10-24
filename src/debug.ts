@@ -54,6 +54,9 @@ export const ART_SHEET_PAGE: string = params.get('artsheet') ?? '';
 /** Волны, рост прочности, награды и карта берутся из таблицы уровней (`levels.specs`). В игровой сборке — всегда; в режиме проверки — только с `&levelwaves` (без него — прежний тестовый уровень). */
 export const LEVEL_WAVES: boolean = !QA_MODE || params.has('levelwaves');
 
+/** `?qa&ready=N` — сколько первых уровней готовы к игре (`levels.ready`) в тестовой сборке и разработке; без параметра в режиме проверки готовы все уровни, чтобы прежние проверки открывали любой уровень. В игровой сборке всегда `null` (действует `levels.ready` из config.ts). */
+export const READY_OVERRIDE: number | null = QA_ENABLED ? (Number.isFinite(Number(params.get('ready'))) && params.has('ready') ? Math.floor(Number(params.get('ready'))) : 99) : null;
+
 /** Стресс-сценарий для замера скорости (только вместе с ?qa): 40 башен разных уровней, ≈200 бактерий всех типов, скорость ×3, без волн и без поражения. */
 export const STRESS: boolean = QA_MODE && params.has('stress');
 

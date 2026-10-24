@@ -86,6 +86,7 @@
  *   step-dps              шаг игры и скорость (15 октября 2026): слитая Таблетка стреляет одинаково часто на ×1 и ×5 (расхождение не больше 1 %), скорострельность близка к 1000 / пауза
  *   menu-flow              главное меню и выбор уровня (этап 5, шаг 3; компьютер ru, телефон en): игра открывается на меню (`?qa&menu`), «Играть» → 10 карточек (уровень 1 открыт, остальные закрыты), тап по закрытой ничего не делает, по открытой — партия, пауза → «В меню», «Улучшения» из меню и возврат
  *   levels-lock            открытие уровней по звёздам (`&stars=`), экран конца уровня: «Следующий уровень» после победы (не на последнем уровне), «В меню», тап по «Следующий уровень» открывает уровень 2
+ *   level2                 уровень 2 «Нос» (план docs/level2-plan-2026-10-23.md): карта (9 рёбер, 2 входа, 1 выход), 5 боссов в плане на 10/20/30/40/50-й волнах, мини-босс 10-й волны выходит на своей волне, финальный босс — поражение сразу
  *   restart-button         конец уровня (проигрыш и победа, компьютер ru и телефон en): есть кнопка «Заново» (endButton), тапы мимо неё не перезапускают, тап по ней — перезапускает
  *   deflation              economy.rewardMul: ×0,5 — два кокка номиналом 5 дают 2 + 3 = 5 монет (дробная часть копится); ×0,1 — 0 + 1, «+N» всплывает только при N ≥ 1
  *   camera-fit             самое сильное отдаление (считает игра, (считает игра): высота карты × масштаб ≤ высоты окна карты (568), ширина влезает, камера по центру и сдвигом не уводится
@@ -157,7 +158,7 @@ if (['stage-1', 'stage-1b', 'stage-1b-qa', 'td-1-mockup', 'tmp'].includes(tag)) 
   process.exit(2);
 }
 
-const SCENARIOS = ['desktop-ru', 'phone-ru', 'desktop-en', 'phone-en', 'rules', 'graph', 'combat', 'dash', 'split', 'spore', 'armored', 'intro', 'lose-ru', 'lose-en', 'win-ru', 'win-en', 'towers', 'card', 'merge', 'mutations', 'sell', 'special', 'danger', 'rotate', 'production', 'fullgame', 'locked', 'strip', 'almanac', 'almanac-pause', 'damage-numbers', 'sell-gap', 'restart-button', 'deflation', 'camera-fit', 'colors', 'meta-save', 'meta-dna', 'meta-shop', 'meta-effects', 'tree-effects', 'tree-shop', 'level-waves', 'progress-save', 'stars', 'menu-flow', 'menu-reset', 'levels-lock', 'step-dps', 'sound', 'sdk', 'lose-line', 'attempt-line', 'toast-queue', 'shake', 'bosses', 'menu-exit', 'resume-tap', 'two-tabs']
+const SCENARIOS = ['desktop-ru', 'phone-ru', 'desktop-en', 'phone-en', 'rules', 'graph', 'combat', 'dash', 'split', 'spore', 'armored', 'intro', 'lose-ru', 'lose-en', 'win-ru', 'win-en', 'towers', 'card', 'merge', 'mutations', 'sell', 'special', 'danger', 'rotate', 'production', 'fullgame', 'locked', 'strip', 'almanac', 'almanac-pause', 'damage-numbers', 'sell-gap', 'restart-button', 'deflation', 'camera-fit', 'colors', 'meta-save', 'meta-dna', 'meta-shop', 'meta-effects', 'tree-effects', 'tree-shop', 'level-waves', 'progress-save', 'stars', 'menu-flow', 'menu-reset', 'levels-lock', 'step-dps', 'sound', 'sdk', 'lose-line', 'attempt-line', 'toast-queue', 'shake', 'bosses', 'level2', 'menu-exit', 'resume-tap', 'two-tabs']
 const only = args.only === undefined ? null : String(args.only);
 if (only !== null && !SCENARIOS.includes(only)) {
   console.error(`Неизвестный сценарий --only=${only}. Есть: ${SCENARIOS.join(', ')}`);
@@ -1891,6 +1892,9 @@ async function brightness(page) {
   return px.reduce((sum, [r, g, b]) => sum + r + g + b, 0) / px.length / 3;
 }
 
+/** Центр камеры при старте карты `id` из src/level.ts (`MAPS.<id>.startCenter`, единицы сети дорожек). */
+const readMapStart = (id) => JSON.parse(new RegExp(`${id}:\\s*\\{[\\s\\S]*?startCenter:\\s*(\\[[^\\]]*\\])`).exec(fs.readFileSync(path.join(ROOT, 'src', 'level.ts'), 'utf8'))[1]);
+
 async function runProduction(browser, prodUrl, qaUrl) {
   const p = '[игровая сборка]';
   const hostile = 'waves.firstDelaySec:0.01,waves.intervalStartSec:0.05,waves.intervalEndSec:0.05,waves.list.0.coccus:30,bacteria.baseSpeed:6000,lives.start:1';
@@ -1931,11 +1935,17 @@ async function runProduction(browser, prodUrl, qaUrl) {
   check(`${p} экран 16:9, помещается в окно`, Math.abs(layout.ratio - W / H) < 0.01 && layout.fits && layout.centred && !layout.scrolls);
   await shot(page, 'production-start');
   // Игра в игровой сборке работает: выбрать башню и поставить её тапом (по цвету пикселей вокруг клетки ${FREE.a} на старте камеры)
-  // Уровень 1 идёт на своей карте «Горло», а клетки проверок выбраны по прежней карте «корни» (уровни 2–10): игра открывается на уровне 2 при пройденном уровне 1 (сохранение в хранилище)
+  // Уровень 1 идёт на карте «Горло», а общая сеть проверок построена по карте «корни»: клетка выбирается по сети уровня 1, которую отдаёт тестовая сборка (&levelwaves&level=1); общая сеть после этого возвращается
+  const probe = await openGame(context, qaUrl, '[карта уровня 1]', { isTouch: true, query: '&levelwaves&level=1' });
+  const probeState = await probe.state();
+  const probeGraph = await probe.page.evaluate(() => window.__pvb.getGraph());
+  await probe.page.close();
+  const savedWorld = { graph: GRAPH, geo: GEO, free: FREE, path: PATH, start: [...LEVEL.startCenter] };
+  LEVEL.startCenter = readMapStart('throat');
+  setupWorld(probeGraph, probeState);
   const play = await context.newPage();
   watchConsole(play, p);
-  await play.addInitScript(() => window.localStorage.setItem('pvb.meta5', JSON.stringify({ v: 5, progress: { stars: [1], best: [50] } })));
-  await play.goto(`${prodUrl}?level=2`, { waitUntil: 'load', timeout: 90000 });
+  await play.goto(`${prodUrl}?level=1`, { waitUntil: 'load', timeout: 90000 });
   await sleep(2100);
   const rect = await play.evaluate(() => {
     const r = document.querySelector('canvas').getBoundingClientRect();
@@ -1972,6 +1982,11 @@ async function runProduction(browser, prodUrl, qaUrl) {
   check(`${p} игра работает: выбрать башню на панели и тапнуть по клетке — башня появляется (картинка вокруг клетки изменилась)`, stable >= 8 && changed >= 6, `точек до постановки без изменений ${stable} из ${ring.length} (≥ 8), изменилось после ${changed} из ${ring.length} (≥ 6)`);
   await shot(play, 'production-tower');
   await play.close();
+  GRAPH = savedWorld.graph;
+  GEO = savedWorld.geo;
+  FREE = savedWorld.free;
+  PATH = savedWorld.path;
+  LEVEL.startCenter = savedWorld.start;
 
   // Адрес с номером уровня не обходит блокировку: при пустом хранилище `?level=10` открывает главное меню, а не бой уровня 10. В игровой сборке нет интерфейса проверок,
   // поэтому, что открылось, узнаём по картинке: сетка точек 16 × 9 на снимке, число совпадений цвета с эталонами (меню — адрес без уровня, бой — `?level=1`).
@@ -1997,12 +2012,15 @@ async function runProduction(browser, prodUrl, qaUrl) {
   const menuGrid = await shotAt(prodUrl);
   const battleGrid = await shotAt(`${prodUrl}?level=1`);
   const lockedGrid = await shotAt(`${prodUrl}?level=10`);
-  const nineStars = JSON.stringify({ v: 3, progress: { stars: [1, 1, 1, 1, 1, 1, 1, 1, 1, 0], best: [30, 30, 30, 30, 30, 30, 30, 30, 30, 0] } });
-  const openGrid = await shotAt(`${prodUrl}?level=10`, nineStars);
+  const nineStars = JSON.stringify({ v: 5, progress: { stars: [1, 1, 1, 1, 1, 1, 1, 1, 1, 0], best: [30, 30, 30, 30, 30, 30, 30, 30, 30, 0] } });
+  const closedGrid = await shotAt(`${prodUrl}?level=10`, nineStars);
+  const oneStar = JSON.stringify({ v: 5, progress: { stars: [1], best: [50] } });
+  const openGrid = await shotAt(`${prodUrl}?level=2`, oneStar);
   const cells = menuGrid.length;
   check(`${p} эталоны различимы: меню и бой совпадают по цвету не более чем в ${Math.floor(cells * 0.6)} из ${cells} точек`, same(menuGrid, battleGrid) <= cells * 0.6, `совпало ${same(menuGrid, battleGrid)} из ${cells}`);
   check(`${p} блокировка уровней: ?level=10 при пустом хранилище открывает главное меню, а не бой уровня 10`, same(lockedGrid, menuGrid) >= cells * 0.8 && same(lockedGrid, battleGrid) <= cells * 0.6, `с меню совпало ${same(lockedGrid, menuGrid)}, с боем ${same(lockedGrid, battleGrid)} из ${cells}`);
-  check(`${p} контроль: ?level=10 при пройденных уровнях 1–9 открывает бой, а не меню`, same(openGrid, menuGrid) <= cells * 0.6, `с меню совпало ${same(openGrid, menuGrid)} из ${cells}`);
+  check(`${p} уровни за пределами levels.ready закрыты: ?level=10 при пройденных уровнях 1–9 открывает главное меню, а не бой`, same(closedGrid, menuGrid) >= cells * 0.8, `с меню совпало ${same(closedGrid, menuGrid)} из ${cells}`);
+  check(`${p} контроль: ?level=2 при пройденном уровне 1 открывает бой, а не меню`, same(openGrid, menuGrid) <= cells * 0.6, `с меню совпало ${same(openGrid, menuGrid)} из ${cells}`);
 
   // Подсказка «Поверните телефон» есть и в игровой сборке
   const portrait = await context.newPage();
@@ -2307,6 +2325,36 @@ async function runSdk(browser, baseUrl) {
   await sleep(800);
   const plain = await game.page.evaluate(() => ({ lang: document.documentElement.lang, sdk: typeof window.YaGames }));
   check(`${p} без SDK: язык браузера (en), объекта YaGames нет: ${JSON.stringify(plain)}`, plain.lang === 'en' && plain.sdk === 'undefined', JSON.stringify(plain));
+  await game.page.close();
+  await context.close();
+}
+
+/** Уровень 2 «Нос» (план docs/level2-plan-2026-10-23.md): карта, план волн, мини-босс 10-й волны, финальный босс — поражение сразу. */
+async function runLevel2(browser, baseUrl) {
+  const p = '[уровень 2 «Нос»]';
+  const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
+  const bossWaves = PLAN2.map((w, i) => (w.boss ? [i + 1, w.boss] : null)).filter(Boolean);
+  check(`${p} в плане уровня 2 пять боссов на волнах ${bossWaves.map(([n, id]) => `${n} (${id})`).join(', ')}; последний — на последней (50-й)`, PLAN2.length === 50 && bossWaves.length === 5 && bossWaves.map(([n]) => n).join() === '10,20,30,40,50', JSON.stringify(bossWaves));
+  // карта и сеть дорожек: 9 рёбер, 2 входа, один выход
+  let game = await openGame(context, baseUrl, p, { speed: 1, cfg: 'waves.firstDelaySec:600', query: '&levelwaves&level=2' });
+  let s = await game.state();
+  const graph = await game.page.evaluate(() => window.__pvb.getGraph());
+  check(`${p} карта «${s.mapId}»: рёбер ${graph.edges.length} (ждали 9), входов ${graph.entrances.length} (2), выходов ${graph.exits.length} (1); монет на старте ${s.coins}`, s.mapId === 'nose' && graph.edges.length === 9 && graph.entrances.length === 2 && graph.exits.length === 1 && s.coins === 200, JSON.stringify({ edges: graph.edges.length, entrances: graph.entrances, exits: graph.exits, coins: s.coins }));
+  await shot(game.page, 'level2-map');
+  await game.page.close();
+  // мини-босс 10-й волны выходит на своей волне
+  const [miniWave, miniId] = bossWaves[0];
+  game = await openGame(context, baseUrl, p, { speed: 4, cfg: 'lives.start:500', query: `&levelwaves&level=2&towers=all&wave=${miniWave}` });
+  s = await waitForGame(game.page, (x) => x.bacteria.some((b) => b.boss) || x.state !== 'playing', `выход мини-босса волны ${miniWave}`, { gameSec: 120 });
+  const mini = s.bacteria.find((b) => b.boss);
+  check(`${p} волна ${s.wave}: вышел мини-босс «${mini?.boss}» (ждали «${miniId}» на волне ${miniWave})`, s.wave === miniWave && mini?.boss === miniId, `волна ${s.wave}, босс ${mini?.boss}, состояние ${s.state}`);
+  await game.page.close();
+  // финальный босс дошёл до организма — поражение сразу
+  game = await openGame(context, baseUrl, p, { speed: 4, cfg: 'lives.start:5000', query: `&levelwaves&level=2&wave=${PLAN2.length}` });
+  s = await waitForGame(game.page, (x) => x.state !== 'playing', 'конец партии на волне финального босса уровня 2', { gameSec: 600, pollMs: 200 });
+  const leaks = (await game.page.evaluate(() => window.__pvb.getEvents(0))).filter((e) => e.type === 'leak' && e.boss);
+  const final = leaks.find((e) => e.boss === bossWaves.at(-1)[1]);
+  check(`${p} финальный босс «${bossWaves.at(-1)[1]}» дошёл до организма — поражение сразу (жизней было ${final?.damage ?? '?'} из 5000, стало ${s.lives})`, s.state === 'lost' && s.lives === 0 && Boolean(final), `состояние ${s.state}, жизней ${s.lives}, утечек боссов ${leaks.length}`);
   await game.page.close();
   await context.close();
 }
@@ -7776,8 +7824,8 @@ async function runLevelWaves(browser, baseUrl) {
     totals.push(s.plannedTotal);
     hps.push(s.plannedHp);
     firsts.push(s.firstWaves);
-    // уровень 1 — новый формат (50 волн, карта «Горло», 200 монет), уровни 2–10 — прежний (30 волн, карта «корни»)
-    const want = level === 1 ? { waves: PLAN.length, map: 'throat' } : { waves: 30, map: 'roots' };
+    // уровни 1 и 2 — новый формат (50 волн, карты «Горло» и «Нос», 200 монет), уровни 3–10 — прежний (30 волн, карта «корни»)
+    const want = level === 1 ? { waves: PLAN.length, map: 'throat' } : level === 2 ? { waves: PLAN2.length, map: 'nose' } : { waves: 30, map: 'roots' };
     check(`${p} уровень ${level}: номер уровня в игре, ${want.waves} волн, карта «${want.map}», бактерии запланированы`, s.level === level && s.waveTotal === want.waves && s.mapId === want.map && s.plannedTotal > 0 && (level === 1) === (s.plan !== null), `уровень ${s.level}, волн ${s.waveTotal}, карта ${s.mapId}, план ${JSON.stringify(s.plan)}, бактерий ${s.plannedTotal}`);
     if (level === 1) check(`${p} уровень 1: монет на старте ${s.coins} (ждали ${readConfigNumber('plan', 'startCoins')})`, s.coins === readConfigNumber('plan', 'startCoins'), String(s.coins));
     await game.page.close();
@@ -7785,15 +7833,15 @@ async function runLevelWaves(browser, baseUrl) {
   const base = readWaveList().slice(0, 30).reduce((sum, row) => sum + Object.values(row).reduce((a, b) => a + b, 0), 0);
   const planTotal = PLAN.reduce((sum, w) => sum + Object.values(w.mix).reduce((a, b) => a + b, 0) + (w.wall ? w.wall[1] : 0) + (w.boss ? 1 : 0), 0);
   check(`${p} уровень 1 идёт по плану волн (levels.specs.0.plan): бактерий с боссами ${planTotal}`, totals[0] === planTotal, `в игре ${totals[0]}`);
-  check(`${p} с уровня на уровень суммарная прочность не становится меньше (2–10)`, hps.slice(2).every((n, i) => n >= hps[i + 1]), hps.join(', '));
+  const plan2Total = PLAN2.reduce((sum, w) => sum + Object.values(w.mix).reduce((a, b) => a + b, 0) + (w.wall ? w.wall[1] : 0) + (w.boss ? 1 : 0), 0);
+  check(`${p} уровень 2 идёт по плану волн (levels.specs.1.plan): бактерий с боссами ${plan2Total}`, totals[1] === plan2Total, `в игре ${totals[1]}`);
+  check(`${p} с уровня на уровень суммарная прочность не становится меньше (3–10; уровни 1–2 — свои планы)`, hps.slice(3).every((n, i) => n >= hps[i + 2]), hps.join(', '));
   // Сглаживание выхода типов (этап 5б, `levels.gen.introSpread`): на уровне 2 шесть типов уровня 1 выходят в те же волны, что на уровне 1, дальше выход только сдвигается к началу, на уровне 10 — все шесть в первых 6–8 волнах
   if (readConfigNumber('levels', 'introSpread') === 1) {
     const six = ['coccus', 'rod', 'swarm', 'runner', 'splitter', 'armored'];
     const sched = (i) => six.map((k) => firsts[i][k]);
-    // расписание, к которому сглаживаются уровни 2–10, — прежняя таблица волн `waves.list` (уровень 1 теперь идёт по своему плану)
-    const legacy = six.map((k) => readWaveList().findIndex((row) => (row[k] ?? 0) > 0) + 1);
-    check(`${p} уровень 2 выпускает шесть типов в те же волны, что прежняя таблица waves.list (${legacy.join(', ')})`, sched(1).join() === legacy.join(), `waves.list: ${legacy.join(', ')}; уровень 2: ${sched(1).join(', ')}`);
-    const rising = firsts.slice(2).every((f, i) => six.every((k) => f[k] <= firsts[i + 1][k]));
+    // расписание, к которому сглаживаются уровни 3–10, — прежняя таблица волн `waves.list` (уровни 1 и 2 идут по своим планам)
+    const rising = firsts.slice(3).every((f, i) => six.every((k) => f[k] <= firsts[i + 2][k]));
     check(`${p} с уровня на уровень первая волна каждого из шести типов не отодвигается (расписание только сжимается)`, rising, firsts.map((f, i) => `${i + 1}: ${six.map((k) => f[k]).join(',')}`).join(' | '));
     check(`${p} на уровне 10 шесть типов выходят подряд в первых 6–8 волнах: ${sched(9).join(', ')}`, sched(9).every((w, j) => w >= 1 && w <= 8 && (j === 0 || w >= sched(9)[j - 1])), sched(9).join(', '));
   }
@@ -7801,7 +7849,7 @@ async function runLevelWaves(browser, baseUrl) {
   // Пачка 2 (раздел 5 того же документа): Скрытная выходит с уровня 5, Токсин с уровня 7; пачка 3 (раздел 7): Паразит с уровня 8, Мутант с уровня 9
   for (const [kind, from] of Object.entries({ leaper: 4, phago: 6, ...STAGE7.intro })) {
     if (!KINDS.includes(kind)) continue;
-    const early = firsts.slice(0, from - 1).every((f) => !(f[kind] > 0));
+    const early = firsts.slice(2, from - 1).every((f) => !(f[kind] > 0)); // уровни 1 и 2 — свои планы (на уровне 2 есть прыгун)
     const later = firsts.slice(from - 1).every((f) => f[kind] > 0);
     check(`${p} «${kind}» выходит с уровня ${from}: на уровнях 1…${from - 1} его нет в составе волн, на ${from}…10 есть (первые волны: ${firsts.slice(from - 1).map((f) => f[kind]).join(', ')})`, early && later, firsts.map((f, i) => `${i + 1}: ${f[kind] ?? '—'}`).join(' | '));
   }
@@ -7855,14 +7903,17 @@ async function runBosses(browser, baseUrl) {
   await context.close();
 }
 
-/** План волн уровня 1 (levels.specs.0.plan.waves в config.ts): строки `{ mix: {...}, wall: ['вид', N], boss: 'id' }`. */
-const PLAN = (() => {
+/** Планы волн уровней 1 и 2 (levels.specs.0.plan.waves и levels.specs.1.plan.waves в config.ts): строки `{ mix: {...}, wall: ['вид', N], boss: 'id' }`; план уровня 2 начинается после комментария «Уровень 2 «Нос» — новый формат». */
+const [PLAN, PLAN2] = (() => {
   const src = fs.readFileSync(path.join(ROOT, 'src', 'config.ts'), 'utf8');
-  return [...src.matchAll(/^\s*\{ mix: \{([^}]*)\}(?:, wall: \['(\w+)', (\d+)\])?(?:, boss: '(\w+)')? \},/gm)].map((m) => ({
+  const rows = (text) => [...text.matchAll(/^\s*\{ mix: \{([^}]*)\}(?:, wall: \['(\w+)', (\d+)\])?(?:, boss: '(\w+)')? \},/gm)].map((m) => ({
     mix: Object.fromEntries([...m[1].matchAll(/(\w+): (\d+)/g)].map((x) => [x[1], Number(x[2])])),
     wall: m[2] ? [m[2], Number(m[3])] : null,
     boss: m[4] ?? null,
   }));
+  const at = src.indexOf('// Уровень 2 «Нос» — новый формат');
+  if (at < 0) throw new Error('В config.ts нет комментария «Уровень 2 «Нос» — новый формат» перед планом уровня 2');
+  return [rows(src.slice(0, at)), rows(src.slice(at))];
 })();
 
 /** Прогресс по уровням в сохранении версии 2 и показанные уведомления (этап 5, шаг 2). */
@@ -8135,6 +8186,18 @@ async function runLevelsLock(browser, baseUrl) {
     check(`${p} карточки уровней: надписи «Открыто» и «Новая» кончаются выше звёзд на каждой из ${ua.levels.filter((c) => c.open).length} открытых карточек; карточки не заходят на кнопку «Назад» (низ ${f1(lowest)}, верх кнопки ${f1(backRect.y - backRect.h / 2)})`, ua.levels.filter((c) => c.open).length >= 9 && clash.length === 0 && lowest <= backRect.y - backRect.h / 2, clash.join('; '));
     await shot(all.page, 'levels-all-open');
     await all.page.close();
+  }
+  // Готовые уровни (`levels.ready`, в тестовой сборке — `&ready=N`): остальные закрыты строкой «Скоро», даже если все предыдущие пройдены
+  {
+    const soon = await openMenu(context, baseUrl, p, { query: '&stars=1,1,1,1&ready=2' });
+    let us = await soon.ui();
+    await soon.tapRect(us.buttons.play);
+    us = await soon.waitUi('levels', 'выбор уровня, готовы два уровня');
+    const readyOpen = us.levels.map((c) => (c.open ? 1 : 0)).join('');
+    check(`${p} &ready=2: звёзды на уровнях 1–4 открывают только готовые уровни 1 и 2, уровни 3–10 закрыты: ${readyOpen}`, readyOpen === '1100000000', readyOpen);
+    check(`${p} карточки уровней 3–10 закрыты строкой «Скоро»; на карточке готового уровня 2 её нет`, us.levels.slice(2).every((c) => c.texts.includes('Скоро')) && !us.levels[1].texts.includes('Скоро'), JSON.stringify(us.levels.slice(1, 4).map((c) => c.texts)));
+    await shot(soon.page, 'levels-soon');
+    await soon.page.close();
   }
   await app.tapRect(u.levels[1].rect);
   const s2 = await waitFor(app.page, (x) => x.state === 'playing', 30000, 'партия уровня 2');
@@ -9736,6 +9799,7 @@ try {
   if (wants('tree-effects')) await safe('[улучшения древа]', () => runTreeEffects(browser, qaServer.url));
   if (wants('level-waves')) await safe('[состав волн уровней]', () => runLevelWaves(browser, qaServer.url));
   if (wants('bosses')) await safe('[боссы и «Лихорадка»]', () => runBosses(browser, qaServer.url));
+  if (wants('level2')) await safe('[уровень 2 «Нос»]', () => runLevel2(browser, qaServer.url));
   if (wants('progress-save')) await safe('[прогресс: сохранение]', () => runProgressSave(browser, qaServer.url));
   if (wants('stars')) await safe('[звёзды]', () => runStars(browser, qaServer.url));
   if (wants('menu-flow')) await safe('[меню и выбор уровня]', () => runMenuFlow(browser, qaServer.url));

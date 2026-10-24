@@ -41,7 +41,7 @@ export interface LevelSpec {
   plan?: LevelPlan;
 }
 /** Босс или мини-босс (docs/redesign-2026-10-19.md, раздел 7): одна особая бактерия; рисуется как вид-основа `base`, крупнее и с кольцом своего цвета. */
-export type BossId = 'colony' | 'rodLeader' | 'armadillo' | 'swarmQueen' | 'giantColony';
+export type BossId = 'colony' | 'rodLeader' | 'armadillo' | 'swarmQueen' | 'giantColony' | 'sporeling' | 'shaman' | 'hopper' | 'sporeMother' | 'sporeQueen';
 /** Волна уровня нового формата: обычные бактерии (`mix`, выходят вперемешку), стена — пачка одного вида одним блоком (`wall`: вид и сколько), босс волны (`boss`). */
 export interface PlanWave {
   mix: Partial<Record<KindId, number>>;
@@ -299,6 +299,8 @@ export const CONFIG = {
   levels: {
     /** Сколько уровней в игре (план: 10; меню уровней — этап 5). Номер текущего уровня берётся из адреса `?level=N` (по умолчанию 1). */
     count: 10,
+    /** Сколько первых уровней готовы к игре (переработаны и приняты владельцем): остальные закрыты строкой «Скоро» (решение владельца 23 октября 2026); повтор пройденного уровня 1 остаётся. Единицы: число уровней. */
+    ready: 2,
     /** Множитель прочности бактерий для каждого уровня 2–10 поверх `waves.hpScale` (как `waves.level1HpFactor` у уровня 1; форма роста по волнам не меняется): 1 — без изменения.
      *  Ключ — номер уровня. Нужен для подбора силы уровней под прокачку игрока (docs/balance-history.md, «Уровни 2–4»); замеры подменяют его через `?qa&cfg=levels.hpFactor.2:3.6`. */
     hpFactor: { 2: 1, 3: 1, 4: 1, 5: 1, 6: 1, 7: 1, 8: 1, 9: 1, 10: 1 } as Record<number, number>,
@@ -428,7 +430,87 @@ export const CONFIG = {
           ] as PlanWave[],
         },
       },
-      { intro: { coccus: 1, rod: 2, swarm: 3, runner: 4, splitter: 5, armored: 6, spore: 8 }, hpBudget: [10, 1093], growth: { perWave: 0.08, fromWave: 8, latePerWave: 1.15, lateFromWave: 16 } }, // уровень 2: форма Д (решение владельца 17 октября 2026): начало прежнее, поздний рост 1,15 вместо 0,6 (прочность к прежней: 18-я волна ×1,37, 20-я ×1,50, 30-я ×1,69)
+      // Уровень 2 «Нос» — новый формат (план docs/level2-plan-2026-10-23.md; решение владельца 23 октября 2026: вариант C рабочий, устройство принято, числа — начальные, окончательные — по лестницам и после «да» владельца).
+      // Состав волн — приложение А плана (модель docs/level2-model-2026-10-23.mjs, `--comp=C`): 14 стен-пачек, мини-боссы на 10/20/30/40-й, босс на 50-й; новые виды — спора (8), лекарь (12), прыгун (18).
+      // Параметры времени и дохода — как у уровня 1; отличаются `hpScale` (прочность одной бактерии ×4,8 к форме уровня 1) и `armorPerWave`. Жёсткие свойства — те же, что у уровня 1.
+      {
+        plan: {
+          startCoins: 200,
+          pauseSec: 4,
+          spawnBaseSec: 8,
+          spawnPerWaveSec: 0.6,
+          spawnMaxSec: 30,
+          miniBossSec: 15,
+          bossSec: 75,
+          wallGapSec: 0.4,
+          bossEnterShare: 0.5,
+          incomeBase: 25,
+          incomePerWave: 7,
+          incomeMiniBoss: 60,
+          /** Множитель прочности всех видов к уровню 1 (вариант C плана: наименьшее значение с шагом 0,1, при котором в 50-й волне не больше 300 бактерий). */
+          hpScale: 4.8,
+          hpFlatUntil: 8,
+          hpExp: 1.75,
+          hpLateFrom: 30,
+          hpLateExp: 1.0,
+          /** Броня растёт с волной: × (1 + 0,04 · (n − 1)) (на уровне 1 — 0,03). */
+          armorPerWave: 0.04,
+          hardWalls: { runnerSlow: 1, armoredPierce: 1, slickBeam: 1, slickMemory: 0, bossArea: 1 },
+          /** Волны 1–50 (приложение А плана): mix — обычные бактерии, wall — стена (вид, сколько штук одной пачкой), boss — босс волны (таблица `bosses`). */
+          waves: [
+        { mix: { coccus: 5 } }, // 1
+        { mix: { coccus: 2, rod: 1 } }, // 2
+        { mix: { coccus: 3, rod: 2 } }, // 3
+        { mix: { coccus: 3, rod: 2, swarm: 12 } }, // 4
+        { mix: { coccus: 4, rod: 2, swarm: 12 }, wall: ['rod', 1] }, // 5
+        { mix: { coccus: 6, rod: 3, swarm: 12, runner: 2 } }, // 6
+        { mix: { coccus: 7, rod: 3, swarm: 12, runner: 3 } }, // 7
+        { mix: { coccus: 7, rod: 4, swarm: 12, runner: 3, spore: 2 } }, // 8
+        { mix: { coccus: 7, rod: 4, swarm: 12, runner: 3, spore: 2 }, wall: ['runner', 4] }, // 9
+        { mix: { coccus: 11, rod: 6, swarm: 12, runner: 4, spore: 3 }, boss: 'sporeling' }, // 10 Споровик 489 HP
+        { mix: { coccus: 8, rod: 4, swarm: 12, runner: 3, spore: 2, splitter: 2 } }, // 11
+        { mix: { coccus: 8, rod: 4, swarm: 12, runner: 3, spore: 2, splitter: 2, healer: 1 } }, // 12
+        { mix: { coccus: 8, rod: 4, swarm: 12, runner: 3, spore: 2, splitter: 2, healer: 1 }, wall: ['splitter', 3] }, // 13
+        { mix: { coccus: 10, rod: 5, swarm: 12, runner: 4, spore: 2, splitter: 2, healer: 1 } }, // 14
+        { mix: { coccus: 8, rod: 4, swarm: 12, runner: 3, spore: 2, splitter: 2, healer: 1, armored: 1 } }, // 15
+        { mix: { coccus: 8, rod: 4, swarm: 12, runner: 3, spore: 2, splitter: 2, healer: 1, armored: 1 }, wall: ['spore', 12] }, // 16
+        { mix: { coccus: 10, rod: 5, swarm: 12, runner: 4, spore: 3, splitter: 3, healer: 1, armored: 1 } }, // 17
+        { mix: { coccus: 10, rod: 5, swarm: 12, runner: 4, spore: 2, splitter: 2, healer: 1, armored: 1, leaper: 2 } }, // 18
+        { mix: { coccus: 10, rod: 5, swarm: 12, runner: 4, spore: 2, splitter: 2, healer: 1, armored: 1, leaper: 2 }, wall: ['armored', 2] }, // 19
+        { mix: { coccus: 19, rod: 10, swarm: 12, runner: 7, spore: 5, splitter: 5, healer: 2, armored: 2, leaper: 4 }, boss: 'shaman' }, // 20 Знахарь 900 HP
+        { mix: { coccus: 11, rod: 6, swarm: 12, runner: 4, spore: 3, splitter: 3, healer: 1, armored: 1, leaper: 2 } }, // 21
+        { mix: { coccus: 12, rod: 6, swarm: 12, runner: 4, spore: 3, splitter: 3, healer: 1, armored: 1, leaper: 2 } }, // 22
+        { mix: { coccus: 12, rod: 6, swarm: 12, runner: 4, spore: 3, splitter: 3, healer: 1, armored: 1, leaper: 2 }, wall: ['healer', 7] }, // 23
+        { mix: { coccus: 12, rod: 6, swarm: 12, runner: 5, spore: 3, splitter: 3, healer: 2, armored: 1, leaper: 2 } }, // 24
+        { mix: { coccus: 13, rod: 6, swarm: 12, runner: 5, spore: 3, splitter: 3, healer: 2, armored: 1, leaper: 3 } }, // 25
+        { mix: { coccus: 13, rod: 6, swarm: 12, runner: 5, spore: 3, splitter: 3, healer: 2, armored: 1, leaper: 3 }, wall: ['leaper', 10] }, // 26
+        { mix: { coccus: 14, rod: 7, swarm: 12, runner: 5, spore: 3, splitter: 3, healer: 2, armored: 1, leaper: 3 } }, // 27
+        { mix: { coccus: 12, rod: 6, swarm: 12, runner: 5, spore: 3, splitter: 3, healer: 2, armored: 1, leaper: 2, slick: 2 } }, // 28
+        { mix: { coccus: 13, rod: 6, swarm: 12, runner: 5, spore: 3, splitter: 3, healer: 2, armored: 1, leaper: 3, slick: 2 }, wall: ['splitter', 8] }, // 29
+        { mix: { coccus: 20, rod: 10, swarm: 12, runner: 7, spore: 5, splitter: 5, healer: 2, armored: 2, leaper: 4, slick: 3 }, boss: 'hopper' }, // 30 Скакун 5312 HP
+        { mix: { coccus: 15, rod: 7, swarm: 12, runner: 6, spore: 4, splitter: 4, healer: 2, armored: 1, leaper: 3, slick: 2 } }, // 31
+        { mix: { coccus: 15, rod: 8, swarm: 12, runner: 6, spore: 4, splitter: 4, healer: 2, armored: 2, leaper: 3, slick: 2 } }, // 32
+        { mix: { coccus: 16, rod: 8, swarm: 12, runner: 6, spore: 4, splitter: 4, healer: 2, armored: 2, leaper: 3, slick: 2 }, wall: ['slick', 5] }, // 33
+        { mix: { coccus: 17, rod: 9, swarm: 12, runner: 6, spore: 4, splitter: 4, healer: 2, armored: 2, leaper: 3, slick: 3 } }, // 34
+        { mix: { coccus: 18, rod: 9, swarm: 12, runner: 7, spore: 5, splitter: 5, healer: 2, armored: 2, leaper: 4, slick: 3 } }, // 35
+        { mix: { coccus: 19, rod: 9, swarm: 12, runner: 7, spore: 5, splitter: 5, healer: 2, armored: 2, leaper: 4, slick: 3 }, wall: ['armored', 3] }, // 36
+        { mix: { coccus: 20, rod: 10, swarm: 12, runner: 8, spore: 5, splitter: 5, healer: 3, armored: 2, leaper: 4, slick: 3 } }, // 37
+        { mix: { coccus: 21, rod: 10, swarm: 12, runner: 8, spore: 5, splitter: 5, healer: 3, armored: 2, leaper: 4, slick: 3 } }, // 38
+        { mix: { coccus: 21, rod: 10, swarm: 12, runner: 8, spore: 5, splitter: 5, healer: 3, armored: 2, leaper: 4, slick: 3 }, wall: ['rod', 11] }, // 39
+        { mix: { coccus: 24, rod: 12, swarm: 24, runner: 9, spore: 6, splitter: 6, healer: 3, armored: 2, leaper: 5, slick: 4 }, boss: 'sporeMother' }, // 40 Мать спор 21979 HP
+        { mix: { coccus: 24, rod: 12, swarm: 24, runner: 9, spore: 6, splitter: 6, healer: 3, armored: 2, leaper: 5, slick: 4 } }, // 41
+        { mix: { coccus: 24, rod: 12, swarm: 24, runner: 9, spore: 6, splitter: 6, healer: 3, armored: 2, leaper: 5, slick: 4 } }, // 42
+        { mix: { coccus: 25, rod: 12, swarm: 24, runner: 9, spore: 6, splitter: 6, healer: 3, armored: 2, leaper: 5, slick: 4 }, wall: ['healer', 16] }, // 43
+        { mix: { coccus: 26, rod: 13, swarm: 24, runner: 10, spore: 7, splitter: 7, healer: 3, armored: 3, leaper: 5, slick: 4 } }, // 44
+        { mix: { coccus: 27, rod: 13, swarm: 24, runner: 10, spore: 7, splitter: 7, healer: 3, armored: 3, leaper: 5, slick: 4 } }, // 45
+        { mix: { coccus: 27, rod: 14, swarm: 24, runner: 10, spore: 7, splitter: 7, healer: 3, armored: 3, leaper: 5, slick: 4 }, wall: ['runner', 29] }, // 46
+        { mix: { coccus: 29, rod: 14, swarm: 24, runner: 11, spore: 7, splitter: 7, healer: 4, armored: 3, leaper: 6, slick: 4 } }, // 47
+        { mix: { coccus: 29, rod: 15, swarm: 24, runner: 11, spore: 7, splitter: 7, healer: 4, armored: 3, leaper: 6, slick: 4 }, wall: ['leaper', 26] }, // 48
+        { mix: { coccus: 31, rod: 16, swarm: 24, runner: 12, spore: 8, splitter: 8, healer: 4, armored: 3, leaper: 6, slick: 5 } }, // 49
+        { mix: { coccus: 80, rod: 40, swarm: 60, runner: 30, spore: 20, splitter: 20, healer: 10, armored: 8, leaper: 16, slick: 12 }, boss: 'sporeQueen' }, // 50 Королева спор 19226 HP
+          ] as PlanWave[],
+        },
+      },
       { intro: { coccus: 1, rod: 2, swarm: 3, runner: 4, splitter: 5, armored: 6, spore: 7, slick: 9 }, hpBudget: [10, 1174], growth: { perWave: 0.08, fromWave: 8, latePerWave: 0.95, lateFromWave: 16 } },
       { intro: { coccus: 1, rod: 2, swarm: 3, runner: 4, splitter: 5, armored: 6, spore: 7, slick: 8, regen: 10, leaper: 14 }, hpBudget: [10, 1255], growth: { perWave: 0.08, fromWave: 8, latePerWave: 1.6, lateFromWave: 16 } },
       { intro: { coccus: 1, rod: 2, swarm: 3, runner: 4, splitter: 5, armored: 6, spore: 7, slick: 8, regen: 9, leaper: 10, healer: 11, stealth: 15 }, hpBudget: [10, 1336], growth: { perWave: 0.08, fromWave: 8, latePerWave: 2.6, lateFromWave: 16 } },
@@ -983,6 +1065,22 @@ export const CONFIG = {
     giantColony: {
       base: 'giant', hp: 4000, speedFactor: 0.4, armor: 0, lifeDamage: -1, color: 0xff6a5a, spawnKind: 'coccus', spawnEverySec: 4, spawnCount: 4,
       phases: [{ below: 0.66, armor: 6, spawnKind: 'rod', spawnEverySec: 5, spawnCount: 3 }, { below: 0.33, armor: 0, speedMul: 1.6, regenShare: 0.01, spawnCount: 0 }],
+    },
+    // Уровень 2 «Нос» (план docs/level2-plan-2026-10-23.md, раздел 2.4; прочность — вариант C, начальные числа: доли прочности волны с уровня 1, окончательные — по лестницам, шаг 5 раздела 5 плана).
+    // Мать спор (40-я волна) прочнее Королевы спор (50-я): так же, как Матка роя прочнее Гигантской колонии на уровне 1.
+    /** Споровик (10-я волна): медленный (×0,5); на половине прочности и при гибели выпускает по 6 спор; как спора, глушит каждую башню ближе 150 px на 3 с. */
+    sporeling: { base: 'spore', hp: 489, speedFactor: 0.5, armor: 0, lifeDamage: 5, color: 0xc58bff, burstAt: 0.5, burstKind: 'spore', burstCount: 6, burstOnDeath: true },
+    /** Знахарь (20-я волна): раз в 6 с выпускает 2 лекарей. */
+    shaman: { base: 'healer', hp: 900, speedFactor: 0.6, armor: 0, lifeDamage: 5, color: 0x7be0a0, spawnKind: 'healer', spawnEverySec: 6, spawnCount: 2 },
+    /** Скакун (30-я волна): броня 8; прыгает на 130 px раз в 4 с (свойство прыгуна); на половине прочности сбрасывает броню и ускоряется ×1,5. */
+    hopper: { base: 'leaper', hp: 5312, speedFactor: 0.8, armor: 8, lifeDamage: 5, color: 0xffb74a, phases: [{ below: 0.5, armor: 0, speedMul: 1.5 }] },
+    /** Мать спор (40-я волна): раз в 4 с выпускает 5 спор; на половине прочности вместо спор — 3 прыгуна раз в 6 с. */
+    sporeMother: { base: 'brood', hp: 21979, speedFactor: 0.6, armor: 0, lifeDamage: 5, color: 0xe05fb0, spawnKind: 'spore', spawnEverySec: 4, spawnCount: 5, phases: [{ below: 0.5, spawnKind: 'leaper', spawnEverySec: 6, spawnCount: 3 }] },
+    /** Королева спор (50-я волна; имя не окончательное, варианты — раздел 2.4 плана): три фазы — 100–66 % раз в 4 с 4 споры; 66–33 % броня 6 и раз в 5 с 2 лекаря; 33–0 % скорость ×1,6 и самолечение 1 % прочности в секунду,
+     *  ранят только взрыв Шипучки и луч Шприца (`plan.hardWalls.bossArea`); глушит башни ближе 150 px (свойство споры). */
+    sporeQueen: {
+      base: 'spore', hp: 19226, speedFactor: 0.4, armor: 0, lifeDamage: -1, color: 0x8a5fff, spawnKind: 'spore', spawnEverySec: 4, spawnCount: 4,
+      phases: [{ below: 0.66, armor: 6, spawnKind: 'healer', spawnEverySec: 5, spawnCount: 2 }, { below: 0.33, armor: 0, speedMul: 1.6, regenShare: 0.01, spawnCount: 0 }],
     },
   } as Record<BossId, BossSpec>,
   bossRules: {
