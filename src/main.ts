@@ -67,7 +67,10 @@ async function boot(): Promise<void> {
       sfx.setSuspended(true);
       if (game.scene.isActive('Game')) (game.scene.getScene('Game') as GameScene).pauseByPlatform();
     },
-    () => sfx.setSuspended(false),
+    () => {
+      sfx.setSuspended(false);
+      if (game.scene.isActive('Game')) (game.scene.getScene('Game') as GameScene).resumeByPlatform();
+    },
   );
 
   // Поворот телефона и смена размера окна. Phaser иногда уже знает новый размер страницы, но не

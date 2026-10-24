@@ -248,6 +248,8 @@ export class GameScene extends Phaser.Scene {
 
   /** Тап по экрану паузы не закрывает её раньше этого момента (реальные часы, мс) — иначе тап по кнопке «пауза» сразу её снимет. */
   private resumeAllowedAt = 0;
+  /** Паузу поставила площадка (`game_api_pause`), а не игрок: по `game_api_resume` игра продолжается сама. */
+  private pausedByPlatform = false;
   /** Кадр, в котором пауза снята (кнопкой «Продолжить», кнопкой паузы или тапом по экрану): касание, начатое в этом кадре, принадлежит интерфейсу паузы, а не карте. */
   private resumeFrame = -1;
   /** Кнопка «Заново» не срабатывает раньше этого момента (реальные часы, мс) — чтобы не нажать случайно, продолжая быстро тапать. */
@@ -391,6 +393,7 @@ export class GameScene extends Phaser.Scene {
     }
     this.panelKey = '';
     this.resumeAllowedAt = 0;
+    this.pausedByPlatform = false;
     this.resumeFrame = -1;
     this.restartAllowedAt = 0;
     this.overlay = null;
@@ -2076,9 +2079,17 @@ export class GameScene extends Phaser.Scene {
     };
   }
 
-  /** Пауза по событию площадки `game_api_pause` (реклама, смена вкладки): ставит идущую партию на паузу; возобновляет её игрок кнопкой «Продолжить». */
+  /** Пауза по событию площадки `game_api_pause` (реклама, смена вкладки): ставит идущую партию на паузу и запоминает, что паузу поставила площадка. Паузу игрока кнопкой площадка не меняет. */
   pauseByPlatform(): void {
-    if (this.state === 'playing') this.togglePause();
+    if (this.state !== 'playing') return;
+    this.togglePause();
+    this.pausedByPlatform = (this.state as State) === 'paused';
+  }
+
+  /** Событие площадки `game_api_resume` (п. 1.3 требований): снимает паузу, которую поставила площадка; пауза, поставленная игроком кнопкой, остаётся. */
+  resumeByPlatform(): void {
+    if (this.pausedByPlatform && this.state === 'paused') this.togglePause();
+    this.pausedByPlatform = false;
   }
 
   private togglePause(): void {
@@ -2105,6 +2116,7 @@ export class GameScene extends Phaser.Scene {
       this.pauseMenuButton = this.addEndButton(W / 2 + 180, H / 2 + 200, 320, 76, t('toMenu'), 0x2a3550, 0x4a5c82, () => this.leaveToMenu());
     } else if (this.state === 'paused') {
       gameplay(true);
+      this.pausedByPlatform = false;
       this.state = 'playing';
       this.resumeFrame = this.game.loop.frame;
       this.overlay?.destroy();

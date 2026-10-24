@@ -41,7 +41,7 @@ export interface LevelSpec {
   plan?: LevelPlan;
 }
 /** Босс или мини-босс (docs/redesign-2026-10-19.md, раздел 7): одна особая бактерия; рисуется как вид-основа `base`, крупнее и с кольцом своего цвета. */
-export type BossId = 'colony' | 'rodLeader' | 'armadillo' | 'swarmQueen' | 'giantColony' | 'sporeling' | 'shaman' | 'hopper' | 'sporeMother' | 'sporeQueen';
+export type BossId = 'colony' | 'rodLeader' | 'armadillo' | 'swarmQueen' | 'giantColony' | 'sporeling' | 'shaman' | 'hopper' | 'sporeMother' | 'silencer';
 /** Волна уровня нового формата: обычные бактерии (`mix`, выходят вперемешку), стена — пачка одного вида одним блоком (`wall`: вид и сколько), босс волны (`boss`). */
 export interface PlanWave {
   mix: Partial<Record<KindId, number>>;
@@ -299,8 +299,8 @@ export const CONFIG = {
   levels: {
     /** Сколько уровней в игре (план: 10; меню уровней — этап 5). Номер текущего уровня берётся из адреса `?level=N` (по умолчанию 1). */
     count: 10,
-    /** Сколько первых уровней готовы к игре (переработаны и приняты владельцем): остальные закрыты строкой «Скоро» (решение владельца 23 октября 2026); повтор пройденного уровня 1 остаётся. Единицы: число уровней. */
-    ready: 2,
+    /** Сколько первых уровней готовы к игре (переработаны и приняты владельцем): остальные закрыты строкой «Скоро» (решение владельца 23 октября 2026); повтор пройденного уровня 1 остаётся. Значение 2 ставится вместе с окончательными числами уровня 2 после «да» владельца (24 октября 2026); для проверок уровень 2 открывается подменой `&ready=2`. Единицы: число уровней. */
+    ready: 1,
     /** Множитель прочности бактерий для каждого уровня 2–10 поверх `waves.hpScale` (как `waves.level1HpFactor` у уровня 1; форма роста по волнам не меняется): 1 — без изменения.
      *  Ключ — номер уровня. Нужен для подбора силы уровней под прокачку игрока (docs/balance-history.md, «Уровни 2–4»); замеры подменяют его через `?qa&cfg=levels.hpFactor.2:3.6`. */
     hpFactor: { 2: 1, 3: 1, 4: 1, 5: 1, 6: 1, 7: 1, 8: 1, 9: 1, 10: 1 } as Record<number, number>,
@@ -507,7 +507,7 @@ export const CONFIG = {
         { mix: { coccus: 29, rod: 14, swarm: 24, runner: 11, spore: 7, splitter: 7, healer: 4, armored: 3, leaper: 6, slick: 4 } }, // 47
         { mix: { coccus: 29, rod: 15, swarm: 24, runner: 11, spore: 7, splitter: 7, healer: 4, armored: 3, leaper: 6, slick: 4 }, wall: ['leaper', 26] }, // 48
         { mix: { coccus: 31, rod: 16, swarm: 24, runner: 12, spore: 8, splitter: 8, healer: 4, armored: 3, leaper: 6, slick: 5 } }, // 49
-        { mix: { coccus: 80, rod: 40, swarm: 60, runner: 30, spore: 20, splitter: 20, healer: 10, armored: 8, leaper: 16, slick: 12 }, boss: 'sporeQueen' }, // 50 Королева спор 19226 HP
+        { mix: { coccus: 80, rod: 40, swarm: 60, runner: 30, spore: 20, splitter: 20, healer: 10, armored: 8, leaper: 16, slick: 12 }, boss: 'silencer' }, // 50 Глушитель 19226 HP
           ] as PlanWave[],
         },
       },
@@ -1067,7 +1067,7 @@ export const CONFIG = {
       phases: [{ below: 0.66, armor: 6, spawnKind: 'rod', spawnEverySec: 5, spawnCount: 3 }, { below: 0.33, armor: 0, speedMul: 1.6, regenShare: 0.01, spawnCount: 0 }],
     },
     // Уровень 2 «Нос» (план docs/level2-plan-2026-10-23.md, раздел 2.4; прочность — вариант C, начальные числа: доли прочности волны с уровня 1, окончательные — по лестницам, шаг 5 раздела 5 плана).
-    // Мать спор (40-я волна) прочнее Королевы спор (50-я): так же, как Матка роя прочнее Гигантской колонии на уровне 1.
+    // Мать спор (40-я волна) прочнее Глушителя (50-я): так же, как Матка роя прочнее Гигантской колонии на уровне 1.
     /** Споровик (10-я волна): медленный (×0,5); на половине прочности и при гибели выпускает по 6 спор; как спора, глушит каждую башню ближе 150 px на 3 с. */
     sporeling: { base: 'spore', hp: 489, speedFactor: 0.5, armor: 0, lifeDamage: 5, color: 0xc58bff, burstAt: 0.5, burstKind: 'spore', burstCount: 6, burstOnDeath: true },
     /** Знахарь (20-я волна): раз в 6 с выпускает 2 лекарей. */
@@ -1076,9 +1076,9 @@ export const CONFIG = {
     hopper: { base: 'leaper', hp: 5312, speedFactor: 0.8, armor: 8, lifeDamage: 5, color: 0xffb74a, phases: [{ below: 0.5, armor: 0, speedMul: 1.5 }] },
     /** Мать спор (40-я волна): раз в 4 с выпускает 5 спор; на половине прочности вместо спор — 3 прыгуна раз в 6 с. */
     sporeMother: { base: 'brood', hp: 21979, speedFactor: 0.6, armor: 0, lifeDamage: 5, color: 0xe05fb0, spawnKind: 'spore', spawnEverySec: 4, spawnCount: 5, phases: [{ below: 0.5, spawnKind: 'leaper', spawnEverySec: 6, spawnCount: 3 }] },
-    /** Королева спор (50-я волна; имя не окончательное, варианты — раздел 2.4 плана): три фазы — 100–66 % раз в 4 с 4 споры; 66–33 % броня 6 и раз в 5 с 2 лекаря; 33–0 % скорость ×1,6 и самолечение 1 % прочности в секунду,
+    /** Глушитель (50-я волна; имя — решение владельца 24 октября 2026): три фазы — 100–66 % раз в 4 с 4 споры; 66–33 % броня 6 и раз в 5 с 2 лекаря; 33–0 % скорость ×1,6 и самолечение 1 % прочности в секунду,
      *  ранят только взрыв Шипучки и луч Шприца (`plan.hardWalls.bossArea`); глушит башни ближе 150 px (свойство споры). */
-    sporeQueen: {
+    silencer: {
       base: 'spore', hp: 19226, speedFactor: 0.4, armor: 0, lifeDamage: -1, color: 0x8a5fff, spawnKind: 'spore', spawnEverySec: 4, spawnCount: 4,
       phases: [{ below: 0.66, armor: 6, spawnKind: 'healer', spawnEverySec: 5, spawnCount: 2 }, { below: 0.33, armor: 0, speedMul: 1.6, regenShare: 0.01, spawnCount: 0 }],
     },

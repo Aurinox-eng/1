@@ -82,7 +82,7 @@
  *   progress-save          сохранение версии 2 (этап 5, шаг 2): прогресс по уровням (звёзды, лучшая волна) и показанные уведомления — чтение, версия 1 без прогресса, чужие и испорченные значения, показанные уведомления остаются записанными после обновления страницы (&persistseen)
  *   stars                  звёзды: победа без потерь — три, пороги по потерянным жизням, очки ДНК только за впервые полученные звёзды, результат не ухудшается, лучшая волна при проигрыше, звёзды на экране конца уровня
  *   sound                 звук (15 октября 2026): в стресс-сценарии одновременно звучит не больше soundMaxVoices тонов, с выключенным звуком (pvb.sound = 0) тонов нет
- *   sdk                   SDK Яндекс Игр (этап 9, раздел 1 плана): подставной window.YaGames — LoadingAPI.ready() один раз, язык из SDK главнее языка браузера, game_api_pause глушит звук и ставит партию на паузу, game_api_resume возвращает звук, разметка GameplayAPI; без SDK — язык браузера
+ *   sdk                   SDK Яндекс Игр (этап 9, раздел 1 плана): подставной window.YaGames — LoadingAPI.ready() один раз, язык из SDK главнее языка браузера, game_api_pause глушит звук и ставит партию на паузу, game_api_resume возвращает звук и снимает паузу площадки (пауза игрока кнопкой остаётся), разметка GameplayAPI; без SDK — язык браузера
  *   step-dps              шаг игры и скорость (15 октября 2026): слитая Таблетка стреляет одинаково часто на ×1 и ×5 (расхождение не больше 1 %), скорострельность близка к 1000 / пауза
  *   menu-flow              главное меню и выбор уровня (этап 5, шаг 3; компьютер ru, телефон en): игра открывается на меню (`?qa&menu`), «Играть» → 10 карточек (уровень 1 открыт, остальные закрыты), тап по закрытой ничего не делает, по открытой — партия, пауза → «В меню», «Улучшения» из меню и возврат
  *   levels-lock            открытие уровней по звёздам (`&stars=`), экран конца уровня: «Следующий уровень» после победы (не на последнем уровне), «В меню», тап по «Следующий уровень» открывает уровень 2
@@ -2020,7 +2020,7 @@ async function runProduction(browser, prodUrl, qaUrl) {
   check(`${p} эталоны различимы: меню и бой совпадают по цвету не более чем в ${Math.floor(cells * 0.6)} из ${cells} точек`, same(menuGrid, battleGrid) <= cells * 0.6, `совпало ${same(menuGrid, battleGrid)} из ${cells}`);
   check(`${p} блокировка уровней: ?level=10 при пустом хранилище открывает главное меню, а не бой уровня 10`, same(lockedGrid, menuGrid) >= cells * 0.8 && same(lockedGrid, battleGrid) <= cells * 0.6, `с меню совпало ${same(lockedGrid, menuGrid)}, с боем ${same(lockedGrid, battleGrid)} из ${cells}`);
   check(`${p} уровни за пределами levels.ready закрыты: ?level=10 при пройденных уровнях 1–9 открывает главное меню, а не бой`, same(closedGrid, menuGrid) >= cells * 0.8, `с меню совпало ${same(closedGrid, menuGrid)} из ${cells}`);
-  check(`${p} контроль: ?level=2 при пройденном уровне 1 открывает бой, а не меню`, same(openGrid, menuGrid) <= cells * 0.6, `с меню совпало ${same(openGrid, menuGrid)} из ${cells}`);
+  check(`${p} уровень 2 не готов (levels.ready 1): ?level=2 при пройденном уровне 1 открывает главное меню, а не бой`, same(openGrid, menuGrid) >= cells * 0.8 && same(openGrid, battleGrid) <= cells * 0.6, `с меню совпало ${same(openGrid, menuGrid)} из ${cells}, с боем ${same(openGrid, battleGrid)}`);
 
   // Подсказка «Поверните телефон» есть и в игровой сборке
   const portrait = await context.newPage();
@@ -2270,7 +2270,7 @@ async function runSound(browser, baseUrl) {
   await context.close();
 }
 
-/** SDK Яндекс Игр (этап 9, раздел 1 плана): подставной `window.YaGames` — `LoadingAPI.ready()` один раз, язык из SDK главнее языка браузера, пауза и возобновление площадки глушат и возвращают звук и ставят партию на паузу, разметка GameplayAPI. Без SDK — язык браузера и ни одного вызова. */
+/** SDK Яндекс Игр (этап 9, раздел 1 плана): подставной `window.YaGames` — `LoadingAPI.ready()` один раз, язык из SDK главнее языка браузера, пауза площадки глушит звук и ставит партию на паузу, возобновление возвращает звук и снимает паузу площадки (пауза игрока кнопкой остаётся), разметка GameplayAPI. Без SDK — язык браузера и ни одного вызова. */
 async function runSdk(browser, baseUrl) {
   const p = '[SDK площадки]';
   // ---- с SDK: браузер английский, SDK сообщает «ru»
@@ -2316,7 +2316,16 @@ async function runSdk(browser, baseUrl) {
   await game.page.evaluate(() => window.__sdk.handlers.game_api_resume());
   await sleep(600);
   const resumed = await game.state();
-  check(`${p} game_api_resume: звук возвращён (${resumed.sound.state}); партия ждёт кнопку «Продолжить» (${resumed.state})`, resumed.sound.state === 'running' && resumed.state === 'paused', JSON.stringify({ sound: resumed.sound.state, state: resumed.state }));
+  check(`${p} game_api_resume: звук возвращён (${resumed.sound.state}); партию, которую остановила площадка, игра продолжает сама (${resumed.state})`, resumed.sound.state === 'running' && resumed.state === 'playing', JSON.stringify({ sound: resumed.sound.state, state: resumed.state }));
+  check(`${p} после game_api_resume вызван GameplayAPI.start(): последний вызов «${(await calls()).at(-1)}»`, (await calls()).at(-1) === 'start', (await calls()).join(', '));
+  // пауза игрока кнопкой остаётся после game_api_pause и game_api_resume: возвращается только звук
+  await pauseGame(game, 'пауза игрока перед паузой площадки');
+  await game.page.evaluate(() => window.__sdk.handlers.game_api_pause());
+  await sleep(400);
+  await game.page.evaluate(() => window.__sdk.handlers.game_api_resume());
+  await sleep(600);
+  const kept = await game.state();
+  check(`${p} пауза, поставленная игроком, после game_api_pause и game_api_resume остаётся (${kept.state}); звук возвращён (${kept.sound.state})`, kept.state === 'paused' && kept.sound.state === 'running', JSON.stringify({ sound: kept.sound.state, state: kept.state }));
   await game.page.close();
   await context.close();
   // ---- без SDK: язык браузера, вызовов нет

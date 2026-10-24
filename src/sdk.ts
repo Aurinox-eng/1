@@ -4,7 +4,7 @@
  * Что делает обёртка (требования площадки — docs/stage-9-plan-2026-10-23.md):
  *  • п. 1.19.1: SDK инициализируется скриптом `/sdk.js` и `YaGames.init()`;
  *  • п. 1.19.2: `LoadingAPI.ready()` — когда пользователь уже может начать игру (`sdkReady`, один раз за запуск);
- *  • п. 1.3: по событиям `game_api_pause` и `game_api_resume` игра глушит и возвращает звук и ставит партию на паузу (`onPlatformPause`);
+ *  • п. 1.3: по `game_api_pause` игра глушит звук и ставит партию на паузу, по `game_api_resume` возвращает звук и снимает паузу, поставленную площадкой (`onPlatformPause`);
  *  • п. 2.14: язык берётся из `environment.i18n.lang` при запуске (`sdkLanguage`);
  *  • п. 1.19.3: `GameplayAPI.start()` и `GameplayAPI.stop()` размечают игровой процесс (`gameplay`).
  *
