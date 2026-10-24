@@ -19,7 +19,7 @@ on:
         type: string
         required: true
       profile:
-        description: 'Стратегия эксперта: expert, zone, solo:X, pair:a+b, focus:a+b, core:a+b'
+        description: 'Стратегия эксперта: expert, zone, review, solo:X, pair:a+b, focus:a+b, core:a+b'
         type: string
         required: true
       mut:
