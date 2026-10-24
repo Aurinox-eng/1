@@ -1680,7 +1680,7 @@ async function runLose(browser, baseUrl, lang, deviceKey, full) {
       const flashCap = Math.floor(pageMs / flashGap) + 1;
       check(`${p} красных вспышек ${s.effects.lifeFlashes} из ${s.effects.lifeLosses} потерь жизни: не меньше одной, не больше потерь и не больше ${flashCap} за ${f1(pageMs / 1000)} с страницы (промежуток ${flashGap} мс ≥ 334 мс)`,
         flashGap >= 334 && s.effects.lifeFlashes >= 1 && s.effects.lifeFlashes <= s.effects.lifeLosses && s.effects.lifeFlashes <= flashCap, `вспышек ${s.effects.lifeFlashes}, потерь ${s.effects.lifeLosses}, промежуток ${flashGap}`);
-      // Строка проигрыша: «Больше всего жизней отняла: <порода> (<число>)» — без советов, чем бить (решение владельца 16 октября 2026)
+      // Строка проигрыша: «Больше всего жизней отнял вид: <порода> (<число>)» — без советов, чем бить (решение владельца 16 октября 2026)
       const leakTemplate = readI18n('loseLeakOnly')[lang === 'ru' ? 0 : 1];
       const leakRe = new RegExp(`^${leakTemplate.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\\\{kind\\\}/, '(.+)').replace(/\\\{n\\\}/, '(\\d+)')}$`);
       const leakLine = (s.endDnaLines || []).find((line) => leakRe.test(line));
@@ -2048,7 +2048,7 @@ async function runProduction(browser, prodUrl, qaUrl) {
  */
 /** Таблица «какие башни бьют бактерию» из src/almanac.ts: { порода: [башни по порядку] }. */
 /**
- * Строка проигрыша «Больше всего жизней отняла: <порода> (<число>)» (решение владельца 16 октября 2026: без советов «Бьют: …», механики игрок изучает в альманахе): четыре партии без башен — кокк, палочка,
+ * Строка проигрыша «Больше всего жизней отнял вид: <порода> (<число>)» (решение владельца 16 октября 2026: без советов «Бьют: …», механики игрок изучает в альманахе): четыре партии без башен — кокк, палочка,
  * бронированная на уровне 1 и бронированная на уровне 3; на обоих языках строка называет породу, число жизней и не содержит названий башен и слов «Бьют»/«Countered by».
  */
 async function runLoseLine(browser, baseUrl) {
@@ -7582,6 +7582,9 @@ async function runStrip(browser, baseUrl) {
     const clash = [];
     for (let i = 0; i < names.length; i++) for (let j = i + 1; j < names.length; j++) if (overlaps(parts[names[i]], parts[names[j]])) clash.push(`${names[i]}×${names[j]}`);
     check(`${q} кнопки карточки (${names.join(', ')}) не налезают друг на друга`, clash.length === 0, clash.join(', '));
+    // решение владельца 24 октября 2026, п. 3.1: «было → станет» и потолок — без сжатия, не мельче описания; при выборе карточка выше обычной (кнопки выбора 136 px вместо 84)
+    const pt = c.pickText;
+    check(`${q} выбор мутации: описание и «было → станет» одного размера (${pt.descSize} и ${pt.changeSize} px), строка не сжата (масштаб ${pt.changeScale.join(', ')}), оба текста умещаются в кнопках выбора (${pt.fits.join(', ')}), кнопки выше 84 px (${c.picks[0].h} px)`, pt.changeSize >= pt.descSize && pt.changeScale.every((k) => k === 1) && pt.fits.every(Boolean) && c.picks[0].h > 84 && c.picks[1].h > 84, JSON.stringify({ pt, h: [c.picks[0].h, c.picks[1].h] }));
     await shot(page, `strip-${deviceKey}-${lang}-syringe-mutation`);
     await ctx.close();
   }

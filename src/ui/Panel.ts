@@ -6,7 +6,7 @@ import { isTowerOpen } from '../progress';
 import { towerPrice } from '../towerStats';
 import { COLORS, FONT, TEXT_COLORS } from '../theme';
 import { drawPlate, roundButton, waveButton as waveButtonTexture } from './panelArt';
-import { CARD_COMPACT_H, TowerCard, type CardGeometry, type CardModel } from './TowerCard';
+import { TowerCard, type CardGeometry, type CardModel } from './TowerCard';
 
 const { width: W, height: H } = CONFIG.screen;
 /** Высота верхней полосы (волна, монеты, жизни) и нижней панели (список башен, «Начать волну», скорость, пауза), пикселей экрана игры. */
@@ -298,7 +298,7 @@ export class Panel {
 
   /** Верхний край карточки башни на экране (когда она открыта): выше него камера держит выбранную башню. */
   cardTop(): number {
-    return this.card.isCompact ? CARD_AREA.y + CARD_AREA.h - CARD_COMPACT_H : CARD_AREA.y;
+    return this.card.top;
   }
 
   /** Точка (x, y) экрана попала на кнопку карточки выбранной башни: касание принадлежит ей, а не карте (мимо кнопок касания проходят к карте под карточкой). */
@@ -599,7 +599,7 @@ export class Panel {
   // ---------------------------------------------------------------- рисование
 
   private hintY(): number {
-    return (this.card?.visible ? CARD_AREA.y : BOTTOM_Y) - 34;
+    return (this.card?.visible ? (this.card.isCompact ? CARD_AREA.y : this.card.top) : BOTTOM_Y) - 34;
   }
 
   private refitHint(): void {

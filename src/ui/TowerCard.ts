@@ -50,13 +50,21 @@ export interface CardGeometry {
   close: Rect;
   /** Что написано на карточке: строки чисел башни и строка выбранных мутаций (для проверок: показанное должно совпадать с боем). */
   lines: { stats: string[]; mutations: string; pending: string[]; changes: string[] };
+  /** Верхний край карточки на экране и размер шрифта описания и строки «было → станет» (для проверок: строка не мельче описания, не сжата, умещается в кнопке выбора). */
+  top: number;
+  pickText: { descSize: number; changeSize: number; changeScale: number[]; fits: boolean[] };
 }
 
 /** Высота кнопок «Слить», «Продать» и выбора мутации; ширина «Слить» и «Продать». Между «Слить» и «Продать» — зазор SELL_GAP (решение владельца 8 и 13 октября 2026: без подтверждений, зазор больше). */
 const BTN_H = 84;
 const BTN_W = 180;
 const SELL_GAP = 40;
-const PICK_W = 240;
+const PICK_W = 300;
+/** Размер шрифта описания мутации и строки «было → станет» с потолком (одинаковый: строка не мельче описания), пикселей. */
+const PICK_FONT = 14;
+/** Карточка с выбором мутации выше обычной (104 px): описание и «было → станет» с потолком идут в несколько строк без сжатия; кнопки выбора — на всю высоту карточки за вычетом отступов. */
+const PICK_CARD_H = 156;
+const PICK_BTN_H = 136;
 const PAD = 12;
 /** Сторона кнопок поворота луча (Шприц), пикселей. */
 const ROT = 40;
@@ -99,6 +107,10 @@ export class TowerCard {
   private shownChanges: string[] = [];
   private sellVisible = true;
   private pickVisible = [false, false];
+  /** Умещаются ли описание и «было → станет» в кнопке выбора (для проверок). */
+  private pickFits = [true, true];
+  /** Верхний край показанной карточки на экране. */
+  private cardTopY = 0;
   /** Когда (performance.now) нажали кнопку карточки: нажатие, после которого карточка перерисовалась или закрылась, всё равно принадлежит карточке, а не карте под ней. */
   private pressedAt = -1e9;
   private rotVisible = false;
@@ -119,8 +131,8 @@ export class TowerCard {
     this.levelText = this.text(0, 0, '', 17, TEXT_COLORS.accent, 0);
     this.statTexts = [0, 1, 2].map(() => this.text(0, 0, '', 15, TEXT_COLORS.soft, 0).setFontStyle('normal'));
     this.pickNames = [0, 1].map(() => this.text(0, 0, '', 17, TEXT_COLORS.main, 0));
-    this.pickDescs = [0, 1].map(() => this.text(0, 0, '', 13, TEXT_COLORS.soft, 0).setFontStyle('normal').setWordWrapWidth(PICK_W - 20));
-    this.pickChanges = [0, 1].map(() => this.text(0, 0, '', 13, TEXT_COLORS.accent, 0).setFontStyle('normal'));
+    this.pickDescs = [0, 1].map(() => this.text(0, 0, '', PICK_FONT, TEXT_COLORS.soft, 0).setFontStyle('normal').setWordWrapWidth(PICK_W - 20));
+    this.pickChanges = [0, 1].map(() => this.text(0, 0, '', PICK_FONT, TEXT_COLORS.accent, 0).setFontStyle('normal').setWordWrapWidth(PICK_W - 20));
     this.listText = this.text(0, 0, '', 13, TEXT_COLORS.main, 0).setFontStyle('normal').setWordWrapWidth(330);
     this.hintText = this.text(0, 0, '', 18, TEXT_COLORS.accent, 0).setFontStyle('normal').setVisible(false);
     this.mergeText = this.text(0, 0, '', 24, TEXT_COLORS.main);
@@ -144,12 +156,24 @@ export class TowerCard {
         if (this.mergeEnabled) callbacks.onMerge();
       }),
       sell: zone(BTN_W, BTN_H, callbacks.onSell),
-      pick0: zone(PICK_W, BTN_H, () => callbacks.onPick(0)),
-      pick1: zone(PICK_W, BTN_H, () => callbacks.onPick(1)),
+      pick0: zone(PICK_W, PICK_BTN_H, () => callbacks.onPick(0)),
+      pick1: zone(PICK_W, PICK_BTN_H, () => callbacks.onPick(1)),
       rotL: zone(ROT, ROT, () => callbacks.onRotate(-1)),
       rotR: zone(ROT, ROT, () => callbacks.onRotate(1)),
     };
     this.setShown(false);
+  }
+
+  /** Область карточки: при выборе мутации — выше обычной, растёт вверх от нижнего края. */
+  private areaFor(m: CardModel): Rect {
+    if (!m.pending) return this.area;
+    const bottom = this.area.y + this.area.h;
+    return { x: this.area.x, y: bottom - PICK_CARD_H, w: this.area.w, h: PICK_CARD_H };
+  }
+
+  /** Верхний край карточки на экране (выше него камера держит выбранную башню). */
+  get top(): number {
+    return this.compact ? this.area.y + this.area.h - CARD_COMPACT_H : this.cardTopY || this.area.y;
   }
 
   get visible(): boolean {
@@ -172,7 +196,8 @@ export class TowerCard {
       this.showCompact(m);
       return;
     }
-    const { x, y, w, h } = this.area;
+    const { x, y, w, h } = this.areaFor(m);
+    this.cardTopY = y;
     this.setShown(true);
     this.zones.merge.setSize(BTN_W, BTN_H);
     this.bg.clear();
@@ -241,19 +266,21 @@ export class TowerCard {
       const pickW = Math.min(PICK_W, Math.floor((midRight - midX - 8) / 2));
       m.pending.slice(0, 2).forEach((opt, i) => {
         const bx = midX + i * (pickW + 8);
-        this.btns.fillStyle(0x2a4d8e, 1).fillRoundedRect(bx, cy - BTN_H / 2, pickW, BTN_H, 12);
-        this.btns.lineStyle(3, COLORS.gold, 1).strokeRoundedRect(bx, cy - BTN_H / 2, pickW, BTN_H, 12);
+        const top = cy - PICK_BTN_H / 2;
+        this.btns.fillStyle(0x2a4d8e, 1).fillRoundedRect(bx, top, pickW, PICK_BTN_H, 12);
+        this.btns.lineStyle(3, COLORS.gold, 1).strokeRoundedRect(bx, top, pickW, PICK_BTN_H, 12);
         this.pickDescs[i].setWordWrapWidth(pickW - 20);
-        this.pickNames[i].setVisible(true).setText(opt.name).setPosition(bx + 10, cy - BTN_H / 2 + 6);
-        this.pickDescs[i].setVisible(true).setText(opt.desc).setPosition(bx + 10, cy - BTN_H / 2 + 27);
-        // «было → станет» и потолок — одной строкой под описанием, у нижнего края кнопки; длинная строка сжимается по ширине кнопки
+        this.pickChanges[i].setWordWrapWidth(pickW - 20);
+        this.pickNames[i].setVisible(true).setText(opt.name).setPosition(bx + 10, top + 6);
+        this.pickDescs[i].setVisible(true).setText(opt.desc).setPosition(bx + 10, top + 30);
+        // «было → станет» и потолок — под описанием, тем же шрифтом и без сжатия: длинная строка переносится
         const change = this.pickChanges[i].setVisible(true).setText(opt.change).setScale(1);
-        if (change.width > pickW - 20) change.setScale((pickW - 20) / change.width);
-        change.setPosition(bx + 10, cy + BTN_H / 2 - 6 - change.height * change.scaleY);
+        change.setPosition(bx + 10, top + 30 + this.pickDescs[i].height + 6);
+        this.pickFits[i] = change.y + change.height <= top + PICK_BTN_H - 4;
         const zone = i === 0 ? this.zones.pick0 : this.zones.pick1;
-        zone.setSize(pickW, BTN_H).setPosition(bx + pickW / 2, cy);
+        zone.setSize(pickW, PICK_BTN_H).setPosition(bx + pickW / 2, cy);
         this.pickVisible[i] = true;
-        this.rects[`pick${i}`] = { x: bx + pickW / 2, y: cy, w: pickW, h: BTN_H };
+        this.rects[`pick${i}`] = { x: bx + pickW / 2, y: cy, w: pickW, h: PICK_BTN_H };
       });
     } else {
       this.statTexts.forEach((text, i) => {
@@ -399,6 +426,8 @@ export class TowerCard {
       rotateLeft: { ...r('rotL'), visible: this.shown && this.rotVisible },
       rotateRight: { ...r('rotR'), visible: this.shown && this.rotVisible },
       close: r('close'),
+      top: this.shown ? this.cardTopY : this.area.y,
+      pickText: { descSize: PICK_FONT, changeSize: PICK_FONT, changeScale: this.pickChanges.map((c) => c.scaleX), fits: [...this.pickFits] },
       lines: { stats: this.shown ? [...this.shownStats] : [], mutations: this.shown ? this.shownMutations : '', pending: this.shown ? [...this.shownPending] : [], changes: this.shown ? [...this.shownChanges] : [] },
     };
   }
