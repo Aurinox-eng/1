@@ -9,7 +9,7 @@
  * Прогресс по уровням (звёзды, лучшая волна, показанные плашки) — этап 5, docs/stage-5-plan.md.
  */
 import { CONFIG, type UpgradeBranch, type UpgradeEffect } from './config';
-import { QA_MODE } from './debug';
+import { QA_MODE, READY_OVERRIDE } from './debug';
 import { emptyMeta, loadMeta, MAX_LOG, maxLevel, META_KEY, saveMeta, tryLoadMeta, UPGRADE_IDS, type MetaSave, type UpgradeId } from './save';
 import { setLevelReachedCheck, setTowerOwnedCheck } from './progress';
 
@@ -292,9 +292,14 @@ export function isLevelBeaten(level: number): boolean {
   return levelStars(level) >= 1;
 }
 
-/** Открыт ли уровень: первый — всегда, остальные — когда предыдущий пройден (хотя бы одна звезда). */
+/** Готов ли уровень к игре: уровни за пределами `levels.ready` закрыты строкой «Скоро» (решение владельца 23 октября 2026), пока не переработаны; в режиме проверки — по `&ready=N` (без него готовы все). */
+export function isLevelReady(level: number): boolean {
+  return level <= (READY_OVERRIDE ?? CONFIG.levels.ready);
+}
+
+/** Открыт ли уровень: готов к игре, и (первый — всегда, остальные — когда предыдущий пройден, хотя бы одна звезда). */
 export function isLevelOpen(level: number): boolean {
-  return level <= 1 || levelStars(level - 1) >= 1;
+  return isLevelReady(level) && (level <= 1 || levelStars(level - 1) >= 1);
 }
 
 setLevelReachedCheck(isLevelOpen);

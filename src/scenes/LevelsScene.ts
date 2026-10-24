@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import { CONFIG, type KindId } from '../config';
 import { t, type TextKey } from '../i18n';
-import { isLevelOpen, levelBest, levelStars } from '../meta';
+import { isLevelOpen, isLevelReady, levelBest, levelStars } from '../meta';
 import { levelNewKinds } from '../progress';
 import { addButton, drawLock, drawStar, setScreenInfo, textStyle, type LevelCardInfo, type Rect } from '../screens';
 import { sfx } from '../sound';
@@ -61,7 +61,7 @@ export class LevelsScene extends Phaser.Scene {
     add(y0 + 54, levelName(level), 26, open ? TEXT_COLORS.accent : TEXT_COLORS.dim);
 
     if (!open) {
-      add(y0 + 100, t('levelLocked', { n: level - 1 }), 20, TEXT_COLORS.dim, true);
+      add(y0 + 100, t(isLevelReady(level) ? 'levelLocked' : 'levelSoon', { n: level - 1 }), 20, TEXT_COLORS.dim, true);
       drawLock(g, cx, y0 + CARD.h - 50, 44);
     } else {
       // Нижняя часть карточки — «Лучшая волна» (если уровень проигран) и звёзды; «Новая» (бактерии) идёт сверху вниз по реальной высоте текста и сжимается по размеру шрифта, пока не уместится над ней.

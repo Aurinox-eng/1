@@ -12,9 +12,9 @@
     "towers_only": ""
   },
   {
-    "group": "Бактерии и бой (combat, dash, split, spore, armored, intro, danger, rotate, step-dps, sound)",
+    "group": "Бактерии и бой (combat, dash, split, spore, armored, intro, danger, rotate, step-dps, sound, sdk)",
     "key": "bacteria",
-    "scenarios": "combat dash split spore armored intro danger rotate step-dps sound",
+    "scenarios": "combat dash split spore armored intro danger rotate step-dps sound sdk",
     "towers_only": ""
   },
   {
@@ -42,9 +42,9 @@
     "towers_only": ""
   },
   {
-    "group": "Конец уровня, экономика, игровая сборка (lose, win, restart-button, deflation, camera-fit, colors, locked, production, bosses)",
+    "group": "Конец уровня, экономика, игровая сборка (lose, win, restart-button, deflation, camera-fit, colors, locked, production, bosses, level2)",
     "key": "end",
-    "scenarios": "lose-ru lose-en win-ru win-en restart-button deflation camera-fit colors locked production bosses",
+    "scenarios": "lose-ru lose-en win-ru win-en restart-button deflation camera-fit colors locked production bosses level2",
     "towers_only": ""
   },
   {

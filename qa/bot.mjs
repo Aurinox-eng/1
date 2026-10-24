@@ -306,6 +306,8 @@ function stealthIntroWave(level) {
   return found ? Number(found[1]) : null;
 }
 const SOLO_SUPPORT = ['vitamin', 'frost', 'patch']; // не бьют сами: идут поверх Таблеток
+/** --solo=syrup (план уровня 2, правило 4.3): «Сироп один» — только Сиропы, без Таблеток и других башен; бьёт яд лужи — мутация «Едкая» (Сироп IV, второй порог); по умолчанию мутации Сиропа — «Липкая» и «Едкая». */
+const SOLO_SYRUP = args.solo === 'syrup';
 const SOLO = args.solo === undefined ? null : String(args.solo);
 if (SOLO !== null && (args.solo === true || !SOLO)) die('--solo=<башня>: после «=» нужен id башни, например --solo=fizz.');
 if (LAMP_MODE === 'veteran' && LADDER) die('--lamps=veteran не сочетается с --ladder: волна выхода скрытных берётся с одного уровня (--level).');
@@ -328,7 +330,7 @@ const EXCLUDE = new Set(
         .map((x) => x.trim())
         .filter(Boolean),
 );
-if (SOLO && (!KNOWN_TOWERS.includes(SOLO) || SOLO === 'syrup')) die(`--solo: нет такой башни «${SOLO}». Есть: ${KNOWN_TOWERS.filter((id) => id !== 'syrup').join(', ')}.`);
+if (SOLO && !KNOWN_TOWERS.includes(SOLO)) die(`--solo: нет такой башни «${SOLO}». Есть: ${KNOWN_TOWERS.join(', ')}.`);
 for (const id of [...(PAIR ?? []), ...(FOCUS ?? []), ...(CORE ?? [])]) if (!KNOWN_TOWERS.includes(id)) die(`--pair/--focus/--core: нет башни «${id}». Есть: ${KNOWN_TOWERS.join(', ')}.`);
 if ([SOLO, PAIR, FOCUS, CORE].filter(Boolean).length > 1 || (STRATEGY === 'zone' && (SOLO || PAIR || FOCUS || CORE))) die('--solo, --pair, --focus, --core и --strategy=zone — разные стратегии: выберите одну.');
 /** Какие башни строит игрок: --solo — только сама башня, без Сиропа (раздел 10.1 документа дизайна, п. 2; если башня не бьёт сама — ещё Таблетки); --pair и --focus — две башни; --core и обычная игра — все (null). */
@@ -368,6 +370,7 @@ const MAP_PATH_WIDTH = cfgGet('map.pathWidth') ?? readConfigNumber('map', 'pathW
 // Мутации: id по порогам (DEFAULT_MUT, поверх — --mut=башня:id,id;…) → номера вариантов в карточке по таблице мутаций config.ts (readMutationIds); id не нашёлся на своём пороге — замер останавливается
 const MUTATION_IDS = readMutationIds();
 const MUT_IDS = { ...DEFAULT_MUT };
+if (SOLO_SYRUP) MUT_IDS.syrup = ['syrupSticky', 'syrupCaustic'];
 // --mut=alt — второй набор (раздел 10.2: «2 набора мутаций»): на каждом пороге — другой из двух вариантов, чем в DEFAULT_MUT
 const MUT_ALT = args.mut === 'alt';
 /** Башни без чередования первого порога (запись «noalt» в --mut). */
@@ -496,11 +499,16 @@ function fieldShares(towers) {
   for (const [id, n] of hits) out[id] = n / total;
   return out;
 }
+/** Уровень, который играется сейчас (в лестнице меняется от уровня к уровню): от него зависит круг покупок эксперта (`L2_EXTRA`). */
+let PLAY_LEVEL = LEVEL;
+/** Эксперт (--core) на уровнях со 2-го покупает узлы Ампулы и Антибиотика, когда хватает ДНК, и строит эти башни (план уровня 2, шаг 1 раздела 5): порядок покупок эксперта — крупные узлы первыми (раздел 10.1, п. 7); копить на них отдельно не нужно. */
+const L2_EXTRA = CORE ? ['ampule', 'antibiotic'].filter((id) => !EXCLUDE.has(id)) : [];
 function buyUpgrades(levels, dna, reached = 0, towers = null) {
   // core:…:late — когда игрок уже доходит до волны LATE_WAVE (там в круге Таблетки и Шипучка против слизней и босса), очки ДНК идут и на их ветки; раньше — только на ветки ядра, как у пары
   // (по лестницам 20 октября 2026: без этого эксперт с 11-й по 20-ю попытку стоял на слизнях, 36–37-я волна, с неулучшенными Таблетками)
   const late = CORE_LATE && !NO_LATE_BUY.value && reached >= LATE_WAVE && CORE.every((id) => levels[towerNodeId(id)] > 0);
-  return buyBest({ upgrades: META.upgrades, levels, dna, towers: late ? [...BUY_TOWERS, 'pill', 'fizz'] : BUY_TOWERS, saveFor: CORE_SAVE ? CORE : null, shares: fieldShares(towers) });
+  const circle = BUY_TOWERS && PLAY_LEVEL >= 2 ? [...BUY_TOWERS, ...L2_EXTRA.filter((id) => !BUY_TOWERS.includes(id))] : BUY_TOWERS;
+  return buyBest({ upgrades: META.upgrades, levels, dna, towers: late ? [...circle, 'pill', 'fizz'] : circle, saveFor: CORE_SAVE ? CORE : null, shares: fieldShares(towers) });
 }
 /** Башни, узлы и ветки которых покупает стратегия (null — все): --solo/--pair/--focus — только свои башни (Таблетка — если стратегия её строит), --core — башни своего круга (ядро, Сироп, Шипучка;
  *  ветку Таблетки core:syrup+syringe не качает: Таблетка у неё одна, с начала партии), zone — Таблетка и Сироп; без исключённых (--exclude). */
@@ -889,7 +897,8 @@ function makePlayer({ world, rng, buttons }) {
   };
   /** Какую новую башню (Ампула, Антибиотик, Лампа, Витамин, Холод, Пластырь) пора докупить поверх круга: null — никакую (башня закрыта на уровне, исключена или ещё рано). */
   const wantedExtra = (view) => {
-    const pills = unitsOf(view, 'pill');
+    // Эксперт (--core) на уровнях со 2-го считает «обычные башни» по всем стреляющим (ядро, Таблетки, Шипучки): без Таблеток в круге до поздней волны Ампула иначе не строилась бы
+    const pills = CORE && PLAY_LEVEL >= 2 ? view.towers.filter(isFighting).reduce((sum, tw) => sum + 2 ** ((tw.level ?? 1) - 1), 0) : unitsOf(view, 'pill');
     if (pills < 3) return null;
     // --lamps: перед скрытными (с 15–16-й волны) Лампа идёт первой — иначе очередь стоит на дорогой Ампуле и до Ламп не доходит
     if (LAMPS && available('lamp') && !extraGaveUp.has('lamp') && lampTime(view) && unitsOf(view, 'lamp') < Math.min(LAMP_MAX_STEALTH, Math.floor(pills / LAMP_PILLS_PER_STEALTH))) return 'lamp';
@@ -929,7 +938,7 @@ function makePlayer({ world, rng, buttons }) {
       const cycle = LATE_CYCLE && view.s.wave >= LATE_WAVE ? LATE_CYCLE : baseCycle;
       if (ptr >= cycle.length) ptr = 0;
       let order = [];
-      const syrupDone = (SOLO || zone) && view.towers.some((tw) => tw.id === 'syrup'); // при --solo и zone Сироп один: построен — из круга уходит
+      const syrupDone = ((SOLO && !SOLO_SYRUP) || zone) && view.towers.some((tw) => tw.id === 'syrup'); // при --solo (кроме --solo=syrup) и zone Сироп один: построен — из круга уходит
       for (let k = 0; k < cycle.length; k++) {
         const idx = (ptr + k) % cycle.length;
         if (available(cycle[idx]) && !(syrupDone && cycle[idx] === 'syrup')) order.push({ idx, type: cycle[idx] });
@@ -938,7 +947,7 @@ function makePlayer({ world, rng, buttons }) {
       if (CORE_SAVE && CORE.some((id) => !available(id))) order = available('pill') ? [{ idx: -1, type: 'pill' }] : [];
       // Начало партии: пока башен с уроном мало, главное — урон: берётся самая дешёвая башня с уроном (вне списка по кругу; Сироп без урона ничего не убьёт)
       // Считаем в «обычных башнях»: башня уровня L — это 2^(L−1) обычных (иначе после слияния двух Таблеток «начало партии» включалось снова и бот до конца партии покупал только Таблетки: Сироп не строился)
-      const hitsHard = (id) => TABLE[id]?.damage > 0 || (Boolean(SOLO_ALLOWED) && TABLE[id]?.dotPerSec > 0); // при --solo яд (Антибиотик, damage 0) тоже считается уроном: иначе «начало партии» не находит башню и ничего не строится
+      const hitsHard = (id) => TABLE[id]?.damage > 0 || (Boolean(SOLO_ALLOWED) && TABLE[id]?.dotPerSec > 0) || (SOLO_SYRUP && id === 'syrup'); // при --solo яд (Антибиотик, damage 0) тоже считается уроном: иначе «начало партии» не находит башню и ничего не строится
       const damageCount = view.towers.filter((tw) => hitsHard(tw.id)).reduce((sum, tw) => sum + 2 ** ((tw.level ?? 1) - 1), 0);
       const opening = damageCount < OPENING_DAMAGE_TOWERS;
       if (opening) {
@@ -1703,6 +1712,7 @@ async function ladderLane(profile, run) {
   }
   if (lane.nextLevel < LADDER_FROM) die(`Состояние дорожки ${key}: следующий уровень ${lane.nextLevel}, а --from-level=${LADDER_FROM}: пропущены уровни.`);
   for (let level = Math.max(LADDER_FROM, lane.nextLevel); level <= LADDER_TO; level++) {
+    PLAY_LEVEL = level;
     // продолжение уровня: прошлый запуск сыграл часть партий и не выиграл (lane.resume = уровень), его запись продолжается, номера партий идут дальше
     const prevRec = lane.resume === level ? lane.perLevel.at(-1) : null;
     const rec = prevRec && prevRec.level === level && !prevRec.firstWin ? prevRec : { level, games: 0, firstWin: null, waves: [], results: [], stars: 0, dnaIn: lane.dna, levelsIn: { ...lane.levels }, bought: [], dnaGained: [], treeLeftIn: treeLeft(lane.levels), treeLeftAfter: [] };

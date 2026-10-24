@@ -4,6 +4,8 @@ import { ART_SHEET, QA_MODE, QA_NORENDER } from './debug';
 import { t } from './i18n';
 import { getLang, setLang } from './lang';
 import { startInMenu } from './progress';
+import { initSdk, onPlatformPause, sdkReady } from './sdk';
+import { sfx } from './sound';
 import { AlmanacScene } from './scenes/AlmanacScene';
 import { GameScene } from './scenes/GameScene';
 import { LevelsScene } from './scenes/LevelsScene';
@@ -12,55 +14,80 @@ import { MenuScene } from './scenes/MenuScene';
 import { UpgradesScene } from './scenes/UpgradesScene';
 import { COLORS } from './theme';
 
-// Язык страницы (для тега <html lang> и заголовка вкладки)
-setLang(getLang());
-document.title = t('gameTitle');
-const rotateText = document.getElementById('rotate-text');
-if (rotateText) rotateText.textContent = t('rotatePhone');
+async function boot(): Promise<void> {
+  // SDK площадки подключается до создания игры: язык берётся из него при запуске (требование 2.14), `LoadingAPI.ready()` — когда игра нарисована (1.19.2)
+  await initSdk();
 
-// Режим проверки (?qa&canvas, только в тестовой сборке и dev): рисовать через canvas вместо WebGL — на слабом контейнере без видеокарты
-// это втрое быстрее, бот баланса замеряет партии быстрее. В игровой сборке параметр не работает.
-const useCanvas = QA_MODE && new URLSearchParams(window.location.search).has('canvas');
+  // Язык страницы (для тега <html lang> и заголовка вкладки)
+  setLang(getLang());
+  document.title = t('gameTitle');
+  const rotateText = document.getElementById('rotate-text');
+  if (rotateText) rotateText.textContent = t('rotatePhone');
 
-const game = new Phaser.Game({
-  type: useCanvas ? Phaser.CANVAS : Phaser.AUTO,
-  parent: 'game',
-  width: CONFIG.screen.width,
-  height: CONFIG.screen.height,
-  backgroundColor: COLORS.background,
-  scale: {
-    // FIT: игровой экран целиком помещается на любом устройстве, пропорции 16:9 сохраняются
-    mode: Phaser.Scale.FIT,
-    autoCenter: Phaser.Scale.CENTER_BOTH,
-  },
-  // Несколько одновременных касаний — нужны два пальца для приближения карты (щипок)
-  input: { activePointers: 3 },
-  // Пока в игре нет звуков (этап 3), звуковую систему не запускаем: иначе браузер пишет в консоль
-  // предупреждение «AudioContext was not allowed to start». На этапе 3 эту строку уберём.
-  audio: { noAudio: true },
-  render: { antialias: true, powerPreference: 'high-performance' },
-  // Боты без рисования (?qa&norender): цикл кадров по таймеру (не по requestAnimationFrame), до 120 кадров в секунду
-  ...(QA_NORENDER ? { fps: { target: 120, forceSetTimeOut: true } } : {}),
-  banner: false,
-  // Первая сцена в списке запускается сама: меню или, при адресе с `?level=N` (и в режиме проверки без `&menu`), сразу партия
-  scene: ART_SHEET ? [] : startInMenu() ? [MenuScene, LevelsScene, GameScene, UpgradesScene, AlmanacScene] : [GameScene, MenuScene, LevelsScene, UpgradesScene, AlmanacScene],
-});
+  // Режим проверки (?qa&canvas, только в тестовой сборке и dev): рисовать через canvas вместо WebGL — на слабом контейнере без видеокарты
+  // это втрое быстрее, бот баланса замеряет партии быстрее. В игровой сборке параметр не работает.
+  const useCanvas = QA_MODE && new URLSearchParams(window.location.search).has('canvas');
 
-// Лист образцов пилота этапа 8 (только `?qa&artsheet`): в игровой сборке ART_SHEET всегда false, и сцена вместе с файлом qaArtSheet.ts в неё не попадает
-if (ART_SHEET) game.scene.add('ArtSheet', ArtSheetScene, true);
+  const game = new Phaser.Game({
+    type: useCanvas ? Phaser.CANVAS : Phaser.AUTO,
+    parent: 'game',
+    width: CONFIG.screen.width,
+    height: CONFIG.screen.height,
+    backgroundColor: COLORS.background,
+    scale: {
+      // FIT: игровой экран целиком помещается на любом устройстве, пропорции 16:9 сохраняются
+      mode: Phaser.Scale.FIT,
+      autoCenter: Phaser.Scale.CENTER_BOTH,
+    },
+    // Несколько одновременных касаний — нужны два пальца для приближения карты (щипок)
+    input: { activePointers: 3 },
+    // Пока в игре нет звуков (этап 3), звуковую систему не запускаем: иначе браузер пишет в консоль
+    // предупреждение «AudioContext was not allowed to start». На этапе 3 эту строку уберём.
+    audio: { noAudio: true },
+    render: { antialias: true, powerPreference: 'high-performance' },
+    // Боты без рисования (?qa&norender): цикл кадров по таймеру (не по requestAnimationFrame), до 120 кадров в секунду
+    ...(QA_NORENDER ? { fps: { target: 120, forceSetTimeOut: true } } : {}),
+    banner: false,
+    // Первая сцена в списке запускается сама: меню или, при адресе с `?level=N` (и в режиме проверки без `&menu`), сразу партия
+    scene: ART_SHEET ? [] : startInMenu() ? [MenuScene, LevelsScene, GameScene, UpgradesScene, AlmanacScene] : [GameScene, MenuScene, LevelsScene, UpgradesScene, AlmanacScene],
+  });
 
-// Поворот телефона и смена размера окна. Phaser иногда уже знает новый размер страницы, но не
-// перестраивает поле (так было при повороте телефона в эмуляции), поэтому перестраиваем сами:
-// несколько раз с небольшими паузами, потому что браузер обновляет размеры не мгновенно.
-let refitTimers: number[] = [];
-const refit = (): void => {
-  game.scale.getParentBounds();
-  game.scale.refresh();
-};
-const refitSoon = (): void => {
-  refitTimers.forEach((id) => window.clearTimeout(id));
-  refitTimers = [0, 150, 500].map((ms) => window.setTimeout(refit, ms));
-};
-window.addEventListener('resize', refitSoon);
-window.addEventListener('orientationchange', refitSoon);
-window.visualViewport?.addEventListener('resize', refitSoon);
+  // Лист образцов пилота этапа 8 (только `?qa&artsheet`): в игровой сборке ART_SHEET всегда false, и сцена вместе с файлом qaArtSheet.ts в неё не попадает
+  if (ART_SHEET) game.scene.add('ArtSheet', ArtSheetScene, true);
+
+  // Площадка: `LoadingAPI.ready()` после второго шага цикла (меню нарисовано и принимает ввод); пауза и возобновление (требование 1.3) глушат и возвращают звук, пауза ставит партию на паузу
+  let steps = 0;
+  game.events.on(Phaser.Core.Events.STEP, function onStep() {
+    if (++steps < 2) return;
+    game.events.off(Phaser.Core.Events.STEP, onStep);
+    sdkReady();
+  });
+  onPlatformPause(
+    () => {
+      sfx.setSuspended(true);
+      if (game.scene.isActive('Game')) (game.scene.getScene('Game') as GameScene).pauseByPlatform();
+    },
+    () => {
+      sfx.setSuspended(false);
+      if (game.scene.isActive('Game')) (game.scene.getScene('Game') as GameScene).resumeByPlatform();
+    },
+  );
+
+  // Поворот телефона и смена размера окна. Phaser иногда уже знает новый размер страницы, но не
+  // перестраивает поле (так было при повороте телефона в эмуляции), поэтому перестраиваем сами:
+  // несколько раз с небольшими паузами, потому что браузер обновляет размеры не мгновенно.
+  let refitTimers: number[] = [];
+  const refit = (): void => {
+    game.scale.getParentBounds();
+    game.scale.refresh();
+  };
+  const refitSoon = (): void => {
+    refitTimers.forEach((id) => window.clearTimeout(id));
+    refitTimers = [0, 150, 500].map((ms) => window.setTimeout(refit, ms));
+  };
+  window.addEventListener('resize', refitSoon);
+  window.addEventListener('orientationchange', refitSoon);
+  window.visualViewport?.addEventListener('resize', refitSoon);
+}
+
+void boot();
