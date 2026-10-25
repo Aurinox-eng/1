@@ -430,6 +430,8 @@ const NO_ALT = new Set();
  */
 const FX_KNOWN = ['beam', 'iv', 'puddle', 'coins'];
 const FX = new Set();
+/** Предел уровня слияния у бота (по умолчанию — без предела; `--mut mergelimit:4`). */
+let MERGE_LIMIT = 99;
 /** Запись «nolatebuy» в --mut: без покупки веток Таблетки и Шипучки после выхода на волну N (core:…:late). */
 const NO_LATE_BUY = { value: false };
 if (MUT_ALT) for (const [towerId, ids] of Object.entries(DEFAULT_MUT)) MUT_IDS[towerId] = ids.map((id, tier) => (MUTATION_IDS[towerId]?.[tier] ?? []).find((x) => x !== id) ?? id);
@@ -441,6 +443,12 @@ else if (args.mut !== undefined) {
     // «nolatebuy» — core:…:late без правила e81a82e: очки ДНК только в ветки ядра и после выхода на волну N (сверка, сообщение владельца 4 от 20 октября 2026, п. 4)
     if (towerId === 'nolatebuy') {
       NO_LATE_BUY.value = true;
+      continue;
+    }
+    // «mergelimit:4» — бот не сливает башни выше IV уровня (план docs/tower-levels-xp-plan-2026-10-24.md, раздел 7: замер опыта сначала с пределом IV, потом без него; правило 12)
+    if (towerId === 'mergelimit') {
+      MERGE_LIMIT = Number(list);
+      if (!Number.isInteger(MERGE_LIMIT) || MERGE_LIMIT < 1) die(`--mut=mergelimit:N — N целое от 1, получено «${list}»`);
       continue;
     }
     if (towerId === 'noalt') {
@@ -1445,7 +1453,7 @@ async function playGame(browser, baseUrl, run, metaLevels = null, salt = '', lev
      * Возвращает true, если слилось.
      */
     const mergeOnce = async (s0) => {
-      const limit = 99; // эксперт сливает до предела игры (maxTowerLevel)
+      const limit = MERGE_LIMIT; // эксперт сливает до предела игры (maxTowerLevel); запись `mergelimit:N` в --mut — не выше уровня N (замер опыта с пределом слияния IV, п. 7.3 плана слияния до VIII)
       const radius = s0.mergeRadiusPx;
       const groups = new Map();
       for (const tw of s0.towers) {
