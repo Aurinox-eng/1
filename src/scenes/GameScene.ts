@@ -1845,9 +1845,14 @@ export class GameScene extends Phaser.Scene {
       const key = id.charAt(0).toUpperCase() + id.slice(1);
       // «Спираль»: прибавка к удару зависит от уровня башни (spiral × множитель урона уровня, как в `beamPulse`) — в описании стоит число, которое будет в бою
       const spiral = mutationById(tower.id, id)?.spiral;
-      const desc = spiral
-        ? t(`mutd${key}` as TextKey, { n: num(Math.round(spiral * CONFIG.towerLevels[Math.min(tower.level, CONFIG.towerLevels.length) - 1].damageMul * 10) / 10) })
-        : t(`mutd${key}` as TextKey);
+      // при ключе `mutationCaps.spiralInCap` прибавка «Спирали» ужимается потолком: в описании — настоящая прибавка удара башни с этой мутацией (с выбранными ранее)
+      const levelMul = CONFIG.towerLevels[Math.min(tower.level, CONFIG.towerLevels.length) - 1].damageMul;
+      const step = spiral
+        ? CONFIG.mutationCaps.spiralInCap > 0
+          ? computeStats(tower.id, tower.level, tower.picks.includes(id) ? tower.picks : [...tower.picks, id]).spiral * levelMul
+          : spiral * levelMul
+        : 0;
+      const desc = spiral ? t(`mutd${key}` as TextKey, { n: num(Math.round(step * 10) / 10) }) : t(`mutd${key}` as TextKey);
       return { name: t(`mut${key}` as TextKey), desc };
     };
     this.cardLatch = tower.latchMul;

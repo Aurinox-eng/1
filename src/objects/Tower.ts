@@ -1570,7 +1570,7 @@ export class Tower {
   private canAffect(b: Bacterium): boolean {
     if (this.cfg.targeting === 'freeze') return b.freezable;
     if (this.cfg.targeting === 'trap') return !b.trapped && CONFIG.types[b.kind].trapImmune === 0;
-    // «по радиусу», «снайпер» и «по площади» не выбирают цель, которую удар не ранит (жёсткое свойство уровня), пока в зоне есть другие; лужа Сиропа ложится и под бегуна, которого ещё не замедлили
+    // «по радиусу», «снайпер» и «по площади» не выбирают цель, которую удар не ранит (жёсткое свойство уровня), вовсе — и когда других целей в зоне нет, выстрела нет; лужа Сиропа ложится и под бегуна, которого ещё не замедлили
     if (WARD_AWARE.has(this.cfg.targeting)) return !wardBlocks(b, this.stats);
     return true;
   }

@@ -88,6 +88,7 @@
  *   levels-lock            открытие уровней по звёздам (`&stars=`), экран конца уровня: «Следующий уровень» после победы (не на последнем уровне), «В меню», тап по «Следующий уровень» открывает уровень 2
  *   level2                 уровень 2 «Нос» (план docs/level2-plan-2026-10-23.md): карта (9 рёбер, 2 входа, 1 выход), 5 боссов в плане на 10/20/30/40/50-й волнах, мини-босс 10-й волны выходит на своей волне, финальный босс — поражение сразу
  *   wards                  жёсткое свойство «бегуна ранят только в луже» (решение владельца 24 октября 2026, сообщение 2, пп. 2.2–2.3): ловушка Пластыря вне лужи — 0 урона, яд «Едкой» в луже ранит; Таблетка не стреляет по незамедленному бегуну, при других целях бьёт их; Сироп кладёт лужу и под незамедленного бегуна
+ *   spiral-cap             ключ `mutationCaps.spiralInCap` (решение владельца 25 октября 2026, сообщение 1, п. 2.3): выключен — Шприц IV с «Бронебойный» ×2, «Больше ударов» ×2 и «Спиралью» бьёт ×4,7 к башне без мутаций (числа прежние); включён — не выше ×2,5, прибавка «Спирали» ужата
  *   restart-button         конец уровня (проигрыш и победа, компьютер ru и телефон en): есть кнопка «Заново» (endButton), тапы мимо неё не перезапускают, тап по ней — перезапускает
  *   deflation              economy.rewardMul: ×0,5 — два кокка номиналом 5 дают 2 + 3 = 5 монет (дробная часть копится); ×0,1 — 0 + 1, «+N» всплывает только при N ≥ 1
  *   camera-fit             самое сильное отдаление (считает игра, (считает игра): высота карты × масштаб ≤ высоты окна карты (568), ширина влезает, камера по центру и сдвигом не уводится
@@ -159,7 +160,7 @@ if (['stage-1', 'stage-1b', 'stage-1b-qa', 'td-1-mockup', 'tmp'].includes(tag)) 
   process.exit(2);
 }
 
-const SCENARIOS = ['desktop-ru', 'phone-ru', 'desktop-en', 'phone-en', 'rules', 'graph', 'combat', 'dash', 'split', 'spore', 'armored', 'intro', 'lose-ru', 'lose-en', 'win-ru', 'win-en', 'towers', 'card', 'merge', 'mutations', 'sell', 'special', 'danger', 'rotate', 'production', 'fullgame', 'locked', 'strip', 'almanac', 'almanac-pause', 'damage-numbers', 'sell-gap', 'restart-button', 'deflation', 'camera-fit', 'colors', 'meta-save', 'meta-dna', 'meta-shop', 'meta-effects', 'tree-effects', 'tree-shop', 'level-waves', 'progress-save', 'stars', 'menu-flow', 'menu-reset', 'levels-lock', 'step-dps', 'sound', 'sdk', 'lose-line', 'attempt-line', 'toast-queue', 'shake', 'bosses', 'level2', 'wards', 'menu-exit', 'resume-tap', 'two-tabs']
+const SCENARIOS = ['desktop-ru', 'phone-ru', 'desktop-en', 'phone-en', 'rules', 'graph', 'combat', 'dash', 'split', 'spore', 'armored', 'intro', 'lose-ru', 'lose-en', 'win-ru', 'win-en', 'towers', 'card', 'merge', 'mutations', 'sell', 'special', 'danger', 'rotate', 'production', 'fullgame', 'locked', 'strip', 'almanac', 'almanac-pause', 'damage-numbers', 'sell-gap', 'restart-button', 'deflation', 'camera-fit', 'colors', 'meta-save', 'meta-dna', 'meta-shop', 'meta-effects', 'tree-effects', 'tree-shop', 'level-waves', 'progress-save', 'stars', 'menu-flow', 'menu-reset', 'levels-lock', 'step-dps', 'sound', 'sdk', 'lose-line', 'attempt-line', 'toast-queue', 'shake', 'bosses', 'level2', 'wards', 'spiral-cap', 'menu-exit', 'resume-tap', 'two-tabs']
 const only = args.only === undefined ? null : String(args.only);
 if (only !== null && !SCENARIOS.includes(only)) {
   console.error(`Неизвестный сценарий --only=${only}. Есть: ${SCENARIOS.join(', ')}`);
@@ -2435,6 +2436,42 @@ async function runWards(browser, baseUrl) {
     LEVEL.startCenter = saved.start;
     await context.close();
   }
+}
+
+/**
+ * Ключ `mutationCaps.spiralInCap` (вариант А для «Спирали»; решение владельца 25 октября 2026, сообщение 1, п. 2.3): выключен — числа прежние (Шприц IV с двумя «Бронебойными», двумя «Больше ударов»
+ * и «Спиралью» бьёт сильнее потолка ×2,5), включён — урон в секунду очереди (с прибавкой «Спирали») не выше ×2,5 к Шприцу IV без мутаций, а в описании карточки — настоящая прибавка.
+ */
+async function runSpiralCap(browser, baseUrl) {
+  const p = '[«Спираль» и потолок мутаций]';
+  const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
+  // удар i очереди бьёт на i × spiral × damageMul уровня сильнее (src/towerStats.ts, statDps): урон в секунду очереди по одной цели
+  const levelMul = Number(/towerLevels:\s*\[([\s\S]*?)\]/.exec(fs.readFileSync(path.join(ROOT, 'src', 'config.ts'), 'utf8'))[1].split('\n').filter((l) => l.includes('damageMul'))[3].match(/damageMul:\s*([\d.]+)/)[1]);
+  const dpsOf = (tw) => {
+    const n = tw.stats.beamPulses;
+    return (n * tw.stats.damage + (tw.stats.spiral * levelMul * n * (n - 1)) / 2) / (tw.stats.cooldownMs / 1000);
+  };
+  const measure = async (on) => {
+    const game = await openGame(context, baseUrl, `${p} ключ ${on ? 'включён' : 'выключен'}`, { speed: 1, cfg: `waves.firstDelaySec:9999${on ? ',mutationCaps.spiralInCap:1' : ''}`, query: ALL_TOWERS });
+    const plain = FREE.b;
+    const loaded = FREE.a;
+    await game.page.evaluate(([a, b]) => {
+      window.__pvb.placeTower('syringe', b[0], b[1], 4);
+      window.__pvb.placeTower('syringe', a[0], a[1], 1);
+      for (const picks of [['syringePierce', 'syringeMore'], ['syringePierce', 'syringeMore'], ['syringeSpiral']]) window.__pvb.upgradeTower(a[0], a[1], picks);
+    }, [loaded, plain]);
+    await sleep(300);
+    const s = await game.state();
+    const base = towerIn(s, plain);
+    const full = towerIn(s, loaded);
+    await game.page.close();
+    return { base, full, ratio: dpsOf(full) / dpsOf(base) };
+  };
+  const off = await measure(false);
+  const on = await measure(true);
+  check(`${p} ключ выключен: башня IV (${off.full.level}) с «Бронебойный» ×2, «Больше ударов» ×2 и «Спиралью» — ${off.full.stats.beamPulses} ударов, прибавка ${off.full.stats.spiral} за удар, урон в секунду ×${off.ratio.toFixed(2)} к башне без мутаций (прежнее число, выше потолка ×2,5)`, off.full.level === 4 && off.full.stats.beamPulses === 5 && Math.abs(off.full.stats.spiral - 2) < 1e-9 && off.ratio > 4.5 && off.ratio < 5, `×${off.ratio.toFixed(3)}, spiral ${off.full.stats.spiral}`);
+  check(`${p} ключ включён: урон в секунду очереди ×${on.ratio.toFixed(3)} к башне без мутаций — не выше ×2,5; прибавка «Спирали» ужата с 2 до ${on.full.stats.spiral.toFixed(3)}`, on.full.level === 4 && on.ratio <= 2.5 + 1e-6 && on.ratio > 2.4 && on.full.stats.spiral > 0 && on.full.stats.spiral < 2, `×${on.ratio.toFixed(3)}, spiral ${on.full.stats.spiral}`);
+  await context.close();
 }
 
 // ================================================================== запуск
@@ -9882,6 +9919,7 @@ try {
   if (wants('bosses')) await safe('[боссы и «Лихорадка»]', () => runBosses(browser, qaServer.url));
   if (wants('level2')) await safe('[уровень 2 «Нос»]', () => runLevel2(browser, qaServer.url));
   if (wants('wards')) await safe('[жёсткие свойства: бегун]', () => runWards(browser, qaServer.url));
+  if (wants('spiral-cap')) await safe('[«Спираль» и потолок мутаций]', () => runSpiralCap(browser, qaServer.url));
   if (wants('progress-save')) await safe('[прогресс: сохранение]', () => runProgressSave(browser, qaServer.url));
   if (wants('stars')) await safe('[звёзды]', () => runStars(browser, qaServer.url));
   if (wants('menu-flow')) await safe('[меню и выбор уровня]', () => runMenuFlow(browser, qaServer.url));

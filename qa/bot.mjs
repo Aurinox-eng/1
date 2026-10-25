@@ -266,6 +266,8 @@ const STRATEGY = STRATEGY_SPEC === 'zone' ? 'zone' : 'default';
  */
 const REVIEW = STRATEGY_SPEC === 'review';
 const REVIEW_TOWERS = new Set(['pill', 'syrup', 'fizz', 'syringe']);
+/** Задан ли --mut для Шприца (тогда второй порог Шприцев образца берётся из него, а не «Спираль»). */
+const REVIEW_SYRINGE_MUT = REVIEW && typeof args.mut === 'string' && /(^|;)syringe:/.test(args.mut);
 const REVIEW_GROUPS = {
   syringeA: { type: 'syringe', cell: [0, 9], t0: { syringePierce: 2, syringeMore: 2 }, t1: 'syringeSpiral' },
   syringeB: { type: 'syringe', cell: [1, 9], t0: { syringePierce: 2, syringeMore: 2 }, t1: 'syringeSpiral' },
@@ -1033,7 +1035,8 @@ function makePlayer({ world, rng, buttons }) {
     const key = groupOf(tw);
     const g = key ? REVIEW_GROUPS[key] : null;
     if (!g) return null;
-    if (tw.pending === 1) return g.t1;
+    // --mut=syringe:<первый>,<второй> задаёт второй порог Шприцев образца (по умолчанию — «Спираль», как в отчёте): замер «Второго луча» вместо «Спирали» (решение владельца 25 октября 2026, сообщение 1, п. 2.2)
+    if (tw.pending === 1) return tw.id === 'syringe' && REVIEW_SYRINGE_MUT ? MUT_IDS.syringe[1] : g.t1;
     const have = {};
     for (const other of view.towers) if (groupOf(other) === key) for (const id of other.picks ?? []) have[id] = (have[id] ?? 0) + 1;
     return Object.entries(g.t0).sort((a, b) => b[1] - (have[b[0]] ?? 0) - (a[1] - (have[a[0]] ?? 0)))[0]?.[0] ?? null;

@@ -924,8 +924,9 @@ export const CONFIG = {
   /** Потолки мутаций (документ дизайна docs/redesign-2026-10-19.md, п. 4.2; копии одной мутации — доли 1; 0,5; 0,25; 0 выше):
    *  coneDeg — самый широкий конус Лампы, градусов; freezeShareOfCooldown — заморозка Холода не дольше этой доли его паузы; refreezeSec — ту же бактерию снова заморозить не раньше чем через столько секунд
    *  после оттаивания; extraTargetsMax — дополнительных целей не больше; pulsesMax — ударов в очереди Шприца не больше; dpsMul — урон в секунду одной башни от всех её мутаций не больше этого множителя
-   *  к той же башне без мутаций; auraExcluded — на эти башни аура Витамина не действует. Нижние границы замедления в луже и паузы от ауры — `meta.minSlowFactor`, `meta.minAuraMul`. */
-  mutationCaps: { coneDeg: 75, freezeShareOfCooldown: 0.5, refreezeSec: 3, extraTargetsMax: 2, pulsesMax: 5, dpsMul: 2.5, auraExcluded: ['lamp', 'vitamin', 'syrup', 'frost', 'patch'] as string[] },
+   *  к той же башне без мутаций; auraExcluded — на эти башни аура Витамина не действует; spiralInCap — 1: прибавка «Спирали» входит в потолок dpsMul (при превышении масштабируются урон и прибавка), 0 — не входит,
+   *  как прежде (ключ для замера варианта А, решение владельца 25 октября 2026; по умолчанию 0, игра не меняется). Нижние границы замедления в луже и паузы от ауры — `meta.minSlowFactor`, `meta.minAuraMul`. */
+  mutationCaps: { coneDeg: 75, freezeShareOfCooldown: 0.5, refreezeSec: 3, extraTargetsMax: 2, pulsesMax: 5, dpsMul: 2.5, spiralInCap: 0, auraExcluded: ['lamp', 'vitamin', 'syrup', 'frost', 'patch'] as string[] },
   /** Мутации по башням: для каждой башни — список порогов (по порядку mutationLevels), в каждом два варианта на выбор. */
   mutations: {
     pill: [

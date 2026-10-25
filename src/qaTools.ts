@@ -154,6 +154,7 @@ export function qaSnapshot(s: GameSceneInternals): DebugSnapshot {
         freezeSec: tw.stats.freezeSec,
         trapSec: tw.stats.trapSec,
         trapDps: tw.stats.trapDps,
+        spiral: tw.stats.spiral,
       },
     })),
     selectedTower: s.selectedTower ? { col: s.selectedTower.col, row: s.selectedTower.row } : null,
