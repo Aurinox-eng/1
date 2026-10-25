@@ -94,6 +94,7 @@
  *   deflation              economy.rewardMul: ×0,5 — два кокка номиналом 5 дают 2 + 3 = 5 монет (дробная часть копится); ×0,1 — 0 + 1, «+N» всплывает только при N ≥ 1
  *   camera-fit             самое сильное отдаление (считает игра, (считает игра): высота карты × масштаб ≤ высоты окна карты (568), ширина влезает, камера по центру и сдвигом не уводится
  *   almanac                экран «Альманах» из главного меню (компьютер ru, телефон ru, компьютер en): новый игрок — открыта только Таблетка, бактерий и боссов 0, закрытые записи «Ещё не встречалось»; после первой попытки — открыты вышедшие на поле виды; с &met=all&towers=all — все записи «Название: описание», боссы — имя; чисел нет; снимки almanac-reset/attempt1/all-…
+ *   treemock               макет радиального древа (?qa&treemock): снимки 1280×720 и 844×390, на телефоне ещё с масштабом 1,8
  *   almanac-pause          «Альманах» с паузы партии (компьютер ru, телефон en): на паузе есть pauseAlmanacButton и pauseMenuButton, тап открывает альманах (сцена 'almanac'), «Назад» возвращает на паузу
  *                          (state 'paused', getState отвечает), тап по экрану возобновляет игру
  *   damage-numbers         числа урона над бактериями: после попаданий башни effects.damageNumbers растёт
@@ -161,7 +162,7 @@ if (['stage-1', 'stage-1b', 'stage-1b-qa', 'td-1-mockup', 'tmp'].includes(tag)) 
   process.exit(2);
 }
 
-const SCENARIOS = ['desktop-ru', 'phone-ru', 'desktop-en', 'phone-en', 'rules', 'graph', 'combat', 'dash', 'split', 'spore', 'armored', 'intro', 'lose-ru', 'lose-en', 'win-ru', 'win-en', 'towers', 'card', 'merge', 'mutations', 'sell', 'special', 'danger', 'rotate', 'production', 'fullgame', 'locked', 'strip', 'almanac', 'almanac-pause', 'damage-numbers', 'sell-gap', 'restart-button', 'deflation', 'camera-fit', 'colors', 'meta-save', 'meta-dna', 'meta-shop', 'meta-effects', 'tree-effects', 'tree-shop', 'level-waves', 'progress-save', 'stars', 'menu-flow', 'menu-reset', 'levels-lock', 'step-dps', 'sound', 'sdk', 'lose-line', 'attempt-line', 'toast-queue', 'shake', 'bosses', 'level2', 'wards', 'spiral-cap', 'marks', 'menu-exit', 'resume-tap', 'two-tabs']
+const SCENARIOS = ['desktop-ru', 'phone-ru', 'desktop-en', 'phone-en', 'rules', 'graph', 'combat', 'dash', 'split', 'spore', 'armored', 'intro', 'lose-ru', 'lose-en', 'win-ru', 'win-en', 'towers', 'card', 'merge', 'mutations', 'sell', 'special', 'danger', 'rotate', 'production', 'fullgame', 'locked', 'strip', 'almanac', 'almanac-pause', 'damage-numbers', 'sell-gap', 'restart-button', 'deflation', 'camera-fit', 'colors', 'meta-save', 'meta-dna', 'meta-shop', 'meta-effects', 'tree-effects', 'tree-shop', 'level-waves', 'progress-save', 'stars', 'menu-flow', 'menu-reset', 'levels-lock', 'step-dps', 'sound', 'sdk', 'lose-line', 'attempt-line', 'toast-queue', 'shake', 'bosses', 'level2', 'wards', 'spiral-cap', 'marks', 'menu-exit', 'resume-tap', 'two-tabs', 'treemock']
 const only = args.only === undefined ? null : String(args.only);
 if (only !== null && !SCENARIOS.includes(only)) {
   console.error(`Неизвестный сценарий --only=${only}. Есть: ${SCENARIOS.join(', ')}`);
@@ -9675,6 +9676,24 @@ async function runAlmanac(browser, baseUrl) {
   }
 }
 
+/** Макет радиального древа (`?qa&treemock`, п. 5.3 сообщения владельца 5 от 25 октября 2026): снимки 1280×720 и 844×390 (весь макет и с масштабом 1,8), без ошибок в консоли. */
+async function runTreeMock(browser, baseUrl) {
+  for (const [deviceKey, zoom] of [['desktop', 1], ['phone', 1], ['phone', 1.8]]) {
+    const device = VIEWPORTS[deviceKey];
+    const p = `[макет древа, ${device.label}, масштаб ${zoom}]`;
+    const context = await newDeviceContext(browser, device, 'ru');
+    const page = await context.newPage();
+    watchConsole(page, p);
+    await page.goto(`${baseUrl}?qa&treemock&zoom=${zoom}`, { waitUntil: 'load', timeout: 90000 });
+    await page.waitForFunction(() => document.querySelector('canvas') !== null, null, { timeout: 30000 });
+    await sleep(1500);
+    await frames(page, 3);
+    await shot(page, `treemock-${deviceKey}-zoom${String(zoom).replace('.', '_')}`);
+    check(`${p} макет нарисован (холст есть)`, await page.evaluate(() => document.querySelector('canvas') !== null), '');
+    await context.close();
+  }
+}
+
 /** «Альманах» с паузы партии: кнопки на паузе, альманах поверх приостановленной партии, «Назад» возвращает на паузу, тап по экрану продолжает игру. */
 async function runAlmanacPause(browser, baseUrl) {
   for (const [deviceKey, lang] of [['desktop', 'ru'], ['phone', 'en']]) {
@@ -10036,6 +10055,7 @@ try {
   if (wants('menu-flow')) await safe('[меню и выбор уровня]', () => runMenuFlow(browser, qaServer.url));
   if (wants('almanac')) await safe('[альманах]', () => runAlmanac(browser, qaServer.url));
   if (wants('almanac-pause')) await safe('[альманах с паузы]', () => runAlmanacPause(browser, qaServer.url));
+  if (wants('treemock')) await safe('[макет древа]', () => runTreeMock(browser, qaServer.url));
   if (wants('damage-numbers')) await safe('[числа урона]', () => runDamageNumbers(browser, qaServer.url));
   if (wants('sell-gap')) await safe('[зазор Слить и Продать]', () => runSellGap(browser, qaServer.url));
   if (wants('menu-reset')) await safe('[сброс прогресса]', () => runMenuReset(browser, qaServer.url));
