@@ -91,6 +91,7 @@
  *   spiral-cap             ключ `mutationCaps.spiralInCap` (решение владельца 25 октября 2026, сообщение 1, п. 2.3): выключен — Шприц IV с «Бронебойный» ×2, «Больше ударов» ×2 и «Спиралью» бьёт ×4,7 к башне без мутаций (числа прежние); включён — не выше ×2,5, прибавка «Спирали» ужата
  *   xp                     опыт башен и уровни V–VIII (ветка слияния до VIII, решение владельца 25 октября 2026, п. 9): убитый кокк даёт `lifeDamage` каждой башне в зоне и не даёт башне вне зоны, при слиянии опыт складывается, Витамин получает долю опыта башен в ауре; числа башен на уровнях 1–8 не ухудшаются и хоть одно растёт (перебор), Холод на VI–VIII — пауза 6,0 с и заморозка 3,0 с
  *   marks                  макет знаков уровня и ранга на настоящих башнях (решение владельца 25 октября 2026, сообщение 1, п. 6.7): снимки плотной сцены `marks-desktop` и `marks-phone`, проверок значений нет
+ *   artsheet               лист образцов уровней I–VIII Таблетки, Сиропа и Шприца и знаков рангов (`?qa&artsheet=l`, решение владельца 25 октября 2026, сообщение 2, п. 3.6) и плотная поздняя сцена `?qa&stress=high` (40 башен уровней I–VIII, ≈200 бактерий): снимки компьютер 1280×720 и телефон 844×390, консоль без ошибок, на карте есть башни V–VIII
  *   restart-button         конец уровня (проигрыш и победа, компьютер ru и телефон en): есть кнопка «Заново» (endButton), тапы мимо неё не перезапускают, тап по ней — перезапускает
  *   deflation              economy.rewardMul: ×0,5 — два кокка номиналом 5 дают 2 + 3 = 5 монет (дробная часть копится); ×0,1 — 0 + 1, «+N» всплывает только при N ≥ 1
  *   camera-fit             самое сильное отдаление (считает игра, (считает игра): высота карты × масштаб ≤ высоты окна карты (568), ширина влезает, камера по центру и сдвигом не уводится
@@ -162,7 +163,7 @@ if (['stage-1', 'stage-1b', 'stage-1b-qa', 'td-1-mockup', 'tmp'].includes(tag)) 
   process.exit(2);
 }
 
-const SCENARIOS = ['desktop-ru', 'phone-ru', 'desktop-en', 'phone-en', 'rules', 'graph', 'combat', 'dash', 'split', 'spore', 'armored', 'intro', 'lose-ru', 'lose-en', 'win-ru', 'win-en', 'towers', 'card', 'merge', 'mutations', 'sell', 'special', 'danger', 'rotate', 'production', 'fullgame', 'locked', 'strip', 'almanac', 'almanac-pause', 'damage-numbers', 'sell-gap', 'restart-button', 'deflation', 'camera-fit', 'colors', 'meta-save', 'meta-dna', 'meta-shop', 'meta-effects', 'tree-effects', 'tree-shop', 'level-waves', 'progress-save', 'stars', 'menu-flow', 'menu-reset', 'levels-lock', 'step-dps', 'sound', 'sdk', 'lose-line', 'attempt-line', 'toast-queue', 'shake', 'bosses', 'level2', 'wards', 'spiral-cap', 'marks', 'xp', 'menu-exit', 'resume-tap', 'two-tabs']
+const SCENARIOS = ['desktop-ru', 'phone-ru', 'desktop-en', 'phone-en', 'rules', 'graph', 'combat', 'dash', 'split', 'spore', 'armored', 'intro', 'lose-ru', 'lose-en', 'win-ru', 'win-en', 'towers', 'card', 'merge', 'mutations', 'sell', 'special', 'danger', 'rotate', 'production', 'fullgame', 'locked', 'strip', 'almanac', 'almanac-pause', 'damage-numbers', 'sell-gap', 'restart-button', 'deflation', 'camera-fit', 'colors', 'meta-save', 'meta-dna', 'meta-shop', 'meta-effects', 'tree-effects', 'tree-shop', 'level-waves', 'progress-save', 'stars', 'menu-flow', 'menu-reset', 'levels-lock', 'step-dps', 'sound', 'sdk', 'lose-line', 'attempt-line', 'toast-queue', 'shake', 'bosses', 'level2', 'wards', 'spiral-cap', 'marks', 'xp', 'artsheet', 'menu-exit', 'resume-tap', 'two-tabs']
 const only = args.only === undefined ? null : String(args.only);
 if (only !== null && !SCENARIOS.includes(only)) {
   console.error(`Неизвестный сценарий --only=${only}. Есть: ${SCENARIOS.join(', ')}`);
@@ -2578,6 +2579,34 @@ async function runXp(browser, baseUrl) {
   check(`${p} опыт только в зоне: Таблетка у дорожки (убила кокка) ${near.xp} (ждали 1)${far ? `, Таблетка вне зоны (клетка ${far.join(';')}) ${away.xp} (ждали 0)` : '; клетки вне зоны на экране нет — проверка «вне зоны» пропущена'}`, near.xp === 1 && (!far || away.xp === 0), `xp ${near.xp}/${away?.xp}`);
   await game.page.close();
   await context.close();
+}
+
+/**
+ * Лист образцов уровней башен (решение владельца 25 октября 2026, сообщение 2, п. 3.6): страница `?qa&artsheet=l` — Таблетка, Сироп, Шприц, уровни I–VIII (без глаз), те же башни в размере телефона и знаки рангов ★1–★8;
+ * плотная поздняя сцена `?qa&stress=high` — 40 башен Таблетка/Сироп/Шприц уровней I–VIII и ≈200 бактерий. Снимки: компьютер 1280×720 и телефон 844×390 (`artsheet-levels-*`, `artsheet-dense-*`).
+ */
+async function runArtSheet(browser, baseUrl) {
+  const p = '[лист образцов уровней V–VIII]';
+  for (const key of ['desktop', 'phone']) {
+    const context = await newDeviceContext(browser, VIEWPORTS[key], 'ru');
+    const page = await context.newPage();
+    watchConsole(page, `${p} лист ${key}`);
+    await page.goto(`${baseUrl}?qa&artsheet=l&lang=ru`, { waitUntil: 'load', timeout: 90000 });
+    await sleep(4000);
+    const hasCanvas = await page.evaluate(() => Boolean(document.querySelector('canvas')));
+    check(`${p} лист уровней (${VIEWPORTS[key].label}) открыт, холст есть`, hasCanvas, '');
+    await shot(page, `artsheet-levels-${key}`);
+    await page.close();
+    const game = await openGame(context, baseUrl, `${p} сцена ${key}`, { speed: 1, query: '&stress=high', isTouch: key === 'phone' });
+    await sleep(6000);
+    const s = await game.state();
+    const levels = s.towers.map((tw) => tw.level);
+    const high = levels.filter((lv) => lv >= 5).length;
+    check(`${p} плотная сцена (${VIEWPORTS[key].label}): ${s.towers.length} башен, из них уровня V–VIII ${high}, высший уровень ${Math.max(...levels)}, бактерий ${s.bacteria.length}`, s.towers.length >= 30 && high >= 10 && Math.max(...levels) === 8 && s.bacteria.length >= 50, JSON.stringify(levels));
+    await shot(game.page, `artsheet-dense-${key}`);
+    await game.page.close();
+    await context.close();
+  }
 }
 
 /**
@@ -10114,6 +10143,7 @@ try {
   if (wants('level-waves')) await safe('[состав волн уровней]', () => runLevelWaves(browser, qaServer.url));
   if (wants('bosses')) await safe('[боссы и «Лихорадка»]', () => runBosses(browser, qaServer.url));
   if (wants('level2')) await safe('[уровень 2 «Нос»]', () => runLevel2(browser, qaServer.url));
+  if (wants('artsheet')) await safe('[лист образцов уровней V–VIII]', () => runArtSheet(browser, qaServer.url));
   if (wants('xp')) await safe('[опыт башен и уровни V–VIII]', () => runXp(browser, qaServer.url));
   if (wants('wards')) await safe('[жёсткие свойства: бегун]', () => runWards(browser, qaServer.url));
   if (wants('spiral-cap')) await safe('[«Спираль» и потолок мутаций]', () => runSpiralCap(browser, qaServer.url));
