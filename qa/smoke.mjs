@@ -8250,6 +8250,16 @@ async function openMenu(context, baseUrl, prefix, { query = '', isTouch = false 
     }
     throw new Error(`Не дождались экрана «${scene}»: ${label}`);
   };
+  // экран и кнопка на нём: экран «menu» описан и до того, как игра обработала тап, поэтому кнопки окна («Да, сбросить») на медленном сервере появляются позже (плавающая «сброс прогресса», 22 и 25 октября 2026)
+  const waitButton = async (scene, button, label, timeoutMs = 30000) => {
+    const started = Date.now();
+    while (Date.now() - started < timeoutMs) {
+      const u = await ui();
+      if (u && u.scene === scene && u.buttons?.[button]) return u;
+      await sleep(60);
+    }
+    throw new Error(`Не дождались кнопки «${button}» на экране «${scene}»: ${label}`);
+  };
   await waitUi('menu', 'главное меню');
   const rect = await page.evaluate(() => {
     const r = document.querySelector('canvas').getBoundingClientRect();
@@ -8260,7 +8270,7 @@ async function openMenu(context, baseUrl, prefix, { query = '', isTouch = false 
     await input.tap(g(r.x, r.y));
     await settle();
   };
-  return { page, input, ui, waitUi, g, tapRect };
+  return { page, input, ui, waitUi, waitButton, g, tapRect };
 }
 
 const insideScreen = (r) => r.x - r.w / 2 >= 0 && r.x + r.w / 2 <= W && r.y - r.h / 2 >= 0 && r.y + r.h / 2 <= H;
@@ -9793,7 +9803,7 @@ async function runMenuReset(browser, baseUrl) {
     const [resetFill, almanacFill] = await samplePixels(page, menuPng, [edge(u.buttons.reset), edge(u.buttons.almanac)].map((q) => [q.x, q.y]));
     check(`${p} кнопка «${readI18n('resetBtn')[li]}» того же цвета, что «${readI18n('almanacBtn')[li]}»`, resetFill.every((v, i) => Math.abs(v - almanacFill[i]) <= 6), `сброс ${resetFill.slice(0, 3)}, альманах ${almanacFill.slice(0, 3)}`);
     await app.tapRect(u.buttons.reset);
-    u = await app.waitUi('menu', 'окно подтверждения');
+    u = await app.waitButton('menu', 'resetYes', 'окно подтверждения');
     // подложка под заголовком, текстом и кнопками непрозрачная: в точках, где под ней лежат кнопки меню («Играть», «Улучшения»), виден цвет подложки
     const dialogPng = await shot(page, `reset-dialog-${deviceKey}-${lang}`);
     const plate = u.labels.resetPlate;
@@ -9840,9 +9850,9 @@ async function runMenuReset(browser, baseUrl) {
     // «Да, сбросить»
     await page.evaluate(() => window.localStorage.setItem('pvb.meta5', JSON.stringify({ v: 3, dna: 77, levels: { damage: 2 }, progress: { stars: [2], best: [30] }, seen: ['t:pill'] })));
     await page.reload({ waitUntil: 'load' });
-    u = await app.waitUi('menu', 'меню перед сбросом');
+    u = await app.waitButton('menu', 'reset', 'меню перед сбросом');
     await app.tapRect(u.buttons.reset);
-    u = await app.waitUi('menu', 'окно подтверждения (второй раз)');
+    u = await app.waitButton('menu', 'resetYes', 'окно подтверждения (второй раз)');
     await app.tapRect(u.buttons.resetYes);
     await sleep(600);
     u = await app.waitUi('menu', 'меню после сброса');
@@ -9853,9 +9863,9 @@ async function runMenuReset(browser, baseUrl) {
     // после сброса игрок снова «новый»: «Новая бактерия» при выходе кокка показывается снова
     await page.evaluate(() => window.localStorage.setItem('pvb.meta5', JSON.stringify({ v: 3, dna: 77, levels: { damage: 2 }, progress: { stars: [2], best: [30] }, seen: ['t:pill', 't:syrup', 'b:coccus'] })));
     await page.reload({ waitUntil: 'load' });
-    u = await app.waitUi('menu', 'меню перед вторым сбросом');
+    u = await app.waitButton('menu', 'reset', 'меню перед вторым сбросом');
     await app.tapRect(u.buttons.reset);
-    u = await app.waitUi('menu', 'окно подтверждения (третий раз)');
+    u = await app.waitButton('menu', 'resetYes', 'окно подтверждения (третий раз)');
     await app.tapRect(u.buttons.resetYes);
     await sleep(600);
     await app.waitUi('menu', 'меню после второго сброса');
