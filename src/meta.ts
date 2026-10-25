@@ -10,7 +10,7 @@
  */
 import { CONFIG, type UpgradeBranch, type UpgradeEffect } from './config';
 import { QA_MODE, READY_OVERRIDE } from './debug';
-import { emptyMeta, loadMeta, MAX_LOG, maxLevel, META_KEY, saveMeta, tryLoadMeta, UPGRADE_IDS, type MetaSave, type UpgradeId } from './save';
+import { emptyMeta, loadMeta, MAX_LOG, MAX_LOG_LEN, maxLevel, META_KEY, saveMeta, tryLoadMeta, UPGRADE_IDS, type MetaSave, type UpgradeId } from './save';
 import { setLevelReachedCheck, setTowerOwnedCheck } from './progress';
 
 function readOverride(): MetaSave | null {
@@ -405,6 +405,9 @@ export interface MetaScreenInfo {
 }
 
 export interface MetaDebugSnapshot {
+  /** Строки итога последних попыток и предел длины строки (проверка сохранения журнала). */
+  log: string[];
+  logMax: number;
   dna: number;
   levels: Record<UpgradeId, number>;
   progress: { stars: number[]; best: number[] };
@@ -423,7 +426,7 @@ declare global {
 
 /** Делает состояние очков и улучшений доступным проверкам (`window.__pvbMeta`); `screen` отдаёт описание экрана «Улучшения» (или «не показан»). */
 export function exposeMetaDebug(screen: () => MetaScreenInfo): void {
-  if (QA_MODE) window.__pvbMeta = { getMeta: () => ({ dna: state.dna, levels: metaLevels(), progress: { stars: [...state.progress.stars], best: [...state.progress.best] }, seen: [...state.seen], bossWins: [...state.bossWins], flawless: [...state.flawless], screen: screen() }), dnaFor: dnaParts, starsFor: starsForLoss };
+  if (QA_MODE) window.__pvbMeta = { getMeta: () => ({ log: [...state.log], logMax: MAX_LOG_LEN, dna: state.dna, levels: metaLevels(), progress: { stars: [...state.progress.stars], best: [...state.progress.best] }, seen: [...state.seen], bossWins: [...state.bossWins], flawless: [...state.flawless], screen: screen() }), dnaFor: dnaParts, starsFor: starsForLoss };
 }
 
 export const HIDDEN_SCREEN: MetaScreenInfo = { visible: false, balance: '', selected: '', scroll: 0, view: { x: 0, y: 0, w: 0, h: 0 }, nodes: [], detail: null, play: null };

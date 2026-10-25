@@ -90,6 +90,7 @@
  *   wards                  жёсткое свойство «бегуна ранят только в луже» (решение владельца 24 октября 2026, сообщение 2, пп. 2.2–2.3): ловушка Пластыря вне лужи — 0 урона, яд «Едкой» в луже ранит; Таблетка не стреляет по незамедленному бегуну, при других целях бьёт их; Сироп кладёт лужу и под незамедленного бегуна
  *   spiral-cap             ключ `mutationCaps.spiralInCap` (решение владельца 25 октября 2026, сообщение 1, п. 2.3): выключен — Шприц IV с «Бронебойный» ×2, «Больше ударов» ×2 и «Спиралью» бьёт ×4,7 к башне без мутаций (числа прежние); включён — не выше ×2,5, прибавка «Спирали» ужата
  *   xp                     опыт башен и уровни V–VIII (ветка слияния до VIII, решение владельца 25 октября 2026, п. 9): убитый кокк даёт `lifeDamage` каждой башне в зоне и не даёт башне вне зоны, при слиянии опыт складывается, Витамин получает долю опыта башен в ауре; числа башен на уровнях 1–8 не ухудшаются и хоть одно растёт (перебор), Холод на VI–VIII — пауза 6,0 с и заморозка 3,0 с
+ *   marks                  макет знаков уровня и ранга на настоящих башнях (решение владельца 25 октября 2026, сообщение 1, п. 6.7): снимки плотной сцены `marks-desktop` и `marks-phone`, проверок значений нет
  *   restart-button         конец уровня (проигрыш и победа, компьютер ru и телефон en): есть кнопка «Заново» (endButton), тапы мимо неё не перезапускают, тап по ней — перезапускает
  *   deflation              economy.rewardMul: ×0,5 — два кокка номиналом 5 дают 2 + 3 = 5 монет (дробная часть копится); ×0,1 — 0 + 1, «+N» всплывает только при N ≥ 1
  *   camera-fit             самое сильное отдаление (считает игра, (считает игра): высота карты × масштаб ≤ высоты окна карты (568), ширина влезает, камера по центру и сдвигом не уводится
@@ -161,7 +162,7 @@ if (['stage-1', 'stage-1b', 'stage-1b-qa', 'td-1-mockup', 'tmp'].includes(tag)) 
   process.exit(2);
 }
 
-const SCENARIOS = ['desktop-ru', 'phone-ru', 'desktop-en', 'phone-en', 'rules', 'graph', 'combat', 'dash', 'split', 'spore', 'armored', 'intro', 'lose-ru', 'lose-en', 'win-ru', 'win-en', 'towers', 'card', 'merge', 'mutations', 'sell', 'special', 'danger', 'rotate', 'production', 'fullgame', 'locked', 'strip', 'almanac', 'almanac-pause', 'damage-numbers', 'sell-gap', 'restart-button', 'deflation', 'camera-fit', 'colors', 'meta-save', 'meta-dna', 'meta-shop', 'meta-effects', 'tree-effects', 'tree-shop', 'level-waves', 'progress-save', 'stars', 'menu-flow', 'menu-reset', 'levels-lock', 'step-dps', 'sound', 'sdk', 'lose-line', 'attempt-line', 'toast-queue', 'shake', 'bosses', 'level2', 'wards', 'spiral-cap', 'xp', 'menu-exit', 'resume-tap', 'two-tabs']
+const SCENARIOS = ['desktop-ru', 'phone-ru', 'desktop-en', 'phone-en', 'rules', 'graph', 'combat', 'dash', 'split', 'spore', 'armored', 'intro', 'lose-ru', 'lose-en', 'win-ru', 'win-en', 'towers', 'card', 'merge', 'mutations', 'sell', 'special', 'danger', 'rotate', 'production', 'fullgame', 'locked', 'strip', 'almanac', 'almanac-pause', 'damage-numbers', 'sell-gap', 'restart-button', 'deflation', 'camera-fit', 'colors', 'meta-save', 'meta-dna', 'meta-shop', 'meta-effects', 'tree-effects', 'tree-shop', 'level-waves', 'progress-save', 'stars', 'menu-flow', 'menu-reset', 'levels-lock', 'step-dps', 'sound', 'sdk', 'lose-line', 'attempt-line', 'toast-queue', 'shake', 'bosses', 'level2', 'wards', 'spiral-cap', 'marks', 'xp', 'menu-exit', 'resume-tap', 'two-tabs']
 const only = args.only === undefined ? null : String(args.only);
 if (only !== null && !SCENARIOS.includes(only)) {
   console.error(`Неизвестный сценарий --only=${only}. Есть: ${SCENARIOS.join(', ')}`);
@@ -2446,32 +2447,34 @@ async function runWards(browser, baseUrl) {
 async function runSpiralCap(browser, baseUrl) {
   const p = '[«Спираль» и потолок мутаций]';
   const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
+  // IV строка таблицы уровней и строка Шприца: башня IV без мутаций (в этой проверке сама не ставится: `placeTower` выбирает мутации за башню) — урон в секунду по таблицам
+  const rowIV = /towerLevels:\s*\[([\s\S]*?)\]/.exec(fs.readFileSync(path.join(ROOT, 'src', 'config.ts'), 'utf8'))[1].split('\n').filter((l) => l.includes('damageMul'))[3];
+  const num = (key) => Number(new RegExp(`${key}:\\s*([\\d.]+)`).exec(rowIV)[1]);
+  const levelMul = num('damageMul');
+  const SY = readTowerTable().syringe;
+  const baseDps = ((SY.beamPulses + num('pulsesAdd')) * SY.damage * levelMul) / ((SY.cooldownMs * num('cooldownMul')) / 1000);
   // удар i очереди бьёт на i × spiral × damageMul уровня сильнее (src/towerStats.ts, statDps): урон в секунду очереди по одной цели
-  const levelMul = Number(/towerLevels:\s*\[([\s\S]*?)\]/.exec(fs.readFileSync(path.join(ROOT, 'src', 'config.ts'), 'utf8'))[1].split('\n').filter((l) => l.includes('damageMul'))[3].match(/damageMul:\s*([\d.]+)/)[1]);
   const dpsOf = (tw) => {
     const n = tw.stats.beamPulses;
     return (n * tw.stats.damage + (tw.stats.spiral * levelMul * n * (n - 1)) / 2) / (tw.stats.cooldownMs / 1000);
   };
   const measure = async (on) => {
     const game = await openGame(context, baseUrl, `${p} ключ ${on ? 'включён' : 'выключен'}`, { speed: 1, cfg: `waves.firstDelaySec:9999${on ? ',mutationCaps.spiralInCap:1' : ''}`, query: ALL_TOWERS });
-    const plain = FREE.b;
     const loaded = FREE.a;
-    await game.page.evaluate(([a, b]) => {
-      window.__pvb.placeTower('syringe', b[0], b[1], 4);
+    await game.page.evaluate(([a]) => {
       window.__pvb.placeTower('syringe', a[0], a[1], 1);
       for (const picks of [['syringePierce', 'syringeMore'], ['syringePierce', 'syringeMore'], ['syringeSpiral']]) window.__pvb.upgradeTower(a[0], a[1], picks);
-    }, [loaded, plain]);
+    }, [loaded]);
     await sleep(300);
     const s = await game.state();
-    const base = towerIn(s, plain);
     const full = towerIn(s, loaded);
     await game.page.close();
-    return { base, full, ratio: dpsOf(full) / dpsOf(base) };
+    return { full, ratio: dpsOf(full) / baseDps, info: JSON.stringify({ baseDps, full: { lv: full.level, picks: full.picks, ...full.stats }, levelMul }) };
   };
   const off = await measure(false);
   const on = await measure(true);
-  check(`${p} ключ выключен: башня IV (${off.full.level}) с «Бронебойный» ×2, «Больше ударов» ×2 и «Спиралью» — ${off.full.stats.beamPulses} ударов, прибавка ${off.full.stats.spiral} за удар, урон в секунду ×${off.ratio.toFixed(2)} к башне без мутаций (прежнее число, выше потолка ×2,5)`, off.full.level === 4 && off.full.stats.beamPulses === 5 && Math.abs(off.full.stats.spiral - 2) < 1e-9 && off.ratio > 4.5 && off.ratio < 5, `×${off.ratio.toFixed(3)}, spiral ${off.full.stats.spiral}`);
-  check(`${p} ключ включён: урон в секунду очереди ×${on.ratio.toFixed(3)} к башне без мутаций — не выше ×2,5; прибавка «Спирали» ужата с 2 до ${on.full.stats.spiral.toFixed(3)}`, on.full.level === 4 && on.ratio <= 2.5 + 1e-6 && on.ratio > 2.4 && on.full.stats.spiral > 0 && on.full.stats.spiral < 2, `×${on.ratio.toFixed(3)}, spiral ${on.full.stats.spiral}`);
+  check(`${p} ключ выключен: башня IV (${off.full.level}) с «Бронебойный» ×2, «Больше ударов» ×2 и «Спиралью» — ${off.full.stats.beamPulses} ударов, прибавка ${off.full.stats.spiral} за удар, урон в секунду ×${off.ratio.toFixed(2)} к башне без мутаций (прежнее число, выше потолка ×2,5)`, off.full.level === 4 && off.full.stats.beamPulses === 5 && Math.abs(off.full.stats.spiral - 2) < 1e-9 && off.ratio > 4.5 && off.ratio < 5, `×${off.ratio.toFixed(3)}, ${off.info}`);
+  check(`${p} ключ включён: урон в секунду очереди ×${on.ratio.toFixed(3)} к башне без мутаций — не выше ×2,5; прибавка «Спирали» ужата с 2 до ${on.full.stats.spiral.toFixed(3)}`, on.full.level === 4 && on.ratio <= 2.5 + 1e-6 && on.ratio > 2.4 && on.full.stats.spiral > 0 && on.full.stats.spiral < 2, `×${on.ratio.toFixed(3)}, ${on.info}`);
   await context.close();
 }
 
@@ -2575,6 +2578,58 @@ async function runXp(browser, baseUrl) {
   check(`${p} опыт только в зоне: Таблетка у дорожки (убила кокка) ${near.xp} (ждали 1)${far ? `, Таблетка вне зоны (клетка ${far.join(';')}) ${away.xp} (ждали 0)` : '; клетки вне зоны на экране нет — проверка «вне зоны» пропущена'}`, near.xp === 1 && (!far || away.xp === 0), `xp ${near.xp}/${away?.xp}`);
   await game.page.close();
   await context.close();
+}
+
+/**
+ * Макет знаков уровня и ранга на настоящих башнях (решение владельца 25 октября 2026, сообщение 1, п. 6.7): плотная сцена стресс-сценария (40 башен, ≈200 бактерий) на компьютере 1280×720 и телефоне 844×390;
+ * поверх нарисованных башен — знаки макета: уровень V–VIII — второй ряд оранжевых точек, ранг — одна звезда с цифрой 1–8 справа вверху. Проверок значений нет: снимки `marks-desktop` и `marks-phone` — для решения владельца.
+ */
+async function runMarks(browser, baseUrl) {
+  const p = '[макет знаков]';
+  for (const key of ['desktop', 'phone']) {
+    const context = await newDeviceContext(browser, VIEWPORTS[key], 'ru');
+    const game = await openGame(context, baseUrl, `${p} ${key}`, { speed: 1, query: '&stress', isTouch: key === 'phone' });
+    await sleep(5000);
+    const s = await game.state();
+    const towers = s.towers.map((tw, i) => ({ id: tw.id, x: tw.x, y: tw.y, level: 1 + (i % 8), rank: 1 + ((i * 3) % 8) }));
+    const n = await game.page.evaluate((list) => {
+      const zoom = window.__pvb.getState().camera.zoom;
+      const canvas = document.querySelector('canvas').getBoundingClientRect();
+      const scale = (canvas.width / 1280) * zoom; // клиентских px на px мира
+      const layer = document.createElement('div');
+      layer.style.cssText = 'position:fixed;left:0;top:0;width:100vw;height:100vh;pointer-events:none;z-index:9999';
+      // окно карты между верхней (40 px) и нижней (112 px) полосами экрана игры: знаки на башнях за его краем и под панелями не рисуются
+      const topLeft = window.__pvb.gameToClient(0, 40 + 20);
+      const bottomRight = window.__pvb.gameToClient(1280, 720 - 112 - 20);
+      for (const tw of list) {
+        const c = window.__pvb.worldToClient(tw.x, tw.y);
+        if (c.x < topLeft.x + 20 || c.x > bottomRight.x - 40 || c.y < topLeft.y || c.y > bottomRight.y) continue;
+        const r = 35.5 * scale; // радиус основания башни на экране
+        // уровень: точки под башней, нижний ряд — до четырёх жёлтых, со второго ряда (V–VIII) — оранжевые
+        const dots = Math.max(2.5, r * 0.16);
+        for (let i = 0; i < tw.level; i++) {
+          const row = i < 4 ? 0 : 1;
+          const col = i < 4 ? i : i - 4;
+          const dot = document.createElement('div');
+          dot.style.cssText = `position:absolute;width:${dots * 2}px;height:${dots * 2}px;border-radius:50%;background:${row ? '#ff9a2e' : '#ffd84a'};border:1px solid #6b4a00;left:${c.x - r * 0.42 + col * dots * 2.6}px;top:${c.y + r * 0.95 + row * dots * 2.6}px`;
+          layer.appendChild(dot);
+        }
+        // ранг: одна звезда с цифрой справа вверху
+        const size = Math.max(14, r * 0.95);
+        const star = document.createElement('div');
+        star.style.cssText = `position:absolute;width:${size}px;height:${size}px;left:${c.x + r * 0.35}px;top:${c.y - r * 1.05}px;display:flex;align-items:center;justify-content:center;font:bold ${size * 0.5}px Arial;color:#3a2a00;background:#ffd84a;clip-path:polygon(50% 0%,61% 35%,98% 35%,68% 57%,79% 91%,50% 70%,21% 91%,32% 57%,2% 35%,39% 35%)`;
+        star.textContent = String(tw.rank);
+        layer.appendChild(star);
+      }
+      document.body.appendChild(layer);
+      return layer.childElementCount;
+    }, towers);
+    await sleep(300);
+    await shot(game.page, `marks-${key}`);
+    console.log(`  ${p} ${key}: знаков нарисовано ${n}, масштаб ${VIEWPORTS[key].label}`);
+    await game.page.close();
+    await context.close();
+  }
 }
 
 // ================================================================== запуск
@@ -8026,6 +8081,19 @@ async function runMetaSave(browser, baseUrl) {
   const oldKept = await page.evaluate(() => JSON.parse(window.localStorage.getItem('pvb.meta') ?? 'null'));
   check(`${p} прежнее сохранение (ключ pvb.meta) не переносится: 0 очков, все узлы на 0; запись прежней сборки не тронута`, m.dna === 0 && Object.values(m.levels).every((v) => v === 0) && oldKept?.dna === 999, JSON.stringify([m.dna, oldKept]));
   check(`${p} в состоянии есть все ${Object.keys(UP).length} улучшений дерева (по строкам таблицы), включая ветки башен и «towerDamage» (Сила таблетки)`, Object.keys(UP).every((id) => id in m.levels) && Object.keys(m.levels).length === Object.keys(UP).length, Object.keys(m.levels).join());
+  // ---- журнал итогов: строка законной длины переживает перезагрузку (предел 1 000 знаков отбрасывал настоящую строку в 1 122 знака)
+  {
+    const line = (n) => 'ТПБ | '.padEnd(n, 'я');
+    const nodes = Object.entries(UP);
+    // наибольший вывод форматтера (src/attempt.ts): поля попытки ≈ 400, 10 видов башен по 8 уровней по 99 штук ≈ 635, «вход» и «куплено» по всем узлам на наибольшем уровне
+    const worst = 400 + 635 + nodes.map(([id, u]) => `${id} ${u.prices.length}`).join(', ').length + nodes.map(([id, u]) => `${id} +${u.prices.length}`).join(', ').length;
+    m = await metaOf(page);
+    const limit = m.logMax;
+    check(`${p} предел длины строки журнала ${limit} знаков не меньше наибольшего вывода форматтера ${worst} знаков (${nodes.length} узлов древа) с запасом 20 %`, worst * 1.2 <= limit, `наибольший вывод ${worst}, предел ${limit}`);
+    m = await reloadWith(JSON.stringify({ v: 5, log: [line(1122), line(limit), line(limit + 1), 'короткая'] }));
+    const lens = m.log.map((x) => x.length);
+    check(`${p} после перезагрузки в журнале остались строки в 1 122 знака, на пределе (${limit}) и короткая; строка на знак длиннее предела отброшена: длины ${lens.join(', ')}`, lens.join() === [1122, limit, 8].join(), lens.join(', '));
+  }
   await context.close();
 
   // хранилище недоступно: обращение к localStorage бросает ошибку
@@ -8490,6 +8558,23 @@ async function runLevelsLock(browser, baseUrl) {
   s = await waitFor(last.page, (x) => x.state === 'won', WAIT_MS, 'победа на уровне 10');
   check(`${p} на последнем уровне после победы кнопки «Следующий уровень» нет, «В меню» стоит по центру`, s.nextButton === null && s.menuButton !== null && Math.abs(s.menuButton.x - W / 2) < 1, JSON.stringify([s.nextButton, s.menuButton]));
   await last.page.close();
+
+  // ---- «Следующий уровень» только на открытый уровень: при &ready=1 уровень 2 закрыт («Скоро»), кнопки после победы нет; при &ready=2 она есть и открывает уровень 2
+  for (const ready of [1, 2]) {
+    const gate = await openGame(context, baseUrl, p, { speed: 4, cfg: winCfg, query: `&ready=${ready}` });
+    for (const cell of [FREE.a, FREE.b]) await placeSure(gate, 'pill', cell);
+    s = await waitFor(gate.page, (x) => x.state === 'won', WAIT_MS, `победа на уровне 1 при &ready=${ready}`);
+    await sleep(CFG.restartLockMs + 250);
+    if (ready === 1) {
+      check(`${p} &ready=1: после победы на уровне 1 кнопки «Следующий уровень» нет (уровень 2 не готов), «В меню» стоит по центру`, s.nextButton === null && s.menuButton !== null && Math.abs(s.menuButton.x - W / 2) < 1, JSON.stringify([s.nextButton, s.menuButton]));
+    } else {
+      check(`${p} &ready=2: после победы на уровне 1 кнопка «Следующий уровень» есть`, s.nextButton !== null, JSON.stringify(s.nextButton));
+      await gate.input.tap(gate.g(s.nextButton.x, s.nextButton.y));
+      s = await waitFreshRun(gate.page, 'партия уровня 2 при &ready=2', { level: 2 });
+      check(`${p} &ready=2: «Следующий уровень» начинает партию уровня 2`, s.level === 2, `уровень ${s.level}`);
+    }
+    await gate.page.close();
+  }
 
   // ---- проигрыш: «Следующего уровня» нет; «В меню» ведёт в меню
   const lose = await openGame(context, baseUrl, p, { speed: 4, cfg: META_LOSE_CFG });
@@ -10032,6 +10117,7 @@ try {
   if (wants('xp')) await safe('[опыт башен и уровни V–VIII]', () => runXp(browser, qaServer.url));
   if (wants('wards')) await safe('[жёсткие свойства: бегун]', () => runWards(browser, qaServer.url));
   if (wants('spiral-cap')) await safe('[«Спираль» и потолок мутаций]', () => runSpiralCap(browser, qaServer.url));
+  if (wants('marks')) await safe('[макет знаков]', () => runMarks(browser, qaServer.url));
   if (wants('progress-save')) await safe('[прогресс: сохранение]', () => runProgressSave(browser, qaServer.url));
   if (wants('stars')) await safe('[звёзды]', () => runStars(browser, qaServer.url));
   if (wants('menu-flow')) await safe('[меню и выбор уровня]', () => runMenuFlow(browser, qaServer.url));

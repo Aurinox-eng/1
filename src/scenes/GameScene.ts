@@ -5,7 +5,7 @@ import { exposeDebug, QA_ENTRANCE, QA_MODE, QA_NORENDER, QA_START_WAVE, STRESS, 
 import { placeTowerQa, qaLog, qaSnapshot, setupStress, stressFrame } from '../qaTools';
 import { Effects } from '../effects';
 import { drawStar, setScreenInfo } from '../screens';
-import { attemptNumber, autoWaveOwned, awardDna, boughtSinceLast, dnaParts, coinsBonus, exposeMetaDebug, feverOwned, finishAttempt, HIDDEN_SCREEN, isLevelBeaten, livesBonus, markSeen, metaDna, metaLevels, metaSeen, nextBigNode, recordResult, refundBonus, rewardMul, shieldCharges, starsForLoss, waveCoinsBonus, type DnaInput, type DnaParts } from '../meta';
+import { attemptNumber, autoWaveOwned, awardDna, boughtSinceLast, dnaParts, coinsBonus, exposeMetaDebug, feverOwned, finishAttempt, HIDDEN_SCREEN, isLevelBeaten, isLevelOpen, livesBonus, markSeen, metaDna, metaLevels, metaSeen, nextBigNode, recordResult, refundBonus, rewardMul, shieldCharges, starsForLoss, waveCoinsBonus, type DnaInput, type DnaParts } from '../meta';
 import { attemptLine, copyText } from '../attempt';
 import { num, t, type TextKey } from '../i18n';
 import { aimAngle, BLOCKED_TILES, EDGES, ENTRANCE_EDGES, LEVEL, PATH_TILES, WORLD, cellKey, useLevelMap, worldToCell } from '../level';
@@ -2344,7 +2344,7 @@ export class GameScene extends Phaser.Scene {
     const upgrades = this.addEndButton(W / 2 + 180, y, w, h, t('upgradesBtn'), 0x2a5c9a, COLORS.gold, () => {
       if (performance.now() >= this.restartAllowedAt) this.scene.start('Upgrades');
     });
-    const hasNext = won && currentLevel() < CONFIG.levels.count;
+    const hasNext = won && currentLevel() < CONFIG.levels.count && isLevelOpen(currentLevel() + 1);
     if (hasNext) {
       this.nextButton = this.addEndButton(W / 2 - 180, y2, w, h, t('nextLevel'), 0x2a8a4a, COLORS.merge, () => {
         if (performance.now() >= this.restartAllowedAt) this.scene.start('Game', { level: currentLevel() + 1 });
