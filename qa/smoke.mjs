@@ -25,7 +25,7 @@
  *   split                  делящаяся: при гибели 2 кокка на том же ребре в 64 px друг от друга, награда 8 и 10+10, без убийства не делится
  *   spore                  спора: глушит башню при подходе ближе 150 px на 3 с (выстрелы стоят), один раз; дальняя башня не глушится
  *   armored                бронированная: броня (урон − броня, не меньше доли armorMinShare от удара: удары 5, 3 и 1), 20 HP, награда, без башен отнимает 2 жизни
- *   intro                  порядок появления типов по таблице волн (уровень 1 — шесть типов; новый тип один и первым); сообщение «Новая бактерия: <название>» и звук для
+ *   intro                  порядок появления типов по таблице волн (уровень 1 — шесть типов; новый тип один и первым); при первом появлении — звук, строки «Новая бактерия» нет (решение владельца 25 октября 2026)
  *                          каждого нового типа, кроме кокка (ru и en), текст целиком в окне
  *   lose-ru, lose-en       потеря жизней, проигрыш (в том числе при работающих башнях: снарядов в полёте не остаётся), блокировка
  *                          перезапуска, перезапуск кнопкой «Заново», утечки (lose-ru — компьютер, lose-en — телефон)
@@ -93,7 +93,7 @@
  *   restart-button         конец уровня (проигрыш и победа, компьютер ru и телефон en): есть кнопка «Заново» (endButton), тапы мимо неё не перезапускают, тап по ней — перезапускает
  *   deflation              economy.rewardMul: ×0,5 — два кокка номиналом 5 дают 2 + 3 = 5 монет (дробная часть копится); ×0,1 — 0 + 1, «+N» всплывает только при N ≥ 1
  *   camera-fit             самое сильное отдаление (считает игра, (считает игра): высота карты × масштаб ≤ высоты окна карты (568), ширина влезает, камера по центру и сдвигом не уводится
- *   almanac                экран «Альманах» из главного меню (?qa&menu; компьютер ru и телефон ru, en один раз на компьютере): кнопка almanac → сцена 'almanac', вкладка «Башни» — по строке на башню таблицы (10), «Бактерии» — по строке на тип таблицы (19), «Назад» → меню
+ *   almanac                экран «Альманах» из главного меню (компьютер ru, телефон ru, компьютер en): новый игрок — открыта только Таблетка, бактерий и боссов 0, закрытые записи «Ещё не встречалось»; после первой попытки — открыты вышедшие на поле виды; с &met=all&towers=all — все записи «Название: описание», боссы — имя; чисел нет; снимки almanac-reset/attempt1/all-…
  *   almanac-pause          «Альманах» с паузы партии (компьютер ru, телефон en): на паузе есть pauseAlmanacButton и pauseMenuButton, тап открывает альманах (сцена 'almanac'), «Назад» возвращает на паузу
  *                          (state 'paused', getState отвечает), тап по экрану возобновляет игру
  *   damage-numbers         числа урона над бактериями: после попаданий башни effects.damageNumbers растёт
@@ -1212,7 +1212,7 @@ async function profileBattle(c) {
     if (s.kills >= 2 && shotTaken) break;
     await sleep(40);
   }
-  check(`${p} после постановки башен внизу только подсказка слияния (две Таблетки рядом) или ничего`, s.ui.hint === null || readI18n('hintMergePair').includes(s.ui.hint), `подсказка: ${JSON.stringify(s.ui.hint)}`);
+  check(`${p} после постановки башен внизу подсказок нет (подсказка слияния убрана 25 октября 2026)`, s.ui.hint === null, `подсказка: ${JSON.stringify(s.ui.hint)}`);
   check(`${p} бой: башни стреляют, бактерии гибнут, за каждую — монеты`, s.shots > 0 && s.kills >= 1 && s.coins === CFG.startCoins - 2 * BASE.price + s.kills * BASE.reward, `выстрелов ${s.shots}, убито ${s.kills}, монет ${s.coins}`);
   check(`${p} бой: звук запущен по касанию и играет`, s.sound.state === 'running' && s.sound.played > 0, JSON.stringify(s.sound));
   check(`${p} бой: отклик — «+монеты» и частицы на каждое убийство`, s.effects.bursts === s.kills && s.effects.popups === s.kills, `частицы ${s.effects.bursts}, «+монеты» ${s.effects.popups}, убито ${s.kills}`);
@@ -2090,41 +2090,31 @@ async function runLoseLine(browser, baseUrl) {
 }
 
 /**
- * Очередь уведомлений (решение владельца 16 октября 2026): ответ на нажатие (тап по закрытой башне: «открывается в древе улучшений») очереди не ждёт — показывается сразу,
- * прерванная новость встаёт в начало очереди и возвращается после него. С пакетом «Уровень 1» (конфликт 3 документа дизайна, принят) «Открыта башня» на старте уровня не показывается:
- * башни открываются узлами древа, уведомление — на экране «Улучшения» при покупке.
+ * Уведомления в бою (решение владельца 25 октября 2026, сообщение 5, п. 3.1): при выходе нового вида строки нет («Новая бактерия» убрана), «Открыта башня» на старте уровня нет;
+ * ответ на неудачное действие (тап по закрытой башне: «открывается в древе улучшений») показывается сразу, очередь пуста.
  */
 async function runToastQueue(browser, baseUrl) {
-  const p = '[очередь уведомлений]';
+  const p = '[уведомления в бою]';
   const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
   const game = await openGame(context, baseUrl, p, { speed: 2, cfg: 'waves.firstDelaySec:90' });
-  const towerNews = readI18n('newTowerToast')[0].replace('{name}', '');
-  const bacNews = readI18n('newBacteriaToast')[0].replace('{name}', '');
   const lockedText = readI18n('hintLockedTree')[0];
   const s0 = await game.state();
-  check(`${p} на старте уровня нет «${towerNews.trim()}» (башни открываются в древе), очередь пуста`, !(s0.toast.text ?? '').startsWith(towerNews) && s0.toast.queued.length === 0, JSON.stringify(s0.toast));
-  // кнопка «Начать волну»: первый кокк выходит сразу — «Новая бактерия»
+  check(`${p} на старте уровня строк нет, очередь пуста`, s0.toast.text === null && s0.toast.queued.length === 0, JSON.stringify(s0.toast));
+  // кнопка «Начать волну»: первый кокк выходит сразу — строки «Новая бактерия» нет, запись кокка в Альманахе открыта (b:coccus среди встреченных)
   await game.input.tap(game.g(s0.ui.waveButton.x, s0.ui.waveButton.y));
-  await waitFor(game.page, (x) => (x.toast.text ?? '').startsWith(bacNews), 20000, `«${bacNews.trim()}» при выходе первого кокка`);
-  // тап по закрытой башне — ответ на нажатие: показан сразу, новость возвращается в начало очереди
-  await game.selectTower('syringe');
-  const s1 = await game.state();
-  check(`${p} тап по закрытой башне: сообщение «${lockedText}» показано сразу, прерванная «${bacNews.trim()}» первая в очереди`,
-    !s1.toast.news && (s1.toast.text ?? '') === lockedText && s1.toast.queued.length === 1 && s1.toast.queued[0].startsWith(bacNews), JSON.stringify(s1.toast));
-  // дальше: ответ гаснет, возвращается «Новая бактерия»; в очереди пусто
-  const seen = [s1.toast.text];
-  const started = Date.now();
-  while (Date.now() - started < 40000) {
-    const s = await game.state();
-    const text = s.toast.text;
-    if (text !== null && seen[seen.length - 1] !== text) seen.push(text);
-    if (text !== null && text.startsWith(bacNews)) break;
+  await waitFor(game.page, (x) => x.introduced.includes('coccus'), 20000, 'выход первого кокка');
+  const shown = new Set();
+  for (let i = 0; i < 25; i++) {
+    const x = await game.state();
+    if (x.toast.text !== null) shown.add(x.toast.text);
+    for (const q of x.toast.queued) shown.add(q);
     await sleep(60);
   }
-  const kinds = seen.map((text) => (text.startsWith(bacNews) ? 'бактерия' : 'ответ'));
-  check(`${p} порядок на экране: ответ → «Новая бактерия» (прерванная новость не потеряна)`, kinds.join(',') === 'ответ,бактерия', `показано: ${JSON.stringify(seen)}`);
-  const s2 = await game.state();
-  check(`${p} очередь пуста, когда показана последняя новость`, s2.toast.queued.length === 0 && s2.toast.news, JSON.stringify(s2.toast));
+  check(`${p} при выходе первого кокка строк нет (показано: ${JSON.stringify([...shown])})`, shown.size === 0, JSON.stringify([...shown]));
+  // тап по закрытой башне — ответ на нажатие показан сразу
+  await game.selectTower('syringe');
+  const s1 = await game.state();
+  check(`${p} тап по закрытой башне: сообщение «${lockedText}» показано сразу, очередь пуста`, (s1.toast.text ?? '') === lockedText && s1.toast.queued.length === 0, JSON.stringify(s1.toast));
   await game.page.close();
   await context.close();
 }
@@ -3180,7 +3170,7 @@ async function runIntro(browser, baseUrl) {
   check(`${p} состав волн из config.ts: вышло ${end.spawned} бактерий (ждали ${planned}), волн ${end.wave} из ${end.waveTotal}, партия окончена победой (без башен все дошли до организма: дошло ${end.leaked}, у матки рождённые на ходу не входят в «вышли»)`, end.spawned === planned && end.wave === TOTAL && end.waveTotal === TOTAL && end.state === 'won' && end.kills === 0 && end.leaked >= planned, `вышло ${end.spawned}, дошло ${end.leaked}, убито ${end.kills}, состояние ${end.state}`);
   await context.close();
 
-  // ---- B. сообщение «Новая бактерия: <название>» и звук при первом появлении (ru и en): все типы, кроме кокка, подряд
+  // ---- B. при первом появлении — звук, строки «Новая бактерия» нет (решение владельца 25 октября 2026, сообщение 5, п. 3.1) (ru и en): все типы, кроме кокка, подряд
   const toastKinds = INTRO_ORDER.filter((k) => k !== 'coccus');
   const only = Object.fromEntries(toastKinds.map((k) => [k, 1]));
   for (const lang of ['ru', 'en']) {
@@ -3194,15 +3184,14 @@ async function runIntro(browser, baseUrl) {
     await pollUntil(g, async (s) => {
       if (s.introduced.length > last.introduced.length) {
         const kind = s.introduced[s.introduced.length - 1];
-        const png = await shot(g.page, `intro-toast-${lang}-${kind}`);
-        const t = await toastPixels(g, png);
-        seen.push({ kind, t, playedDelta: s.sound.played - last.sound.played, soundState: s.sound.state });
+        await shot(g.page, `intro-toast-${lang}-${kind}`);
+        const after = await g.state();
+        seen.push({ kind, toast: after.toast.text, queued: after.toast.queued.length, playedDelta: s.sound.played - last.sound.played, soundState: s.sound.state });
       }
       last = s;
       return seen.length >= toastKinds.length;
     }, 150000, 25);
-    check(`${q} при первом появлении каждого из ${toastKinds.length} новых типов вверху сообщение «Новая бактерия: …» (жёлтые точки текста: ${seen.map((x) => `${x.kind} ${x.t.count}`).join(', ')})`, seen.length === toastKinds.length && seen.every((x) => x.t.count >= 120), seen.map((x) => `${x.kind}: ${x.t.count}`).join(', '));
-    check(`${q} текст каждого сообщения целиком в окне карты (от ${Math.min(...seen.map((x) => x.t.minX))} до ${Math.max(...seen.map((x) => x.t.maxX))} px из 1280)`, seen.length === toastKinds.length && seen.every((x) => x.t.minX >= 10 && x.t.maxX <= 1274), seen.map((x) => `${x.kind}: ${x.t.minX}…${x.t.maxX}`).join('; '));
+    check(`${q} при первом появлении каждого из ${toastKinds.length} новых типов строк вверху нет (${seen.map((x) => `${x.kind}: ${JSON.stringify(x.toast)}`).join(', ')})`, seen.length === toastKinds.length && seen.every((x) => x.toast === null && x.queued === 0), JSON.stringify(seen));
     check(`${q} при первом появлении нового типа играет звук (аудио запущено, sound.played растёт на каждом появлении)`, seen.length === toastKinds.length && seen.every((x) => x.soundState === 'running' && x.playedDelta >= 1), seen.map((x) => `${x.kind}: +${x.playedDelta}`).join(', '));
     await ctx.close();
   }
@@ -6737,8 +6726,8 @@ function cardTexts() {
   const cap = (id) => id.charAt(0).toUpperCase() + id.slice(1);
   const ids = TOWER_IDS.flatMap((tw) => S4.mutations[tw].flat().map((m) => m.id));
   const keys = [
-    'cardLevel', 'cardMerge', 'cardMergeCancel', 'cardNoPair', 'cardMaxLevel', 'cardSell', 'cardMutations', 'statDps', 'statCooldown', 'statRange', 'statPuddle', 'statSlow',
-    'statBlast', 'blastLimitNote', 'statBeam', 'statBeams', 'statPoison', 'statCone', 'statAura', 'statFreeze', 'statTrap', 'statCooldownLatched', 'statAuraLatched', 'hintMerge', 'toastMerged', 'toastPickMutation', 'toastSold',
+    'cardLevel', 'cardMerge', 'cardMergeCancel', 'cardNoPair', 'cardMaxLevel', 'cardSell', 'cardMutations', 'statHit', 'statBeamHit', 'statCooldown', 'statRange', 'statPuddle', 'statSlow',
+    'statBlast', 'statBeam', 'statBeams', 'statPoison', 'statCone', 'statAura', 'statFreeze', 'statTrap', 'statCooldownLatched', 'statAuraLatched',
     ...ids.flatMap((id) => [`mut${cap(id)}`, `mutd${cap(id)}`]),
   ];
   const rows = keys.map((k) => {
@@ -6755,7 +6744,7 @@ function cardTexts() {
   const bad = rows.filter((r) => r.ok && (!r.ru.trim() || !r.en.trim() || r.ru === r.en || !cyr.test(r.ru) || cyr.test(r.en)));
   check(`${p} русские строки по-русски, английские по-английски, не пустые и различаются`, bad.length === 0, bad.map((r) => `${r.k}: «${r.ru}» / «${r.en}»`).join('; '));
   const holes = {
-    cardLevel: ['{n}', '{max}'], cardSell: ['{n}'], toastMerged: ['{n}'], toastSold: ['{n}'], statDps: ['{n}'], statCooldown: ['{n}'], statRange: ['{n}'], statPuddle: ['{r}', '{s}'], statSlow: ['{n}'], statBlast: ['{r}'], blastLimitNote: ['{n}', '{m}'], statBeam: ['{n}'], statBeams: ['{n}'], statPoison: ['{n}', '{s}'], statCone: ['{a}', '{r}'], statAura: ['{n}'], statFreeze: ['{n}'], statTrap: ['{s}', '{n}'], statCooldownLatched: ['{n}', '{m}'], statAuraLatched: ['{n}'], mutdSyringeSpiral: ['{n}'],
+    cardLevel: ['{n}', '{max}'], cardSell: ['{n}'], statHit: ['{n}'], statBeamHit: ['{n}', '{k}'], statCooldown: ['{n}'], statRange: ['{n}'], statPuddle: ['{r}', '{s}'], statSlow: ['{n}'], statBlast: ['{r}'], statBeam: ['{n}'], statBeams: ['{n}'], statPoison: ['{n}', '{s}'], statCone: ['{a}', '{r}'], statAura: ['{n}'], statFreeze: ['{n}'], statTrap: ['{s}', '{n}'], statCooldownLatched: ['{n}', '{m}'], statAuraLatched: ['{n}'], mutdSyringeSpiral: ['{n}'],
   };
   const noHole = rows.filter((r) => r.ok && holes[r.k] && !holes[r.k].every((h) => r.ru.includes(h) && r.en.includes(h))).map((r) => r.k);
   check(`${p} строки со вставками (${Object.keys(holes).join(', ')}) содержат вставки на обоих языках`, noHole.length === 0, noHole.join(', '));
@@ -7008,19 +6997,18 @@ async function mergeFlow(browser, baseUrl) {
   const price = TW.pill.price;
   await placeAt(game, 'pill', A);
   let s = await game.state();
-  const pairText = readI18n('hintMergePair')[0];
-  check(`${p} разовая подсказка: с одной Таблеткой пары нет — подсказки о слиянии нет (пара не мигает)`, s.mergeHint.length === 0 && s.ui.hint !== pairText, `подсказка ${JSON.stringify(s.ui.hint)}, пара ${JSON.stringify(s.mergeHint)}`);
+  // разовой подсказки слияния нет (решение владельца 25 октября 2026, сообщение 5, п. 3.1): внизу пусто, пара не мигает
+  check(`${p} с одной Таблеткой подсказки внизу нет, пара не мигает`, s.mergeHint.length === 0 && s.ui.hint === null, `подсказка ${JSON.stringify(s.ui.hint)}, пара ${JSON.stringify(s.mergeHint)}`);
   await placeAt(game, 'pill', B);
   s = await game.state();
-  check(`${p} разовая подсказка: две одинаковые Таблетки рядом — внизу «${pairText}», пара мигает (${s.mergeHint.length} башни)`, s.ui.hint === pairText && s.mergeHint.length === 2 && s.mergeHint.every((c) => cellEq(c, A) || cellEq(c, B)), `подсказка ${JSON.stringify(s.ui.hint)}, пара ${JSON.stringify(s.mergeHint)}`);
+  check(`${p} две одинаковые Таблетки рядом: подсказки внизу нет, пара не мигает`, s.ui.hint === null && s.mergeHint.length === 0, `подсказка ${JSON.stringify(s.ui.hint)}, пара ${JSON.stringify(s.mergeHint)}`);
   await placeAt(game, 'fizz', C);
   s = await game.state();
   const coins0 = s.coins;
   const placements0 = s.effects.placements;
-  check(`${p} разовая подсказка: Шипучка в пару не входит (мигают по-прежнему две Таблетки)`, s.mergeHint.length === 2 && s.mergeHint.every((c) => cellEq(c, A) || cellEq(c, B)), `пара ${JSON.stringify(s.mergeHint)}`);
 
   s = await selectPlaced(game, A);
-  check(`${p} у выбранной башни подсказка о слиянии внизу пропадает (в карточке уже горит «Слить»), а пока слияние не включали — пара продолжает мигать`, s.ui.hint !== pairText && s.mergeHint.length === 2, `подсказка ${JSON.stringify(s.ui.hint)}, пара ${JSON.stringify(s.mergeHint)}`);
+  check(`${p} у выбранной башни подсказки внизу нет`, s.ui.hint === null && s.mergeHint.length === 0, `подсказка ${JSON.stringify(s.ui.hint)}`);
   check(`${p} у Таблетки при другой Таблетке того же уровня «Слить» доступна`, s.ui.card.visible && s.ui.card.merge.enabled);
   s = await selectPlaced(game, C);
   check(`${p} у Шипучки (другого вида пары нет: Таблетка ей не пара) «Слить» недоступна`, s.ui.card.visible && !s.ui.card.merge.enabled);
@@ -7034,7 +7022,7 @@ async function mergeFlow(browser, baseUrl) {
   await shot(game.page, 'merge-01-mode');
   s = await tapCard(game, 'merge');
   check(`${p} повторный тап по той же кнопке («Отмена») выключает режим; башня осталась выбранной`, !s.mergeMode && selectedIs(s, A) && s.merges === 0);
-  check(`${p} после первого нажатия «Слить» разовая подсказка больше не показывается (внизу нет «${pairText}», пара не мигает), хотя пара осталась`, s.ui.hint !== pairText && s.mergeHint.length === 0, `подсказка ${JSON.stringify(s.ui.hint)}, пара ${JSON.stringify(s.mergeHint)}`);
+  check(`${p} после «Отмена» подсказки внизу нет`, s.ui.hint === null && s.mergeHint.length === 0, `подсказка ${JSON.stringify(s.ui.hint)}`);
   await tapCard(game, 'merge');
   await game.tapCell(...C);
   s = await game.state();
@@ -7385,8 +7373,8 @@ async function specialTwin(context, baseUrl) {
 }
 
 /**
- * Карточка показывает то, что будет в бою (по рецензии 18 октября 2026): «Урон в секунду» — по одной цели, со «Спиралью» (каждый следующий удар очереди сильнее на spiral × множитель урона уровня) и с аурой Витамина
- * (пауза короче в auraMul раз); описание «Спирали» называет настоящую прибавку; «Бронебойная» (работает один раз) выбрана дважды — без «×2», а «Скорострел» (складывается) — «×2».
+ * Карточка показывает то, что будет в бою: у Шприца — урон удара и число ударов (решение владельца 25 октября 2026, сообщение 5, п. 3.2; прибавка «Спирали» — в её описании);
+ * с аурой Витамина урон удара тот же, пауза короче в auraMul раз; описание «Спирали» называет настоящую прибавку; «Бронебойная» (работает один раз) выбрана дважды — без «×2», а «Скорострел» (складывается) — «×2».
  */
 async function specialCard(context, baseUrl) {
   const p = '[карточка: числа и мутации как в бою]';
@@ -7415,17 +7403,11 @@ async function specialCard(context, baseUrl) {
     const tw = towerIn(s, cell);
     if (!tw.picks.includes(spec.id)) throw new Error(`«Спираль» не выбралась: ${tw.picks.join(', ')}`);
     if (!(selectedIs(s, cell) && s.ui.card.visible)) s = await selectPlaced(game, cell);
-    const dpsOf = (t) => {
-      const lvl = S4.levels[t.level - 1];
-      const pulses = Math.max(1, t.stats.beamPulses);
-      const step = spec.spiral * lvl.damageMul;
-      return { perShot: pulses * t.stats.damage + (step * pulses * (pulses - 1)) / 2, plain: pulses * t.stats.damage, pause: (t.stats.cooldownMs / 1000) * t.auraMul * t.latchMul, pulses };
-    };
-    const a = dpsOf(tw);
-    const wantA = a.perShot / a.pause;
-    const gotA = first(s.ui.card.lines.stats[0]);
-    check(`${p} Шприц ${tw.level} уровня с ${a.pulses} ударами и «Спиралью»: «${s.ui.card.lines.stats[0]}» = ${r1(wantA)} (с прибавкой к каждому следующему удару; без неё было бы ${r1(a.plain / a.pause)})`, Math.abs(gotA - wantA) <= 0.06 && wantA > (a.plain / a.pause) * 1.05, `на карточке ${gotA}, ждали ${wantA}, строки ${JSON.stringify(s.ui.card.lines.stats)}`);
-    // Витамин рядом: пауза короче, урон в секунду на карточке растёт во столько же раз
+    const hitLine = s.ui.card.lines.stats[0] ?? '';
+    const pulsesA = Math.max(1, tw.stats.beamPulses);
+    check(`${p} Шприц ${tw.level} уровня со «Спиралью»: первая строка «${hitLine}» — урон удара ${r1(tw.stats.damage)} и ${pulsesA} ударов (урона в секунду нет)`,
+      Math.abs(first(hitLine) - r1(tw.stats.damage)) <= 0.06 && hitLine.includes(String(pulsesA)) && !hitLine.includes('{'), JSON.stringify(s.ui.card.lines.stats));
+    // Витамин рядом: пауза короче, урон удара на карточке тот же
     const reach = TW.vitamin.range;
     const spot2 = freeCellsNear(cell, Math.min(reach * 0.9, MERGE_RADIUS * 0.9), [helper])[0];
     if (!spot2) throw new Error('рядом со Шприцом нет свободной клетки для Витамина');
@@ -7437,12 +7419,11 @@ async function specialCard(context, baseUrl) {
     }
     s = await selectPlaced(game, cell);
     const tw2 = towerIn(s, cell);
-    const b = dpsOf(tw2);
-    const wantB = b.perShot / b.pause;
     const gotB = first(s.ui.card.lines.stats[0]);
-    check(`${p} Витамин рядом: пауза ×${f2(tw2.auraMul)} (в бою), «${s.ui.card.lines.stats[0]}» = ${r1(wantB)} (было ${r1(wantA)})`, tw2.auraMul < 1 && Math.abs(gotB - wantB) <= 0.06 && wantB > wantA * 1.05, `auraMul ${tw2.auraMul}, на карточке ${gotB}, ждали ${wantB}`);
+    check(`${p} Витамин рядом: пауза ×${f2(tw2.auraMul)} (в бою), урон удара на карточке прежний: «${s.ui.card.lines.stats[0]}» = ${r1(tw2.stats.damage)}`, tw2.auraMul < 1 && Math.abs(gotB - r1(tw2.stats.damage)) <= 0.06, `auraMul ${tw2.auraMul}, на карточке ${gotB}`);
+    const b = { pause: (tw2.stats.cooldownMs / 1000) * tw2.auraMul * tw2.latchMul };
     // Строка «Пауза» — та же действующая пауза, по которой считается урон в секунду, с пометкой «(×m, Витамин)», как у паразита (решение владельца 20 октября 2026, сообщение 2, п. 1.6)
-    const pauseLine = s.ui.card.lines.stats[2] ?? '';
+    const pauseLine = s.ui.card.lines.stats[s.ui.card.lines.stats.length - 1] ?? '';
     const pauseWant = r1(b.pause);
     const vitName = readI18n('towerVitamin')[0];
     check(`${p} Витамин рядом: строка паузы «${pauseLine}» — действующая пауза ${ru1(pauseWant)} с (${f2(tw2.stats.cooldownMs / 1000)} × ${f2(tw2.auraMul)}), с множителем «×» и пометкой «${vitName}»`,
@@ -9284,22 +9265,30 @@ async function waitUiWhere(page, predicate, timeoutMs, label) {
   throw new Error(`Не дождались: ${label}`);
 }
 
-/** Строки альманаха, которые должна показать игра: «Название: короткое описание» по таблице башен или типов (тексты из i18n.ts). */
-function almanacRows(tab, li) {
-  const ids = tab === 'towers' ? TOWER_ORDER : KINDS;
-  return ids.map((id) => ({ name: readI18n(tab === 'towers' ? `tower${capId(id)}` : `bacName${capId(id)}`)[li], line: readI18n(tab === 'towers' ? `almTower${capId(id)}` : `almBac${capId(id)}`)[li] }));
+/** Боссы в порядке таблицы `bosses` в config.ts (вкладка «Боссы» Альманаха). */
+function readBossIds() {
+  const src = fs.readFileSync(path.join(ROOT, 'src/config.ts'), 'utf8');
+  const start = src.indexOf('\n  bosses: {');
+  const block = src.slice(start, src.indexOf('\n  },', start));
+  return [...block.matchAll(/^ {4}(\w+): \{ base:/gm)].map((m) => m[1]);
 }
-const rowsMatch = (texts, rows) => texts.length === rows.length && rows.every((r, i) => texts[i].startsWith(`${r.name}: `) && texts[i].length > r.name.length + 2);
+const BOSS_IDS = readBossIds();
+
 /**
- * Вкладка «Бактерии» (пакет «Уровень 1», раздел 9 документа дизайна): виды открытых уровней — «Название: описание», остальные — силуэт «???: Ещё не встречалась».
- * У нового игрока открыт уровень 1: его виды (план волн — смесь и стены) обязаны быть названы.
+ * Строки альманаха, которые должна показать игра (решение владельца 25 октября 2026, сообщение 5, п. 2): открытая башня и бактерия — «Название: короткое описание»,
+ * открытый босс — только имя, закрытая запись — только «Ещё не встречалось». `open(id)` — открыта ли запись.
  */
-function bacteriaRowsMatch(texts, li) {
-  const rows = almanacRows('bacteria', li);
-  const closed = `${readI18n('almUnknown')[li]}: ${readI18n('almBacClosed')[li]}`;
-  const level1 = new Set(PLAN.flatMap((w) => [...Object.keys(w.mix), ...(w.wall ? [w.wall[0]] : [])]));
-  return texts.length === rows.length && rows.every((r, i) => (texts[i].startsWith(`${r.name}: `) && texts[i].length > r.name.length + 2) || (!level1.has(KINDS[i]) && texts[i] === closed));
+function almanacRows(tab, li, open = () => true) {
+  const ids = tab === 'towers' ? TOWER_ORDER : tab === 'bacteria' ? KINDS : BOSS_IDS;
+  const closed = readI18n('almBacClosed')[li];
+  return ids.map((id) => {
+    if (!open(id)) return closed;
+    if (tab === 'bosses') return readI18n(`boss${capId(id)}`)[li];
+    const name = readI18n(tab === 'towers' ? `tower${capId(id)}` : `bacName${capId(id)}`)[li];
+    return `${name}: ${readI18n(tab === 'towers' ? `almTower${capId(id)}` : `almBac${capId(id)}`)[li]}`;
+  });
 }
+const rowsMatch = (texts, rows) => texts.length === rows.length && rows.every((r, i) => texts[i] === r);
 
 /**
  * Строка итога попытки (решение владельца 18 октября 2026, ответ 7; src/attempt.ts): после быстрого проигрыша на уровне 1 строка начинается с «ТПБ <версия> | У1 | п.1 | гибель N/30 | жизни 0/M»,
@@ -9626,34 +9615,62 @@ async function runAlmanac(browser, baseUrl) {
       check(`${p} запись в обе стороны: ${kind} в «сильна против» у ${tower} — ${strong.includes(kind)}, ${tower} в «бьют» у ${kind} — ${by.includes(tower)}`, strong.includes(kind) && by.includes(tower), JSON.stringify({ strong, by }));
     }
   }
+  // ---- только встреченное, без чисел (решение владельца 25 октября 2026, сообщение 5, п. 2): после сброса, после первой попытки и со всеми открытыми записями (&met=all&towers=all)
   for (const [deviceKey, lang] of [['desktop', 'ru'], ['phone', 'ru'], ['desktop', 'en']]) {
     const device = VIEWPORTS[deviceKey];
     const p = `[альманах, ${device.label}, ${lang}]`;
     const li = lang === 'ru' ? 0 : 1;
     const context = await newDeviceContext(browser, device, lang);
+    /** Открывает вкладку и ждёт её строки (по числу записей). */
+    const openTab = async (page, g, u, tab) => {
+      const count = tab === 'towers' ? TOWER_ORDER.length : tab === 'bacteria' ? KINDS.length : BOSS_IDS.length;
+      await g(u.buttons[tab]);
+      return waitUiWhere(page, (x) => x && x.scene === 'almanac' && x.texts.length === count && (tab !== 'towers' || x.texts.some((r) => r.startsWith(readI18n('towerPill')[li]))), 5000, `вкладка «${tab}»`).catch(async () => (await uiOf(page)) ?? { scene: 'нет экрана', texts: [], buttons: u.buttons });
+    };
+    /** Три вкладки: строки по `open` и снимки `almanac-<имя>-<вкладка>-…`. */
+    const checkTabs = async (page, g, label, shotName, open) => {
+      let u = await waitUiWhere(page, (x) => x && x.scene === 'almanac', 10000, 'экран «Альманах»');
+      for (const tab of ['towers', 'bacteria', 'bosses']) {
+        if (tab !== 'towers') u = await openTab(page, g, u, tab);
+        const want = almanacRows(tab, li, (id) => open(tab, id));
+        check(`${p} ${label}, вкладка «${tab}»: ${want.filter((r) => r !== readI18n('almBacClosed')[li]).length} открытых записей из ${want.length}, закрытые — только «${readI18n('almBacClosed')[li]}», чисел нет`,
+          u.scene === 'almanac' && rowsMatch(u.texts, want) && !u.texts.some((r) => /\d/.test(r)), `экран ${u.scene}: ${JSON.stringify(u.texts).slice(0, 400)}`);
+        await frames(page, 3);
+        await shot(page, `almanac-${shotName}-${tab}-${deviceKey}-${lang}`);
+      }
+      return u;
+    };
+    // 1) новый игрок (после сброса прогресса — то же пустое сохранение): открыта только Таблетка, бактерий и боссов — 0
     const app = await openMenu(context, baseUrl, p, { isTouch: device.hasTouch });
     let u = await app.ui();
     check(`${p} в главном меню есть кнопка «Альманах» (внутри экрана, не налезает на «Играть» и «Улучшения»)`, Boolean(u.buttons.almanac) && insideScreen(u.buttons.almanac) && !overlaps(u.buttons.almanac, u.buttons.play) && !overlaps(u.buttons.almanac, u.buttons.upgrades), JSON.stringify(u.buttons));
     await app.tapRect(u.buttons.almanac);
-    u = await app.waitUi('almanac', 'экран «Альманах»');
-    // Первая вкладка — «Башни»: по строке на башню
-    const towerRows = almanacRows('towers', li);
-    check(`${p} вкладка «Башни»: ${TOWER_ORDER.length} строк (${TOWER_ORDER.join(', ')}), каждая «Название: описание» из i18n.ts`, rowsMatch(u.texts, towerRows), JSON.stringify(u.texts));
-    check(`${p} кнопки «Назад», «Башни» и «Бактерии» внутри экрана и не налезают друг на друга`, [u.buttons.back, u.buttons.towers, u.buttons.bacteria].every(insideScreen) && !overlaps(u.buttons.back, u.buttons.towers) && !overlaps(u.buttons.towers, u.buttons.bacteria) && !overlaps(u.buttons.back, u.buttons.bacteria), JSON.stringify(u.buttons));
-    await frames(app.page, 3);
-    await shot(app.page, `almanac-towers-${deviceKey}-${lang}`);
-    await app.tapRect(u.buttons.bacteria);
-    u = await waitUiWhere(app.page, (x) => x && x.scene === 'almanac' && x.texts.length === KINDS.length, 5000, 'вкладка «Бактерии» (строки сменились)').catch(async () => (await app.ui()) ?? { scene: 'нет экрана', texts: [] });
-    check(`${p} вкладка «Бактерии»: ${KINDS.length} строк, «Название: описание» из i18n.ts; виды уровня 1 названы, остальные — «???»`, u.scene === 'almanac' && bacteriaRowsMatch(u.texts, li), `экран ${u.scene}, строк ${u.texts.length}: ${JSON.stringify(u.texts).slice(0, 300)}`);
-    await frames(app.page, 3);
-    await shot(app.page, `almanac-bacteria-${deviceKey}-${lang}`);
-    // Обратно на «Башни», затем «Назад» в меню
-    await app.tapRect(u.buttons.towers);
-    u = await waitUiWhere(app.page, (x) => x && x.scene === 'almanac' && x.texts.length === TOWER_ORDER.length, 5000, 'вкладка «Башни» снова').catch(async () => (await app.ui()) ?? { scene: 'нет экрана', texts: [] });
-    check(`${p} тап по вкладке «Башни» возвращает ${TOWER_ORDER.length} строк башен`, u.scene === 'almanac' && rowsMatch(u.texts, towerRows), `экран ${u.scene}, строк ${u.texts.length}`);
+    u = await checkTabs(app.page, app.tapRect, 'новый игрок', 'reset', (tab, id) => tab === 'towers' && id === 'pill');
+    check(`${p} кнопки «Назад», «Башни», «Бактерии» и «Боссы» внутри экрана и не налезают друг на друга`, [u.buttons.back, u.buttons.towers, u.buttons.bacteria, u.buttons.bosses].every(insideScreen) && !overlaps(u.buttons.back, u.buttons.towers) && !overlaps(u.buttons.towers, u.buttons.bacteria) && !overlaps(u.buttons.bacteria, u.buttons.bosses), JSON.stringify(u.buttons));
     await app.tapRect(u.buttons.back);
     u = await app.waitUi('menu', 'меню после «Назад» из альманаха');
     check(`${p} «Назад» с альманаха ведёт в главное меню`, u.scene === 'menu', '');
+    await app.page.close();
+    // 2) после первой попытки: проигрыш на уровне 1, «В меню», «Альманах» — открыты бактерии, вышедшие на поле, боссов нет
+    const game = await openGame(context, baseUrl, `${p} первая попытка`, { speed: 4, cfg: 'lives.start:1,waves.firstDelaySec:1,bacteria.baseSpeed:250', isTouch: device.hasTouch });
+    let s = await waitFor(game.page, (x) => x.state === 'lost', WAIT_MS, 'проигрыш первой попытки');
+    const met = new Set(s.introduced);
+    await sleep(CFG.restartLockMs + 250);
+    await game.input.tap(game.g(s.menuButton.x, s.menuButton.y));
+    u = await waitUiWhere(game.page, (x) => x && x.scene === 'menu', 15000, 'меню после проигрыша');
+    await game.input.tap(game.g(u.buttons.almanac.x, u.buttons.almanac.y));
+    const gameTap = async (r) => {
+      await game.input.tap(game.g(r.x, r.y));
+      await settle();
+    };
+    check(`${p} за первую попытку на поле вышли виды: ${[...met].join(', ')}`, met.size > 0, JSON.stringify(s.introduced));
+    await checkTabs(game.page, gameTap, `после первой попытки (встречены ${[...met].join(', ')})`, 'attempt1', (tab, id) => (tab === 'towers' ? id === 'pill' : tab === 'bacteria' ? met.has(id) : false));
+    await game.page.close();
+    // 3) всё встречено и все башни куплены: строки «Название: описание», у боссов — только имя
+    const all = await openMenu(context, baseUrl, `${p} всё открыто`, { query: '&met=all&towers=all', isTouch: device.hasTouch });
+    u = await all.ui();
+    await all.tapRect(u.buttons.almanac);
+    await checkTabs(all.page, all.tapRect, 'всё встречено', 'all', () => true);
     await context.close();
   }
 }
@@ -9702,7 +9719,7 @@ async function runAlmanacPause(browser, baseUrl) {
         if (s.state !== 'paused') throw new Error(`после тапа по «Альманах» игра не на паузе: ${s.state}`);
       }
     }
-    check(`${p} тап по «Альманах» на паузе открывает экран альманаха: вкладка «Башни», ${TOWER_ORDER.length} строк`, u.scene === 'almanac' && rowsMatch(u.texts, almanacRows('towers', li)), JSON.stringify(u.texts));
+    check(`${p} тап по «Альманах» на паузе открывает экран альманаха: вкладка «Башни», ${TOWER_ORDER.length} строк`, u.scene === 'almanac' && rowsMatch(u.texts, almanacRows('towers', li, (id) => id === 'pill')), JSON.stringify(u.texts));
     await frames(page, 3);
     await shot(page, `almanac-pause-open-${deviceKey}-${lang}`);
     // Вкладка «Бактерии» работает и поверх партии
@@ -9824,8 +9841,7 @@ async function runMenuReset(browser, baseUrl) {
     u = await app.waitUi('menu', 'меню после «Отмена»');
     const afterCancel = await page.evaluate(() => JSON.parse(window.localStorage.getItem('pvb.meta5')));
     check(`${p} «Отмена» закрывает окно и ничего не меняет: очки ДНК ${afterCancel.dna}, звёзды уровня 1: ${afterCancel.progress.stars[0]}`, !u.buttons.resetYes && afterCancel.dna === 77 && afterCancel.progress.stars[0] === 2 && u.texts.includes(balanceText(77)), JSON.stringify(u.texts));
-    // уведомление «Новая бактерия» — один раз для игрока (решение владельца 18 октября 2026): до сброса, когда о кокке уже известно (b:coccus в сохранении), оно при выходе кокка не показывается
-    const bacNews = readI18n('newBacteriaToast')[li].replace('{name}', '');
+    // уведомлений «Новая бактерия» в бою нет (решение владельца 25 октября 2026, сообщение 5, п. 3.1); встреча вида записывается в сохранение (b:вид) для Альманаха и после сброса начинается заново
     const startAndSpawn = async (label) => {
       const g = await openGame(context, baseUrl, `${p} ${label}`, { speed: 2, cfg: 'waves.firstDelaySec:600', query: '&persistseen', isTouch: device.hasTouch });
       const s0 = await g.state();
@@ -9841,12 +9857,13 @@ async function runMenuReset(browser, baseUrl) {
         await sleep(60);
       }
       const startToast = s0.toast.text;
+      const seenAfter = await g.page.evaluate(() => JSON.parse(window.localStorage.getItem('pvb.meta5') ?? '{}').seen ?? []);
       await g.page.close();
-      return { startToast, shown: [...shownTexts] };
+      return { startToast, shown: [...shownTexts], seenAfter };
     };
     await page.evaluate(() => window.localStorage.setItem('pvb.meta5', JSON.stringify({ v: 3, dna: 77, levels: { damage: 2 }, progress: { stars: [2], best: [30] }, seen: ['t:pill', 't:syrup', 'b:coccus'] })));
     const beforeReset = await startAndSpawn('до сброса');
-    check(`${p} до сброса о кокке уже известно: при его выходе «${bacNews.trim()}» не показывается (показано: ${JSON.stringify(beforeReset.shown)})`, !beforeReset.shown.some((text) => text.startsWith(bacNews)), JSON.stringify(beforeReset));
+    check(`${p} до сброса о кокке уже известно: при его выходе строк нет (показано: ${JSON.stringify(beforeReset.shown)})`, beforeReset.startToast === null && beforeReset.shown.length === 0, JSON.stringify(beforeReset));
     // «Да, сбросить»
     await page.evaluate(() => window.localStorage.setItem('pvb.meta5', JSON.stringify({ v: 3, dna: 77, levels: { damage: 2 }, progress: { stars: [2], best: [30] }, seen: ['t:pill'] })));
     await page.reload({ waitUntil: 'load' });
@@ -9869,10 +9886,8 @@ async function runMenuReset(browser, baseUrl) {
     await app.tapRect(u.buttons.resetYes);
     await sleep(600);
     await app.waitUi('menu', 'меню после второго сброса');
-    const towerNewsText = readI18n('newTowerToast')[li].replace('{name}', '');
     const afterReset = await startAndSpawn('после сброса');
-    // «Открыта башня» на старте уровня не показывается (пакет «Уровень 1», конфликт 3: уведомление — на экране «Улучшения» при покупке узла башни)
-    check(`${p} после «${readI18n('resetYes')[li]}» уведомления показываются снова, как у нового игрока: при выходе кокка «${bacNews.trim()}»; на старте «${towerNewsText.trim()}» нет (показано: ${JSON.stringify(afterReset.shown)})`, !(afterReset.startToast ?? '').startsWith(towerNewsText) && afterReset.shown.some((text) => text.startsWith(bacNews)), JSON.stringify(afterReset));
+    check(`${p} после «${readI18n('resetYes')[li]}» встреча кокка записана заново (b:coccus в сохранении: ${afterReset.seenAfter.includes('b:coccus')}), строк в бою нет (показано: ${JSON.stringify(afterReset.shown)})`, afterReset.startToast === null && afterReset.shown.length === 0 && afterReset.seenAfter.includes('b:coccus'), JSON.stringify(afterReset));
     await context.close();
   }
 }
