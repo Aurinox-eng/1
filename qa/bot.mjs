@@ -1552,6 +1552,9 @@ async function playGame(browser, baseUrl, run, metaLevels = null, salt = '', lev
     // 3) главный цикл
     const bad = new Set(); // клетки, где не вышло
     const waveSeen = { wave: 0 };
+    // Опыт башен (замер 6.6, решение владельца 25 октября 2026): на начале волн 10/20/30/40/50 и в конце партии — [вид, столбец, ряд, уровень, опыт] каждой башни; поведение бота не меняется
+    const xpByWave = {};
+    const xpSnapshot = (st) => st.towers.map((tw) => [tw.id, tw.col, tw.row, tw.level, Math.round((tw.xp ?? 0) * 100) / 100]);
     const timeline = [];
     // Журнал волны (план переработки баланса, 18 октября 2026): сколько HP вышло в волне, за сколько игровых секунд после выхода последней бактерии поле опустело, «бумажный» урон обороны
     // (урон × удары в очереди луча / настоящая пауза, по одной цели), сколько бактерий было на карте одновременно; пишется в запись волны при переходе к следующей.
@@ -1618,6 +1621,7 @@ async function playGame(browser, baseUrl, run, metaLevels = null, salt = '', lev
         if (prev) Object.assign(prev, { hpSpawned: Math.round(ws.hp), clearSec: ws.clearT === null ? null : Math.round((ws.clearT - ws.startT) * 10) / 10, maxOnMap: ws.maxOnMap, builds: record.builds.length - ws.buildsAt });
         ws = { hp: 0, startT: s.elapsed, clearT: null, maxOnMap: 0, buildsAt: record.builds.length };
         waveSeen.wave = s.wave;
+        if ([10, 20, 30, 40, 50].includes(s.wave)) xpByWave[s.wave] = xpSnapshot(s);
         timeline.push({ wave: s.wave, t: Math.round(s.elapsed), coins: s.coins, towers: s.towers.length, lives: s.lives, dps: Math.round(paperDps(s) * 10) / 10, merges: record.merges, picks: record.picks });
       }
       for (const b of s.bacteria) {
@@ -1710,12 +1714,14 @@ async function playGame(browser, baseUrl, run, metaLevels = null, salt = '', lev
       const tail = timeline[timeline.length - 1];
       if (tail && tail.hpSpawned === undefined) Object.assign(tail, { hpSpawned: Math.round(ws.hp), clearSec: ws.clearT === null ? null : Math.round((ws.clearT - ws.startT) * 10) / 10, maxOnMap: ws.maxOnMap, builds: record.builds.length - ws.buildsAt });
     }
+    xpByWave.end = xpSnapshot(last);
     const counts = {};
     for (const id of KNOWN_TOWERS) counts[id] = last.towers.filter((tw) => tw.id === id).length;
     const startCoins = (last.plan?.startCoins ?? cfgGet('economy.startCoins') ?? readConfigNumber('economy', 'startCoins')) + (metaLevels ? (metaLevels.coins ?? 0) * META.upgrades.coins.perLevel : 0); // уровень нового формата — монеты плана (200)
     return {
       profile,
       strategy: STRATEGY_LABEL,
+      xpByWave,
       run,
       result,
       wave: last.wave,

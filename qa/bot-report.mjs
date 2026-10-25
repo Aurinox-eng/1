@@ -317,6 +317,45 @@ if (ladderResults.length) {
   lines.push('');
 }
 
+function chunkResultsEarly() {
+  const out = [];
+  if (args.chunks && args.chunks !== true && fs.existsSync(String(args.chunks))) {
+    for (const file of findJson(String(args.chunks))) {
+      try {
+        const data = JSON.parse(fs.readFileSync(file, 'utf8'));
+        if (data?.ladder && Array.isArray(data.games)) out.push(data);
+      } catch {
+        /* не результат бота — пропускаем */
+      }
+    }
+  }
+  return out;
+}
+
+// ------------------------------------------------------------------ опыт башен (замер 6.6, решение владельца 25 октября 2026)
+{
+  // у каждой партии — xpByWave: на начале волн 10/20/30/40/50 и в конце [вид, столбец, ряд, уровень, опыт] каждой башни; лучшая башня — с наибольшим опытом (Витамин в счёт не идёт: его опыт — доля чужого)
+  const xpGames = [];
+  for (const g of orderedGroups) g.games.forEach((game, i) => xpGames.push({ who: `${titleOf(g.profile)} — ${variant(g)}`, label: `партия ${i + 1}`, game }));
+  for (const r of [...chunkResultsEarly(), ...ladderResults]) for (const game of r.games) xpGames.push({ who: titleOf(who(game)), label: `дорожка ${game.run}, уровень ${game.ladderLevel ?? '?'}, партия ${game.ladderGame ?? '?'}`, game });
+  const withXp = xpGames.filter((x) => x.game.xpByWave);
+  if (withXp.length) {
+    const cols = ['10', '20', '30', '40', '50', 'end'];
+    const best = (list) => {
+      const own = (list ?? []).filter(([id]) => id !== 'vitamin');
+      if (!own.length) return '—';
+      const top = own.reduce((a, b) => (b[4] > a[4] ? b : a));
+      return `${SHORT[top[0]] ?? top[0]} ур.${top[3]} ${f1(top[4])}`;
+    };
+    lines.push('### Опыт лучшей башни к 10/20/30/40/50-й волне (на начале волны) и в конце партии: вид, уровень, опыт (Витамин не учтён)');
+    lines.push('');
+    lines.push(`| Стратегия | Партия | Итог | ${cols.map((c) => (c === 'end' ? 'Конец' : `${c}-я`)).join(' | ')} |`);
+    lines.push(`|---|---|---|${cols.map(() => '---').join('|')}|`);
+    for (const x of withXp) lines.push(`| ${esc(x.who)} | ${x.label} | ${x.game.result === 'won' ? 'победа' : `гибель на ${x.game.wave}-й`} | ${cols.map((c) => best(x.game.xpByWave[c])).join(' | ')} |`);
+    lines.push('');
+  }
+}
+
 // ------------------------------------------------------------------ проблемы
 const problems = [];
 for (const g of orderedGroups) {

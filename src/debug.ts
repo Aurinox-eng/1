@@ -229,6 +229,8 @@ export interface DebugSnapshot {
     level: number;
     picks: string[];
     pending: number | null;
+    /** Опыт башни в партии (очки за бактерий, погибших в её зоне; Витамин — доля опыта башен в ауре). */
+    xp: number;
     /** Стоит ли башня в облаке токсина (не стреляет) и множитель паузы от ауры Витамина рядом (1 — нет). */
     suppressed: boolean;
     auraMul: number;
@@ -346,7 +348,7 @@ export interface DebugApi {
   cellToClient: (col: number, row: number) => { x: number; y: number };
   /** Сдвинуть список башен в нижней панели так, чтобы карточка этой башни была видна (проверки и бот нажимают на карточки по координатам). */
   revealTower: (id: string) => void;
-  /** Поставить башню вида `id` уровня `level` (1–4) в свободную клетку без оплаты и слияний — для снимков (qa/art-shots.mjs); false — клетка занята, закрыта или на дорожке. */
+  /** Поставить башню вида `id` уровня `level` (1–8) в свободную клетку без оплаты и слияний — для снимков (qa/art-shots.mjs); false — клетка занята, закрыта или на дорожке. */
   placeTower: (id: string, col: number, row: number, level: number) => boolean;
   /** Сколько картинок нарисовано и сколько памяти они занимают (ширина × высота × 4 байта); prefix — только ключи, начинающиеся с него (qa/art-shots.mjs). */
   getArtStats: (prefix?: string) => { count: number; bytes: number; keys: Record<string, [number, number]> };

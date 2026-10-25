@@ -1135,6 +1135,8 @@ export class Tower {
   /** Уровень башни (1…MAX_TOWER_LEVEL) и все её мутации: свои и принесённые слиянием (одна и та же может повторяться — см. `mutationStack`). */
   level = 1;
   picks: string[] = [];
+  /** Опыт башни в партии (план docs/tower-levels-xp-plan-2026-10-24.md, раздел 2): очки за бактерий, погибших в её зоне; при слиянии складывается. Рангов и улучшений от него пока нет. */
+  xp = 0;
   /** Сколько порогов мутаций эта башня уже прошла выбором (свой выбор на уровнях 2 и 4; мутации, пришедшие со слиянием, порогов не закрывают). */
   private tiersDone = 0;
   /** Расстояние от башни до организма по дорожкам (по ближайшей к ней точке сети), пикселей: по нему считается «вперёд/назад». */
@@ -1264,8 +1266,9 @@ export class Tower {
   }
 
   /** Слияние: башня становится уровнем выше и получает мутации сливаемой башни `extraPicks` (свои остаются; решение владельца 8 октября 2026), пауза до выстрела не сбрасывается. */
-  upgrade(extraPicks: readonly string[] = []): void {
+  upgrade(extraPicks: readonly string[] = [], extraXp = 0): void {
     this.level++;
+    this.xp += extraXp;
     this.picks.push(...extraPicks);
     this.recompute();
     this.scene.tweens.add({ targets: this.container, scale: { from: 1.35, to: 1 }, duration: 260, ease: 'Back.easeOut' });
@@ -1382,6 +1385,38 @@ export class Tower {
     return hits;
   }
 
+  /**
+   * В зоне ли башни бактерия `b` (для опыта: проверка в момент гибели, поэтому HP не смотрим): радиус стрельбы плюс радиус бактерии; у Шприца — линия луча (оба луча при «Втором луче»),
+   * у Лампы — конус; у Витамина зоны нет (он получает долю опыта башен в ауре).
+   */
+  inXpZone(b: Bacterium): boolean {
+    if (this.isAura) return false;
+    const dx = b.x - this.x;
+    const dy = b.y - this.y;
+    if (this.isBeam) {
+      const { beamLengthPx, beamHalfWidthPx } = this.stats;
+      for (const d of this.beamDirections()) {
+        const angle = aimAngle(d);
+        const ux = Math.cos(angle);
+        const uy = Math.sin(angle);
+        const along = dx * ux + dy * uy;
+        if (along < 0 || along > beamLengthPx + b.radius) continue;
+        if (Math.abs(-dx * uy + dy * ux) <= beamHalfWidthPx + b.radius * 0.7) return true;
+      }
+      return false;
+    }
+    const dist = Math.hypot(dx, dy);
+    if (this.isCone) {
+      const { range, coneDeg } = this.stats;
+      if (dist > range + b.radius * 0.5) return false;
+      if (dist <= b.radius * 0.7) return true;
+      let diff = Math.atan2(dy, dx) - this.lookAngle;
+      diff = Math.abs(Math.atan2(Math.sin(diff), Math.cos(diff)));
+      return diff <= (coneDeg * Math.PI) / 360 + Math.asin(Math.min(1, (b.radius * 0.7) / dist));
+    }
+    return dist <= this.stats.range + b.radius;
+  }
+
   get isDisabled(): boolean {
     return this.disabledFor > 0;
   }
@@ -1489,7 +1524,7 @@ export class Tower {
       return;
     }
     if (this.isAura) return;
-    const muzzle = MUZZLE[this.id] + (this.level - 1) * MUZZLE_PER_LEVEL[this.id];
+    const muzzle = MUZZLE[this.id] + (Math.min(this.level, 4) - 1) * MUZZLE_PER_LEVEL[this.id]; // рисунки — только I–IV: у V–VIII ствол как у IV
     if (this.isCone) {
       this.updateCone(dt, bacteria, fire, muzzle);
       return;

@@ -42,9 +42,9 @@
     "towers_only": ""
   },
   {
-    "group": "Конец уровня, экономика, игровая сборка (lose, win, restart-button, deflation, camera-fit, colors, locked, production, bosses, level2, wards, spiral-cap)",
+    "group": "Конец уровня, экономика, игровая сборка (lose, win, restart-button, deflation, camera-fit, colors, locked, production, bosses, level2, wards, spiral-cap, xp)",
     "key": "end",
-    "scenarios": "lose-ru lose-en win-ru win-en restart-button deflation camera-fit colors locked production bosses level2 wards spiral-cap",
+    "scenarios": "lose-ru lose-en win-ru win-en restart-button deflation camera-fit colors locked production bosses level2 wards spiral-cap xp",
     "towers_only": ""
   },
   {

@@ -1315,7 +1315,21 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
+  /** Опыт за погибшую бактерию: её `lifeDamage` (финальный босс с отрицательным — 0) каждой башне, в зоне которой она была; Витамин получает долю опыта башен в своей ауре (`config.xp.vitaminShare`). */
+  private awardXp(bacterium: Bacterium): void {
+    const points = Math.max(0, bacterium.lifeDamage);
+    if (points <= 0) return;
+    for (const tower of this.towers) {
+      if (!tower.inXpZone(bacterium)) continue;
+      tower.xp += points;
+      for (const aura of this.towers) {
+        if (aura.isAura && Math.hypot(aura.x - tower.x, aura.y - tower.y) <= aura.stats.range) aura.xp += points * CONFIG.xp.vitaminShare;
+      }
+    }
+  }
+
   private killBacterium(bacterium: Bacterium, by?: TowerStats): void {
+    this.awardXp(bacterium);
     this.kills++;
     // «Дефляция»: уровень нового формата — доля дохода волны (уже в награде бактерии); прежний — номинал × economy.rewardMul × множитель волны из economy.rewardCurve; дробная часть копится до целой монеты
     const curve = this.params.plan ? 1 : CONFIG.economy.rewardMul * this.rewardFactor();
@@ -1678,8 +1692,9 @@ export class GameScene extends Phaser.Scene {
     this.merges++;
     this.cancelMerge(false);
     const carried = [...source.picks];
+    const carriedXp = source.xp;
     this.removeTower(source);
-    target.upgrade(carried);
+    target.upgrade(carried, carriedXp);
     this.effects.merged(target.x, target.y);
     sfx.merge();
     this.selectedTower = null;
