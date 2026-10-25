@@ -97,6 +97,8 @@ const SYRUP_OVERLAP = 0.8; // …но замедляющей башне выго
 /** Связка луча и лужи: участок дорожки, где луч Шприца проходит через зону луж Сиропа, ценится в (1 + BEAM_PUDDLE_BONUS) раз — и при выборе клетки Сиропа, и при выборе направления луча
  *  (бегуна при жёстком свойстве ранит только удар в луже; 20 октября 2026, сообщение владельца 3: «его круг не даёт луж там, где бьёт ядро»). */
 const BEAM_PUDDLE_BONUS = 2;
+const BEAM_CROSS_UNIT = 1000; // fx:beam — цена одного пересечения луча с дорожкой (в единицах «длины × вес ветки», px)
+const CROSS_PUDDLE_BONUS = 4; // fx:puddle — отрезок у пересечения луча с дорожкой для лужи Сиропа ценится в 1 + столько раз
 const FIZZ_BY_WAVE = 5; // эксперт копит на первую Шипучку, пока идёт не позже этой волны (рой — с 4-й), даже если уже потерял жизни: Таблетками рой всё равно не остановить
 const EXPERT_OVERLAP = 0.9; // эксперт знает, что все дорожки сходятся у «ствола» у организма: охват, уже накрытый другой башней, почти не обесценивается (башни кучкой у ствола бьют ВСЕХ бактерий)
 const EXPERT_ADJACENT_FACTOR = 1; // … и соседство с другой башней ему не мешает
@@ -419,6 +421,15 @@ if (SOLO_SYRUP) MUT_IDS.syrup = ['syrupSticky', 'syrupCaustic'];
 const MUT_ALT = args.mut === 'alt';
 /** Башни без чередования первого порога (запись «noalt» в --mut). */
 const NO_ALT = new Set();
+/**
+ * Правила образца рецензента, перенесённые в эксперта общими правилами (без заданных клеток); включаются записью `fx:…` в --mut, по умолчанию выключены:
+ *  beam   — луч Шприца по линии с наибольшим числом пересечений дорожки (клетка и направление; пересечение — вход луча на ребро; длина — при равенстве);
+ *  iv     — Шприцы кучкой в радиусе слияния от первого и строятся до IV раньше остального (круг до волны LATE_WAVE: Сироп, четыре Шприца, Сироп, четыре Шприца);
+ *  puddle — лужи Сиропа ложатся на пересечения лучей Шприцев с дорожкой;
+ *  coins  — «Стартовые монеты» в начале порядка очков ДНК: после башен Сироп, Шипучка, Шприц — три уровня.
+ */
+const FX_KNOWN = ['beam', 'iv', 'puddle', 'coins'];
+const FX = new Set();
 /** Запись «nolatebuy» в --mut: без покупки веток Таблетки и Шипучки после выхода на волну N (core:…:late). */
 const NO_LATE_BUY = { value: false };
 if (MUT_ALT) for (const [towerId, ids] of Object.entries(DEFAULT_MUT)) MUT_IDS[towerId] = ids.map((id, tier) => (MUTATION_IDS[towerId]?.[tier] ?? []).find((x) => x !== id) ?? id);
@@ -434,6 +445,14 @@ else if (args.mut !== undefined) {
     }
     if (towerId === 'noalt') {
       for (const id of list ? list.split(',') : KNOWN_TOWERS) NO_ALT.add(id.trim());
+      continue;
+    }
+    // «fx:beam,iv,puddle,coins» — правила образца рецензента для эксперта по одному (решение владельца 25 октября 2026, сообщение 1, п. 5; каждое — своя лестница)
+    if (towerId === 'fx') {
+      for (const id of (list ?? '').split(',').map((x) => x.trim()).filter(Boolean)) {
+        if (!FX_KNOWN.includes(id)) die(`--mut=fx:…: не понял «${id}» (есть ${FX_KNOWN.join(', ')})`);
+        FX.add(id);
+      }
       continue;
     }
     if (!TABLE[towerId] || !list) die(`--mut: не понял «${part}». Нужно башня:мутация,мутация (башни: ${KNOWN_TOWERS.join(', ')})`);
@@ -548,23 +567,29 @@ let PLAY_LEVEL = LEVEL;
 /** Эксперт (--core) на уровнях со 2-го покупает узлы Ампулы и Антибиотика, когда хватает ДНК, и строит эти башни (план уровня 2, шаг 1 раздела 5): порядок покупок эксперта — крупные узлы первыми (раздел 10.1, п. 7); копить на них отдельно не нужно. */
 const L2_EXTRA = CORE ? ['ampule', 'antibiotic'].filter((id) => !EXCLUDE.has(id)) : [];
 /** Покупки образца рецензента: узлы из REVIEW_BUYS по порядку (следующая покупка ждёт очков), затем общие правила бота по узлам и веткам четырёх башен образца. */
-function buyReview(levels, dna, towers) {
+/** Покупки по списку [узел, уровень]: следующая покупка по списку ждёт очков (дальше список не идёт). done — список выполнен целиком. */
+function buyPrefix(levels, dna, list) {
   const next = { ...levels };
   const bought = [];
   let left = dna;
-  for (const [id, target] of REVIEW_BUYS) {
+  for (const [id, target] of list) {
     const u = META.upgrades[id];
     while ((next[id] ?? 0) < target) {
       const price = u.prices[next[id] ?? 0];
       const open = price !== undefined && price <= left && branchOpen(u.branch, next) && (!u.requires || (next[u.requires.id] ?? 0) >= u.requires.level);
-      if (!open) return { levels: next, dna: left, bought };
+      if (!open) return { levels: next, dna: left, bought, done: false };
       left -= price;
       next[id] = (next[id] ?? 0) + 1;
       bought.push(id);
     }
   }
-  const rest = buyBest({ upgrades: META.upgrades, levels: next, dna: left, towers: [...REVIEW_TOWERS], shares: fieldShares(towers) });
-  return { levels: rest.levels, dna: rest.dna, bought: [...bought, ...rest.bought] };
+  return { levels: next, dna: left, bought, done: true };
+}
+function buyReview(levels, dna, towers) {
+  const head = buyPrefix(levels, dna, REVIEW_BUYS);
+  if (!head.done) return { levels: head.levels, dna: head.dna, bought: head.bought };
+  const rest = buyBest({ upgrades: META.upgrades, levels: head.levels, dna: head.dna, towers: [...REVIEW_TOWERS], shares: fieldShares(towers) });
+  return { levels: rest.levels, dna: rest.dna, bought: [...head.bought, ...rest.bought] };
 }
 function buyUpgrades(levels, dna, reached = 0, towers = null) {
   if (REVIEW) return buyReview(levels, dna, towers);
@@ -572,7 +597,15 @@ function buyUpgrades(levels, dna, reached = 0, towers = null) {
   // (по лестницам 20 октября 2026: без этого эксперт с 11-й по 20-ю попытку стоял на слизнях, 36–37-я волна, с неулучшенными Таблетками)
   const late = CORE_LATE && !NO_LATE_BUY.value && reached >= LATE_WAVE && CORE.every((id) => levels[towerNodeId(id)] > 0);
   const circle = BUY_TOWERS && PLAY_LEVEL >= 2 ? [...BUY_TOWERS, ...L2_EXTRA.filter((id) => !BUY_TOWERS.includes(id))] : BUY_TOWERS;
-  return buyBest({ upgrades: META.upgrades, levels, dna, towers: late ? [...circle, 'pill', 'fizz'] : circle, saveFor: CORE_SAVE ? CORE : null, shares: fieldShares(towers) });
+  // fx:coins — «Стартовые монеты» в начале порядка очков ДНК: сначала узлы пути к ядру, затем три уровня монет, потом общий порядок (как в образце: Сироп, Шипучка, Шприц, «Сильное вещество», монеты)
+  let head = null;
+  if (FX.has('coins') && CORE) {
+    const chain = [...new Set(CORE.flatMap((id) => nodeChain(META.upgrades, towerNodeId(id))))].map((id) => [id, 1]);
+    head = buyPrefix(levels, dna, [...chain, ['coins', 3]]);
+    if (!head.done) return { levels: head.levels, dna: head.dna, bought: head.bought };
+  }
+  const rest = buyBest({ upgrades: META.upgrades, levels: head ? head.levels : levels, dna: head ? head.dna : dna, towers: late ? [...circle, 'pill', 'fizz'] : circle, saveFor: CORE_SAVE ? CORE : null, shares: fieldShares(towers) });
+  return head ? { levels: rest.levels, dna: rest.dna, bought: [...head.bought, ...rest.bought] } : rest;
 }
 /** Башни, узлы и ветки которых покупает стратегия (null — все): --solo/--pair/--focus — только свои башни (Таблетка — если стратегия её строит), --core — башни своего круга (ядро, Сироп, Шипучка;
  *  ветку Таблетки core:syrup+syringe не качает: Таблетка у неё одна, с начала партии), zone — Таблетка и Сироп; без исключённых (--exclude). */
@@ -734,9 +767,23 @@ function buildWorld(graph, map, cols, rows) {
     let best = { dir: 0, value: -1 };
     for (let dir = 0; dir < AIM_STEPS; dir++) {
       let value = 0;
-      for (const si of rayOf(type, cell, dir)) {
-        const sg = segs[si];
-        value += weighted ? sg.len * sg.w * Math.pow(OVERLAP_DISCOUNT, covCount ? covCount[si] : 0) * (covCount?.puddle?.[si] ? 1 + BEAM_PUDDLE_BONUS : 1) : sg.len;
+      if (FX.has('beam') && weighted) {
+        // fx:beam — ценность линии = число пересечений луча с дорожкой (вход луча на ребро или повторный заход), каждое с весом ветки и скидкой за уже накрытое; длина под лучом — при равенстве
+        let prevIdx = -2;
+        let prevEdge = null;
+        for (const si of rayOf(type, cell, dir)) {
+          const sg = segs[si];
+          const disc = Math.pow(OVERLAP_DISCOUNT, covCount ? covCount[si] : 0);
+          if (si !== prevIdx + 1 || sg.edge !== prevEdge) value += BEAM_CROSS_UNIT * sg.w * disc * (covCount?.puddle?.[si] ? 1 + BEAM_PUDDLE_BONUS : 1);
+          value += sg.len * sg.w * disc * 0.001;
+          prevIdx = si;
+          prevEdge = sg.edge;
+        }
+      } else {
+        for (const si of rayOf(type, cell, dir)) {
+          const sg = segs[si];
+          value += weighted ? sg.len * sg.w * Math.pow(OVERLAP_DISCOUNT, covCount ? covCount[si] : 0) * (covCount?.puddle?.[si] ? 1 + BEAM_PUDDLE_BONUS : 1) : sg.len;
+        }
       }
       if (value > best.value) best = { dir, value };
     }
@@ -853,6 +900,7 @@ function buildWorld(graph, map, cols, rows) {
         if (!sideOk(T, cell, sg)) continue;
         let v = sg.len * sg.w * Math.pow(discount, covCount[si]);
         if (type === 'syrup' && covCount.beam?.[si]) v *= 1 + BEAM_PUDDLE_BONUS;
+        if (type === 'syrup' && FX.has('puddle') && covCount.cross?.[si]) v *= 1 + CROSS_PUDDLE_BONUS;
         if (smart && T.targeting === 'area' && sg.merge) v *= MERGE_FACTOR;
         sum += v;
         values.push([sg, v]);
@@ -874,14 +922,26 @@ function buildWorld(graph, map, cols, rows) {
       // отдельно: сколько лучей и сколько Сиропов накрывают отрезок (связка луча и лужи, BEAM_PUDDLE_BONUS)
       counts.beam = new Int32Array(segs.length);
       counts.puddle = new Int32Array(segs.length);
+      // fx:puddle — отрезки у пересечений лучей с дорожкой (первый отрезок каждого захода луча на ребро и следующий за ним)
+      counts.cross = new Int32Array(segs.length);
       for (const tw of towers) {
         const cell = byKey.get(`${tw.col},${tw.row}`);
         const T = TABLE[tw.id];
         if (!cell || !T || T.targeting === 'snipe' || T.targeting === 'aura' || T.targeting === 'freeze' || T.targeting === 'trap') continue; // Ампула накрывает полкарты: в «накрытое другими башнями» её не записываем, иначе клетки остальных башен обесценятся; Витамин, Холод и Пластырь урона не наносят и дорожку не «накрывают»
         const list = T.targeting === 'beam' ? rayOf(tw.id, cell, tw.aim ?? 0) : inRange(T.range)[cell.idx];
+        let prevIdx = -2;
+        let prevEdge = null;
         for (const si of list) {
           counts[si]++;
-          if (T.targeting === 'beam') counts.beam[si]++;
+          if (T.targeting === 'beam') {
+            counts.beam[si]++;
+            if (si !== prevIdx + 1 || segs[si].edge !== prevEdge) {
+              counts.cross[si] = 1;
+              if (si + 1 < segs.length && segs[si + 1].edge === segs[si].edge) counts.cross[si + 1] = 1;
+            }
+            prevIdx = si;
+            prevEdge = segs[si].edge;
+          }
           if (tw.id === 'syrup') counts.puddle[si]++;
         }
       }
@@ -899,7 +959,9 @@ function buildWorld(graph, map, cols, rows) {
 function makePlayer({ world, rng, buttons }) {
   const zone = STRATEGY === 'zone'; // «всё у Z»: только Таблетки и один Сироп, клетки — ближайшие к последней развилке у организма
   const available = (id) => TABLE[id] && buttons.includes(id) && !EXCLUDE.has(id) && (!SOLO_ALLOWED || SOLO_ALLOWED.has(id)) && (!zone || ZONE_TOWERS.has(id)) && (!REVIEW || REVIEW_TOWERS.has(id));
-  const baseCycle = zone ? ZONE_CYCLE : SOLO_CYCLE ?? DEFAULT_CYCLE;
+  // fx:iv (core:…:late с ядром «Сироп + Шприц»): до волны LATE_WAVE круг «Сироп, четыре Шприца, Сироп, четыре Шприца» — Шприцы доходят до IV (в образце — Шприц IV около 20-й волны)
+  const ivMode = FX.has('iv') && CORE_LATE && CORE.includes('syringe');
+  const baseCycle = zone ? ZONE_CYCLE : ivMode ? ['syrup', 'syringe', 'syringe', 'syringe', 'syringe', 'syrup', 'syringe', 'syringe', 'syringe', 'syringe'] : SOLO_CYCLE ?? DEFAULT_CYCLE;
   /** Проверка «клетка в радиусе слияния от стоящей башни этого вида 1-го уровня (мутация не ждёт)»; null — таких башен нет (тогда как раньше). */
   const nearPartner = (view, type) => {
     const radius = (view.s.mergeRadiusPx ?? 0) * MERGE_NEAR_MARGIN;
@@ -1121,7 +1183,7 @@ function makePlayer({ world, rng, buttons }) {
       const share = TABLE[chosen.type].targeting === 'beam' || chosen.type === 'syrup' ? MERGE_NEAR_SHARE_PICKY : MERGE_NEAR_SHARE;
       const nearPool = near && best ? candidates.filter((x) => x.v >= best.v * share && near(x.c)) : [];
       // --focus и ядро --core: все башни вида — кучкой в радиусе слияния от первой такой башни (качество клетки не важно): пары каждого уровня оказываются рядом и сливаются до IV
-      const anchor = KERNEL?.includes(chosen.type) ? view.towers.find((tw) => tw.id === chosen.type) : null;
+      const anchor = KERNEL?.includes(chosen.type) || (ivMode && chosen.type === 'syringe') ? view.towers.find((tw) => tw.id === chosen.type) : null;
       const focusPool = anchor ? candidates.filter((x) => Math.hypot(x.c.x - anchor.x, x.c.y - anchor.y) <= (view.s.mergeRadiusPx ?? 0) * MERGE_NEAR_MARGIN) : [];
       if (focusPool.length) best = focusPool[0];
       else if (nearPool.length) best = nearPool[0]; // candidates уже по убыванию оценки: лучшая из клеток в радиусе слияния
