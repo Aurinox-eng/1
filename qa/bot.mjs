@@ -1737,6 +1737,8 @@ async function playGame(browser, baseUrl, run, metaLevels = null, salt = '', lev
       levelGrowth,
       leakLives,
       stealthLives: leakLives.stealth ?? 0,
+      // Шприцы на момент конца партии: уровень, мутации и числа, из которых считается урон в секунду (проверка потолка мутаций и «Спирали», решение владельца 25 октября 2026, сообщение 2, п. 1.1)
+      syringeStats: last.towers.filter((tw) => tw.id === 'syringe').map((tw) => ({ level: tw.level, picks: tw.picks, damage: tw.stats.damage, cooldownMs: tw.stats.cooldownMs, beamPulses: tw.stats.beamPulses, spiral: tw.stats.spiral })),
       kills: last.kills,
       leaked: last.leaked,
       spawned: last.spawned,
