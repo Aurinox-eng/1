@@ -7970,6 +7970,19 @@ async function runMetaSave(browser, baseUrl) {
   const oldKept = await page.evaluate(() => JSON.parse(window.localStorage.getItem('pvb.meta') ?? 'null'));
   check(`${p} прежнее сохранение (ключ pvb.meta) не переносится: 0 очков, все узлы на 0; запись прежней сборки не тронута`, m.dna === 0 && Object.values(m.levels).every((v) => v === 0) && oldKept?.dna === 999, JSON.stringify([m.dna, oldKept]));
   check(`${p} в состоянии есть все ${Object.keys(UP).length} улучшений дерева (по строкам таблицы), включая ветки башен и «towerDamage» (Сила таблетки)`, Object.keys(UP).every((id) => id in m.levels) && Object.keys(m.levels).length === Object.keys(UP).length, Object.keys(m.levels).join());
+  // ---- журнал итогов: строка законной длины переживает перезагрузку (предел 1 000 знаков отбрасывал настоящую строку в 1 122 знака)
+  {
+    const line = (n) => 'ТПБ | '.padEnd(n, 'я');
+    const nodes = Object.entries(UP);
+    // наибольший вывод форматтера (src/attempt.ts): поля попытки ≈ 400, 10 видов башен по 8 уровней по 99 штук ≈ 635, «вход» и «куплено» по всем узлам на наибольшем уровне
+    const worst = 400 + 635 + nodes.map(([id, u]) => `${id} ${u.prices.length}`).join(', ').length + nodes.map(([id, u]) => `${id} +${u.prices.length}`).join(', ').length;
+    m = await metaOf(page);
+    const limit = m.logMax;
+    check(`${p} предел длины строки журнала ${limit} знаков не меньше наибольшего вывода форматтера ${worst} знаков (${nodes.length} узлов древа) с запасом 20 %`, worst * 1.2 <= limit, `наибольший вывод ${worst}, предел ${limit}`);
+    m = await reloadWith(JSON.stringify({ v: 5, log: [line(1122), line(limit), line(limit + 1), 'короткая'] }));
+    const lens = m.log.map((x) => x.length);
+    check(`${p} после перезагрузки в журнале остались строки в 1 122 знака, на пределе (${limit}) и короткая; строка на знак длиннее предела отброшена: длины ${lens.join(', ')}`, lens.join() === [1122, limit, 8].join(), lens.join(', '));
+  }
   await context.close();
 
   // хранилище недоступно: обращение к localStorage бросает ошибку
@@ -8434,6 +8447,23 @@ async function runLevelsLock(browser, baseUrl) {
   s = await waitFor(last.page, (x) => x.state === 'won', WAIT_MS, 'победа на уровне 10');
   check(`${p} на последнем уровне после победы кнопки «Следующий уровень» нет, «В меню» стоит по центру`, s.nextButton === null && s.menuButton !== null && Math.abs(s.menuButton.x - W / 2) < 1, JSON.stringify([s.nextButton, s.menuButton]));
   await last.page.close();
+
+  // ---- «Следующий уровень» только на открытый уровень: при &ready=1 уровень 2 закрыт («Скоро»), кнопки после победы нет; при &ready=2 она есть и открывает уровень 2
+  for (const ready of [1, 2]) {
+    const gate = await openGame(context, baseUrl, p, { speed: 4, cfg: winCfg, query: `&ready=${ready}` });
+    for (const cell of [FREE.a, FREE.b]) await placeSure(gate, 'pill', cell);
+    s = await waitFor(gate.page, (x) => x.state === 'won', WAIT_MS, `победа на уровне 1 при &ready=${ready}`);
+    await sleep(CFG.restartLockMs + 250);
+    if (ready === 1) {
+      check(`${p} &ready=1: после победы на уровне 1 кнопки «Следующий уровень» нет (уровень 2 не готов), «В меню» стоит по центру`, s.nextButton === null && s.menuButton !== null && Math.abs(s.menuButton.x - W / 2) < 1, JSON.stringify([s.nextButton, s.menuButton]));
+    } else {
+      check(`${p} &ready=2: после победы на уровне 1 кнопка «Следующий уровень» есть`, s.nextButton !== null, JSON.stringify(s.nextButton));
+      await gate.input.tap(gate.g(s.nextButton.x, s.nextButton.y));
+      s = await waitFreshRun(gate.page, 'партия уровня 2 при &ready=2', { level: 2 });
+      check(`${p} &ready=2: «Следующий уровень» начинает партию уровня 2`, s.level === 2, `уровень ${s.level}`);
+    }
+    await gate.page.close();
+  }
 
   // ---- проигрыш: «Следующего уровня» нет; «В меню» ведёт в меню
   const lose = await openGame(context, baseUrl, p, { speed: 4, cfg: META_LOSE_CFG });
