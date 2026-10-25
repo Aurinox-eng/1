@@ -89,6 +89,7 @@
  *   level2                 уровень 2 «Нос» (план docs/level2-plan-2026-10-23.md): карта (9 рёбер, 2 входа, 1 выход), 5 боссов в плане на 10/20/30/40/50-й волнах, мини-босс 10-й волны выходит на своей волне, финальный босс — поражение сразу
  *   wards                  жёсткое свойство «бегуна ранят только в луже» (решение владельца 24 октября 2026, сообщение 2, пп. 2.2–2.3): ловушка Пластыря вне лужи — 0 урона, яд «Едкой» в луже ранит; Таблетка не стреляет по незамедленному бегуну, при других целях бьёт их; Сироп кладёт лужу и под незамедленного бегуна
  *   spiral-cap             ключ `mutationCaps.spiralInCap` (решение владельца 25 октября 2026, сообщение 1, п. 2.3): выключен — Шприц IV с «Бронебойный» ×2, «Больше ударов» ×2 и «Спиралью» бьёт ×4,7 к башне без мутаций (числа прежние); включён — не выше ×2,5, прибавка «Спирали» ужата
+ *   marks                  макет знаков уровня и ранга на настоящих башнях (решение владельца 25 октября 2026, сообщение 1, п. 6.7): снимки плотной сцены `marks-desktop` и `marks-phone`, проверок значений нет
  *   restart-button         конец уровня (проигрыш и победа, компьютер ru и телефон en): есть кнопка «Заново» (endButton), тапы мимо неё не перезапускают, тап по ней — перезапускает
  *   deflation              economy.rewardMul: ×0,5 — два кокка номиналом 5 дают 2 + 3 = 5 монет (дробная часть копится); ×0,1 — 0 + 1, «+N» всплывает только при N ≥ 1
  *   camera-fit             самое сильное отдаление (считает игра, (считает игра): высота карты × масштаб ≤ высоты окна карты (568), ширина влезает, камера по центру и сдвигом не уводится
@@ -160,7 +161,7 @@ if (['stage-1', 'stage-1b', 'stage-1b-qa', 'td-1-mockup', 'tmp'].includes(tag)) 
   process.exit(2);
 }
 
-const SCENARIOS = ['desktop-ru', 'phone-ru', 'desktop-en', 'phone-en', 'rules', 'graph', 'combat', 'dash', 'split', 'spore', 'armored', 'intro', 'lose-ru', 'lose-en', 'win-ru', 'win-en', 'towers', 'card', 'merge', 'mutations', 'sell', 'special', 'danger', 'rotate', 'production', 'fullgame', 'locked', 'strip', 'almanac', 'almanac-pause', 'damage-numbers', 'sell-gap', 'restart-button', 'deflation', 'camera-fit', 'colors', 'meta-save', 'meta-dna', 'meta-shop', 'meta-effects', 'tree-effects', 'tree-shop', 'level-waves', 'progress-save', 'stars', 'menu-flow', 'menu-reset', 'levels-lock', 'step-dps', 'sound', 'sdk', 'lose-line', 'attempt-line', 'toast-queue', 'shake', 'bosses', 'level2', 'wards', 'spiral-cap', 'menu-exit', 'resume-tap', 'two-tabs']
+const SCENARIOS = ['desktop-ru', 'phone-ru', 'desktop-en', 'phone-en', 'rules', 'graph', 'combat', 'dash', 'split', 'spore', 'armored', 'intro', 'lose-ru', 'lose-en', 'win-ru', 'win-en', 'towers', 'card', 'merge', 'mutations', 'sell', 'special', 'danger', 'rotate', 'production', 'fullgame', 'locked', 'strip', 'almanac', 'almanac-pause', 'damage-numbers', 'sell-gap', 'restart-button', 'deflation', 'camera-fit', 'colors', 'meta-save', 'meta-dna', 'meta-shop', 'meta-effects', 'tree-effects', 'tree-shop', 'level-waves', 'progress-save', 'stars', 'menu-flow', 'menu-reset', 'levels-lock', 'step-dps', 'sound', 'sdk', 'lose-line', 'attempt-line', 'toast-queue', 'shake', 'bosses', 'level2', 'wards', 'spiral-cap', 'marks', 'menu-exit', 'resume-tap', 'two-tabs']
 const only = args.only === undefined ? null : String(args.only);
 if (only !== null && !SCENARIOS.includes(only)) {
   console.error(`Неизвестный сценарий --only=${only}. Есть: ${SCENARIOS.join(', ')}`);
@@ -2472,6 +2473,54 @@ async function runSpiralCap(browser, baseUrl) {
   check(`${p} ключ выключен: башня IV (${off.full.level}) с «Бронебойный» ×2, «Больше ударов» ×2 и «Спиралью» — ${off.full.stats.beamPulses} ударов, прибавка ${off.full.stats.spiral} за удар, урон в секунду ×${off.ratio.toFixed(2)} к башне без мутаций (прежнее число, выше потолка ×2,5)`, off.full.level === 4 && off.full.stats.beamPulses === 5 && Math.abs(off.full.stats.spiral - 2) < 1e-9 && off.ratio > 4.5 && off.ratio < 5, `×${off.ratio.toFixed(3)}, spiral ${off.full.stats.spiral}`);
   check(`${p} ключ включён: урон в секунду очереди ×${on.ratio.toFixed(3)} к башне без мутаций — не выше ×2,5; прибавка «Спирали» ужата с 2 до ${on.full.stats.spiral.toFixed(3)}`, on.full.level === 4 && on.ratio <= 2.5 + 1e-6 && on.ratio > 2.4 && on.full.stats.spiral > 0 && on.full.stats.spiral < 2, `×${on.ratio.toFixed(3)}, spiral ${on.full.stats.spiral}`);
   await context.close();
+}
+
+/**
+ * Макет знаков уровня и ранга на настоящих башнях (решение владельца 25 октября 2026, сообщение 1, п. 6.7): плотная сцена стресс-сценария (40 башен, ≈200 бактерий) на компьютере 1280×720 и телефоне 844×390;
+ * поверх нарисованных башен — знаки макета: уровень V–VIII — второй ряд оранжевых точек, ранг — одна звезда с цифрой 1–8 справа вверху. Проверок значений нет: снимки `marks-desktop` и `marks-phone` — для решения владельца.
+ */
+async function runMarks(browser, baseUrl) {
+  const p = '[макет знаков]';
+  for (const key of ['desktop', 'phone']) {
+    const context = await newDeviceContext(browser, VIEWPORTS[key], 'ru');
+    const game = await openGame(context, baseUrl, `${p} ${key}`, { speed: 1, query: '&stress', isTouch: key === 'phone' });
+    await sleep(5000);
+    const s = await game.state();
+    const towers = s.towers.map((tw, i) => ({ id: tw.id, x: tw.x, y: tw.y, level: 1 + (i % 8), rank: 1 + ((i * 3) % 8) }));
+    const n = await game.page.evaluate((list) => {
+      const zoom = window.__pvb.getState().camera.zoom;
+      const canvas = document.querySelector('canvas').getBoundingClientRect();
+      const scale = (canvas.width / 1280) * zoom; // клиентских px на px мира
+      const layer = document.createElement('div');
+      layer.style.cssText = 'position:fixed;left:0;top:0;width:100vw;height:100vh;pointer-events:none;z-index:9999';
+      for (const tw of list) {
+        const c = window.__pvb.worldToClient(tw.x, tw.y);
+        const r = 35.5 * scale; // радиус основания башни на экране
+        // уровень: точки под башней, нижний ряд — до четырёх жёлтых, со второго ряда (V–VIII) — оранжевые
+        const dots = Math.max(2.5, r * 0.16);
+        for (let i = 0; i < tw.level; i++) {
+          const row = i < 4 ? 0 : 1;
+          const col = i < 4 ? i : i - 4;
+          const dot = document.createElement('div');
+          dot.style.cssText = `position:absolute;width:${dots * 2}px;height:${dots * 2}px;border-radius:50%;background:${row ? '#ff9a2e' : '#ffd84a'};border:1px solid #6b4a00;left:${c.x - r * 0.42 + col * dots * 2.6}px;top:${c.y + r * 0.95 + row * dots * 2.6}px`;
+          layer.appendChild(dot);
+        }
+        // ранг: одна звезда с цифрой справа вверху
+        const size = Math.max(14, r * 0.95);
+        const star = document.createElement('div');
+        star.style.cssText = `position:absolute;width:${size}px;height:${size}px;left:${c.x + r * 0.35}px;top:${c.y - r * 1.05}px;display:flex;align-items:center;justify-content:center;font:bold ${size * 0.5}px Arial;color:#3a2a00;background:#ffd84a;clip-path:polygon(50% 0%,61% 35%,98% 35%,68% 57%,79% 91%,50% 70%,21% 91%,32% 57%,2% 35%,39% 35%)`;
+        star.textContent = String(tw.rank);
+        layer.appendChild(star);
+      }
+      document.body.appendChild(layer);
+      return list.length;
+    }, towers);
+    await sleep(300);
+    await shot(game.page, `marks-${key}`);
+    console.log(`  ${p} ${key}: знаков нарисовано ${n}, масштаб ${VIEWPORTS[key].label}`);
+    await game.page.close();
+    await context.close();
+  }
 }
 
 // ================================================================== запуск
@@ -9920,6 +9969,7 @@ try {
   if (wants('level2')) await safe('[уровень 2 «Нос»]', () => runLevel2(browser, qaServer.url));
   if (wants('wards')) await safe('[жёсткие свойства: бегун]', () => runWards(browser, qaServer.url));
   if (wants('spiral-cap')) await safe('[«Спираль» и потолок мутаций]', () => runSpiralCap(browser, qaServer.url));
+  if (wants('marks')) await safe('[макет знаков]', () => runMarks(browser, qaServer.url));
   if (wants('progress-save')) await safe('[прогресс: сохранение]', () => runProgressSave(browser, qaServer.url));
   if (wants('stars')) await safe('[звёзды]', () => runStars(browser, qaServer.url));
   if (wants('menu-flow')) await safe('[меню и выбор уровня]', () => runMenuFlow(browser, qaServer.url));
