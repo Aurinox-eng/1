@@ -36,22 +36,24 @@ export class TreeMockScene extends Phaser.Scene {
     const W = CONFIG.screen.width;
     const H = CONFIG.screen.height;
     const cx = W / 2;
-    const cy = H / 2 + 6;
+    const cy = H / 2 + 8;
     /** Эллипс: экран шире, чем выше — по горизонтали кольца растянуты. */
     const EX = 1.62;
-    const radius = (d: number): number => 62 + 55 * d;
-    const at = (d: number, a: number): { x: number; y: number } => ({ x: cx + Math.cos(a) * radius(d) * EX, y: cy + Math.sin(a) * radius(d) });
+    /** Расстояние узла глубины d от центра по вертикали, px: ромбы башен (d = 0) — на 88, кольца 1–5 — через 44; по вертикали сжато ×0,95, чтобы кольцо 5 с подписями поместилось. */
+    const radius = (d: number): number => 88 + 44 * d;
+    const KY = 0.95;
+    const at = (d: number, a: number): { x: number; y: number } => ({ x: cx + Math.cos(a) * radius(d) * EX, y: cy + Math.sin(a) * radius(d) * KY });
     this.cameras.main.setBackgroundColor(COLORS.background);
     const g = this.add.graphics();
     // кольца: открытые — синие, закрытые — серые полосы
     for (let d = 5; d >= 1; d--) {
       const open = d <= OPEN_RINGS;
-      const rx = (radius(d) + 27) * EX;
-      const ry = radius(d) + 27;
+      const rx = (radius(d) + 22) * EX;
+      const ry = (radius(d) + 22) * KY;
       g.fillStyle(open ? 0x1b3566 : 0x252a33, 1).fillEllipse(cx, cy, rx * 2, ry * 2);
       g.lineStyle(2, open ? 0x3a5f9c : 0x3c424d, 1).strokeEllipse(cx, cy, rx * 2, ry * 2);
     }
-    g.fillStyle(COLORS.background, 1).fillEllipse(cx, cy, (radius(0) + 27) * EX * 2, (radius(0) + 27) * 2);
+    g.fillStyle(COLORS.background, 1).fillEllipse(cx, cy, (radius(0) + 22) * EX * 2, (radius(0) + 22) * KY * 2);
     const n = RAYS.length;
     const label = (x: number, y: number, text: string, color: string, size = 12): void => {
       this.add.text(x, y, text, { fontFamily: 'Arial', fontSize: `${size}px`, color, align: 'center', wordWrap: { width: 92 } }).setOrigin(0.5, 0);
@@ -65,28 +67,27 @@ export class TreeMockScene extends Phaser.Scene {
         const p = at(0, a);
         const nodeId = `tower${cap(ray.tower)}`;
         const owned = ray.tower === 'pill' || BOUGHT.has(nodeId);
-        g.fillStyle(owned ? COLORS.gold : 0x1b2a4a, 1).fillPoints(this.diamond(p.x, p.y, 25), true);
-        g.lineStyle(3, owned ? COLORS.goldEdge : 0x5a8fd8, 1).strokePoints(this.diamond(p.x, p.y, 25), true);
-        const icon = this.add.container(p.x, p.y).setScale(0.3);
+        g.fillStyle(owned ? COLORS.gold : 0x1b2a4a, 1).fillPoints(this.diamond(p.x, p.y, 20), true);
+        g.lineStyle(3, owned ? COLORS.goldEdge : 0x5a8fd8, 1).strokePoints(this.diamond(p.x, p.y, 20), true);
+        const icon = this.add.container(p.x, p.y).setScale(0.24);
         createTowerArt(this, icon, ray.tower);
-        if (!owned) label(p.x, p.y + 24, `${CONFIG.meta.upgrades[nodeId].prices[0]} ДНК`, '#9fc3ff', 11);
       }
       ray.nodes.forEach((id, k) => {
         const d = k + 1;
         const p = at(d, a);
         const open = d <= OPEN_RINGS;
         const bought = BOUGHT.has(id);
-        const r = 14 + d * 1.5;
+        const r = 13 + d * 1.2;
         g.fillStyle(bought ? COLORS.gold : open ? 0x2a5c9a : 0x3a3f48, 1).fillCircle(p.x, p.y, r);
         g.lineStyle(3, bought ? COLORS.goldEdge : open ? COLORS.merge : 0x555b66, 1).strokeCircle(p.x, p.y, r);
         label(p.x, p.y + r + 2, t(`upg${cap(id)}` as TextKey), open ? '#e8f0ff' : '#7c8494', 11);
       });
     });
     // центр
-    g.fillStyle(COLORS.gold, 1).fillCircle(cx, cy, 30);
-    g.lineStyle(4, COLORS.goldEdge, 1).strokeCircle(cx, cy, 30);
-    label(cx, cy + 32, t('upgDamage'), '#ffe9a8', 13);
-    this.add.text(16, 12, 'МАКЕТ ДРЕВА: центр «Сильное вещество», кольца 1–2 открыты (победа на уровне 2), 3–5 закрыты; ромб — узел башни (только ценой)', { fontFamily: 'Arial', fontSize: '15px', color: '#cfe0ff' }).setScrollFactor(0);
+    g.fillStyle(COLORS.gold, 1).fillCircle(cx, cy, 40);
+    g.lineStyle(4, COLORS.goldEdge, 1).strokeCircle(cx, cy, 40);
+    this.add.text(cx, cy, t('upgDamage'), { fontFamily: 'Arial', fontSize: '12px', fontStyle: 'bold', color: '#3a2a00', align: 'center', wordWrap: { width: 70 } }).setOrigin(0.5);
+    this.add.text(16, 12, 'МАКЕТ ДРЕВА: центр «Сильное вещество», кольца 1–2 открыты (победа на уровне 2), 3–5 закрыты; ромб — узел башни (только ценой, вне колец)', { fontFamily: 'Arial', fontSize: '15px', color: '#cfe0ff' }).setScrollFactor(0);
     this.addCameraControls(Number(new URLSearchParams(window.location.search).get('zoom')) || 1);
   }
 
