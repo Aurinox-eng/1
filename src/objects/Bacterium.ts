@@ -7,7 +7,7 @@ import { COLORS, TOWER_MARK } from '../theme';
 import { artDensity, artImage, bakeArt, discImage, ringImage, setArt, squareBox, type ArtBox } from '../art';
 import type { Tower } from './Tower';
 import { bodyHalfSize, crackCount, drawCracks, drawShape, hasRadialCracks, shellWidth, SPLITTER_LOBE_OFFSET } from './bacteriumArt';
-import { BLINK_EVERY_SEC, BLINK_SEC, BREATH_AMP, BREATH_SEC, BREATH_STEP, type Eyes, styleBodyBox, styleBodyKey } from './styleArt';
+import { BLINK_EVERY_SEC, BLINK_SEC, BREATH_AMP, EYES_DRAWN, BREATH_SEC, BREATH_STEP, type Eyes, styleBodyBox, styleBodyKey } from './styleArt';
 
 export type BacteriumKind = keyof typeof CONFIG.types;
 
@@ -657,6 +657,7 @@ export class Bacterium {
     }
     this.breathClock += dt;
     if (!NO_BREATH) this.setBreath(1 + BREATH_AMP * Math.sin((this.breathClock / this.breathSec) * Math.PI * 2 + this.breathPhase));
+    if (!EYES_DRAWN) return; // без глаз моргать нечем: смена картинки тела не нужна
     if (this.blinkLeft > 0) {
       this.blinkLeft -= dt;
       if (this.blinkLeft <= 0) this.shutEyes(false);
