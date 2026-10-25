@@ -9266,12 +9266,12 @@ async function waitUiWhere(page, predicate, timeoutMs, label) {
   throw new Error(`Не дождались: ${label}`);
 }
 
-/** Боссы в порядке таблицы `bosses` в config.ts (вкладка «Боссы» Альманаха). */
+/** Боссы (вкладка «Боссы» Альманаха): ключи таблицы `bosses` в config.ts в порядке строк — ключ строки на 4 пробела внутри раздела, после которого идёт «{» (строка может быть многострочной). */
 function readBossIds() {
   const src = fs.readFileSync(path.join(ROOT, 'src/config.ts'), 'utf8');
   const start = src.indexOf('\n  bosses: {');
   const block = src.slice(start, src.indexOf('\n  },', start));
-  return [...block.matchAll(/^ {4}(\w+): \{ base:/gm)].map((m) => m[1]);
+  return [...block.matchAll(/^ {4}(\w+): \{/gm)].map((m) => m[1]);
 }
 const BOSS_IDS = readBossIds();
 
