@@ -2495,8 +2495,12 @@ async function runMarks(browser, baseUrl) {
       const scale = (canvas.width / 1280) * zoom; // клиентских px на px мира
       const layer = document.createElement('div');
       layer.style.cssText = 'position:fixed;left:0;top:0;width:100vw;height:100vh;pointer-events:none;z-index:9999';
+      // окно карты между верхней (40 px) и нижней (112 px) полосами экрана игры: знаки на башнях за его краем и под панелями не рисуются
+      const topLeft = window.__pvb.gameToClient(0, 40 + 20);
+      const bottomRight = window.__pvb.gameToClient(1280, 720 - 112 - 20);
       for (const tw of list) {
         const c = window.__pvb.worldToClient(tw.x, tw.y);
+        if (c.x < topLeft.x + 20 || c.x > bottomRight.x - 40 || c.y < topLeft.y || c.y > bottomRight.y) continue;
         const r = 35.5 * scale; // радиус основания башни на экране
         // уровень: точки под башней, нижний ряд — до четырёх жёлтых, со второго ряда (V–VIII) — оранжевые
         const dots = Math.max(2.5, r * 0.16);
@@ -2515,7 +2519,7 @@ async function runMarks(browser, baseUrl) {
         layer.appendChild(star);
       }
       document.body.appendChild(layer);
-      return list.length;
+      return layer.childElementCount;
     }, towers);
     await sleep(300);
     await shot(game.page, `marks-${key}`);
