@@ -159,7 +159,8 @@ export function qaSnapshot(s: GameSceneInternals): DebugSnapshot {
     })),
     selectedTower: s.selectedTower ? { col: s.selectedTower.col, row: s.selectedTower.row } : null,
     mergeMode: s.mergeMode,
-    mergeHint: s.mergeHintTowers.map((tower: any) => ({ col: tower.col, row: tower.row })),
+    /** Пара разовой подсказки слияния: подсказки нет (решение владельца 25 октября 2026, сообщение 5, п. 3.1) — всегда пусто. */
+    mergeHint: [] as { col: number; row: number }[],
     maxTowerLevel: MAX_TOWER_LEVEL,
     mergeRadiusPx: CONFIG.mergeRadiusPx,
     merges: s.merges,

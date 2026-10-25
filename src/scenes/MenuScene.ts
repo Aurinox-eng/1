@@ -4,7 +4,6 @@ import { t } from '../i18n';
 import { attemptLog, hasProgress, metaDna, resetProgress } from '../meta';
 import { copyText } from '../attempt';
 import { setCurrentLevel } from '../progress';
-import { forgetNews } from './GameScene';
 import { sfx } from '../sound';
 import { addButton, setScreenInfo, textStyle, type Rect } from '../screens';
 import { COLORS, TEXT_COLORS } from '../theme';
@@ -133,7 +132,6 @@ export class MenuScene extends Phaser.Scene {
       line: 0xd86a6a,
       onTap: () => {
         resetProgress();
-        forgetNews();
         setCurrentLevel(1);
         close();
       },
