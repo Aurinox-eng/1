@@ -2466,12 +2466,12 @@ async function runSpiralCap(browser, baseUrl) {
     const base = towerIn(s, plain);
     const full = towerIn(s, loaded);
     await game.page.close();
-    return { base, full, ratio: dpsOf(full) / dpsOf(base) };
+    return { base, full, ratio: dpsOf(full) / dpsOf(base), info: JSON.stringify({ base: { lv: base.level, ...base.stats }, full: { lv: full.level, picks: full.picks, ...full.stats }, levelMul }) };
   };
   const off = await measure(false);
   const on = await measure(true);
-  check(`${p} ключ выключен: башня IV (${off.full.level}) с «Бронебойный» ×2, «Больше ударов» ×2 и «Спиралью» — ${off.full.stats.beamPulses} ударов, прибавка ${off.full.stats.spiral} за удар, урон в секунду ×${off.ratio.toFixed(2)} к башне без мутаций (прежнее число, выше потолка ×2,5)`, off.full.level === 4 && off.full.stats.beamPulses === 5 && Math.abs(off.full.stats.spiral - 2) < 1e-9 && off.ratio > 4.5 && off.ratio < 5, `×${off.ratio.toFixed(3)}, spiral ${off.full.stats.spiral}`);
-  check(`${p} ключ включён: урон в секунду очереди ×${on.ratio.toFixed(3)} к башне без мутаций — не выше ×2,5; прибавка «Спирали» ужата с 2 до ${on.full.stats.spiral.toFixed(3)}`, on.full.level === 4 && on.ratio <= 2.5 + 1e-6 && on.ratio > 2.4 && on.full.stats.spiral > 0 && on.full.stats.spiral < 2, `×${on.ratio.toFixed(3)}, spiral ${on.full.stats.spiral}`);
+  check(`${p} ключ выключен: башня IV (${off.full.level}) с «Бронебойный» ×2, «Больше ударов» ×2 и «Спиралью» — ${off.full.stats.beamPulses} ударов, прибавка ${off.full.stats.spiral} за удар, урон в секунду ×${off.ratio.toFixed(2)} к башне без мутаций (прежнее число, выше потолка ×2,5)`, off.full.level === 4 && off.full.stats.beamPulses === 5 && Math.abs(off.full.stats.spiral - 2) < 1e-9 && off.ratio > 4.5 && off.ratio < 5, `×${off.ratio.toFixed(3)}, ${off.info}`);
+  check(`${p} ключ включён: урон в секунду очереди ×${on.ratio.toFixed(3)} к башне без мутаций — не выше ×2,5; прибавка «Спирали» ужата с 2 до ${on.full.stats.spiral.toFixed(3)}`, on.full.level === 4 && on.ratio <= 2.5 + 1e-6 && on.ratio > 2.4 && on.full.stats.spiral > 0 && on.full.stats.spiral < 2, `×${on.ratio.toFixed(3)}, ${on.info}`);
   await context.close();
 }
 
