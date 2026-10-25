@@ -97,7 +97,8 @@ const SYRUP_OVERLAP = 0.8; // …но замедляющей башне выго
 /** Связка луча и лужи: участок дорожки, где луч Шприца проходит через зону луж Сиропа, ценится в (1 + BEAM_PUDDLE_BONUS) раз — и при выборе клетки Сиропа, и при выборе направления луча
  *  (бегуна при жёстком свойстве ранит только удар в луже; 20 октября 2026, сообщение владельца 3: «его круг не даёт луж там, где бьёт ядро»). */
 const BEAM_PUDDLE_BONUS = 2;
-const BEAM_CROSS_UNIT = 1000; // fx:beam — цена одного пересечения луча с дорожкой (в единицах «длины × вес ветки», px)
+const BEAM_CROSS_UNIT = 1000; // fx:beam — цена одного пересечения луча с дорожкой (в единицах «длины × вес ветки», px); длина под лучом — только при равенстве (вес 0,001)
+const BEAM_CROSS_HYBRID = 300; // fx:beamlen — то же, но длина под лучом ценится полностью (вес 1): луч вдоль «ствола» с одним пересечением не проигрывает лучу через несколько веток (диагностика fx:beam, 25 октября 2026)
 const CROSS_PUDDLE_BONUS = 4; // fx:puddle — отрезок у пересечения луча с дорожкой для лужи Сиропа ценится в 1 + столько раз
 const FIZZ_BY_WAVE = 5; // эксперт копит на первую Шипучку, пока идёт не позже этой волны (рой — с 4-й), даже если уже потерял жизни: Таблетками рой всё равно не остановить
 const EXPERT_OVERLAP = 0.9; // эксперт знает, что все дорожки сходятся у «ствола» у организма: охват, уже накрытый другой башней, почти не обесценивается (башни кучкой у ствола бьют ВСЕХ бактерий)
@@ -424,11 +425,12 @@ const NO_ALT = new Set();
 /**
  * Правила образца рецензента, перенесённые в эксперта общими правилами (без заданных клеток); включаются записью `fx:…` в --mut, по умолчанию выключены:
  *  beam   — луч Шприца по линии с наибольшим числом пересечений дорожки (клетка и направление; пересечение — вход луча на ребро; длина — при равенстве);
+ *  beamlen — beam, но длина луча вдоль дорожки ценится полностью, пересечение — как 300 px длины (диагностика, сообщение 2 от 25 октября 2026, п. 4.2);
  *  iv     — Шприцы кучкой в радиусе слияния от первого и строятся до IV раньше остального (круг до волны LATE_WAVE: Сироп, четыре Шприца, Сироп, четыре Шприца);
  *  puddle — лужи Сиропа ложатся на пересечения лучей Шприцев с дорожкой;
  *  coins  — «Стартовые монеты» в начале порядка очков ДНК: после башен Сироп, Шипучка, Шприц — три уровня.
  */
-const FX_KNOWN = ['beam', 'iv', 'puddle', 'coins'];
+const FX_KNOWN = ['beam', 'beamlen', 'iv', 'puddle', 'coins'];
 const FX = new Set();
 /** Запись «nolatebuy» в --mut: без покупки веток Таблетки и Шипучки после выхода на волну N (core:…:late). */
 const NO_LATE_BUY = { value: false };
@@ -452,6 +454,7 @@ else if (args.mut !== undefined) {
       for (const id of (list ?? '').split(',').map((x) => x.trim()).filter(Boolean)) {
         if (!FX_KNOWN.includes(id)) die(`--mut=fx:…: не понял «${id}» (есть ${FX_KNOWN.join(', ')})`);
         FX.add(id);
+        if (id === 'beamlen') FX.add('beam');
       }
       continue;
     }
@@ -601,7 +604,8 @@ function buyUpgrades(levels, dna, reached = 0, towers = null) {
   let head = null;
   if (FX.has('coins') && CORE) {
     const chain = [...new Set(CORE.flatMap((id) => nodeChain(META.upgrades, towerNodeId(id))))].map((id) => [id, 1]);
-    head = buyPrefix(levels, dna, [...chain, ['coins', 3]]);
+    // «Стартовые монеты» требуют «Сильное вещество» 1-го уровня (damage; config.ts, meta.upgrades.coins.requires), поэтому он идёт перед монетами
+    head = buyPrefix(levels, dna, [...chain, ['damage', 1], ['coins', 3]]);
     if (!head.done) return { levels: head.levels, dna: head.dna, bought: head.bought };
   }
   const rest = buyBest({ upgrades: META.upgrades, levels: head ? head.levels : levels, dna: head ? head.dna : dna, towers: late ? [...circle, 'pill', 'fizz'] : circle, saveFor: CORE_SAVE ? CORE : null, shares: fieldShares(towers) });
@@ -774,8 +778,8 @@ function buildWorld(graph, map, cols, rows) {
         for (const si of rayOf(type, cell, dir)) {
           const sg = segs[si];
           const disc = Math.pow(OVERLAP_DISCOUNT, covCount ? covCount[si] : 0);
-          if (si !== prevIdx + 1 || sg.edge !== prevEdge) value += BEAM_CROSS_UNIT * sg.w * disc * (covCount?.puddle?.[si] ? 1 + BEAM_PUDDLE_BONUS : 1);
-          value += sg.len * sg.w * disc * 0.001;
+          if (si !== prevIdx + 1 || sg.edge !== prevEdge) value += (FX.has('beamlen') ? BEAM_CROSS_HYBRID : BEAM_CROSS_UNIT) * sg.w * disc * (covCount?.puddle?.[si] ? 1 + BEAM_PUDDLE_BONUS : 1);
+          value += sg.len * sg.w * disc * (FX.has('beamlen') ? 1 : 0.001);
           prevIdx = si;
           prevEdge = sg.edge;
         }
@@ -1736,6 +1740,8 @@ async function playGame(browser, baseUrl, run, metaLevels = null, salt = '', lev
       levelGrowth,
       leakLives,
       stealthLives: leakLives.stealth ?? 0,
+      // Шприцы на момент конца партии: уровень, мутации и числа, из которых считается урон в секунду (проверка потолка мутаций и «Спирали», решение владельца 25 октября 2026, сообщение 2, п. 1.1)
+      syringeStats: last.towers.filter((tw) => tw.id === 'syringe').map((tw) => ({ level: tw.level, picks: tw.picks, damage: tw.stats.damage, cooldownMs: tw.stats.cooldownMs, beamPulses: tw.stats.beamPulses, spiral: tw.stats.spiral })),
       kills: last.kills,
       leaked: last.leaked,
       spawned: last.spawned,

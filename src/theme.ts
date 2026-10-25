@@ -221,8 +221,8 @@ export const TEXT_COLORS = {
 export const FONT = 'Arial, "Segoe UI", Roboto, sans-serif';
 
 /**
- * Глаза у Таблеток (пилот этапа 8): одна константа. true — с глазами (по умолчанию), false — без. В режиме проверки `?qa&pilleyes=0` глаза выключаются адресом (снимки «без глаз»).
+ * Глаза у Таблеток (пилот этапа 8): одна константа. true — с глазами, false — без (по умолчанию с 25 октября 2026). В режиме проверки `?qa&pilleyes=0` глаза выключаются адресом (снимки «без глаз»).
  * Вид, не баланс.
  */
-const PILL_EYES_DEFAULT = true;
+const PILL_EYES_DEFAULT = false; // решение владельца 25 октября 2026: глаз нет ни у кого (у бактерий — `EYES_DRAWN` в `src/objects/styleArt.ts`)
 export const PILL_EYES: boolean = PILL_EYES_DEFAULT && !PILL_EYES_OFF;

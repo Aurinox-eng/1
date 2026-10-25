@@ -515,8 +515,12 @@ function ellipsePath(ctx: CanvasRenderingContext2D, x: number, y: number, rx: nu
   ctx.ellipse(x, y, rx, ry, rot, 0, Math.PI * 2);
 }
 
+/** Глаза рисуются на лицах бактерий: false — глаз нет ни у кого (решение владельца 25 октября 2026; рот, румянец, брови и знаки на лице остаются). Таблетки — `PILL_EYES` в `src/theme.ts`. */
+export const EYES_DRAWN = false;
+
 /** Глаз: белок с лёгким переходом, зрачок со смещением, блик в зрачке. */
 function eye(ctx: CanvasRenderingContext2D, cx: number, cy: number, rx: number, ry: number, pr: number, dir: number, stroke: string, pupil: string, white = '#ffffff', line = 1.4): void {
+  if (!EYES_DRAWN) return;
   const grad = ctx.createRadialGradient(cx - rx * 0.3, cy - ry * 0.4, 0, cx, cy, Math.max(rx, ry) * 1.1);
   grad.addColorStop(0, white);
   grad.addColorStop(1, '#d9e3f0');
@@ -538,6 +542,7 @@ function eye(ctx: CanvasRenderingContext2D, cx: number, cy: number, rx: number, 
 
 /** Закрытый глаз: дужка. */
 function closedEye(ctx: CanvasRenderingContext2D, cx: number, cy: number, rx: number, lw: number, color: string, smile: boolean): void {
+  if (!EYES_DRAWN) return;
   ctx.lineWidth = lw;
   ctx.lineCap = 'round';
   ctx.strokeStyle = color;
@@ -604,7 +609,7 @@ function drawFaceCore(ctx: CanvasRenderingContext2D, kind: StyleKind, blink: boo
     const rx = r * 0.2;
     const ry = r * 0.15;
     const ey = -r * 0.04;
-    for (const s of [-1, 1] as const) {
+    for (const s of EYES_DRAWN ? ([-1, 1] as const) : []) {
       const cx = s * ex;
       if (!blink) eye(ctx, cx, ey, rx, ry, r * 0.075, -s, ink, '#1a1230', '#f4f1ff');
       // тяжёлое веко-пластина: снаружи выше, к переносице ниже; закрывает верх глаза (при моргании — весь глаз)
@@ -808,7 +813,7 @@ function drawFaceStyle(ctx: CanvasRenderingContext2D, kind: StyleKind, blink: bo
     case 'slick': {
       // слизень: сонные глаза (верхняя половина закрыта веком) и маленький рот-кружок
       const lid = css(darken(col.body, 0.18));
-      for (const s of [-1, 1] as const) {
+      for (const s of EYES_DRAWN ? ([-1, 1] as const) : []) {
         const cx = s * r * 0.28;
         const cy = -r * 0.02;
         if (blink) {
@@ -926,8 +931,8 @@ function drawFaceStyle(ctx: CanvasRenderingContext2D, kind: StyleKind, blink: bo
       return;
     }
     case 'stealth': {
-      // скрытная: только холодные светящиеся щели глаз (рта нет)
-      for (const s of [-1, 1] as const) {
+      // скрытная: только холодные светящиеся щели глаз (рта нет); без глаз лица нет
+      for (const s of EYES_DRAWN ? ([-1, 1] as const) : []) {
         ctx.save();
         ctx.shadowColor = css(COLORS.stealthRim, 0.9);
         ctx.shadowBlur = 5;
@@ -973,7 +978,7 @@ function drawFaceStyle(ctx: CanvasRenderingContext2D, kind: StyleKind, blink: bo
       for (const s of [-1, 1] as const) {
         const cx = s * r * 0.28;
         if (blink) closedEye(ctx, cx, -r * 0.06, r * 0.17, r * 0.06, ink, false);
-        else {
+        else if (EYES_DRAWN) {
           ctx.fillStyle = css(0xf6efd8);
           ctx.beginPath();
           ctx.ellipse(cx, -r * 0.06, r * 0.19, r * 0.1, 0, 0, Math.PI * 2);
