@@ -7,6 +7,7 @@ import {
 } from '../art';
 import { COLORS, PILL_EYES, TOWER_ART } from '../theme';
 import { bakeStyled } from './styleGfx';
+import { hasHighArt, highBarrelKey, highBaseKey, highHaloKey, highTopKey, HALO_BOX } from './highTowerArt';
 import { isPilotTower, pilotBarrelKey, pilotBaseKey, pilotEyesKey, pilotPupilKey, pilotTopKey, PILL_EYE_POS, EYES_BOX, PUPIL_BOX, RECOIL_PX, RECOIL_SEC } from './pilotTowerArt';
 import { computeStats, mutationOptions, unlockedTiers, type TowerKey, type TowerStats } from '../towerStats';
 import { wardBlocks } from '../ward';
@@ -35,6 +36,14 @@ const A = TOWER_ART;
 /** Виды стрельбы, у которых выбор цели учитывает жёсткие свойства (решение владельца 24 октября 2026, сообщение 2, п. 2.3). */
 const WARD_AWARE = new Set<string>(['radius', 'snipe', 'area']);
 
+/** Уровни V–VIII со своими рисунками (Таблетка, Сироп, Шприц; решение владельца 25 октября 2026, сообщение 2, п. 3); остальные башни на V–VIII рисуются как IV. */
+function isHighArt(id: TowerId, level: number, legacy: boolean): boolean {
+  return !legacy && level >= 5 && hasHighArt(id);
+}
+function highLevel(level: number): number {
+  return Math.max(5, Math.min(8, Math.round(level)));
+}
+
 /** Ограничение уровня рисунка: у башни 4 вида рисунков (уровни слияния 1–4). */
 function artLevel(level: number): 1 | 2 | 3 | 4 {
   return Math.max(1, Math.min(4, Math.round(level))) as 1 | 2 | 3 | 4;
@@ -49,6 +58,7 @@ function barrelImage(scene: Phaser.Scene, id: TowerId, level: number, legacy = f
  * Пилот этапа 8: Таблетка 1 и 4 уровня и Сироп 1 уровня рисуются заново (pilotTowerArt.ts, Canvas 2D); legacy — прежний рисунок тех же башен (до утверждения стиля, лист образцов `?qa&artsheet`).
  */
 function barrelTexture(scene: Phaser.Scene, id: TowerId, level: number, legacy = false): string {
+  if (isHighArt(id, level, legacy)) return highBarrelKey(scene, id, highLevel(level), BARREL_BOX);
   const lv = artLevel(level);
   if (!legacy && isPilotTower(id, lv)) return pilotBarrelKey(scene, id, lv, BARREL_BOX);
   // Остальные башни и уровни: прежние команды рисования выполняются в новом стиле (styleGfx.ts): объём, переход цвета, мягкие тени
@@ -972,6 +982,7 @@ const LEVEL_COLORS = [COLORS.towerEdge, 0xdfe6f5, 0xffd84d, 0xc78bff];
 
 /** Верхняя неподвижная часть башни id уровня level — одна картинка: втулка над стволом, ядро 4-го уровня, кольцо и точки уровня под башней. */
 function topTexture(scene: Phaser.Scene, id: TowerId, level: number, legacy = false): string {
+  if (isHighArt(id, level, legacy)) return highTopKey(scene, id, highLevel(level), TOP_BOX);
   const lv = artLevel(level);
   const pilot = !legacy && isPilotTower(id, lv);
   if (pilot && id === 'pill' && lv === 4) return pilotTopKey(scene, TOP_BOX); // Таблетка 4 уровня: купол под глазами, кольцо и точки уровня — Canvas 2D
@@ -1008,6 +1019,7 @@ function topTexture(scene: Phaser.Scene, id: TowerId, level: number, legacy = fa
 }
 
 function baseTexture(scene: Phaser.Scene, id: TowerId, level: number, legacy = false): string {
+  if (isHighArt(id, level, legacy)) return highBaseKey(scene, id, highLevel(level), BASE_BOX);
   const lv = artLevel(level);
   if (!legacy && isPilotTower(id, lv)) return pilotBaseKey(scene, id, lv, BASE_BOX);
   if (!legacy) return bakeStyled(scene, `tower-base-styled-${id}-${lv}`, BASE_BOX, (g) => drawBase(g, id, lv));
@@ -1026,6 +1038,8 @@ interface TowerArt {
   /** Глаза Таблетки (пилот): белки и два зрачка, зрачки смотрят на цель; null у остальных башен и при выключенных глазах (theme.PILL_EYES). */
   eyes: Phaser.GameObjects.Image | null;
   pupils: Phaser.GameObjects.Image[];
+  /** Ореол уровней VII–VIII: готовая картинка под основанием, вращается целиком (без перерисовки); null — у остальных уровней и башен. */
+  halo: Phaser.GameObjects.Image | null;
 }
 
 /** Основание, ствол и верхняя часть башни в контейнере. */
@@ -1035,7 +1049,8 @@ function buildTowerArt(scene: Phaser.Scene, parent: Phaser.GameObjects.Container
   const barrel = scene.add.container(0, 0, [barrelImg]);
   const top = artImage(scene, topTexture(scene, id, level, legacy), TOP_BOX);
   parent.add([base, barrel, top]);
-  const art: TowerArt = { base, barrel, barrelImg, top, legacy, eyes: null, pupils: [] };
+  const art: TowerArt = { base, barrel, barrelImg, top, legacy, eyes: null, pupils: [], halo: null };
+  setHalo(scene, parent, art, id, level);
   // Глаза Таблетки: два белка на верхнем слое (не вращаются) и два зрачка, которые смотрят на цель; видны на уровнях пилота
   if (id === 'pill' && eyes && !legacy) {
     art.eyes = artImage(scene, pilotEyesKey(scene, 1), EYES_BOX);
@@ -1044,6 +1059,22 @@ function buildTowerArt(scene: Phaser.Scene, parent: Phaser.GameObjects.Container
     setEyesLevel(scene, art, artLevel(level));
   }
   return art;
+}
+
+/** Ставит или убирает ореол башни уровня VII–VIII (картинка под основанием). */
+function setHalo(scene: Phaser.Scene, parent: Phaser.GameObjects.Container, art: TowerArt, id: TowerId, level: number): void {
+  if (!isHighArt(id, level, art.legacy) || level < 7) {
+    art.halo?.setVisible(false);
+    return;
+  }
+  const key = highHaloKey(scene, highLevel(level));
+  if (!art.halo) {
+    art.halo = artImage(scene, key, HALO_BOX);
+    parent.addAt(art.halo, 0);
+  } else {
+    setArt(art.halo, key, HALO_BOX);
+  }
+  art.halo.setVisible(true);
 }
 
 /** Показывает глаза Таблетки на всех уровнях и ставит их размер по уровню. */
@@ -1072,6 +1103,7 @@ function setTowerArtLevel(scene: Phaser.Scene, art: TowerArt, id: TowerId, level
   setArt(art.base, baseTexture(scene, id, level, art.legacy), BASE_BOX);
   setArt(art.barrelImg, barrelTexture(scene, id, level, art.legacy), BARREL_BOX);
   setArt(art.top, topTexture(scene, id, level, art.legacy), TOP_BOX);
+  if (art.base.parentContainer) setHalo(scene, art.base.parentContainer, art, id, level);
   setEyesLevel(scene, art, artLevel(level));
 }
 
@@ -1493,6 +1525,8 @@ export class Tower {
   }
 
   update(dt: number, bacteria: readonly Bacterium[], fire: (target: Bacterium, muzzleX: number, muzzleY: number) => boolean): void {
+    // Ореол уровней VII–VIII: готовая картинка вращается (медленно по часовой стрелке), без перерисовки
+    if (this.art.halo?.visible) this.art.halo.rotation += dt * 0.4;
     // Отдача: ствол отъезжает назад по своей оси на RECOIL_PX и возвращается за RECOIL_SEC (ручной таймер, без анимаций Phaser)
     if (this.recoilLeft > 0) {
       this.recoilLeft = Math.max(0, this.recoilLeft - dt);
