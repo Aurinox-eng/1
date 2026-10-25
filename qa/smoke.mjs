@@ -2446,27 +2446,29 @@ async function runWards(browser, baseUrl) {
 async function runSpiralCap(browser, baseUrl) {
   const p = '[«Спираль» и потолок мутаций]';
   const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
+  // IV строка таблицы уровней и строка Шприца: башня IV без мутаций (в этой проверке сама не ставится: `placeTower` выбирает мутации за башню) — урон в секунду по таблицам
+  const rowIV = /towerLevels:\s*\[([\s\S]*?)\]/.exec(fs.readFileSync(path.join(ROOT, 'src', 'config.ts'), 'utf8'))[1].split('\n').filter((l) => l.includes('damageMul'))[3];
+  const num = (key) => Number(new RegExp(`${key}:\\s*([\\d.]+)`).exec(rowIV)[1]);
+  const levelMul = num('damageMul');
+  const SY = readTowerTable().syringe;
+  const baseDps = ((SY.beamPulses + num('pulsesAdd')) * SY.damage * levelMul) / ((SY.cooldownMs * num('cooldownMul')) / 1000);
   // удар i очереди бьёт на i × spiral × damageMul уровня сильнее (src/towerStats.ts, statDps): урон в секунду очереди по одной цели
-  const levelMul = Number(/towerLevels:\s*\[([\s\S]*?)\]/.exec(fs.readFileSync(path.join(ROOT, 'src', 'config.ts'), 'utf8'))[1].split('\n').filter((l) => l.includes('damageMul'))[3].match(/damageMul:\s*([\d.]+)/)[1]);
   const dpsOf = (tw) => {
     const n = tw.stats.beamPulses;
     return (n * tw.stats.damage + (tw.stats.spiral * levelMul * n * (n - 1)) / 2) / (tw.stats.cooldownMs / 1000);
   };
   const measure = async (on) => {
     const game = await openGame(context, baseUrl, `${p} ключ ${on ? 'включён' : 'выключен'}`, { speed: 1, cfg: `waves.firstDelaySec:9999${on ? ',mutationCaps.spiralInCap:1' : ''}`, query: ALL_TOWERS });
-    const plain = FREE.b;
     const loaded = FREE.a;
-    await game.page.evaluate(([a, b]) => {
-      window.__pvb.placeTower('syringe', b[0], b[1], 4);
+    await game.page.evaluate(([a]) => {
       window.__pvb.placeTower('syringe', a[0], a[1], 1);
       for (const picks of [['syringePierce', 'syringeMore'], ['syringePierce', 'syringeMore'], ['syringeSpiral']]) window.__pvb.upgradeTower(a[0], a[1], picks);
-    }, [loaded, plain]);
+    }, [loaded]);
     await sleep(300);
     const s = await game.state();
-    const base = towerIn(s, plain);
     const full = towerIn(s, loaded);
     await game.page.close();
-    return { base, full, ratio: dpsOf(full) / dpsOf(base), info: JSON.stringify({ base: { lv: base.level, ...base.stats }, full: { lv: full.level, picks: full.picks, ...full.stats }, levelMul }) };
+    return { full, ratio: dpsOf(full) / baseDps, info: JSON.stringify({ baseDps, full: { lv: full.level, picks: full.picks, ...full.stats }, levelMul }) };
   };
   const off = await measure(false);
   const on = await measure(true);
