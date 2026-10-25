@@ -1,6 +1,7 @@
 /**
- * ЗАМЕР СКОРОСТИ (кадры в секунду) в двух стресс-сценариях:
+ * ЗАМЕР СКОРОСТИ (кадры в секунду) в трёх стресс-сценариях:
  *   stress — `?qa&stress`: 40 башен разных уровней, ≈200 бактерий всех типов, скорость ×3;
+ *   high   — `?qa&stress=high`: 40 Таблеток, Сиропов и Шприцев уровней I–VIII (рисунки V–VIII), ≈200 бактерий; мерится только у версий, где он есть (решение владельца 25 октября 2026, сообщение 2, п. 3.6);
  *   fizz   — `?qa&stress=fizz`: 12 Шипучек 4-го уровня («Быстрая» + «Цепная» + «Кислота»), ≈200 бактерий (прочность ×40), скорость ×3 — частые взрывы.
  * Идёт на сервере (`.github/workflows/perf.yml`); локально в контейнере агента не запускать (машина слабая, числа неверные).
  *
@@ -28,7 +29,7 @@ const args = parseArgs(process.argv.slice(2));
 const roots = String(args.roots ?? '.').split(',').map((r) => path.resolve(ROOT, r));
 const names = String(args.names ?? roots.map((r) => path.basename(r)).join(',')).split(',');
 const renderers = String(args.renderers ?? 'webgl,canvas').split(',');
-const scenarios = String(args.scenario ?? 'stress,fizz').split(',');
+const scenarios = String(args.scenario ?? 'stress,fizz,high').split(',');
 /** Цель: 95-й процентиль работы кадра, мс (60 кадров в секунду). */
 const GOAL_MS = 16.7;
 const rounds = Number(args.rounds ?? 3);
@@ -57,7 +58,7 @@ async function measure(browser, url, renderer, scenario, shotName, extra = '') {
   const errors = [];
   page.on('pageerror', (e) => errors.push(String(e)));
   page.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
-  const query = `?qa&stress${scenario === 'fizz' ? '=fizz' : ''}&fps&noplaque${renderer === 'canvas' ? '&canvas' : ''}${extra ? `&${extra}` : ''}`;
+  const query = `?qa&stress${scenario === 'fizz' ? '=fizz' : scenario === 'high' ? '=high' : ''}&fps&noplaque${renderer === 'canvas' ? '&canvas' : ''}${extra ? `&${extra}` : ''}`;
   await page.goto(url + query);
   await page.waitForFunction(() => Boolean(window.__pvb?.getPerf), null, { timeout: 60000 });
   // Версия без этого сценария (старый код не знает `stress=fizz` и запустил бы обычный стресс-сценарий) не мерится

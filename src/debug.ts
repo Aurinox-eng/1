@@ -359,7 +359,7 @@ export interface DebugApi {
   /** Замер скорости с последнего сброса (reset — начать заново) и сколько объектов сейчас рисуется. */
   /** Журнал событий игры (с номера `from`): см. QaEvent. Сбрасывается при перезапуске уровня. */
   getEvents: (from?: number) => QaEvent[];
-  getPerf: (reset?: boolean) => PerfReport & { objects: number; bacteria: number; towers: number; renderer: 'webgl' | 'canvas'; scenario?: 'stress' | 'fizz' };
+  getPerf: (reset?: boolean) => PerfReport & { objects: number; bacteria: number; towers: number; renderer: 'webgl' | 'canvas'; scenario?: 'stress' | 'fizz' | 'high' };
 }
 
 declare global {

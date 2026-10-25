@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import { CameraRig } from '../cameraRig';
 import { CONFIG, type BossId, type Ward } from '../config';
-import { exposeDebug, QA_ENTRANCE, QA_MODE, QA_NORENDER, QA_START_WAVE, STRESS, STRESS_FIZZ, TIME_SCALE, type QaEvent } from '../debug';
+import { exposeDebug, QA_ENTRANCE, QA_MODE, QA_NORENDER, QA_START_WAVE, STRESS, STRESS_FIZZ, STRESS_HIGH, TIME_SCALE, type QaEvent } from '../debug';
 import { placeTowerQa, qaLog, qaSnapshot, setupStress, stressFrame } from '../qaTools';
 import { Effects } from '../effects';
 import { drawStar, setScreenInfo } from '../screens';
@@ -492,7 +492,7 @@ export class GameScene extends Phaser.Scene {
           bacteria: this.bacteria.length,
           towers: this.towers.length,
           renderer: this.game.renderer.type === Phaser.WEBGL ? 'webgl' : 'canvas',
-          scenario: STRESS ? (STRESS_FIZZ ? 'fizz' : 'stress') : undefined,
+          scenario: STRESS ? (STRESS_FIZZ ? 'fizz' : STRESS_HIGH ? 'high' : 'stress') : undefined,
         };
       },
       worldToClient: (wx, wy) => {
