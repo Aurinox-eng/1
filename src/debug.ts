@@ -62,6 +62,8 @@ export const STRESS: boolean = QA_MODE && params.has('stress');
 
 /** Второй стресс-сценарий (`?qa&stress=fizz`): 12 Шипучек 4-го уровня с мутациями «Цепная» и «Кислота» и ≈200 бактерий — нагрузка на взрывы (круг и кольцо на каждый взрыв). Включает и `STRESS`. */
 export const STRESS_FIZZ: boolean = STRESS && params.get('stress') === 'fizz';
+/** Третий стресс-сценарий (`?qa&stress=high`): Таблетки, Сиропы и Шприцы всех уровней I–VIII — проверка рисунков уровней V–VIII в плотной сцене (решение владельца 25 октября 2026, сообщение 2, п. 3.6). */
+export const STRESS_HIGH: boolean = STRESS && params.get('stress') === 'high';
 /** Вход (номер ребра), по которому выходят ВСЕ бактерии волн (только вместе с ?qa&entrance=N); null — вход случайный, как в игре. */
 export const QA_ENTRANCE: number | null = QA_MODE && params.has('entrance') && Number.isFinite(Number(params.get('entrance'))) ? Number(params.get('entrance')) : null;
 

@@ -2,6 +2,8 @@ import Phaser from 'phaser';
 import { CONFIG } from './config';
 import { ART_SHEET_PAGE } from './debug';
 import { bacteriumSample, type BacteriumKind } from './objects/Bacterium';
+import { artImage, type ArtBox } from './art';
+import { pillTop4NoEyesKey, rankMarkKey, RANK_BOX } from './objects/highTowerArt';
 import { createTowerArtSample, type TowerId } from './objects/Tower';
 import { COLORS } from './theme';
 
@@ -24,6 +26,10 @@ export class ArtSheetScene extends Phaser.Scene {
     this.add.rectangle(W / 2, H / 2, W, H, 0x14264a);
     if (ART_SHEET_PAGE === 'b1' || ART_SHEET_PAGE === 'b2') {
       this.bacteriaPage(ART_SHEET_PAGE === 'b1' ? KINDS.slice(0, 10) : KINDS.slice(10));
+      return;
+    }
+    if (ART_SHEET_PAGE === 'l') {
+      this.levelsPage();
       return;
     }
     if (ART_SHEET_PAGE === 't1' || ART_SHEET_PAGE === 't2') {
@@ -108,6 +114,58 @@ export class ArtSheetScene extends Phaser.Scene {
         sample.setPosition(cx + (j === 0 ? -62 : 62), cy).setScale(scale);
       });
     });
+  }
+
+  /**
+   * Страница уровней (`?qa&artsheet=l`, решение владельца 25 октября 2026, сообщение 2, п. 3.6): Таблетка, Сироп и Шприц, уровни I–VIII в ряд (без глаз); внизу — те же башни в размере телефона
+   * (основание ≈ 36 px) и знаки рангов ★1–★8. В последнем столбце ряда Таблетки — IV без глаз с капсулой-меткой на куполе (предложение).
+   */
+  private levelsPage(): void {
+    const W = CONFIG.screen.width;
+    const label = (x: number, y: number, text: string, size = 14, align = 0.5): void => {
+      this.add.text(x, y, text, { fontFamily: 'Arial', fontSize: `${size}px`, color: '#cfe0ff' }).setOrigin(align, 0.5);
+    };
+    label(W / 2, 14, 'Уровни I–VIII: Таблетка, Сироп, Шприц (без глаз), размер телефона и знаки рангов', 16);
+    const x0 = 84;
+    const dx = 128;
+    const rows: { id: TowerId; y: number; name: string }[] = [
+      { id: 'pill', y: 112, name: 'Таблетка' },
+      { id: 'syrup', y: 232, name: 'Сироп' },
+      { id: 'syringe', y: 352, name: 'Шприц' },
+    ];
+    const ROMAN = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII'];
+    ROMAN.forEach((r, i) => label(x0 + i * dx, 40, r, 14));
+    for (const row of rows) {
+      label(6, row.y - 44, row.name, 13, 0);
+      for (let lv = 1; lv <= 8; lv++) {
+        const holder = this.add.container(x0 + (lv - 1) * dx, row.y);
+        createTowerArtSample(this, holder, row.id, lv, false, false);
+      }
+    }
+    // предложение: Таблетка IV без глаз — купол с капсулой-меткой
+    const prop = this.add.container(x0 + 8 * dx, rows[0].y);
+    createTowerArtSample(this, prop, 'pill', 4, false, false);
+    const topBox: ArtBox = { x: -54, y: -54, w: 108, h: 118 };
+    prop.add(artImage(this, pillTop4NoEyesKey(this, topBox), topBox));
+    label(x0 + 8 * dx, rows[0].y - 66, 'IV без глаз (предложение)', 11);
+    // размер телефона: основание ≈ 36 px (72 px рисунка × 0,5), три башни рядом на уровень
+    label(6, 440, 'Размер телефона (основание ≈ 36 px)', 13, 0);
+    for (let lv = 1; lv <= 8; lv++) {
+      rows.forEach((row, k) => {
+        const holder = this.add.container(x0 + (lv - 1) * dx + (k - 1) * 42 - 4, 490);
+        holder.setScale(0.5);
+        createTowerArtSample(this, holder, row.id, lv, false, false);
+      });
+      label(x0 + (lv - 1) * dx, 530, ROMAN[lv - 1], 12);
+    }
+    // знаки рангов ★1–★8: крупно и в размере на башне
+    label(6, 568, 'Знаки рангов ★1–★8', 13, 0);
+    for (let r = 1; r <= 8; r++) {
+      const big = this.add.image(x0 + (r - 1) * dx - 20, 620, rankMarkKey(this, r));
+      big.setDisplaySize(RANK_BOX.w * 1.9, RANK_BOX.h * 1.9);
+      const small = this.add.image(x0 + (r - 1) * dx + 28, 620, rankMarkKey(this, r));
+      small.setDisplaySize(RANK_BOX.w * 0.75, RANK_BOX.h * 0.75);
+    }
   }
 
   /** Страница башен: пять видов, уровни 1–4 в ряд. */
