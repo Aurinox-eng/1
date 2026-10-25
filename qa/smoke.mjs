@@ -87,6 +87,7 @@
  *   menu-flow              главное меню и выбор уровня (этап 5, шаг 3; компьютер ru, телефон en): игра открывается на меню (`?qa&menu`), «Играть» → 10 карточек (уровень 1 открыт, остальные закрыты), тап по закрытой ничего не делает, по открытой — партия, пауза → «В меню», «Улучшения» из меню и возврат
  *   levels-lock            открытие уровней по звёздам (`&stars=`), экран конца уровня: «Следующий уровень» после победы (не на последнем уровне), «В меню», тап по «Следующий уровень» открывает уровень 2
  *   level2                 уровень 2 «Нос» (план docs/level2-plan-2026-10-23.md): карта (9 рёбер, 2 входа, 1 выход), 5 боссов в плане на 10/20/30/40/50-й волнах, мини-босс 10-й волны выходит на своей волне, финальный босс — поражение сразу
+ *   wards                  жёсткое свойство «бегуна ранят только в луже» (решение владельца 24 октября 2026, сообщение 2, пп. 2.2–2.3): ловушка Пластыря вне лужи — 0 урона, яд «Едкой» в луже ранит; Таблетка не стреляет по незамедленному бегуну, при других целях бьёт их; Сироп кладёт лужу и под незамедленного бегуна
  *   restart-button         конец уровня (проигрыш и победа, компьютер ru и телефон en): есть кнопка «Заново» (endButton), тапы мимо неё не перезапускают, тап по ней — перезапускает
  *   deflation              economy.rewardMul: ×0,5 — два кокка номиналом 5 дают 2 + 3 = 5 монет (дробная часть копится); ×0,1 — 0 + 1, «+N» всплывает только при N ≥ 1
  *   camera-fit             самое сильное отдаление (считает игра, (считает игра): высота карты × масштаб ≤ высоты окна карты (568), ширина влезает, камера по центру и сдвигом не уводится
@@ -158,7 +159,7 @@ if (['stage-1', 'stage-1b', 'stage-1b-qa', 'td-1-mockup', 'tmp'].includes(tag)) 
   process.exit(2);
 }
 
-const SCENARIOS = ['desktop-ru', 'phone-ru', 'desktop-en', 'phone-en', 'rules', 'graph', 'combat', 'dash', 'split', 'spore', 'armored', 'intro', 'lose-ru', 'lose-en', 'win-ru', 'win-en', 'towers', 'card', 'merge', 'mutations', 'sell', 'special', 'danger', 'rotate', 'production', 'fullgame', 'locked', 'strip', 'almanac', 'almanac-pause', 'damage-numbers', 'sell-gap', 'restart-button', 'deflation', 'camera-fit', 'colors', 'meta-save', 'meta-dna', 'meta-shop', 'meta-effects', 'tree-effects', 'tree-shop', 'level-waves', 'progress-save', 'stars', 'menu-flow', 'menu-reset', 'levels-lock', 'step-dps', 'sound', 'sdk', 'lose-line', 'attempt-line', 'toast-queue', 'shake', 'bosses', 'level2', 'menu-exit', 'resume-tap', 'two-tabs']
+const SCENARIOS = ['desktop-ru', 'phone-ru', 'desktop-en', 'phone-en', 'rules', 'graph', 'combat', 'dash', 'split', 'spore', 'armored', 'intro', 'lose-ru', 'lose-en', 'win-ru', 'win-en', 'towers', 'card', 'merge', 'mutations', 'sell', 'special', 'danger', 'rotate', 'production', 'fullgame', 'locked', 'strip', 'almanac', 'almanac-pause', 'damage-numbers', 'sell-gap', 'restart-button', 'deflation', 'camera-fit', 'colors', 'meta-save', 'meta-dna', 'meta-shop', 'meta-effects', 'tree-effects', 'tree-shop', 'level-waves', 'progress-save', 'stars', 'menu-flow', 'menu-reset', 'levels-lock', 'step-dps', 'sound', 'sdk', 'lose-line', 'attempt-line', 'toast-queue', 'shake', 'bosses', 'level2', 'wards', 'menu-exit', 'resume-tap', 'two-tabs']
 const only = args.only === undefined ? null : String(args.only);
 if (only !== null && !SCENARIOS.includes(only)) {
   console.error(`Неизвестный сценарий --only=${only}. Есть: ${SCENARIOS.join(', ')}`);
@@ -2366,6 +2367,74 @@ async function runLevel2(browser, baseUrl) {
   check(`${p} финальный босс «${bossWaves.at(-1)[1]}» дошёл до организма — поражение сразу (жизней было ${final?.damage ?? '?'} из 5000, стало ${s.lives})`, s.state === 'lost' && s.lives === 0 && Boolean(final), `состояние ${s.state}, жизней ${s.lives}, утечек боссов ${leaks.length}`);
   await game.page.close();
   await context.close();
+}
+
+/**
+ * Жёсткое свойство «бегун ранят только в луже и окне после неё» (`plan.hardWalls.runnerSlow`; решение владельца 24 октября 2026, сообщение 2, пп. 2.2 и 2.3):
+ * ловушка Пластыря и яд по бегуну вне лужи не ранят; Таблетка («по радиусу») не стреляет по бегуну, которого не замедлили, а при других целях в зоне бьёт их;
+ * Сироп кладёт лужу и под незамедленного бегуна, в луже бегуна ранят прямые удары и яд «Едкой». Карта — «Горло» (уровень 1), состав первой волны — только то, что нужно проверке.
+ */
+async function runWards(browser, baseUrl) {
+  const p = '[жёсткие свойства: бегун]';
+  const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
+  // Уровень 1 идёт на карте «Горло», а общая сеть проверок построена по карте «корни»: клетки выбираются по сети уровня 1 из тестовой сборки, прежний мир возвращается в конце
+  const probe = await openGame(context, baseUrl, p, { query: '&levelwaves&level=1' });
+  const probeState = await probe.state();
+  const probeGraph = await probe.page.evaluate(() => window.__pvb.getGraph());
+  await probe.page.close();
+  const saved = { graph: GRAPH, geo: GEO, free: FREE, path: PATH, start: [...LEVEL.startCenter] };
+  LEVEL.startCenter = readMapStart('throat');
+  setupWorld(probeGraph, probeState);
+  try {
+    const mixCfg = (mix) => [...new Set([...Object.keys(PLAN[0].mix), ...Object.keys(mix)])].map((k) => `levels.specs.0.plan.waves.0.mix.${k}:${mix[k] ?? 0}`).join(',');
+    /** Одна партия: башни по списку, первая волна `mix`; идёт, пока не выйдет бегун и не уйдёт с карты (убит или дошёл). Возвращает все опросы состояния. */
+    const run = async (label, mix, towers, { upgrade = null } = {}) => {
+      const game = await openGame(context, baseUrl, `${p} ${label}`, { speed: 4, cfg: `${mixCfg(mix)},levels.specs.0.plan.startCoins:1500,lives.start:500`, query: '&levelwaves&level=1&towers=all' });
+      for (const [id, cell] of towers) await placeSure(game, id, cell);
+      if (upgrade) await game.page.evaluate(([c, r, picks]) => window.__pvb.upgradeTower(c, r, picks), [upgrade.cell[0], upgrade.cell[1], upgrade.picks]);
+      const samples = [];
+      let seen = false;
+      const started = Date.now();
+      for (;;) {
+        const st = await game.state();
+        samples.push(st);
+        const runners = st.bacteria.filter((b) => b.kind === 'runner');
+        if (runners.length) seen = true;
+        if ((seen && !runners.length) || st.state !== 'playing' || Date.now() - started > 120000) break;
+        await sleep(25);
+      }
+      await game.page.close();
+      return { samples, seen, last: samples.at(-1) };
+    };
+    const runnersOf = (r) => r.samples.flatMap((st) => st.bacteria.filter((b) => b.kind === 'runner'));
+    const fullHp = (r) => runnersOf(r).every((b) => b.hp >= b.maxHp - 1e-6);
+    const minHp = (r) => Math.min(...runnersOf(r).map((b) => b.hp / b.maxHp));
+
+    // 2.2: ловушка Пластыря по бегуну вне лужи — 0 урона; в луже яд «Едкой» ранит
+    const trap = await run('ловушка вне лужи', { runner: 1 }, [['patch', FREE.a]]);
+    const trapped = runnersOf(trap).some((b) => b.trapLeft > 0);
+    check(`${p} ловушка Пластыря: бегун приклеен (${trapped}), но вне лужи не ранен: HP не ниже полного, убито ${trap.last.kills}`, trap.seen && trapped && fullHp(trap) && trap.last.kills === 0, `HP не ниже полного ${fullHp(trap)}, мин. доля ${minHp(trap).toFixed(2)}`);
+    const caustic = await run('яд в луже', { runner: 1 }, [['syrup', FREE.a]], { upgrade: { cell: FREE.a, picks: ['syrupCaustic'] } });
+    const inPuddle = runnersOf(caustic).some((b) => b.slowed);
+    check(`${p} яд «Едкой» в луже: бегун замедлен (${inPuddle}) и ранен (мин. доля HP ${minHp(caustic).toFixed(2)})`, caustic.seen && inPuddle && minHp(caustic) < 1 - 1e-6, `мин. доля HP ${minHp(caustic).toFixed(2)}`);
+
+    // 2.3: Таблетка не стреляет по бегуну без замедления; при других целях в зоне бьёт их
+    const pillOnly = await run('Таблетка и бегун', { runner: 1 }, [['pill', FREE.a]]);
+    check(`${p} Таблетка не тратит выстрелы на незамедленного бегуна: выстрелов ${pillOnly.last.shots}, HP бегуна не ниже полного`, pillOnly.seen && pillOnly.last.shots === 0 && fullHp(pillOnly), `выстрелов ${pillOnly.last.shots}, мин. доля ${minHp(pillOnly).toFixed(2)}`);
+    const pillMix = await run('Таблетка, кокки и бегун', { coccus: 3, runner: 1 }, [['pill', FREE.a]]);
+    check(`${p} при других целях в зоне Таблетка бьёт их: выстрелов ${pillMix.last.shots}, убито ${pillMix.last.kills}; бегун не ранен`, pillMix.seen && pillMix.last.shots > 0 && pillMix.last.kills >= 1 && fullHp(pillMix), `выстрелов ${pillMix.last.shots}, убито ${pillMix.last.kills}, мин. доля ${minHp(pillMix).toFixed(2)}`);
+    // Сироп и Таблетка: лужа ложится и под незамедленного бегуна (Сироп не трогаем), в луже Таблетка его бьёт
+    const both = await run('Сироп и Таблетка', { runner: 1 }, [['syrup', FREE.a], ['pill', FREE.b]]);
+    const puddled = both.samples.some((st) => st.puddles.length > 0 && st.bacteria.some((b) => b.kind === 'runner' && !b.slowed));
+    check(`${p} Сироп кладёт лужу под незамедленного бегуна (${puddled}); в луже Таблетка стреляет (выстрелов ${both.last.shots}) и ранит бегуна (мин. доля HP ${minHp(both).toFixed(2)})`, both.seen && puddled && both.last.shots > 0 && minHp(both) < 1 - 1e-6, `лужа до замедления ${puddled}, выстрелов ${both.last.shots}, мин. доля ${minHp(both).toFixed(2)}`);
+  } finally {
+    GRAPH = saved.graph;
+    GEO = saved.geo;
+    FREE = saved.free;
+    PATH = saved.path;
+    LEVEL.startCenter = saved.start;
+    await context.close();
+  }
 }
 
 // ================================================================== запуск
@@ -9812,6 +9881,7 @@ try {
   if (wants('level-waves')) await safe('[состав волн уровней]', () => runLevelWaves(browser, qaServer.url));
   if (wants('bosses')) await safe('[боссы и «Лихорадка»]', () => runBosses(browser, qaServer.url));
   if (wants('level2')) await safe('[уровень 2 «Нос»]', () => runLevel2(browser, qaServer.url));
+  if (wants('wards')) await safe('[жёсткие свойства: бегун]', () => runWards(browser, qaServer.url));
   if (wants('progress-save')) await safe('[прогресс: сохранение]', () => runProgressSave(browser, qaServer.url));
   if (wants('stars')) await safe('[звёзды]', () => runStars(browser, qaServer.url));
   if (wants('menu-flow')) await safe('[меню и выбор уровня]', () => runMenuFlow(browser, qaServer.url));

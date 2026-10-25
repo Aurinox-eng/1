@@ -737,8 +737,9 @@ export class Bacterium {
   drain(amount: number): boolean {
     if (this.hp <= 0) return true;
     if (this.capsuleLeft > 0) return false;
-    // жёсткое свойство: бронированного яд не берёт (пока есть броня), босса в последней фазе — тоже
-    if ((this.ward === 'pierce' && this.armor > 0) || (this.ward === 'area' && this.inFinalPhase)) return false;
+    // жёсткое свойство: бронированного яд не берёт (пока есть броня), босса в последней фазе — тоже, бегуна — вне лужи и окна после неё
+    // бегуна яд и ловушка ранят только в луже и в окне после неё (как прямой удар, `ward` 'slow'); тот же смысл — `guarded`
+    if ((this.ward === 'pierce' && this.armor > 0) || (this.ward === 'area' && this.inFinalPhase) || (this.ward === 'slow' && !this.slowed)) return false;
     this.hp = Math.max(0, this.hp - amount);
     if (Math.abs(this.hp - this.drawnHp) >= 0.5 || this.hp <= 0) {
       this.redraw();

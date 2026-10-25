@@ -24,6 +24,7 @@ import { artStats, ringImage } from '../art';
 import { pointAt, tileCenter, unitCenter, type Edge } from '../pathing';
 import { gameplay } from '../sdk';
 import { sfx } from '../sound';
+import { wardBlocks } from '../ward';
 import { computeStats, MAX_TOWER_LEVEL, mutationById, mutationOptions, mutationStacks, statDps, towerPrice, type MutationCap, type TowerStats } from '../towerStats';
 import { COLORS, FONT, TEXT_COLORS } from '../theme';
 import { FPS_ENABLED, FpsMeter, frameReport, installFrameStats } from '../perf';
@@ -842,18 +843,6 @@ export class GameScene extends Phaser.Scene {
     return null;
   }
 
-  /** Не даёт ли жёсткое свойство ранить бактерию этим ударом (`Ward`). */
-  private wardBlocks(bacterium: Bacterium, st: TowerStats): boolean {
-    switch (bacterium.ward) {
-      case 'slow': return !bacterium.slowed;
-      case 'pierce': return !st.armorPierce && bacterium.armor > 0;
-      case 'beam': return st.targeting === 'beam';
-      case 'memory': return bacterium.memory === st.towerId;
-      case 'area': return bacterium.inFinalPhase && st.targeting !== 'area' && st.targeting !== 'beam';
-      default: return false;
-    }
-  }
-
   // ---------------------------------------------------------------- бой
 
   /**
@@ -1210,7 +1199,7 @@ export class GameScene extends Phaser.Scene {
   private damageBacterium(bacterium: Bacterium, st: TowerStats, quiet = false, damage: number = st.damage, light = false, acid = true): boolean {
     if (bacterium.hp <= 0) return false;
     // Жёсткое свойство уровня: удар не ранит (серая пометка «неуязвим»); «память вида» запоминает башню и после отражённого удара
-    if (this.wardBlocks(bacterium, st)) {
+    if (wardBlocks(bacterium, st)) {
       if (!light) this.effects.immune(bacterium.id, bacterium.x, bacterium.y - bacterium.radius * 0.7, t('wardImmune'), RESIST_COLOR);
       return false;
     }
