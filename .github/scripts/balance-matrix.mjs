@@ -37,8 +37,8 @@ const rawProfiles = (env.PROFILES ?? '').split(',').map((s) => s.trim()).filter(
 const profiles = rawProfiles.includes('all') || rawProfiles.length === 0 ? ['expert'] : [...new Set(rawProfiles.map((p) => (p === 'default' ? 'expert' : p)))];
 for (const p of profiles) {
   const m = /^(solo|pair|focus|core):([a-z+]+)(?::(?:save|late(?:\d{1,2})?(?:x[1-4])?|l1|r[2-9]))?$/.exec(p);
-  const ok = p === 'expert' || p === 'zone' || (m && m[2].split('+').every((id) => ALL_TOWERS.includes(id)) && (m[1] === 'solo' ? !m[2].includes('+') : m[2].split('+').length === 2));
-  if (!ok) fail(`стратегия «${p}»: есть expert, zone, solo:X, pair:a+b, focus:a+b, core:a+b (башни: ${ALL_TOWERS.join(', ')}); профили novice, average, strong убраны (решение владельца 19 октября 2026)`);
+  const ok = p === 'expert' || p === 'zone' || p === 'review' || (m && m[2].split('+').every((id) => ALL_TOWERS.includes(id)) && (m[1] === 'solo' ? !m[2].includes('+') : m[2].split('+').length === 2));
+  if (!ok) fail(`стратегия «${p}»: есть expert, zone, review, solo:X, pair:a+b, focus:a+b, core:a+b (башни: ${ALL_TOWERS.join(', ')}); профили novice, average, strong убраны (решение владельца 19 октября 2026)`);
 }
 const mutList = [];
 for (const part of (env.MUTS ?? '').split('|')) {

@@ -10,3 +10,6 @@ qa/screenshots/
 
 # Числа замера скорости (qa/perf.mjs)
 qa/perf-results/
+
+# рабочие копии субагентов
+.claude/worktrees/

@@ -38,7 +38,7 @@ const ru = {
   dnaPartWaves: 'за волны {n}',
   dnaPartWin: 'за победу {n}',
   dnaPartStars: 'за звёзды {n}',
-  loseLeakOnly: 'Больше всего жизней отняла: {kind} ({n})',
+  loseLeakOnly: 'Больше всего жизней отнял вид: {kind} ({n})',
   // Строка итога попытки (решение владельца 18 октября 2026, ответ 7): игрок копирует её и присылает; поля разделены « | »
   copyAttempt: 'Скопировать итог',
   copyAttemptDone: 'Итог скопирован',
@@ -240,6 +240,8 @@ const ru = {
   almWardSlick: 'Уровень {levels}: луч Шприца проходит насквозь, не раня',
   /** Альманах: вкладка «Боссы» — фазы с числами из config.ts (решение владельца 20 октября 2026, сообщение 2, п. 3.2); строка потолков над башнями. */
   almTabBosses: 'Боссы: {n} из {m}',
+  /** Альманах, вкладка «Башни»: строка о выходе с паузы (решение владельца 25 октября 2026, сообщение 1, п. 7; текст владельца). */
+  almExitRule: 'Выход в меню с паузы после хотя бы одной пройденной волны засчитывает попытку: начисляются ДНК за пройденные волны и за первые победы над мини-боссами. «Заново» с паузы попытку не засчитывает и ДНК не начисляет.',
   almBossHead: 'Уровень {level}, {wave}-я волна · {hp} HP · {reach}',
   almBossReachLives: 'дошёл — −{n} жизней',
   almBossReachLose: 'дошёл — поражение',
@@ -680,6 +682,7 @@ const en: Record<TextKey, string> = {
   almWardArmored: 'Level {levels}: while armored, hurt only by armor-piercing hits',
   almWardSlick: 'Level {levels}: the Syringe beam passes through without harm',
   almTabBosses: 'Bosses: {n} of {m}',
+  almExitRule: 'Leaving to the menu from the pause after at least one cleared wave counts as an attempt: you get DNA for cleared waves and for first wins over mini-bosses. Restart from the pause does not count as an attempt and gives no DNA.',
   almBossHead: 'Level {level}, wave {wave} · {hp} HP · {reach}',
   almBossReachLives: 'reaching the body: −{n} lives',
   almBossReachLose: 'reaching the body: defeat',

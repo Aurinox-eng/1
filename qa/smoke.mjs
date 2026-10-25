@@ -87,6 +87,9 @@
  *   menu-flow              главное меню и выбор уровня (этап 5, шаг 3; компьютер ru, телефон en): игра открывается на меню (`?qa&menu`), «Играть» → 10 карточек (уровень 1 открыт, остальные закрыты), тап по закрытой ничего не делает, по открытой — партия, пауза → «В меню», «Улучшения» из меню и возврат
  *   levels-lock            открытие уровней по звёздам (`&stars=`), экран конца уровня: «Следующий уровень» после победы (не на последнем уровне), «В меню», тап по «Следующий уровень» открывает уровень 2
  *   level2                 уровень 2 «Нос» (план docs/level2-plan-2026-10-23.md): карта (9 рёбер, 2 входа, 1 выход), 5 боссов в плане на 10/20/30/40/50-й волнах, мини-босс 10-й волны выходит на своей волне, финальный босс — поражение сразу
+ *   wards                  жёсткое свойство «бегуна ранят только в луже» (решение владельца 24 октября 2026, сообщение 2, пп. 2.2–2.3): ловушка Пластыря вне лужи — 0 урона, яд «Едкой» в луже ранит; Таблетка не стреляет по незамедленному бегуну, при других целях бьёт их; Сироп кладёт лужу и под незамедленного бегуна
+ *   spiral-cap             ключ `mutationCaps.spiralInCap` (решение владельца 25 октября 2026, сообщение 1, п. 2.3): выключен — Шприц IV с «Бронебойный» ×2, «Больше ударов» ×2 и «Спиралью» бьёт ×4,7 к башне без мутаций (числа прежние); включён — не выше ×2,5, прибавка «Спирали» ужата
+ *   marks                  макет знаков уровня и ранга на настоящих башнях (решение владельца 25 октября 2026, сообщение 1, п. 6.7): снимки плотной сцены `marks-desktop` и `marks-phone`, проверок значений нет
  *   restart-button         конец уровня (проигрыш и победа, компьютер ru и телефон en): есть кнопка «Заново» (endButton), тапы мимо неё не перезапускают, тап по ней — перезапускает
  *   deflation              economy.rewardMul: ×0,5 — два кокка номиналом 5 дают 2 + 3 = 5 монет (дробная часть копится); ×0,1 — 0 + 1, «+N» всплывает только при N ≥ 1
  *   camera-fit             самое сильное отдаление (считает игра, (считает игра): высота карты × масштаб ≤ высоты окна карты (568), ширина влезает, камера по центру и сдвигом не уводится
@@ -158,7 +161,7 @@ if (['stage-1', 'stage-1b', 'stage-1b-qa', 'td-1-mockup', 'tmp'].includes(tag)) 
   process.exit(2);
 }
 
-const SCENARIOS = ['desktop-ru', 'phone-ru', 'desktop-en', 'phone-en', 'rules', 'graph', 'combat', 'dash', 'split', 'spore', 'armored', 'intro', 'lose-ru', 'lose-en', 'win-ru', 'win-en', 'towers', 'card', 'merge', 'mutations', 'sell', 'special', 'danger', 'rotate', 'production', 'fullgame', 'locked', 'strip', 'almanac', 'almanac-pause', 'damage-numbers', 'sell-gap', 'restart-button', 'deflation', 'camera-fit', 'colors', 'meta-save', 'meta-dna', 'meta-shop', 'meta-effects', 'tree-effects', 'tree-shop', 'level-waves', 'progress-save', 'stars', 'menu-flow', 'menu-reset', 'levels-lock', 'step-dps', 'sound', 'sdk', 'lose-line', 'attempt-line', 'toast-queue', 'shake', 'bosses', 'level2', 'menu-exit', 'resume-tap', 'two-tabs']
+const SCENARIOS = ['desktop-ru', 'phone-ru', 'desktop-en', 'phone-en', 'rules', 'graph', 'combat', 'dash', 'split', 'spore', 'armored', 'intro', 'lose-ru', 'lose-en', 'win-ru', 'win-en', 'towers', 'card', 'merge', 'mutations', 'sell', 'special', 'danger', 'rotate', 'production', 'fullgame', 'locked', 'strip', 'almanac', 'almanac-pause', 'damage-numbers', 'sell-gap', 'restart-button', 'deflation', 'camera-fit', 'colors', 'meta-save', 'meta-dna', 'meta-shop', 'meta-effects', 'tree-effects', 'tree-shop', 'level-waves', 'progress-save', 'stars', 'menu-flow', 'menu-reset', 'levels-lock', 'step-dps', 'sound', 'sdk', 'lose-line', 'attempt-line', 'toast-queue', 'shake', 'bosses', 'level2', 'wards', 'spiral-cap', 'marks', 'menu-exit', 'resume-tap', 'two-tabs']
 const only = args.only === undefined ? null : String(args.only);
 if (only !== null && !SCENARIOS.includes(only)) {
   console.error(`Неизвестный сценарий --only=${only}. Есть: ${SCENARIOS.join(', ')}`);
@@ -1680,7 +1683,7 @@ async function runLose(browser, baseUrl, lang, deviceKey, full) {
       const flashCap = Math.floor(pageMs / flashGap) + 1;
       check(`${p} красных вспышек ${s.effects.lifeFlashes} из ${s.effects.lifeLosses} потерь жизни: не меньше одной, не больше потерь и не больше ${flashCap} за ${f1(pageMs / 1000)} с страницы (промежуток ${flashGap} мс ≥ 334 мс)`,
         flashGap >= 334 && s.effects.lifeFlashes >= 1 && s.effects.lifeFlashes <= s.effects.lifeLosses && s.effects.lifeFlashes <= flashCap, `вспышек ${s.effects.lifeFlashes}, потерь ${s.effects.lifeLosses}, промежуток ${flashGap}`);
-      // Строка проигрыша: «Больше всего жизней отняла: <порода> (<число>)» — без советов, чем бить (решение владельца 16 октября 2026)
+      // Строка проигрыша: «Больше всего жизней отнял вид: <порода> (<число>)» — без советов, чем бить (решение владельца 16 октября 2026)
       const leakTemplate = readI18n('loseLeakOnly')[lang === 'ru' ? 0 : 1];
       const leakRe = new RegExp(`^${leakTemplate.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\\\{kind\\\}/, '(.+)').replace(/\\\{n\\\}/, '(\\d+)')}$`);
       const leakLine = (s.endDnaLines || []).find((line) => leakRe.test(line));
@@ -2048,7 +2051,7 @@ async function runProduction(browser, prodUrl, qaUrl) {
  */
 /** Таблица «какие башни бьют бактерию» из src/almanac.ts: { порода: [башни по порядку] }. */
 /**
- * Строка проигрыша «Больше всего жизней отняла: <порода> (<число>)» (решение владельца 16 октября 2026: без советов «Бьют: …», механики игрок изучает в альманахе): четыре партии без башен — кокк, палочка,
+ * Строка проигрыша «Больше всего жизней отнял вид: <порода> (<число>)» (решение владельца 16 октября 2026: без советов «Бьют: …», механики игрок изучает в альманахе): четыре партии без башен — кокк, палочка,
  * бронированная на уровне 1 и бронированная на уровне 3; на обоих языках строка называет породу, число жизней и не содержит названий башен и слов «Бьют»/«Countered by».
  */
 async function runLoseLine(browser, baseUrl) {
@@ -2366,6 +2369,164 @@ async function runLevel2(browser, baseUrl) {
   check(`${p} финальный босс «${bossWaves.at(-1)[1]}» дошёл до организма — поражение сразу (жизней было ${final?.damage ?? '?'} из 5000, стало ${s.lives})`, s.state === 'lost' && s.lives === 0 && Boolean(final), `состояние ${s.state}, жизней ${s.lives}, утечек боссов ${leaks.length}`);
   await game.page.close();
   await context.close();
+}
+
+/**
+ * Жёсткое свойство «бегун ранят только в луже и окне после неё» (`plan.hardWalls.runnerSlow`; решение владельца 24 октября 2026, сообщение 2, пп. 2.2 и 2.3):
+ * ловушка Пластыря и яд по бегуну вне лужи не ранят; Таблетка («по радиусу») не стреляет по бегуну, которого не замедлили, а при других целях в зоне бьёт их;
+ * Сироп кладёт лужу и под незамедленного бегуна, в луже бегуна ранят прямые удары и яд «Едкой». Карта — «Горло» (уровень 1), состав первой волны — только то, что нужно проверке.
+ */
+async function runWards(browser, baseUrl) {
+  const p = '[жёсткие свойства: бегун]';
+  const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
+  // Уровень 1 идёт на карте «Горло», а общая сеть проверок построена по карте «корни»: клетки выбираются по сети уровня 1 из тестовой сборки, прежний мир возвращается в конце
+  const probe = await openGame(context, baseUrl, p, { query: '&levelwaves&level=1' });
+  const probeState = await probe.state();
+  const probeGraph = await probe.page.evaluate(() => window.__pvb.getGraph());
+  await probe.page.close();
+  const saved = { graph: GRAPH, geo: GEO, free: FREE, path: PATH, start: [...LEVEL.startCenter] };
+  LEVEL.startCenter = readMapStart('throat');
+  setupWorld(probeGraph, probeState);
+  try {
+    const mixCfg = (mix) => [...new Set([...Object.keys(PLAN[0].mix), ...Object.keys(mix)])].map((k) => `levels.specs.0.plan.waves.0.mix.${k}:${mix[k] ?? 0}`).join(',');
+    /** Одна партия: башни по списку, первая волна `mix`; идёт, пока не выйдет бегун и не уйдёт с карты (убит или дошёл). Возвращает все опросы состояния. */
+    const run = async (label, mix, towers, { upgrade = null } = {}) => {
+      const game = await openGame(context, baseUrl, `${p} ${label}`, { speed: 4, cfg: `${mixCfg(mix)},levels.specs.0.plan.startCoins:1500,lives.start:500`, query: '&levelwaves&level=1&towers=all' });
+      for (const [id, cell] of towers) await placeSure(game, id, cell);
+      if (upgrade) await game.page.evaluate(([c, r, picks]) => window.__pvb.upgradeTower(c, r, picks), [upgrade.cell[0], upgrade.cell[1], upgrade.picks]);
+      const samples = [];
+      let seen = false;
+      const started = Date.now();
+      for (;;) {
+        const st = await game.state();
+        samples.push(st);
+        const runners = st.bacteria.filter((b) => b.kind === 'runner');
+        if (runners.length) seen = true;
+        if ((seen && !runners.length) || st.state !== 'playing' || Date.now() - started > 120000) break;
+        await sleep(25);
+      }
+      await game.page.close();
+      return { samples, seen, last: samples.at(-1) };
+    };
+    const runnersOf = (r) => r.samples.flatMap((st) => st.bacteria.filter((b) => b.kind === 'runner'));
+    const fullHp = (r) => runnersOf(r).every((b) => b.hp >= b.maxHp - 1e-6);
+    const minHp = (r) => Math.min(...runnersOf(r).map((b) => b.hp / b.maxHp));
+
+    // 2.2: ловушка Пластыря по бегуну вне лужи — 0 урона; в луже яд «Едкой» ранит
+    const trap = await run('ловушка вне лужи', { runner: 1 }, [['patch', FREE.a]]);
+    const trapped = runnersOf(trap).some((b) => b.trapLeft > 0);
+    check(`${p} ловушка Пластыря: бегун приклеен (${trapped}), но вне лужи не ранен: HP не ниже полного, убито ${trap.last.kills}`, trap.seen && trapped && fullHp(trap) && trap.last.kills === 0, `HP не ниже полного ${fullHp(trap)}, мин. доля ${minHp(trap).toFixed(2)}`);
+    const caustic = await run('яд в луже', { runner: 1 }, [['syrup', FREE.a]], { upgrade: { cell: FREE.a, picks: ['syrupCaustic'] } });
+    const inPuddle = runnersOf(caustic).some((b) => b.slowed);
+    check(`${p} яд «Едкой» в луже: бегун замедлен (${inPuddle}) и ранен (мин. доля HP ${minHp(caustic).toFixed(2)})`, caustic.seen && inPuddle && minHp(caustic) < 1 - 1e-6, `мин. доля HP ${minHp(caustic).toFixed(2)}`);
+
+    // 2.3: Таблетка не стреляет по бегуну без замедления; при других целях в зоне бьёт их
+    const pillOnly = await run('Таблетка и бегун', { runner: 1 }, [['pill', FREE.a]]);
+    check(`${p} Таблетка не тратит выстрелы на незамедленного бегуна: выстрелов ${pillOnly.last.shots}, HP бегуна не ниже полного`, pillOnly.seen && pillOnly.last.shots === 0 && fullHp(pillOnly), `выстрелов ${pillOnly.last.shots}, мин. доля ${minHp(pillOnly).toFixed(2)}`);
+    const pillMix = await run('Таблетка, кокки и бегун', { coccus: 3, runner: 1 }, [['pill', FREE.a]]);
+    check(`${p} при других целях в зоне Таблетка бьёт их: выстрелов ${pillMix.last.shots}, убито ${pillMix.last.kills}; бегун не ранен`, pillMix.seen && pillMix.last.shots > 0 && pillMix.last.kills >= 1 && fullHp(pillMix), `выстрелов ${pillMix.last.shots}, убито ${pillMix.last.kills}, мин. доля ${minHp(pillMix).toFixed(2)}`);
+    // Сироп и Таблетка: лужа ложится и под незамедленного бегуна (Сироп не трогаем), в луже Таблетка его бьёт
+    const both = await run('Сироп и Таблетка', { runner: 1 }, [['syrup', FREE.a], ['pill', FREE.b]]);
+    const puddled = both.samples.some((st) => st.puddles.length > 0 && st.bacteria.some((b) => b.kind === 'runner' && !b.slowed));
+    check(`${p} Сироп кладёт лужу под незамедленного бегуна (${puddled}); в луже Таблетка стреляет (выстрелов ${both.last.shots}) и ранит бегуна (мин. доля HP ${minHp(both).toFixed(2)})`, both.seen && puddled && both.last.shots > 0 && minHp(both) < 1 - 1e-6, `лужа до замедления ${puddled}, выстрелов ${both.last.shots}, мин. доля ${minHp(both).toFixed(2)}`);
+  } finally {
+    GRAPH = saved.graph;
+    GEO = saved.geo;
+    FREE = saved.free;
+    PATH = saved.path;
+    LEVEL.startCenter = saved.start;
+    await context.close();
+  }
+}
+
+/**
+ * Ключ `mutationCaps.spiralInCap` (вариант А для «Спирали»; решение владельца 25 октября 2026, сообщение 1, п. 2.3): выключен — числа прежние (Шприц IV с двумя «Бронебойными», двумя «Больше ударов»
+ * и «Спиралью» бьёт сильнее потолка ×2,5), включён — урон в секунду очереди (с прибавкой «Спирали») не выше ×2,5 к Шприцу IV без мутаций, а в описании карточки — настоящая прибавка.
+ */
+async function runSpiralCap(browser, baseUrl) {
+  const p = '[«Спираль» и потолок мутаций]';
+  const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
+  // IV строка таблицы уровней и строка Шприца: башня IV без мутаций (в этой проверке сама не ставится: `placeTower` выбирает мутации за башню) — урон в секунду по таблицам
+  const rowIV = /towerLevels:\s*\[([\s\S]*?)\]/.exec(fs.readFileSync(path.join(ROOT, 'src', 'config.ts'), 'utf8'))[1].split('\n').filter((l) => l.includes('damageMul'))[3];
+  const num = (key) => Number(new RegExp(`${key}:\\s*([\\d.]+)`).exec(rowIV)[1]);
+  const levelMul = num('damageMul');
+  const SY = readTowerTable().syringe;
+  const baseDps = ((SY.beamPulses + num('pulsesAdd')) * SY.damage * levelMul) / ((SY.cooldownMs * num('cooldownMul')) / 1000);
+  // удар i очереди бьёт на i × spiral × damageMul уровня сильнее (src/towerStats.ts, statDps): урон в секунду очереди по одной цели
+  const dpsOf = (tw) => {
+    const n = tw.stats.beamPulses;
+    return (n * tw.stats.damage + (tw.stats.spiral * levelMul * n * (n - 1)) / 2) / (tw.stats.cooldownMs / 1000);
+  };
+  const measure = async (on) => {
+    const game = await openGame(context, baseUrl, `${p} ключ ${on ? 'включён' : 'выключен'}`, { speed: 1, cfg: `waves.firstDelaySec:9999${on ? ',mutationCaps.spiralInCap:1' : ''}`, query: ALL_TOWERS });
+    const loaded = FREE.a;
+    await game.page.evaluate(([a]) => {
+      window.__pvb.placeTower('syringe', a[0], a[1], 1);
+      for (const picks of [['syringePierce', 'syringeMore'], ['syringePierce', 'syringeMore'], ['syringeSpiral']]) window.__pvb.upgradeTower(a[0], a[1], picks);
+    }, [loaded]);
+    await sleep(300);
+    const s = await game.state();
+    const full = towerIn(s, loaded);
+    await game.page.close();
+    return { full, ratio: dpsOf(full) / baseDps, info: JSON.stringify({ baseDps, full: { lv: full.level, picks: full.picks, ...full.stats }, levelMul }) };
+  };
+  const off = await measure(false);
+  const on = await measure(true);
+  check(`${p} ключ выключен: башня IV (${off.full.level}) с «Бронебойный» ×2, «Больше ударов» ×2 и «Спиралью» — ${off.full.stats.beamPulses} ударов, прибавка ${off.full.stats.spiral} за удар, урон в секунду ×${off.ratio.toFixed(2)} к башне без мутаций (прежнее число, выше потолка ×2,5)`, off.full.level === 4 && off.full.stats.beamPulses === 5 && Math.abs(off.full.stats.spiral - 2) < 1e-9 && off.ratio > 4.5 && off.ratio < 5, `×${off.ratio.toFixed(3)}, ${off.info}`);
+  check(`${p} ключ включён: урон в секунду очереди ×${on.ratio.toFixed(3)} к башне без мутаций — не выше ×2,5; прибавка «Спирали» ужата с 2 до ${on.full.stats.spiral.toFixed(3)}`, on.full.level === 4 && on.ratio <= 2.5 + 1e-6 && on.ratio > 2.4 && on.full.stats.spiral > 0 && on.full.stats.spiral < 2, `×${on.ratio.toFixed(3)}, ${on.info}`);
+  await context.close();
+}
+
+/**
+ * Макет знаков уровня и ранга на настоящих башнях (решение владельца 25 октября 2026, сообщение 1, п. 6.7): плотная сцена стресс-сценария (40 башен, ≈200 бактерий) на компьютере 1280×720 и телефоне 844×390;
+ * поверх нарисованных башен — знаки макета: уровень V–VIII — второй ряд оранжевых точек, ранг — одна звезда с цифрой 1–8 справа вверху. Проверок значений нет: снимки `marks-desktop` и `marks-phone` — для решения владельца.
+ */
+async function runMarks(browser, baseUrl) {
+  const p = '[макет знаков]';
+  for (const key of ['desktop', 'phone']) {
+    const context = await newDeviceContext(browser, VIEWPORTS[key], 'ru');
+    const game = await openGame(context, baseUrl, `${p} ${key}`, { speed: 1, query: '&stress', isTouch: key === 'phone' });
+    await sleep(5000);
+    const s = await game.state();
+    const towers = s.towers.map((tw, i) => ({ id: tw.id, x: tw.x, y: tw.y, level: 1 + (i % 8), rank: 1 + ((i * 3) % 8) }));
+    const n = await game.page.evaluate((list) => {
+      const zoom = window.__pvb.getState().camera.zoom;
+      const canvas = document.querySelector('canvas').getBoundingClientRect();
+      const scale = (canvas.width / 1280) * zoom; // клиентских px на px мира
+      const layer = document.createElement('div');
+      layer.style.cssText = 'position:fixed;left:0;top:0;width:100vw;height:100vh;pointer-events:none;z-index:9999';
+      // окно карты между верхней (40 px) и нижней (112 px) полосами экрана игры: знаки на башнях за его краем и под панелями не рисуются
+      const topLeft = window.__pvb.gameToClient(0, 40 + 20);
+      const bottomRight = window.__pvb.gameToClient(1280, 720 - 112 - 20);
+      for (const tw of list) {
+        const c = window.__pvb.worldToClient(tw.x, tw.y);
+        if (c.x < topLeft.x + 20 || c.x > bottomRight.x - 40 || c.y < topLeft.y || c.y > bottomRight.y) continue;
+        const r = 35.5 * scale; // радиус основания башни на экране
+        // уровень: точки под башней, нижний ряд — до четырёх жёлтых, со второго ряда (V–VIII) — оранжевые
+        const dots = Math.max(2.5, r * 0.16);
+        for (let i = 0; i < tw.level; i++) {
+          const row = i < 4 ? 0 : 1;
+          const col = i < 4 ? i : i - 4;
+          const dot = document.createElement('div');
+          dot.style.cssText = `position:absolute;width:${dots * 2}px;height:${dots * 2}px;border-radius:50%;background:${row ? '#ff9a2e' : '#ffd84a'};border:1px solid #6b4a00;left:${c.x - r * 0.42 + col * dots * 2.6}px;top:${c.y + r * 0.95 + row * dots * 2.6}px`;
+          layer.appendChild(dot);
+        }
+        // ранг: одна звезда с цифрой справа вверху
+        const size = Math.max(14, r * 0.95);
+        const star = document.createElement('div');
+        star.style.cssText = `position:absolute;width:${size}px;height:${size}px;left:${c.x + r * 0.35}px;top:${c.y - r * 1.05}px;display:flex;align-items:center;justify-content:center;font:bold ${size * 0.5}px Arial;color:#3a2a00;background:#ffd84a;clip-path:polygon(50% 0%,61% 35%,98% 35%,68% 57%,79% 91%,50% 70%,21% 91%,32% 57%,2% 35%,39% 35%)`;
+        star.textContent = String(tw.rank);
+        layer.appendChild(star);
+      }
+      document.body.appendChild(layer);
+      return layer.childElementCount;
+    }, towers);
+    await sleep(300);
+    await shot(game.page, `marks-${key}`);
+    console.log(`  ${p} ${key}: знаков нарисовано ${n}, масштаб ${VIEWPORTS[key].label}`);
+    await game.page.close();
+    await context.close();
+  }
 }
 
 // ================================================================== запуск
@@ -7582,6 +7743,9 @@ async function runStrip(browser, baseUrl) {
     const clash = [];
     for (let i = 0; i < names.length; i++) for (let j = i + 1; j < names.length; j++) if (overlaps(parts[names[i]], parts[names[j]])) clash.push(`${names[i]}×${names[j]}`);
     check(`${q} кнопки карточки (${names.join(', ')}) не налезают друг на друга`, clash.length === 0, clash.join(', '));
+    // решение владельца 24 октября 2026, п. 3.1: «было → станет» и потолок — без сжатия, не мельче описания; при выборе карточка выше обычной (кнопки выбора 136 px вместо 84)
+    const pt = c.pickText;
+    check(`${q} выбор мутации: описание и «было → станет» одного размера (${pt.descSize} и ${pt.changeSize} px), строка не сжата (масштаб ${pt.changeScale.join(', ')}), оба текста умещаются в кнопках выбора (${pt.fits.join(', ')}), кнопки выше 84 px (${c.picks[0].h} px)`, pt.changeSize >= pt.descSize && pt.changeScale.every((k) => k === 1) && pt.fits.every(Boolean) && c.picks[0].h > 84 && c.picks[1].h > 84, JSON.stringify({ pt, h: [c.picks[0].h, c.picks[1].h] }));
     await shot(page, `strip-${deviceKey}-${lang}-syringe-mutation`);
     await ctx.close();
   }
@@ -9809,6 +9973,9 @@ try {
   if (wants('level-waves')) await safe('[состав волн уровней]', () => runLevelWaves(browser, qaServer.url));
   if (wants('bosses')) await safe('[боссы и «Лихорадка»]', () => runBosses(browser, qaServer.url));
   if (wants('level2')) await safe('[уровень 2 «Нос»]', () => runLevel2(browser, qaServer.url));
+  if (wants('wards')) await safe('[жёсткие свойства: бегун]', () => runWards(browser, qaServer.url));
+  if (wants('spiral-cap')) await safe('[«Спираль» и потолок мутаций]', () => runSpiralCap(browser, qaServer.url));
+  if (wants('marks')) await safe('[макет знаков]', () => runMarks(browser, qaServer.url));
   if (wants('progress-save')) await safe('[прогресс: сохранение]', () => runProgressSave(browser, qaServer.url));
   if (wants('stars')) await safe('[звёзды]', () => runStars(browser, qaServer.url));
   if (wants('menu-flow')) await safe('[меню и выбор уровня]', () => runMenuFlow(browser, qaServer.url));

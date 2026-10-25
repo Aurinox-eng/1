@@ -9,6 +9,7 @@ import { COLORS, PILL_EYES, TOWER_ART } from '../theme';
 import { bakeStyled } from './styleGfx';
 import { isPilotTower, pilotBarrelKey, pilotBaseKey, pilotEyesKey, pilotPupilKey, pilotTopKey, PILL_EYE_POS, EYES_BOX, PUPIL_BOX, RECOIL_PX, RECOIL_SEC } from './pilotTowerArt';
 import { computeStats, mutationOptions, unlockedTiers, type TowerKey, type TowerStats } from '../towerStats';
+import { wardBlocks } from '../ward';
 import type { Bacterium } from './Bacterium';
 
 export type TowerId = TowerKey;
@@ -30,6 +31,9 @@ const TURN_BOX = squareBox(58);
 const AIM_DENSITY = 1;
 
 const A = TOWER_ART;
+
+/** Виды стрельбы, у которых выбор цели учитывает жёсткие свойства (решение владельца 24 октября 2026, сообщение 2, п. 2.3). */
+const WARD_AWARE = new Set<string>(['radius', 'snipe', 'area']);
 
 /** Ограничение уровня рисунка: у башни 4 вида рисунков (уровни слияния 1–4). */
 function artLevel(level: number): 1 | 2 | 3 | 4 {
@@ -1566,6 +1570,8 @@ export class Tower {
   private canAffect(b: Bacterium): boolean {
     if (this.cfg.targeting === 'freeze') return b.freezable;
     if (this.cfg.targeting === 'trap') return !b.trapped && CONFIG.types[b.kind].trapImmune === 0;
+    // «по радиусу», «снайпер» и «по площади» не выбирают цель, которую удар не ранит (жёсткое свойство уровня), вовсе — и когда других целей в зоне нет, выстрела нет; лужа Сиропа ложится и под бегуна, которого ещё не замедлили
+    if (WARD_AWARE.has(this.cfg.targeting)) return !wardBlocks(b, this.stats);
     return true;
   }
 

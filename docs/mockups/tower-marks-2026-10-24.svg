@@ -1,0 +1,182 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1040" height="450" viewBox="0 0 1040 450" font-family="Arial, sans-serif">
+<rect width="100%" height="100%" fill="#0e1a32"/>
+<text x="20" y="32" fill="#e8f0ff" font-size="20" font-weight="bold">Макет знаков: уровень слияния (I–VIII) и ранг (★1–★8). Башня условная: основание, ствол вправо.</text>
+<text x="20" y="54" fill="#9fb4d8" font-size="14">Уровень — точки под башней: до четырёх в нижнем ряду (как сейчас), с V — второй ряд оранжевых точек.</text>
+<text x="20" y="74" fill="#9fb4d8" font-size="14">Ранг — звёзды в плашке справа вверху: до четырёх в ряду, ★5–★8 — второй ряд; ★8 — светлее.</text>
+<g>
+<circle cx="80" cy="150" r="34" fill="#2a4d8e" stroke="#33578f" stroke-width="3"/>
+<rect x="80" y="142" width="40" height="16" rx="6" fill="#4b7fd1" stroke="#7fb0ff" stroke-width="2"/>
+<circle cx="65" cy="196" r="4" fill="#ffd84a" stroke="#8a6a00" stroke-width="1"/>
+<text x="80" y="238" text-anchor="middle" fill="#e8f0ff" font-size="15">уровень I</text></g>
+<g>
+<circle cx="205" cy="150" r="34" fill="#2a4d8e" stroke="#33578f" stroke-width="3"/>
+<rect x="205" y="142" width="44" height="16" rx="6" fill="#4b7fd1" stroke="#7fb0ff" stroke-width="2"/>
+<circle cx="190" cy="196" r="4" fill="#ffd84a" stroke="#8a6a00" stroke-width="1"/>
+<circle cx="200" cy="196" r="4" fill="#ffd84a" stroke="#8a6a00" stroke-width="1"/>
+<text x="205" y="238" text-anchor="middle" fill="#e8f0ff" font-size="15">уровень II</text></g>
+<g>
+<circle cx="330" cy="150" r="34" fill="#2a4d8e" stroke="#33578f" stroke-width="3"/>
+<rect x="330" y="142" width="48" height="16" rx="6" fill="#4b7fd1" stroke="#7fb0ff" stroke-width="2"/>
+<circle cx="315" cy="196" r="4" fill="#ffd84a" stroke="#8a6a00" stroke-width="1"/>
+<circle cx="325" cy="196" r="4" fill="#ffd84a" stroke="#8a6a00" stroke-width="1"/>
+<circle cx="335" cy="196" r="4" fill="#ffd84a" stroke="#8a6a00" stroke-width="1"/>
+<text x="330" y="238" text-anchor="middle" fill="#e8f0ff" font-size="15">уровень III</text></g>
+<g>
+<circle cx="455" cy="150" r="34" fill="#2a4d8e" stroke="#33578f" stroke-width="3"/>
+<rect x="455" y="142" width="52" height="16" rx="6" fill="#4b7fd1" stroke="#7fb0ff" stroke-width="2"/>
+<circle cx="440" cy="196" r="4" fill="#ffd84a" stroke="#8a6a00" stroke-width="1"/>
+<circle cx="450" cy="196" r="4" fill="#ffd84a" stroke="#8a6a00" stroke-width="1"/>
+<circle cx="460" cy="196" r="4" fill="#ffd84a" stroke="#8a6a00" stroke-width="1"/>
+<circle cx="470" cy="196" r="4" fill="#ffd84a" stroke="#8a6a00" stroke-width="1"/>
+<text x="455" y="238" text-anchor="middle" fill="#e8f0ff" font-size="15">уровень IV</text></g>
+<g>
+<circle cx="580" cy="150" r="34" fill="#2a4d8e" stroke="#33578f" stroke-width="3"/>
+<rect x="580" y="142" width="52" height="16" rx="6" fill="#4b7fd1" stroke="#7fb0ff" stroke-width="2"/>
+<circle cx="565" cy="196" r="4" fill="#ffd84a" stroke="#8a6a00" stroke-width="1"/>
+<circle cx="575" cy="196" r="4" fill="#ffd84a" stroke="#8a6a00" stroke-width="1"/>
+<circle cx="585" cy="196" r="4" fill="#ffd84a" stroke="#8a6a00" stroke-width="1"/>
+<circle cx="595" cy="196" r="4" fill="#ffd84a" stroke="#8a6a00" stroke-width="1"/>
+<circle cx="565" cy="207" r="4" fill="#ff9a2e" stroke="#7a3d00" stroke-width="1"/>
+<text x="580" y="238" text-anchor="middle" fill="#e8f0ff" font-size="15">уровень V</text></g>
+<g>
+<circle cx="705" cy="150" r="34" fill="#2a4d8e" stroke="#33578f" stroke-width="3"/>
+<rect x="705" y="142" width="52" height="16" rx="6" fill="#4b7fd1" stroke="#7fb0ff" stroke-width="2"/>
+<circle cx="690" cy="196" r="4" fill="#ffd84a" stroke="#8a6a00" stroke-width="1"/>
+<circle cx="700" cy="196" r="4" fill="#ffd84a" stroke="#8a6a00" stroke-width="1"/>
+<circle cx="710" cy="196" r="4" fill="#ffd84a" stroke="#8a6a00" stroke-width="1"/>
+<circle cx="720" cy="196" r="4" fill="#ffd84a" stroke="#8a6a00" stroke-width="1"/>
+<circle cx="690" cy="207" r="4" fill="#ff9a2e" stroke="#7a3d00" stroke-width="1"/>
+<circle cx="700" cy="207" r="4" fill="#ff9a2e" stroke="#7a3d00" stroke-width="1"/>
+<text x="705" y="238" text-anchor="middle" fill="#e8f0ff" font-size="15">уровень VI</text></g>
+<g>
+<circle cx="830" cy="150" r="34" fill="#2a4d8e" stroke="#33578f" stroke-width="3"/>
+<rect x="830" y="142" width="52" height="16" rx="6" fill="#4b7fd1" stroke="#7fb0ff" stroke-width="2"/>
+<circle cx="815" cy="196" r="4" fill="#ffd84a" stroke="#8a6a00" stroke-width="1"/>
+<circle cx="825" cy="196" r="4" fill="#ffd84a" stroke="#8a6a00" stroke-width="1"/>
+<circle cx="835" cy="196" r="4" fill="#ffd84a" stroke="#8a6a00" stroke-width="1"/>
+<circle cx="845" cy="196" r="4" fill="#ffd84a" stroke="#8a6a00" stroke-width="1"/>
+<circle cx="815" cy="207" r="4" fill="#ff9a2e" stroke="#7a3d00" stroke-width="1"/>
+<circle cx="825" cy="207" r="4" fill="#ff9a2e" stroke="#7a3d00" stroke-width="1"/>
+<circle cx="835" cy="207" r="4" fill="#ff9a2e" stroke="#7a3d00" stroke-width="1"/>
+<text x="830" y="238" text-anchor="middle" fill="#e8f0ff" font-size="15">уровень VII</text></g>
+<g>
+<circle cx="955" cy="150" r="34" fill="#2a4d8e" stroke="#33578f" stroke-width="3"/>
+<rect x="955" y="142" width="52" height="16" rx="6" fill="#4b7fd1" stroke="#7fb0ff" stroke-width="2"/>
+<circle cx="940" cy="196" r="4" fill="#ffd84a" stroke="#8a6a00" stroke-width="1"/>
+<circle cx="950" cy="196" r="4" fill="#ffd84a" stroke="#8a6a00" stroke-width="1"/>
+<circle cx="960" cy="196" r="4" fill="#ffd84a" stroke="#8a6a00" stroke-width="1"/>
+<circle cx="970" cy="196" r="4" fill="#ffd84a" stroke="#8a6a00" stroke-width="1"/>
+<circle cx="940" cy="207" r="4" fill="#ff9a2e" stroke="#7a3d00" stroke-width="1"/>
+<circle cx="950" cy="207" r="4" fill="#ff9a2e" stroke="#7a3d00" stroke-width="1"/>
+<circle cx="960" cy="207" r="4" fill="#ff9a2e" stroke="#7a3d00" stroke-width="1"/>
+<circle cx="970" cy="207" r="4" fill="#ff9a2e" stroke="#7a3d00" stroke-width="1"/>
+<text x="955" y="238" text-anchor="middle" fill="#e8f0ff" font-size="15">уровень VIII</text></g>
+<g>
+<circle cx="80" cy="330" r="34" fill="#2a4d8e" stroke="#33578f" stroke-width="3"/>
+<rect x="80" y="322" width="52" height="16" rx="6" fill="#4b7fd1" stroke="#7fb0ff" stroke-width="2"/>
+<circle cx="65" cy="376" r="4" fill="#ffd84a" stroke="#8a6a00" stroke-width="1"/>
+<circle cx="75" cy="376" r="4" fill="#ffd84a" stroke="#8a6a00" stroke-width="1"/>
+<circle cx="85" cy="376" r="4" fill="#ffd84a" stroke="#8a6a00" stroke-width="1"/>
+<circle cx="95" cy="376" r="4" fill="#ffd84a" stroke="#8a6a00" stroke-width="1"/>
+<rect x="94" y="268" width="64" height="21" rx="6" fill="#0b1426" stroke="#33578f" stroke-width="1.5"/>
+<polygon points="104.0,274.0 105.5,277.9 109.7,278.1 106.5,280.8 107.5,284.9 104.0,282.6 100.5,284.9 101.5,280.8 98.3,278.1 102.5,277.9" fill="#ffd84a" stroke="#8a6a00" stroke-width="0.8"/>
+<text x="80" y="418" text-anchor="middle" fill="#e8f0ff" font-size="15">ранг ★1</text></g>
+<g>
+<circle cx="205" cy="330" r="34" fill="#2a4d8e" stroke="#33578f" stroke-width="3"/>
+<rect x="205" y="322" width="52" height="16" rx="6" fill="#4b7fd1" stroke="#7fb0ff" stroke-width="2"/>
+<circle cx="190" cy="376" r="4" fill="#ffd84a" stroke="#8a6a00" stroke-width="1"/>
+<circle cx="200" cy="376" r="4" fill="#ffd84a" stroke="#8a6a00" stroke-width="1"/>
+<circle cx="210" cy="376" r="4" fill="#ffd84a" stroke="#8a6a00" stroke-width="1"/>
+<circle cx="220" cy="376" r="4" fill="#ffd84a" stroke="#8a6a00" stroke-width="1"/>
+<rect x="219" y="268" width="64" height="21" rx="6" fill="#0b1426" stroke="#33578f" stroke-width="1.5"/>
+<polygon points="229.0,274.0 230.5,277.9 234.7,278.1 231.5,280.8 232.5,284.9 229.0,282.6 225.5,284.9 226.5,280.8 223.3,278.1 227.5,277.9" fill="#ffd84a" stroke="#8a6a00" stroke-width="0.8"/>
+<polygon points="243.0,274.0 244.5,277.9 248.7,278.1 245.5,280.8 246.5,284.9 243.0,282.6 239.5,284.9 240.5,280.8 237.3,278.1 241.5,277.9" fill="#ffd84a" stroke="#8a6a00" stroke-width="0.8"/>
+<text x="205" y="418" text-anchor="middle" fill="#e8f0ff" font-size="15">ранг ★2</text></g>
+<g>
+<circle cx="330" cy="330" r="34" fill="#2a4d8e" stroke="#33578f" stroke-width="3"/>
+<rect x="330" y="322" width="52" height="16" rx="6" fill="#4b7fd1" stroke="#7fb0ff" stroke-width="2"/>
+<circle cx="315" cy="376" r="4" fill="#ffd84a" stroke="#8a6a00" stroke-width="1"/>
+<circle cx="325" cy="376" r="4" fill="#ffd84a" stroke="#8a6a00" stroke-width="1"/>
+<circle cx="335" cy="376" r="4" fill="#ffd84a" stroke="#8a6a00" stroke-width="1"/>
+<circle cx="345" cy="376" r="4" fill="#ffd84a" stroke="#8a6a00" stroke-width="1"/>
+<rect x="344" y="268" width="64" height="21" rx="6" fill="#0b1426" stroke="#33578f" stroke-width="1.5"/>
+<polygon points="354.0,274.0 355.5,277.9 359.7,278.1 356.5,280.8 357.5,284.9 354.0,282.6 350.5,284.9 351.5,280.8 348.3,278.1 352.5,277.9" fill="#ffd84a" stroke="#8a6a00" stroke-width="0.8"/>
+<polygon points="368.0,274.0 369.5,277.9 373.7,278.1 370.5,280.8 371.5,284.9 368.0,282.6 364.5,284.9 365.5,280.8 362.3,278.1 366.5,277.9" fill="#ffd84a" stroke="#8a6a00" stroke-width="0.8"/>
+<polygon points="382.0,274.0 383.5,277.9 387.7,278.1 384.5,280.8 385.5,284.9 382.0,282.6 378.5,284.9 379.5,280.8 376.3,278.1 380.5,277.9" fill="#ffd84a" stroke="#8a6a00" stroke-width="0.8"/>
+<text x="330" y="418" text-anchor="middle" fill="#e8f0ff" font-size="15">ранг ★3</text></g>
+<g>
+<circle cx="455" cy="330" r="34" fill="#2a4d8e" stroke="#33578f" stroke-width="3"/>
+<rect x="455" y="322" width="52" height="16" rx="6" fill="#4b7fd1" stroke="#7fb0ff" stroke-width="2"/>
+<circle cx="440" cy="376" r="4" fill="#ffd84a" stroke="#8a6a00" stroke-width="1"/>
+<circle cx="450" cy="376" r="4" fill="#ffd84a" stroke="#8a6a00" stroke-width="1"/>
+<circle cx="460" cy="376" r="4" fill="#ffd84a" stroke="#8a6a00" stroke-width="1"/>
+<circle cx="470" cy="376" r="4" fill="#ffd84a" stroke="#8a6a00" stroke-width="1"/>
+<rect x="469" y="268" width="64" height="21" rx="6" fill="#0b1426" stroke="#33578f" stroke-width="1.5"/>
+<polygon points="479.0,274.0 480.5,277.9 484.7,278.1 481.5,280.8 482.5,284.9 479.0,282.6 475.5,284.9 476.5,280.8 473.3,278.1 477.5,277.9" fill="#ffd84a" stroke="#8a6a00" stroke-width="0.8"/>
+<polygon points="493.0,274.0 494.5,277.9 498.7,278.1 495.5,280.8 496.5,284.9 493.0,282.6 489.5,284.9 490.5,280.8 487.3,278.1 491.5,277.9" fill="#ffd84a" stroke="#8a6a00" stroke-width="0.8"/>
+<polygon points="507.0,274.0 508.5,277.9 512.7,278.1 509.5,280.8 510.5,284.9 507.0,282.6 503.5,284.9 504.5,280.8 501.3,278.1 505.5,277.9" fill="#ffd84a" stroke="#8a6a00" stroke-width="0.8"/>
+<polygon points="521.0,274.0 522.5,277.9 526.7,278.1 523.5,280.8 524.5,284.9 521.0,282.6 517.5,284.9 518.5,280.8 515.3,278.1 519.5,277.9" fill="#ffd84a" stroke="#8a6a00" stroke-width="0.8"/>
+<text x="455" y="418" text-anchor="middle" fill="#e8f0ff" font-size="15">ранг ★4</text></g>
+<g>
+<circle cx="580" cy="330" r="34" fill="#2a4d8e" stroke="#33578f" stroke-width="3"/>
+<rect x="580" y="322" width="52" height="16" rx="6" fill="#4b7fd1" stroke="#7fb0ff" stroke-width="2"/>
+<circle cx="565" cy="376" r="4" fill="#ffd84a" stroke="#8a6a00" stroke-width="1"/>
+<circle cx="575" cy="376" r="4" fill="#ffd84a" stroke="#8a6a00" stroke-width="1"/>
+<circle cx="585" cy="376" r="4" fill="#ffd84a" stroke="#8a6a00" stroke-width="1"/>
+<circle cx="595" cy="376" r="4" fill="#ffd84a" stroke="#8a6a00" stroke-width="1"/>
+<rect x="594" y="268" width="64" height="36" rx="6" fill="#0b1426" stroke="#33578f" stroke-width="1.5"/>
+<polygon points="604.0,274.0 605.5,277.9 609.7,278.1 606.5,280.8 607.5,284.9 604.0,282.6 600.5,284.9 601.5,280.8 598.3,278.1 602.5,277.9" fill="#ffd84a" stroke="#8a6a00" stroke-width="0.8"/>
+<polygon points="618.0,274.0 619.5,277.9 623.7,278.1 620.5,280.8 621.5,284.9 618.0,282.6 614.5,284.9 615.5,280.8 612.3,278.1 616.5,277.9" fill="#ffd84a" stroke="#8a6a00" stroke-width="0.8"/>
+<polygon points="632.0,274.0 633.5,277.9 637.7,278.1 634.5,280.8 635.5,284.9 632.0,282.6 628.5,284.9 629.5,280.8 626.3,278.1 630.5,277.9" fill="#ffd84a" stroke="#8a6a00" stroke-width="0.8"/>
+<polygon points="646.0,274.0 647.5,277.9 651.7,278.1 648.5,280.8 649.5,284.9 646.0,282.6 642.5,284.9 643.5,280.8 640.3,278.1 644.5,277.9" fill="#ffd84a" stroke="#8a6a00" stroke-width="0.8"/>
+<polygon points="604.0,289.0 605.5,292.9 609.7,293.1 606.5,295.8 607.5,299.9 604.0,297.6 600.5,299.9 601.5,295.8 598.3,293.1 602.5,292.9" fill="#ffd84a" stroke="#8a6a00" stroke-width="0.8"/>
+<text x="580" y="418" text-anchor="middle" fill="#e8f0ff" font-size="15">ранг ★5</text></g>
+<g>
+<circle cx="705" cy="330" r="34" fill="#2a4d8e" stroke="#33578f" stroke-width="3"/>
+<rect x="705" y="322" width="52" height="16" rx="6" fill="#4b7fd1" stroke="#7fb0ff" stroke-width="2"/>
+<circle cx="690" cy="376" r="4" fill="#ffd84a" stroke="#8a6a00" stroke-width="1"/>
+<circle cx="700" cy="376" r="4" fill="#ffd84a" stroke="#8a6a00" stroke-width="1"/>
+<circle cx="710" cy="376" r="4" fill="#ffd84a" stroke="#8a6a00" stroke-width="1"/>
+<circle cx="720" cy="376" r="4" fill="#ffd84a" stroke="#8a6a00" stroke-width="1"/>
+<rect x="719" y="268" width="64" height="36" rx="6" fill="#0b1426" stroke="#33578f" stroke-width="1.5"/>
+<polygon points="729.0,274.0 730.5,277.9 734.7,278.1 731.5,280.8 732.5,284.9 729.0,282.6 725.5,284.9 726.5,280.8 723.3,278.1 727.5,277.9" fill="#ffd84a" stroke="#8a6a00" stroke-width="0.8"/>
+<polygon points="743.0,274.0 744.5,277.9 748.7,278.1 745.5,280.8 746.5,284.9 743.0,282.6 739.5,284.9 740.5,280.8 737.3,278.1 741.5,277.9" fill="#ffd84a" stroke="#8a6a00" stroke-width="0.8"/>
+<polygon points="757.0,274.0 758.5,277.9 762.7,278.1 759.5,280.8 760.5,284.9 757.0,282.6 753.5,284.9 754.5,280.8 751.3,278.1 755.5,277.9" fill="#ffd84a" stroke="#8a6a00" stroke-width="0.8"/>
+<polygon points="771.0,274.0 772.5,277.9 776.7,278.1 773.5,280.8 774.5,284.9 771.0,282.6 767.5,284.9 768.5,280.8 765.3,278.1 769.5,277.9" fill="#ffd84a" stroke="#8a6a00" stroke-width="0.8"/>
+<polygon points="729.0,289.0 730.5,292.9 734.7,293.1 731.5,295.8 732.5,299.9 729.0,297.6 725.5,299.9 726.5,295.8 723.3,293.1 727.5,292.9" fill="#ffd84a" stroke="#8a6a00" stroke-width="0.8"/>
+<polygon points="743.0,289.0 744.5,292.9 748.7,293.1 745.5,295.8 746.5,299.9 743.0,297.6 739.5,299.9 740.5,295.8 737.3,293.1 741.5,292.9" fill="#ffd84a" stroke="#8a6a00" stroke-width="0.8"/>
+<text x="705" y="418" text-anchor="middle" fill="#e8f0ff" font-size="15">ранг ★6</text></g>
+<g>
+<circle cx="830" cy="330" r="34" fill="#2a4d8e" stroke="#33578f" stroke-width="3"/>
+<rect x="830" y="322" width="52" height="16" rx="6" fill="#4b7fd1" stroke="#7fb0ff" stroke-width="2"/>
+<circle cx="815" cy="376" r="4" fill="#ffd84a" stroke="#8a6a00" stroke-width="1"/>
+<circle cx="825" cy="376" r="4" fill="#ffd84a" stroke="#8a6a00" stroke-width="1"/>
+<circle cx="835" cy="376" r="4" fill="#ffd84a" stroke="#8a6a00" stroke-width="1"/>
+<circle cx="845" cy="376" r="4" fill="#ffd84a" stroke="#8a6a00" stroke-width="1"/>
+<rect x="844" y="268" width="64" height="36" rx="6" fill="#0b1426" stroke="#33578f" stroke-width="1.5"/>
+<polygon points="854.0,274.0 855.5,277.9 859.7,278.1 856.5,280.8 857.5,284.9 854.0,282.6 850.5,284.9 851.5,280.8 848.3,278.1 852.5,277.9" fill="#ffd84a" stroke="#8a6a00" stroke-width="0.8"/>
+<polygon points="868.0,274.0 869.5,277.9 873.7,278.1 870.5,280.8 871.5,284.9 868.0,282.6 864.5,284.9 865.5,280.8 862.3,278.1 866.5,277.9" fill="#ffd84a" stroke="#8a6a00" stroke-width="0.8"/>
+<polygon points="882.0,274.0 883.5,277.9 887.7,278.1 884.5,280.8 885.5,284.9 882.0,282.6 878.5,284.9 879.5,280.8 876.3,278.1 880.5,277.9" fill="#ffd84a" stroke="#8a6a00" stroke-width="0.8"/>
+<polygon points="896.0,274.0 897.5,277.9 901.7,278.1 898.5,280.8 899.5,284.9 896.0,282.6 892.5,284.9 893.5,280.8 890.3,278.1 894.5,277.9" fill="#ffd84a" stroke="#8a6a00" stroke-width="0.8"/>
+<polygon points="854.0,289.0 855.5,292.9 859.7,293.1 856.5,295.8 857.5,299.9 854.0,297.6 850.5,299.9 851.5,295.8 848.3,293.1 852.5,292.9" fill="#ffd84a" stroke="#8a6a00" stroke-width="0.8"/>
+<polygon points="868.0,289.0 869.5,292.9 873.7,293.1 870.5,295.8 871.5,299.9 868.0,297.6 864.5,299.9 865.5,295.8 862.3,293.1 866.5,292.9" fill="#ffd84a" stroke="#8a6a00" stroke-width="0.8"/>
+<polygon points="882.0,289.0 883.5,292.9 887.7,293.1 884.5,295.8 885.5,299.9 882.0,297.6 878.5,299.9 879.5,295.8 876.3,293.1 880.5,292.9" fill="#ffd84a" stroke="#8a6a00" stroke-width="0.8"/>
+<text x="830" y="418" text-anchor="middle" fill="#e8f0ff" font-size="15">ранг ★7</text></g>
+<g>
+<circle cx="955" cy="330" r="34" fill="#2a4d8e" stroke="#33578f" stroke-width="3"/>
+<rect x="955" y="322" width="52" height="16" rx="6" fill="#4b7fd1" stroke="#7fb0ff" stroke-width="2"/>
+<circle cx="940" cy="376" r="4" fill="#ffd84a" stroke="#8a6a00" stroke-width="1"/>
+<circle cx="950" cy="376" r="4" fill="#ffd84a" stroke="#8a6a00" stroke-width="1"/>
+<circle cx="960" cy="376" r="4" fill="#ffd84a" stroke="#8a6a00" stroke-width="1"/>
+<circle cx="970" cy="376" r="4" fill="#ffd84a" stroke="#8a6a00" stroke-width="1"/>
+<rect x="969" y="268" width="64" height="36" rx="6" fill="#0b1426" stroke="#33578f" stroke-width="1.5"/>
+<polygon points="979.0,274.0 980.5,277.9 984.7,278.1 981.5,280.8 982.5,284.9 979.0,282.6 975.5,284.9 976.5,280.8 973.3,278.1 977.5,277.9" fill="#fff3a0" stroke="#8a6a00" stroke-width="0.8"/>
+<polygon points="993.0,274.0 994.5,277.9 998.7,278.1 995.5,280.8 996.5,284.9 993.0,282.6 989.5,284.9 990.5,280.8 987.3,278.1 991.5,277.9" fill="#fff3a0" stroke="#8a6a00" stroke-width="0.8"/>
+<polygon points="1007.0,274.0 1008.5,277.9 1012.7,278.1 1009.5,280.8 1010.5,284.9 1007.0,282.6 1003.5,284.9 1004.5,280.8 1001.3,278.1 1005.5,277.9" fill="#fff3a0" stroke="#8a6a00" stroke-width="0.8"/>
+<polygon points="1021.0,274.0 1022.5,277.9 1026.7,278.1 1023.5,280.8 1024.5,284.9 1021.0,282.6 1017.5,284.9 1018.5,280.8 1015.3,278.1 1019.5,277.9" fill="#fff3a0" stroke="#8a6a00" stroke-width="0.8"/>
+<polygon points="979.0,289.0 980.5,292.9 984.7,293.1 981.5,295.8 982.5,299.9 979.0,297.6 975.5,299.9 976.5,295.8 973.3,293.1 977.5,292.9" fill="#fff3a0" stroke="#8a6a00" stroke-width="0.8"/>
+<polygon points="993.0,289.0 994.5,292.9 998.7,293.1 995.5,295.8 996.5,299.9 993.0,297.6 989.5,299.9 990.5,295.8 987.3,293.1 991.5,292.9" fill="#fff3a0" stroke="#8a6a00" stroke-width="0.8"/>
+<polygon points="1007.0,289.0 1008.5,292.9 1012.7,293.1 1009.5,295.8 1010.5,299.9 1007.0,297.6 1003.5,299.9 1004.5,295.8 1001.3,293.1 1005.5,292.9" fill="#fff3a0" stroke="#8a6a00" stroke-width="0.8"/>
+<polygon points="1021.0,289.0 1022.5,292.9 1026.7,293.1 1023.5,295.8 1024.5,299.9 1021.0,297.6 1017.5,299.9 1018.5,295.8 1015.3,293.1 1019.5,292.9" fill="#fff3a0" stroke="#8a6a00" stroke-width="0.8"/>
+<text x="955" y="418" text-anchor="middle" fill="#e8f0ff" font-size="15">ранг ★8</text></g>
+</svg>

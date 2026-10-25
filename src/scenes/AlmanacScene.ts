@@ -236,7 +236,11 @@ export class AlmanacScene extends Phaser.Scene {
       // Над башнями — строка потолков мутаций и улучшений (не ряд записи: в `rowTexts` её нет)
       const caps = this.add.text(12, 6, capsLine(), { ...textStyle(18, TEXT_COLORS.soft, false), fontStyle: 'normal', wordWrap: { width: LIST.w - 24 } });
       this.list.add(caps);
-      y = Math.ceil(caps.height) + 12;
+      y = Math.ceil(caps.height) + 6;
+      // …и строка о выходе в меню с паузы (решение владельца 25 октября 2026, сообщение 1, п. 7): «В меню» засчитывает попытку, «Заново» — нет
+      const exit = this.add.text(12, y, t('almExitRule'), { ...textStyle(18, TEXT_COLORS.soft, false), fontStyle: 'normal', wordWrap: { width: LIST.w - 24 } });
+      this.list.add(exit);
+      y += Math.ceil(exit.height) + 12;
     }
     const ids: string[] = tab === 'towers' ? TOWERS : tab === 'bacteria' ? KINDS : BOSSES;
     for (const id of ids) y += this.addRow(tab, id, y);

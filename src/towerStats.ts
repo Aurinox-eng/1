@@ -225,9 +225,15 @@ export function computeStats(id: TowerKey, level: number, picks: readonly string
   s.extraTargets = Math.min(caps.extraTargetsMax, s.extraTargets);
   if (s.beamPulses > caps.pulsesMax) hit.add('pulses');
   if (s.beamPulses > 0) s.beamPulses = Math.min(caps.pulsesMax, s.beamPulses);
-  const mutDps = mutDamage * mutRate * (1 + s.extraTargets) * (basePulses > 0 ? s.beamPulses / basePulses : 1);
+  // «Спираль» (удар i очереди сильнее на i × spiral × damageMul уровня): при ключе `spiralInCap` её прибавка входит в потолок — относительный прирост очереди 1 + spiral × damageMul × (ударов − 1) / (2 × урон);
+  // при превышении потолка масштабируются и урон, и прибавка (вариант А, решение владельца 25 октября 2026, сообщение 1, п. 2.3; по умолчанию ключ выключен — числа прежние)
+  const spiralGain = caps.spiralInCap > 0 && s.spiral > 0 && s.beamPulses > 1 && s.damage > 0 ? 1 + (s.spiral * lv.damageMul * (s.beamPulses - 1)) / (2 * s.damage) : 1;
+  const mutDps = mutDamage * mutRate * (1 + s.extraTargets) * (basePulses > 0 ? s.beamPulses / basePulses : 1) * spiralGain;
   if (mutDps > caps.dpsMul + 1e-9 && s.damage > 0) hit.add('dps');
-  if (mutDps > caps.dpsMul) s.damage *= caps.dpsMul / mutDps;
+  if (mutDps > caps.dpsMul) {
+    s.damage *= caps.dpsMul / mutDps;
+    if (spiralGain > 1) s.spiral *= caps.dpsMul / mutDps;
+  }
   const mutDotDps = mutDot * mutRate * (1 + s.extraTargets);
   if (mutDotDps > caps.dpsMul + 1e-9 && s.dotPerSec > 0) hit.add('dps');
   if (mutDotDps > caps.dpsMul) s.dotPerSec *= caps.dpsMul / mutDotDps;
