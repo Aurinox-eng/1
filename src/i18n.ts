@@ -258,7 +258,7 @@ const ru = {
   almBossNoSpawn: 'никого не выпускает',
   almBossPhase: 'Ниже {p} %: {list}',
   almBossWard: 'ранят только взрыв Шипучки и луч Шприца (уровень {levels})',
-  almCaps: 'Потолки: урон от мутаций — не выше ×{d} к башне без мутаций (с лишними целями); пауза от ауры — не короче ×{a}; заморозка — не дольше {f} паузы; копии одной мутации — {c} %.',
+  almCaps: 'Потолки: урон от мутаций — не выше ×{d} к башне без мутаций (с лишними целями, без прибавки «Спирали»); пауза от ауры — не короче ×{a}; заморозка — не дольше {f} паузы; копии одной мутации — {c} %.',
   /** Карточка выбора мутации: «было → станет» по computeStats и потолок (решение владельца 20 октября 2026, сообщение 2, п. 3.1). */
   chgDps: 'урон в с {a} → {b}',
   chgTargets: 'целей {a} → {b}',
@@ -699,7 +699,7 @@ const en: Record<TextKey, string> = {
   almBossNoSpawn: 'releases nothing',
   almBossPhase: 'Below {p}%: {list}',
   almBossWard: 'only Fizz blasts and the Syringe beam hurt it (level {levels})',
-  almCaps: 'Caps: mutation damage at most ×{d} of the tower without mutations (extra targets included); aura delay no shorter than ×{a}; freeze no longer than {f} of the delay; copies of one mutation — {c}%.',
+  almCaps: 'Caps: mutation damage at most ×{d} of the tower without mutations (extra targets included, Spiral bonus excluded); aura delay no shorter than ×{a}; freeze no longer than {f} of the delay; copies of one mutation — {c}%.',
   chgDps: 'DPS {a} → {b}',
   chgTargets: 'targets {a} → {b}',
   chgPulses: 'hits {a} → {b}',
