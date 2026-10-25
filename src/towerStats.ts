@@ -37,6 +37,8 @@ export interface TowerRow {
   blastRestMul: number;
   /** Подсветка скрытных (Лампа): секунд подсветки после выхода бактерии из круга range; 0 — не подсвечивает. */
   lightSec: number;
+  /** Множитель паузы уровня не ниже этого числа (только у Холода; нет — без нижней границы). */
+  minCooldownMul?: number;
 }
 
 /** Потолок мутаций и улучшений (документ дизайна, п. 4.2), в который упёрлись числа башни: урон в секунду от мутаций (`mutationCaps.dpsMul`), лишние цели, удары очереди луча, угол конуса,
@@ -188,7 +190,7 @@ export function computeStats(id: TowerKey, level: number, picks: readonly string
   s.dotPerSec = base.dotPerSec * lv.damageMul;
   s.trapDps = base.trapDps * lv.damageMul;
   s.freezeSec = base.freezeSec * Math.pow(lv.damageMul, CONFIG.freezeLevelPower);
-  s.cooldownMs = base.cooldownMs * lv.cooldownMul;
+  s.cooldownMs = base.cooldownMs * Math.max(lv.cooldownMul, base.minCooldownMul ?? 0);
   s.range = base.range * lv.reachMul;
   s.blastRadius = base.blastRadius * lv.reachMul;
   s.puddleRadius = base.puddleRadius * lv.reachMul;
@@ -312,7 +314,7 @@ export function computeStats(id: TowerKey, level: number, picks: readonly string
   s.freezeSec *= 1 + bonus('freezeTime');
   // Заморозка Холода — не дольше доли паузы уровня без мутаций (иначе бактерия в радиусе не оттаивала бы); от паузы без мутаций — слияние не укорачивает заморозку
   // (находка аудита MASTER-0009, решение владельца 28 октября 2026, сообщение 2, п. 5)
-  const freezeCap = ((base.cooldownMs * lv.cooldownMul * (1 + bonus('cooldown'))) / 1000) * caps.freezeShareOfCooldown;
+  const freezeCap = ((base.cooldownMs * Math.max(lv.cooldownMul, base.minCooldownMul ?? 0) * (1 + bonus('cooldown'))) / 1000) * caps.freezeShareOfCooldown;
   if (s.freezeSec > freezeCap + 1e-9) hit.add('freeze');
   if (s.freezeSec > 0) s.freezeSec = Math.min(s.freezeSec, freezeCap);
   // Ключевой узел ветки этой башни (документ дизайна, раздел 5.2)

@@ -866,6 +866,8 @@ export const CONFIG = {
       blastFullTargets: 0,
       blastRestMul: 1,
       lightSec: 0,
+      /** Множитель паузы уровня не ниже этого числа (0,75 — пауза Холода на VII–VIII не короче, чем на VI: 6,0 с; иначе заморозка, не дольше половины паузы, на VII–VIII короче, чем на VI; план, раздел 1.1). */
+      minCooldownMul: 0.75,
     },
     /** Пластырь — ловушка: раз в 14 с, когда в радиусе есть бактерия, кладёт на дорожку под первую (ближайшую к организму) пластырь: бактерия приклеивается к месту на 3 с и теряет 2 HP/с (≈ 6 HP; броню
      *  не учитывает). Прыгун и слизень не липнут (`types.*.trapImmune`). Держит самую опасную бактерию, пока подходят остальные. Первое приближение (docs/stage-7-plan.md). Открывается на уровне 9. */
@@ -918,6 +920,11 @@ export const CONFIG = {
     { damageMul: 1.9, cooldownMul: 0.95, reachMul: 1.04, pulsesAdd: 0, slowPower: 1.15, puddleSecMul: 1.15 },
     { damageMul: 3.6, cooldownMul: 0.9, reachMul: 1.08, pulsesAdd: 0, slowPower: 1.3, puddleSecMul: 1.3 },
     { damageMul: 6.4, cooldownMul: 0.85, reachMul: 1.12, pulsesAdd: 1, slowPower: 1.45, puddleSecMul: 1.45 },
+    // V–VIII (план docs/tower-levels-xp-plan-2026-10-24.md, раздел 1; решение владельца 25 октября 2026, п. 6, 9): урон ×1,75 за уровень, пауза −0,05, радиус +0,04, замедление и время лужи +0,15
+    { damageMul: 11.2, cooldownMul: 0.8, reachMul: 1.16, pulsesAdd: 1, slowPower: 1.6, puddleSecMul: 1.6 },
+    { damageMul: 19.6, cooldownMul: 0.75, reachMul: 1.2, pulsesAdd: 2, slowPower: 1.75, puddleSecMul: 1.75 },
+    { damageMul: 34.3, cooldownMul: 0.7, reachMul: 1.24, pulsesAdd: 2, slowPower: 1.9, puddleSecMul: 1.9 },
+    { damageMul: 60, cooldownMul: 0.65, reachMul: 1.28, pulsesAdd: 2, slowPower: 2.05, puddleSecMul: 2.05 },
   ],
   /** Пределы роста по уровням игры (решение владельца 26 октября 2026, сообщение 4, п. 3: п. 5 плана `docs/levels30-enemies-plan-2026-10-26.md` принят): с уровня игры `fromLevel` —
    *  наибольший уровень слияния `merge` (не выше числа строк `towerLevels`) и ранг опыта `rank` (звёзды ранга; действует вместе с рангами опыта). Строки — по возрастанию `fromLevel`.
@@ -929,6 +936,8 @@ export const CONFIG = {
     { fromLevel: 13, merge: 7, rank: 7 },
     { fromLevel: 15, merge: 8, rank: 8 },
   ] as { fromLevel: number; merge: number; rank: number }[],
+  /** Опыт башен в партии (план docs/tower-levels-xp-plan-2026-10-24.md, раздел 2): vitaminShare — доля опыта, начисленного башне в ауре Витамина, которую получает сам Витамин (доля от 0 до 1). Опыт нужен замеру (qa/bot.mjs), рангов и улучшений от него пока нет. */
+  xp: { vitaminShare: 0.25 },
   /** Рост времени заморозки Холода с уровнем башни: время × (damageMul уровня) ^ это число (0,25: уровень 2 — ×1,17, 3 — ×1,38, 4 — ×1,59; у Холода своего урона нет). Время приклеивания Пластыря с уровнем не растёт, его урон в секунду растёт как урон (damageMul). */
   freezeLevelPower: 0.25,
   /** Уровни, на которых башня получает выбор мутации (по одному выбору на каждый порог; выбор бесплатный и окончательный). */

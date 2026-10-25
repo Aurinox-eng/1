@@ -132,6 +132,7 @@ export function qaSnapshot(s: GameSceneInternals): DebugSnapshot {
       level: tw.level,
       picks: [...tw.picks],
       pending: tw.pendingTier,
+      xp: tw.xp,
       suppressed: tw.isSuppressed,
       auraMul: tw.auraMul,
       latchMul: tw.latchMul,
@@ -265,7 +266,7 @@ export function setupStress(s: GameSceneInternals): void {
     const [col, row] = free[Math.floor((i * free.length) / count)];
     const center = tileCenter(col, row);
     const tower = new Tower(s, s.towerLayer, ids[i % ids.length], col, row, center.x, center.y);
-    for (let level = 1; level < 1 + (Math.floor(i / ids.length) % MAX_TOWER_LEVEL); level++) tower.upgrade();
+    for (let level = 1; level < 1 + (Math.floor(i / ids.length) % 4); level++) tower.upgrade(); // стресс-сценарий: уровни I–IV, как до слияния до VIII (замеры скорости сравнимы)
     while (tower.pendingTier !== null) tower.pickMutation(i % 2);
     // `stress=high`: рисунки уровней I–VIII по кругу (числа башни — до IV)
     if (STRESS_HIGH) tower.qaShowArtLevel(1 + (Math.floor(i / ids.length) % 8));

@@ -94,6 +94,7 @@
  *   wards                  жёсткое свойство «бегуна ранят только в луже» (решение владельца 24 октября 2026, сообщение 2, пп. 2.2–2.3): ловушка Пластыря вне лужи — 0 урона, яд «Едкой» в луже ранит; Таблетка не стреляет по незамедленному бегуну, при других целях бьёт их; Сироп кладёт лужу и под незамедленного бегуна
  *   spiral-cap             ключ `mutationCaps.spiralInCap` (решение владельца 25 октября 2026, сообщение 1, п. 2.3): выключен — Шприц IV с «Бронебойный» ×2, «Больше ударов» ×2 и «Спиралью» бьёт ×4,7 к башне без мутаций (числа прежние); включён — не выше ×2,5, прибавка «Спирали» ужата
  *   marks                  макет знаков уровня и ранга на настоящих башнях (решение владельца 25 октября 2026, сообщение 1, п. 6.7): снимки плотной сцены `marks-desktop` и `marks-phone`, проверок значений нет
+ *   xp                     опыт башен и уровни V–VIII (ветка слияния до VIII, решение владельца 25 октября 2026, п. 9): убитый кокк даёт `lifeDamage` каждой башне в зоне и не даёт башне вне зоны, при слиянии опыт складывается, Витамин получает долю опыта башен в ауре; числа башен на уровнях 1–8 не ухудшаются и хоть одно растёт (перебор), Холод на VI–VIII — пауза 6,0 с и заморозка 3,0 с
  *   restart-button         конец уровня (проигрыш и победа, компьютер ru и телефон en): есть кнопка «Заново» (endButton), тапы мимо неё не перезапускают, тап по ней — перезапускает
  *   deflation              economy.rewardMul: ×0,5 — два кокка номиналом 5 дают 2 + 3 = 5 монет (дробная часть копится); ×0,1 — 0 + 1, «+N» всплывает только при N ≥ 1
  *   camera-fit             самое сильное отдаление (считает игра, (считает игра): высота карты × масштаб ≤ высоты окна карты (568), ширина влезает, камера по центру и сдвигом не уводится
@@ -166,7 +167,7 @@ if (['stage-1', 'stage-1b', 'stage-1b-qa', 'td-1-mockup', 'tmp'].includes(tag)) 
   process.exit(2);
 }
 
-const SCENARIOS = ['desktop-ru', 'phone-ru', 'desktop-en', 'phone-en', 'rules', 'graph', 'combat', 'dash', 'split', 'spore', 'armored', 'intro', 'lose-ru', 'lose-en', 'win-ru', 'win-en', 'towers', 'card', 'merge', 'mutations', 'sell', 'special', 'danger', 'rotate', 'production', 'fullgame', 'locked', 'strip', 'almanac', 'almanac-pause', 'damage-numbers', 'sell-gap', 'restart-button', 'deflation', 'camera-fit', 'colors', 'meta-save', 'meta-dna', 'meta-shop', 'meta-effects', 'tree-effects', 'tree-shop', 'level-waves', 'progress-save', 'stars', 'menu-flow', 'menu-reset', 'levels-lock', 'step-dps', 'sound', 'sdk', 'lose-line', 'attempt-line', 'toast-queue', 'shake', 'bosses', 'level2', 'wards', 'spiral-cap', 'marks', 'menu-exit', 'resume-tap', 'two-tabs', 'treemock', 'faces', 'real-game', 'dna-cap']
+const SCENARIOS = ['desktop-ru', 'phone-ru', 'desktop-en', 'phone-en', 'rules', 'graph', 'combat', 'dash', 'split', 'spore', 'armored', 'intro', 'lose-ru', 'lose-en', 'win-ru', 'win-en', 'towers', 'card', 'merge', 'mutations', 'sell', 'special', 'danger', 'rotate', 'production', 'fullgame', 'locked', 'strip', 'almanac', 'almanac-pause', 'damage-numbers', 'sell-gap', 'restart-button', 'deflation', 'camera-fit', 'colors', 'meta-save', 'meta-dna', 'meta-shop', 'meta-effects', 'tree-effects', 'tree-shop', 'level-waves', 'progress-save', 'stars', 'menu-flow', 'menu-reset', 'levels-lock', 'step-dps', 'sound', 'sdk', 'lose-line', 'attempt-line', 'toast-queue', 'shake', 'bosses', 'level2', 'wards', 'spiral-cap', 'marks', 'menu-exit', 'resume-tap', 'two-tabs', 'treemock', 'faces', 'real-game', 'dna-cap', 'xp']
 const only = args.only === undefined ? null : String(args.only);
 if (only !== null && !SCENARIOS.includes(only)) {
   console.error(`Неизвестный сценарий --only=${only}. Есть: ${SCENARIOS.join(', ')}`);
@@ -2532,6 +2533,108 @@ async function runMarks(browser, baseUrl) {
   }
 }
 
+/**
+ * Опыт башен и уровни V–VIII (ветка слияния до VIII; план docs/tower-levels-xp-plan-2026-10-24.md, разделы 1, 2 и 4):
+ * 1) перебор «башня × уровень 1–8» по числам из игры: ничто не ухудшается, хотя бы одно число растёт, все числа конечны, положительные числа остаются положительными; Холод на VI–VIII — пауза 6,0 с и заморозка 3,0 с;
+ * 2) опыт: убитый кокк (`lifeDamage` 1) даёт +1 каждой башне, в зоне которой погиб, и 0 — башне вне зоны; при слиянии опыт складывается; Витамин получает `xp.vitaminShare` опыта башен в своей ауре.
+ */
+async function runXp(browser, baseUrl) {
+  const p = '[опыт башен и уровни V–VIII]';
+  const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
+  const share = Number(/xp:\s*\{\s*vitaminShare:\s*([\d.]+)/.exec(fs.readFileSync(path.join(ROOT, 'src', 'config.ts'), 'utf8'))[1]);
+  const maxLv = readStage4Tables().levels.length;
+  // ---- 1) перебор чисел башен по уровням
+  const higher = ['damage', 'range', 'blastRadius', 'puddleRadius', 'puddleSec', 'beamPulses', 'beamHalfWidthPx', 'dotPerSec', 'dotSec', 'freezeSec', 'trapSec', 'trapDps', 'coneDeg'];
+  const lower = ['cooldownMs', 'slowFactor', 'auraMul'];
+  const byLevel = []; // byLevel[L][id] = stats
+  const cells = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j'].map((k) => FREE[k]).filter(Boolean);
+  if (cells.length < TOWER_IDS.length) throw new Error(`на карте не нашлось ${TOWER_IDS.length} свободных клеток`);
+  let levelsInGame = 0;
+  for (let level = 1; level <= maxLv; level++) {
+    const game = await openGame(context, baseUrl, `${p} уровень ${level}`, { speed: 1, cfg: 'waves.firstDelaySec:9999', query: ALL_TOWERS });
+    await game.page.evaluate(([ids, cs, lv]) => ids.forEach((id, i) => window.__pvb.placeTower(id, cs[i][0], cs[i][1], lv)), [TOWER_IDS, cells, level]);
+    await sleep(300);
+    const st = await game.state();
+    levelsInGame = st.maxTowerLevel;
+    byLevel[level] = Object.fromEntries(TOWER_IDS.map((id, i) => [id, towerIn(st, cells[i])]));
+    await game.page.close();
+  }
+  check(`${p} в игре ${levelsInGame} уровней башни (ждали ${maxLv})`, levelsInGame === maxLv, `maxTowerLevel ${levelsInGame}`);
+  const problems = [];
+  for (const id of TOWER_IDS) {
+    for (let level = 1; level <= maxLv; level++) {
+      const tw = byLevel[level][id];
+      if (!tw || tw.level !== level) {
+        problems.push(`${id} ур.${level}: башня не поставилась (${tw?.level})`);
+        continue;
+      }
+      for (const [k, v] of Object.entries(tw.stats)) if (!Number.isFinite(v) || v < 0) problems.push(`${id} ур.${level}: ${k} = ${v}`);
+      if (level > 1) {
+        const prev = byLevel[level - 1][id].stats;
+        let better = 0;
+        for (const k of higher) {
+          if (tw.stats[k] < prev[k] - 1e-9) problems.push(`${id} ур.${level}: ${k} ${prev[k]} → ${tw.stats[k]} (хуже)`);
+          if (tw.stats[k] > prev[k] + 1e-9) better++;
+        }
+        for (const k of lower) {
+          if (tw.stats[k] > prev[k] + 1e-9) problems.push(`${id} ур.${level}: ${k} ${prev[k]} → ${tw.stats[k]} (хуже)`);
+          if (tw.stats[k] < prev[k] - 1e-9) better++;
+        }
+        if (better === 0) problems.push(`${id} ур.${level}: ни одно число не стало лучше`);
+      }
+      if (level > 1) {
+        const first = byLevel[1][id].stats;
+        for (const [k, v] of Object.entries(first)) if (v > 0 && !(tw.stats[k] > 0)) problems.push(`${id} ур.${level}: ${k} был ${v}, стал ${tw.stats[k]}`);
+      }
+    }
+  }
+  check(`${p} башни на уровнях 1–${maxLv} (${TOWER_IDS.length} башен): числа конечны, на каждом шаге ни одно число не хуже и хотя бы одно лучше, положительные не обнуляются: проблем ${problems.length}`, problems.length === 0, problems.slice(0, 5).join(' | '));
+  const frost = [6, 7, 8].map((l) => byLevel[l].frost.stats);
+  check(`${p} Холод на VI–VIII: пауза ${frost.map((x) => x.cooldownMs / 1000).join(', ')} с (ждали 6,0), заморозка ${frost.map((x) => x.freezeSec).join(', ')} с (ждали 3,0), радиус растёт: ${frost.map((x) => x.range.toFixed(1)).join(' < ')}`, frost.every((x) => Math.abs(x.cooldownMs - 6000) < 1e-6 && Math.abs(x.freezeSec - 3) < 1e-6) && frost[0].range < frost[1].range && frost[1].range < frost[2].range);
+
+  // ---- 2) опыт
+  const cfgXp = `${wavesOnlyCfg({ coccus: 1 })},waves.firstDelaySec:1,towers.pill.damage:50,economy.startCoins:2000,lives.start:3,types.coccus.lifeDamage:1,waves.total:2,waves.pauseSec:9999`; // вторая волна не начнётся: партия идёт и после гибели кокка, слияние возможно
+  const [A, B, C] = [FREE.a, FREE.b, FREE.c];
+  // зоны на всю карту: убитый кокк в зоне обеих Таблеток
+  let game = await openGame(context, baseUrl, p, { speed: 4, cfg: `${cfgXp},towers.pill.range:2000`, query: ALL_TOWERS });
+  await placeSure(game, 'pill', A);
+  await placeSure(game, 'pill', B);
+  await placeSure(game, 'vitamin', C);
+  let s = await waitFor(game.page, (x) => x.kills >= 1 && x.bacteria.length === 0, WAIT_MS, 'гибель единственного кокка');
+  const [ta, tb, tv] = [towerIn(s, A), towerIn(s, B), towerIn(s, C)];
+  check(`${p} убит один кокк (lifeDamage 1) в зоне двух Таблеток: опыт ${ta.xp} и ${tb.xp} (ждали 1 и 1), у Витамина ${tv.xp} (ждали ${share} × 2 = ${share * 2}); убито ${s.kills}`, s.kills === 1 && ta.xp === 1 && tb.xp === 1 && Math.abs(tv.xp - share * 2) < 1e-9, `kills ${s.kills}, xp ${ta.xp}/${tb.xp}/${tv.xp}`);
+  s = await mergeInto(game, B, A);
+  const merged = towerIn(s, A);
+  check(`${p} при слиянии опыт складывается: ${ta.xp} + ${tb.xp} = ${merged.xp} (уровень ${merged.level})`, merged.level === 2 && merged.xp === ta.xp + tb.xp, `xp ${merged.xp}`);
+  await game.page.close();
+  // башня вне зоны: ищем свободную клетку, куда радиус Таблетки (200 px) не достаёт дорожки
+  const far = (() => {
+    const sc = startCenterPx();
+    let best = null;
+    for (let col = 0; col < LEVEL.cols; col++) {
+      for (let row = 0; row < LEVEL.rows; row++) {
+        if (GEO.isPathCell(col, row)) continue;
+        const w = GEO.center(col, row);
+        const sx = VIEW_CENTER.x + (w.x - sc.x);
+        const sy = VIEW_CENTER.y + (w.y - sc.y);
+        if (sx < CELL_WINDOW.x0 || sx > CELL_WINDOW.x1 || sy < CELL_WINDOW.y0 || sy > CELL_WINDOW.y1) continue;
+        const cov = GEO.coverage(col, row, 260);
+        if (!best || cov < best.cov) best = { cell: [col, row], cov };
+      }
+    }
+    return best && best.cov === 0 ? best.cell : null;
+  })();
+  game = await openGame(context, baseUrl, p, { speed: 4, cfg: cfgXp, query: ALL_TOWERS });
+  await placeSure(game, 'pill', A);
+  if (far) await placeSure(game, 'pill', far);
+  s = await waitFor(game.page, (x) => x.kills >= 1 && x.bacteria.length === 0, WAIT_MS, 'гибель единственного кокка (зона 200 px)');
+  const near = towerIn(s, A);
+  const away = far ? towerIn(s, far) : null;
+  check(`${p} опыт только в зоне: Таблетка у дорожки (убила кокка) ${near.xp} (ждали 1)${far ? `, Таблетка вне зоны (клетка ${far.join(';')}) ${away.xp} (ждали 0)` : '; клетки вне зоны на экране нет — проверка «вне зоны» пропущена'}`, near.xp === 1 && (!far || away.xp === 0), `xp ${near.xp}/${away?.xp}`);
+  await game.page.close();
+  await context.close();
+}
+
 // ================================================================== запуск
 
 // ================================================================== сеть дорожек: структура и движение бактерий по графу
@@ -3356,7 +3459,8 @@ function towerTable() {
     antibiotic: row('antibiotic'),
     lamp: row('lamp'),
     vitamin: row('vitamin'),
-    frost: row('frost'),
+    // пауза Холода на уровнях слияния не короче, чем на VI (minCooldownMul; src/towerStats.ts)
+    frost: { ...row('frost'), minCooldownMul: readConfigNumber('frost', 'minCooldownMul') },
     patch: row('patch'),
   };
 }
@@ -5333,7 +5437,7 @@ async function towersVitamin(browser, baseUrl) {
   const [A, B, C] = [FREE.a, FREE.b, FREE.c];
   if (!C) throw new Error('на карте не нашлось трёх свободных клеток рядом');
   // дальняя клетка: дальше радиуса ауры от обоих Витаминов с запасом на рост радиуса с уровнем (reachMul) — и видна без сдвига карты
-  const farDist = range * (S4.levels[S4.levels.length - 1].reachMul + 0.01) + 10;
+  const farDist = range * (S4.levels[Math.min(S4.levels.length, TEST_TOP) - 1].reachMul + 0.01) + 10;
   const farList = startWindowCells()
     .filter((q) => cellDist(A, q.cell) >= farDist && cellDist(C, q.cell) >= farDist)
     .sort((u, v) => Math.hypot(u.sx - 540, u.sy - 360) - Math.hypot(v.sx - 540, v.sy - 360));
@@ -6495,6 +6599,8 @@ function readStage4Tables() {
   return { levels, mutationLevels, mutations, copyShares, sellRefund: readConfigNumber('economy', 'sellRefund') };
 }
 let S4 = null;
+/** До какого уровня сценарии слияния и мутаций растят башни (в таблице towerLevels — до VIII; строки V–VIII проверяет сценарий xp). */
+const TEST_TOP = 4;
 const prepareStage4 = () => {
   TW = towerTable();
   S4 = readStage4Tables();
@@ -6511,7 +6617,7 @@ function expectedStats(id, level, picks) {
   const b = { coneDeg: base.coneDeg ?? 0, damage: base.damage, cooldownMs: base.cooldownMs, range: base.range, blastRadius: base.blastRadius ?? 0, puddleRadius: base.puddleRadius ?? 0, slowFactor: base.slowFactor ?? 1, beamPulses: base.beamPulses ?? 0, dotPerSec: base.dotPerSec ?? 0, dotSec: base.dotSec ?? 0 };
   const s = {
     damage: b.damage * lv.damageMul,
-    cooldownMs: b.cooldownMs * lv.cooldownMul,
+    cooldownMs: b.cooldownMs * Math.max(lv.cooldownMul, base.minCooldownMul ?? 0),
     range: b.range * lv.reachMul,
     blastRadius: b.blastRadius * lv.reachMul,
     puddleRadius: b.puddleRadius * lv.reachMul,
@@ -6589,7 +6695,7 @@ function expectedStats(id, level, picks) {
   if (mutTrapDps > CAPS.dpsMul) s.trapDps *= CAPS.dpsMul / mutTrapDps;
   if (s.slowFactor < 1) s.slowFactor = Math.max(MIN_SLOW_FACTOR, s.slowFactor);
   // предел заморозки — от паузы уровня без мутаций (MASTER-0009)
-  if (s.freezeSec > 0) s.freezeSec = Math.min(s.freezeSec, ((b.cooldownMs * lv.cooldownMul) / 1000) * CAPS.freezeShareOfCooldown);
+  if (s.freezeSec > 0) s.freezeSec = Math.min(s.freezeSec, ((b.cooldownMs * Math.max(lv.cooldownMul, base.minCooldownMul ?? 0)) / 1000) * CAPS.freezeShareOfCooldown);
   if ((base.auraMul ?? 1) < 1) {
     const raw = base.auraMul - base.auraStep * (level - 1); // 1-й уровень — auraMul, дальше на auraStep меньше (улучшений вне партии в этих проверках нет)
     s.auraMul = Math.min(1, Math.max(MIN_AURA_MUL, 1 - (1 - raw) * auraBonus));
@@ -7140,9 +7246,9 @@ async function mergeFlow(browser, baseUrl) {
   check(`${p} при слиянии двух Таблеток уровня 2 с разными мутациями (цель «${pickD}», источник «${sourcePicks}») у результата мутации обеих: сначала цели (по которой тапнули вторым), затем источника — picks [${td.picks.join(', ')}], уровень ${td.level}, pending ${td.pending} (выбор третьего уровня не нужен); числа ${dm.join('; ') || 'совпадают с таблицей'}`, td.level === 3 && JSON.stringify(td.picks) === JSON.stringify([pickD, pickB]) && td.pending === null && dm.length === 0 && pickB !== pickD, `picks ${td.picks}, уровень ${td.level}`);
   await game.page.close();
 
-  // ---- до высшего уровня: две Таблетки четвёртого уровня, слияние между ними невозможно
+  // ---- рост двух Таблеток до IV (числа по таблице) и две башни высшего уровня: слияние между ними невозможно
   game = await openGame(context, baseUrl, p, { query: ALL_TOWERS, speed: 1, cfg: s4Cfg() });
-  const top = S4.levels.length;
+  const top = Math.min(S4.levels.length, TEST_TOP); // слияние до высшего уровня проверяют до IV (до VIII — сценарий xp: перебор чисел и опыт)
   const pool = [C, D, E];
   const diffs = [];
   const started = Date.now();
@@ -7155,17 +7261,23 @@ async function mergeFlow(browser, baseUrl) {
   }
   s = await game.state();
   const placed = 2 * 2 ** (top - 1);
-  check(`${p} двумя башнями уровня ${top} (на каждую ушло ${2 ** (top - 1)} Таблеток и ${2 ** (top - 1) - 1} слияний; ${Math.round((Date.now() - started) / 1000)} с): башен ${s.towers.length}, слияний ${s.merges} (ждали ${2 * (2 ** (top - 1) - 1)}), монет ${s.coins} (ждали ${100000 - placed * price}: слияния бесплатны), maxTowerLevel ${s.maxTowerLevel}`, s.towers.length === 2 && s.towers.every((t) => t.level === top) && s.merges === 2 * (2 ** (top - 1) - 1) && s.coins === 100000 - placed * price && s.maxTowerLevel === top, `башен ${s.towers.length}, слияний ${s.merges}, монет ${s.coins}`);
+  check(`${p} двумя башнями уровня ${top} (на каждую ушло ${2 ** (top - 1)} Таблеток и ${2 ** (top - 1) - 1} слияний; ${Math.round((Date.now() - started) / 1000)} с): башен ${s.towers.length}, слияний ${s.merges} (ждали ${2 * (2 ** (top - 1) - 1)}), монет ${s.coins} (ждали ${100000 - placed * price}: слияния бесплатны), maxTowerLevel ${s.maxTowerLevel}`, s.towers.length === 2 && s.towers.every((t) => t.level === top) && s.merges === 2 * (2 ** (top - 1) - 1) && s.coins === 100000 - placed * price && s.maxTowerLevel === S4.levels.length, `башен ${s.towers.length}, слияний ${s.merges}, монет ${s.coins}`);
   check(`${p} на каждом уровне 1…${top} числа Таблетки совпали с таблицей towerLevels и мутаций (урон, пауза, радиус)`, diffs.length === 0, diffs.slice(0, 4).join(' | '));
+  // две башни высшего уровня (VIII, ставятся тестовым входом без слияний — до VIII растить 2 × 128 Таблеток долго) друг с другом не сливаются
+  await game.page.close();
+  game = await openGame(context, baseUrl, p, { query: ALL_TOWERS, speed: 1, cfg: s4Cfg() });
+  const maxLv = S4.levels.length;
+  const placedMax = await game.page.evaluate(([a, b, lv]) => window.__pvb.placeTower('pill', a[0], a[1], lv) && window.__pvb.placeTower('pill', b[0], b[1], lv), [A, B, maxLv]);
+  await sleep(300);
   s = await selectPlaced(game, A);
-  const blockedA = !s.ui.card.merge.enabled;
+  const blockedA = placedMax && s.towers.every((t) => t.level === maxLv) && !s.ui.card.merge.enabled;
   s = await tapCard(game, 'merge');
-  check(`${p} две башни высшего уровня друг с другом не сливаются: «Слить» недоступна у обеих, тап по ней режим не включает (mergeMode ${s.mergeMode})`, blockedA && !s.mergeMode, `merge.enabled у первой ${!blockedA}`);
+  check(`${p} две башни высшего уровня (${maxLv}) друг с другом не сливаются: «Слить» недоступна у обеих, тап по ней режим не включает (mergeMode ${s.mergeMode})`, blockedA && !s.mergeMode, `поставлены ${placedMax}, merge.enabled у первой ${!blockedA}`);
   s = await selectPlaced(game, B);
   const blockedB = !s.ui.card.merge.enabled;
   await sleep(250);
   await shot(game.page, 'merge-03-max-level');
-  check(`${p} у второй башни высшего уровня «Слить» тоже недоступна, слияний по-прежнему ${s.merges}`, blockedB && s.merges === 2 * (2 ** (top - 1) - 1));
+  check(`${p} у второй башни высшего уровня «Слить» тоже недоступна, слияний ${s.merges}`, blockedB && s.merges === 0);
   await context.close();
 }
 
@@ -7183,7 +7295,7 @@ async function mutationPass(game, id, o0, o1, main, pool) {
     if (!ok) issues.push(`${what}: ${detail}`);
   };
   const [t0, t1] = [S4.mutations[id][0][o0].id, S4.mutations[id][1][o1].id];
-  const top = S4.levels.length;
+  const top = Math.min(S4.levels.length, TEST_TOP); // слияние до высшего уровня проверяют до IV (до VIII — сценарий xp: перебор чисел и опыт)
   const [l0, l1] = S4.mutationLevels;
   const picks = []; // все мутации башни по порядку (свои и принесённые)
   let own = 0; // сколько порогов башня закрыла своим выбором
@@ -7226,7 +7338,7 @@ async function mutationsFlow(browser, baseUrl) {
     // два прохода: варианты (1-й, 1-й) и (2-й, 2-й) — так каждая из четырёх мутаций башни хотя бы раз выбрана на своём уровне
     for (const [main, o] of [[a, 0], [b, 1]]) results.push(await mutationPass(game, id, o, o, main, [c, d, e]));
     for (const r of results) {
-      check(`${p} «${id}»: выбор «${r.t0}» на уровне ${S4.mutationLevels[0]} и «${r.t1}» на уровне ${S4.mutationLevels[1]}: pending, карточка, числа (урон, пауза, радиус, взрыв, лужа, замедление, удары) совпали с towerLevels и mutations на каждом уровне 1…${S4.levels.length}; выбор окончателен`, r.issues.length === 0, r.issues.slice(0, 4).join(' | '));
+      check(`${p} «${id}»: выбор «${r.t0}» на уровне ${S4.mutationLevels[0]} и «${r.t1}» на уровне ${S4.mutationLevels[1]}: pending, карточка, числа (урон, пауза, радиус, взрыв, лужа, замедление, удары) совпали с towerLevels и mutations на каждом уровне 1…${Math.min(S4.levels.length, TEST_TOP)}; выбор окончателен`, r.issues.length === 0, r.issues.slice(0, 4).join(' | '));
     }
     const s = await game.state();
     // Выбирают и помощники (growTo выбирает им мутацию перед слиянием), а мутации каждой башни уходят в цель слияния: в итоговом списке главной башни ровно столько мутаций, сколько
@@ -7274,7 +7386,7 @@ async function sellFlow(browser, baseUrl) {
   await tapCard(game, 'sell');
 
   // ---- уровни 2…высший: возврат растёт вдвое с каждым уровнем (в башню «вложено» 2^(L−1) обычных)
-  const top = S4.levels.length;
+  const top = Math.min(S4.levels.length, TEST_TOP); // слияние до высшего уровня проверяют до IV (до VIII — сценарий xp: перебор чисел и опыт)
   await growTo(game, 'pill', top, cells[0], [cells[1], cells[2], cells[3]]);
   s = await game.state();
   const coinsTop = s.coins;
@@ -10253,6 +10365,7 @@ try {
   if (wants('real-game')) await safe('[настоящая игра]', () => runRealGame(browser, qaServer.url));
   if (wants('dna-cap')) await safe('[предел счёта ДНК]', () => runDnaCap(browser, qaServer.url));
   if (wants('level2')) await safe('[уровень 2 «Нос»]', () => runLevel2(browser, qaServer.url));
+  if (wants('xp')) await safe('[опыт башен и уровни V–VIII]', () => runXp(browser, qaServer.url));
   if (wants('wards')) await safe('[жёсткие свойства: бегун]', () => runWards(browser, qaServer.url));
   if (wants('spiral-cap')) await safe('[«Спираль» и потолок мутаций]', () => runSpiralCap(browser, qaServer.url));
   if (wants('marks')) await safe('[макет знаков]', () => runMarks(browser, qaServer.url));
