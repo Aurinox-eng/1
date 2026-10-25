@@ -601,7 +601,8 @@ function buyUpgrades(levels, dna, reached = 0, towers = null) {
   let head = null;
   if (FX.has('coins') && CORE) {
     const chain = [...new Set(CORE.flatMap((id) => nodeChain(META.upgrades, towerNodeId(id))))].map((id) => [id, 1]);
-    head = buyPrefix(levels, dna, [...chain, ['coins', 3]]);
+    // «Стартовые монеты» требуют «Сильное вещество» 1-го уровня (damage; config.ts, meta.upgrades.coins.requires), поэтому он идёт перед монетами
+    head = buyPrefix(levels, dna, [...chain, ['damage', 1], ['coins', 3]]);
     if (!head.done) return { levels: head.levels, dna: head.dna, bought: head.bought };
   }
   const rest = buyBest({ upgrades: META.upgrades, levels: head ? head.levels : levels, dna: head ? head.dna : dna, towers: late ? [...circle, 'pill', 'fizz'] : circle, saveFor: CORE_SAVE ? CORE : null, shares: fieldShares(towers) });
