@@ -82,6 +82,8 @@ import {
   ROOT,
   sleep,
   startServer,
+  openRingsAt,
+  nextRing,
 } from './lib.mjs';
 
 // ------------------------------------------------------------------ параметры бота
@@ -565,8 +567,10 @@ function fieldShares(towers) {
   for (const [id, n] of hits) out[id] = n / total;
   return out;
 }
-/** Уровень, который играется сейчас (в лестнице меняется от уровня к уровню): от него зависит круг покупок эксперта (`L2_EXTRA`). */
+/** Уровень, который играется сейчас (в лестнице меняется от уровня к уровню): от него зависит круг покупок эксперта (`L2_EXTRA`) и открытые кольца сети древа. */
 let PLAY_LEVEL = LEVEL;
+/** Открытые кольца сети древа на уровне, который играется (пройдены все уровни до него): бот покупает узлы только открытых колец (решение владельца 26 октября 2026, сообщение 1, п. 5.5). */
+const openRingNow = () => openRingsAt(META, PLAY_LEVEL);
 /** Эксперт (--core) на уровнях со 2-го покупает узлы Ампулы и Антибиотика, когда хватает ДНК, и строит эти башни (план уровня 2, шаг 1 раздела 5): порядок покупок эксперта — крупные узлы первыми (раздел 10.1, п. 7); копить на них отдельно не нужно. */
 const L2_EXTRA = CORE ? ['ampule', 'antibiotic'].filter((id) => !EXCLUDE.has(id)) : [];
 /** Покупки образца рецензента: узлы из REVIEW_BUYS по порядку (следующая покупка ждёт очков), затем общие правила бота по узлам и веткам четырёх башен образца. */
@@ -579,7 +583,7 @@ function buyPrefix(levels, dna, list) {
     const u = META.upgrades[id];
     while ((next[id] ?? 0) < target) {
       const price = u.prices[next[id] ?? 0];
-      const open = price !== undefined && price <= left && branchOpen(u.branch, next) && (!u.requires || (next[u.requires.id] ?? 0) >= u.requires.level);
+      const open = price !== undefined && price <= left && branchOpen(u.branch, next) && nextRing(u, next[id] ?? 0) <= openRingNow() && (!u.requires || (next[u.requires.id] ?? 0) >= u.requires.level);
       if (!open) return { levels: next, dna: left, bought, done: false };
       left -= price;
       next[id] = (next[id] ?? 0) + 1;
@@ -591,7 +595,7 @@ function buyPrefix(levels, dna, list) {
 function buyReview(levels, dna, towers) {
   const head = buyPrefix(levels, dna, REVIEW_BUYS);
   if (!head.done) return { levels: head.levels, dna: head.dna, bought: head.bought };
-  const rest = buyBest({ upgrades: META.upgrades, levels: head.levels, dna: head.dna, towers: [...REVIEW_TOWERS], shares: fieldShares(towers) });
+  const rest = buyBest({ upgrades: META.upgrades, levels: head.levels, dna: head.dna, towers: [...REVIEW_TOWERS], shares: fieldShares(towers), openRing: openRingNow() });
   return { levels: rest.levels, dna: rest.dna, bought: [...head.bought, ...rest.bought] };
 }
 function buyUpgrades(levels, dna, reached = 0, towers = null) {
@@ -608,7 +612,7 @@ function buyUpgrades(levels, dna, reached = 0, towers = null) {
     head = buyPrefix(levels, dna, [...chain, ['damage', 1], ['coins', 3]]);
     if (!head.done) return { levels: head.levels, dna: head.dna, bought: head.bought };
   }
-  const rest = buyBest({ upgrades: META.upgrades, levels: head ? head.levels : levels, dna: head ? head.dna : dna, towers: late ? [...circle, 'pill', 'fizz'] : circle, saveFor: CORE_SAVE ? CORE : null, shares: fieldShares(towers) });
+  const rest = buyBest({ upgrades: META.upgrades, levels: head ? head.levels : levels, dna: head ? head.dna : dna, towers: late ? [...circle, 'pill', 'fizz'] : circle, saveFor: CORE_SAVE ? CORE : null, shares: fieldShares(towers), openRing: openRingNow() });
   return head ? { levels: rest.levels, dna: rest.dna, bought: [...head.bought, ...rest.bought] } : rest;
 }
 /** Башни, узлы и ветки которых покупает стратегия (null — все): --solo/--pair/--focus — только свои башни (Таблетка — если стратегия её строит), --core — башни своего круга (ядро, Сироп, Шипучка;

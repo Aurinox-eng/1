@@ -543,6 +543,13 @@ export function readMetaTable() {
     upgrades[m[1]] = { branch: m[2], effect: m[3], perLevel: Number(m[4]), prices: m[5].split(',').map((x) => Number(x.trim())).filter((x) => Number.isFinite(x)), requires: m[6] ? { id: m[6], level: Number(m[7]) } : null };
   }
   if (!Object.keys(upgrades).length) throw new Error('В разделе «meta» config.ts не нашлось улучшений');
+  // сеть древа (meta.network): кольцо каждого уровня узла (`upgrades[id].rings`, у узлов башен — нет: вне колец) и победы, открывающие кольца
+  const netStart = body.indexOf('network:');
+  const ringOpenAfter = netStart < 0 ? [0] : (/ringOpenAfter:\s*\[([^\]]*)\]/.exec(body.slice(netStart))?.[1] ?? '0').split(',').map((x) => Number(x.trim())).filter((x) => Number.isFinite(x));
+  if (netStart >= 0) {
+    const ringsBody = body.slice(body.indexOf('rings:', netStart));
+    for (const m of ringsBody.slice(0, ringsBody.indexOf('} as Record')).matchAll(/(\w+):\s*\[([^\]]*)\]/g)) if (upgrades[m[1]]) upgrades[m[1]].rings = m[2].split(',').map((x) => Number(x.trim()));
+  }
   const levelMul = /levelMul:\s*\[([^\]]*)\]/.exec(body);
   return {
     dna: {
@@ -559,20 +566,31 @@ export function readMetaTable() {
       coinsCapShare: num('coinsCapShare'),
     },
     upgrades,
+    network: { ringOpenAfter },
   };
 }
+
+/** Сколько колец сети открыто, когда играется уровень `playLevel` (пройдены все уровни до него): кольцо k открыто победой на уровне `ringOpenAfter[k − 1]` (0 — сразу). */
+export function openRingsAt(meta, playLevel) {
+  let k = 0;
+  while (k < meta.network.ringOpenAfter.length && meta.network.ringOpenAfter[k] <= playLevel - 1) k++;
+  return k;
+}
+
+/** Кольцо следующего уровня узла (уровень `have + 1`); узлы башен — 0 (вне колец). */
+export const nextRing = (u, have) => u.rings?.[have] ?? 0;
 
 /**
  * Жадная покупка улучшений вне партии: пока хватает очков, берётся первое по порядку `order` улучшение, у которого есть следующий уровень по цене не выше остатка,
  * ветка открыта (`branchOpen`: ветка башни — после узла башни) и родитель куплен до нужного уровня. `upgrades` — таблица из `readMetaTable().upgrades`,
  * `levels` — текущие уровни улучшений ({id: число}). Возвращает новые уровни, остаток очков и список покупок.
  */
-export function buyGreedy({ upgrades, order, levels, dna }) {
+export function buyGreedy({ upgrades, order, levels, dna, openRing = Infinity }) {
   const next = { ...levels };
   const bought = [];
   let left = dna;
   for (;;) {
-    const id = order.find((x) => upgrades[x] && branchOpen(upgrades[x].branch, next) && upgrades[x].prices[next[x] ?? 0] !== undefined && upgrades[x].prices[next[x] ?? 0] <= left && (!upgrades[x].requires || (next[upgrades[x].requires.id] ?? 0) >= upgrades[x].requires.level));
+    const id = order.find((x) => upgrades[x] && branchOpen(upgrades[x].branch, next) && nextRing(upgrades[x], next[x] ?? 0) <= openRing && upgrades[x].prices[next[x] ?? 0] !== undefined && upgrades[x].prices[next[x] ?? 0] <= left && (!upgrades[x].requires || (next[upgrades[x].requires.id] ?? 0) >= upgrades[x].requires.level));
     if (!id) break;
     left -= upgrades[id].prices[next[id] ?? 0];
     next[id] = (next[id] ?? 0) + 1;
@@ -629,7 +647,7 @@ export function nodeChain(upgrades, id) {
  * («Лихорадка») их требует. `saveFor` (необязательно) — башни ядра, на которые игрок копит: пока они не открыты, ДНК идёт только на цепочку к ним (без покупок по пути).
  * Возвращает новые уровни, остаток очков и список покупок.
  */
-export function buyBest({ upgrades, levels, dna, towers = null, saveFor = null, shares = null }) {
+export function buyBest({ upgrades, levels, dna, towers = null, saveFor = null, shares = null, openRing = Infinity }) {
   // узлы башен на пути к своим башням (цепочка «требует»), если своя башня ещё не открыта
   const needed = new Set(towers ? towers.filter((id) => !(levels[towerNodeId(id)] > 0)).map(towerNodeId).flatMap((id) => nodeChain(upgrades, id)) : []);
   const foreign = (id) => {
@@ -656,7 +674,7 @@ export function buyBest({ upgrades, levels, dna, towers = null, saveFor = null, 
     const opts = Object.keys(upgrades).filter((id) => {
       const u = upgrades[id];
       const price = u.prices[next[id] ?? 0];
-      return price !== undefined && price <= left && !foreign(id) && branchOpen(u.branch, next) && (!u.requires || (next[u.requires.id] ?? 0) >= u.requires.level) && (BIG_GAIN[id] !== undefined || nodeGain(upgrades, id, (next[id] ?? 0) + 1, shares) > 1);
+      return price !== undefined && price <= left && !foreign(id) && branchOpen(u.branch, next) && nextRing(u, next[id] ?? 0) <= openRing && (!u.requires || (next[u.requires.id] ?? 0) >= u.requires.level) && (BIG_GAIN[id] !== undefined || nodeGain(upgrades, id, (next[id] ?? 0) + 1, shares) > 1);
     });
     if (!opts.length) break;
     const big = opts.filter((id) => BIG_GAIN[id] !== undefined);
