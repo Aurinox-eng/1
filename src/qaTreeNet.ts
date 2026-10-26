@@ -367,6 +367,9 @@ export class TreeNetScene extends Phaser.Scene {
     const legend = this.add.graphics();
     const lx = 14;
     const ly = CONFIG.screen.height - 92;
+    // плашки под заголовком и легендой: сеть под ними не просвечивает
+    legend.fillStyle(0x0b1430, 0.88).fillRect(0, 0, CONFIG.screen.width, title.height + 14);
+    legend.fillStyle(0x0b1430, 0.88).fillRoundedRect(4, ly - 26, 370, 116, 8);
     const rows: [number, number, string][] = [
       [COLORS.gold, COLORS.goldEdge, 'куплено'],
       [0x2f7fd8, COLORS.merge, 'можно взять: соседний с купленным'],
@@ -381,6 +384,8 @@ export class TreeNetScene extends Phaser.Scene {
     legend.fillStyle(0x24406e, 1).fillCircle(lx + 7, ly - 10, 7);
     legend.fillStyle(0xffffff, 0.85).fillCircle(lx + 7, ly - 10, 2.2);
     legendTexts.push(this.add.text(lx + 20, ly - 19, 'точка — новый узел (продолжение ветки, перемычка)', { fontFamily: 'Arial', fontSize: '13px', color: '#cfe0ff' }));
+    title.setDepth(1);
+    for (const text of legendTexts) text.setDepth(1);
     const uiObjects: Phaser.GameObjects.GameObject[] = [title, legend, ...legendTexts];
     const ui = this.cameras.add(0, 0, CONFIG.screen.width, CONFIG.screen.height);
     ui.ignore(this.children.list.filter((obj) => !uiObjects.includes(obj)));
