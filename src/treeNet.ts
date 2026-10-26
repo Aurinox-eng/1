@@ -96,3 +96,70 @@ function build(): Network {
 
 /** Сеть строится один раз из `config.ts`. */
 export const NET: Network = build();
+
+// ---------------------------------------------------------------- раскладка «Атом» (экран «Улучшения» и макет)
+
+/** Внутренний радиус кольца k (1…), шаг узлов цепочки и радиусы узлов, пикселей мира (масштаб 1). */
+export const NET_LAYOUT = { ring0: 130, band: 196, step: 28, nodeR: 10, keyR: 14, towerR: 17, coreR: 56 };
+export const ringInner = (k: number): number => NET_LAYOUT.ring0 + NET_LAYOUT.band * (k - 1);
+
+export interface Placed {
+  key: string;
+  x: number;
+  y: number;
+  r: number;
+  angle: number;
+}
+
+export interface NetLayout {
+  /** Узлы колец и узлы башен (ромбы на внутренней границе кольца входа сектора). */
+  nodes: Map<string, Placed>;
+  /** Число колец. */
+  rings: number;
+}
+
+/** Ключевые узлы ветки и умения крупнее. */
+export const isKeyNode = (upgrade: string): boolean => {
+  const effect = CONFIG.meta.upgrades[upgrade]?.effect;
+  return effect === 'key' || effect === 'fever' || effect === 'autoWave';
+};
+
+/**
+ * Раскладка сети: сектор — доля круга (порядок `meta.network.sectors`, сверху по часовой), цепочки сектора в кольце — рядом по дуге, узлы цепочки — от внутренней границы кольца наружу
+ * с лёгкой закруткой по ходу орбит. Узел башни — на внутренней границе кольца, где начинается её сектор (кольцо первого уровня ветки башни).
+ */
+export function layoutNet(): NetLayout {
+  const sectors = CONFIG.meta.network.sectors;
+  const width = (2 * Math.PI) / sectors.length;
+  const angleOf = (s: string): number => -Math.PI / 2 + sectors.indexOf(s) * width;
+  const swirl = (r: number): number => 0.00028 * r;
+  const nodes = new Map<string, Placed>();
+  const rings = Math.max(...NET.chains.map((c) => c.ring));
+  for (const sector of sectors) {
+    for (let k = 1; k <= rings; k++) {
+      const row = NET.chains.filter((c) => c.sector === sector && c.ring === k);
+      if (row.length === 0) continue;
+      const mid = ringInner(k) + NET_LAYOUT.band / 2;
+      const da = Math.min((NET_LAYOUT.step * 1.15) / mid, (width * 0.86) / row.length);
+      row.forEach((chain, j) => {
+        const a0 = angleOf(sector) + da * (j - (row.length - 1) / 2);
+        chain.keys.forEach((key, i) => {
+          const r = ringInner(k) + 24 + NET_LAYOUT.step * i;
+          const a = a0 + swirl(r);
+          nodes.set(key, { key, x: Math.cos(a) * r, y: Math.sin(a) * r, r: isKeyNode(chain.upgrade) ? NET_LAYOUT.keyR : NET_LAYOUT.nodeR, angle: a });
+        });
+      });
+    }
+  }
+  // узлы башен: сектор башни — по id ветки; кольцо входа — кольцо Силы 1-го уровня
+  for (const [key, node] of NET.nodes) {
+    if (node.ring !== 0) continue;
+    const tower = node.upgrade.replace(/^tower/, '');
+    const branch = tower.charAt(0).toLowerCase() + tower.slice(1);
+    const entry = NET.nodes.get(nodeKey(`${branch}Power`, 1))?.ring ?? 1;
+    const r = ringInner(entry) - 4;
+    const a = angleOf(branch) + swirl(r);
+    nodes.set(key, { key, x: Math.cos(a) * r, y: Math.sin(a) * r, r: NET_LAYOUT.towerR, angle: a });
+  }
+  return { nodes, rings };
+}

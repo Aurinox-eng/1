@@ -171,9 +171,9 @@ export function requirementMet(id: UpgradeId): boolean {
   return false;
 }
 
-/** Узел доступен для покупки по сети (ветка открыта, есть уровень, который можно взять: кольцо открыто, сосед купленного); очки не учитываются. */
+/** Узел доступен для покупки по сети (ветка открыта, есть уровень, который можно взять: кольцо открыто, сосед купленного); купленный до наибольшего уровня — открыт; очки не учитываются. */
 export function isNodeOpen(id: UpgradeId): boolean {
-  return isBranchOpen(CONFIG.meta.upgrades[id].branch) && nextNodeOf(id) !== null;
+  return isBranchOpen(CONFIG.meta.upgrades[id].branch) && (firstUnbought(id) === null || nextNodeOf(id) !== null);
 }
 
 export function canBuy(id: UpgradeId): boolean {
@@ -493,10 +493,16 @@ type Rect = { x: number; y: number; w: number; h: number };
 export interface MetaScreenInfo {
   visible: boolean;
   balance: string;
-  /** Выбранный узел (id), прокрутка дерева и окно дерева. */
+  /** Выбранный узел (id), сдвиг сети (одно число из сдвига по x и y) и окно сети. */
   selected: string;
   scroll: number;
   view: Rect;
+  /** Сеть: масштаб, выбранный узел сети (`id#L`), подписи цепочек на экране (видимые), кнопка сброса сети и сколько ДНК он вернёт. */
+  zoom?: number;
+  selectedKey?: string;
+  labels?: Rect[];
+  respec?: Rect | null;
+  refund?: number;
   nodes: { id: UpgradeId; level: number; max: number; price: number | null; canBuy: boolean; open: boolean; onScreen: boolean; rect: Rect; /** Подпись под кружком (название узла): центр и размер на экране игры. */ label: Rect; recommended: boolean }[];
   /** Карточка выбранного узла: тексты (название, уровень, что даст дальше, условие, кнопка), кнопка покупки, помещаются ли тексты. */
   detail: { texts: string[]; buy: Rect; fits: boolean; /** «★ рекомендуем» у узла с меткой (иначе пусто). */ hint: string } | null;
@@ -514,6 +520,12 @@ export interface MetaDebugSnapshot {
   screen: MetaScreenInfo;
   /** Первые победы над боссами по уровням (биты) и награды «без потерь». */
   bossWins: number[];
+  /** Сеть древа: купленные узлы (`id#L`), узлы, которые можно взять (кольцо открыто, сосед купленного), открытые кольца. */
+  nodes: string[];
+  available: string[];
+  rings: number[];
+  /** Связи сети по орбите между соседними секторами (`src/treeNet.ts`). */
+  orbit: [string, string][];
   flawless: number[];
 }
 
@@ -525,7 +537,7 @@ declare global {
 
 /** Делает состояние очков и улучшений доступным проверкам (`window.__pvbMeta`); `screen` отдаёт описание экрана «Улучшения» (или «не показан»). */
 export function exposeMetaDebug(screen: () => MetaScreenInfo): void {
-  if (QA_MODE) window.__pvbMeta = { getMeta: () => ({ log: [...state.log], logMax: MAX_LOG_LEN, dna: state.dna, levels: metaLevels(), progress: { stars: [...state.progress.stars], best: [...state.progress.best] }, seen: [...state.seen], bossWins: [...state.bossWins], flawless: [...state.flawless], screen: screen() }), dnaFor: dnaParts, starsFor: starsForLoss };
+  if (QA_MODE) window.__pvbMeta = { getMeta: () => ({ log: [...state.log], logMax: MAX_LOG_LEN, dna: state.dna, levels: metaLevels(), progress: { stars: [...state.progress.stars], best: [...state.progress.best] }, seen: [...state.seen], bossWins: [...state.bossWins], flawless: [...state.flawless], screen: screen(), nodes: [...state.nodes], available: [...NET.nodes.keys()].filter(nodeAvailable), rings: [1, 2, 3, 4, 5, 6].filter(isRingOpen), orbit: NET.orbit.map(([a, b]) => [a, b] as [string, string]) }), dnaFor: dnaParts, starsFor: starsForLoss };
 }
 
 export const HIDDEN_SCREEN: MetaScreenInfo = { visible: false, balance: '', selected: '', scroll: 0, view: { x: 0, y: 0, w: 0, h: 0 }, nodes: [], detail: null, play: null };

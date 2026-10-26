@@ -1,11 +1,14 @@
 import Phaser from 'phaser';
 import { CONFIG, type UpgradeEffect } from '../config';
-import { exposeMetaDebug, buyUpgrade, canBuy, isBranchOpen, isLevelBeaten, isLevelOpen, isNodeOpen, metaDna, metaLevel, nextPrice, requirementMet, requirementOf, towerNodeId, type MetaScreenInfo } from '../meta';
+import { QA_MODE } from '../debug';
+import { exposeMetaDebug, buyNode, canBuy, isBranchOpen, isLevelBeaten, isLevelOpen, isNodeOpen, isRingOpen, metaDna, metaLevel, networkRefund, nextNodeOf, nextPrice, nodeAvailable, nodeBought, requirementMet, requirementOf, resetNetwork, towerNodeId, type MetaScreenInfo } from '../meta';
+import { createTowerArt, type TowerId } from '../objects/Tower';
+import { CORE, isKeyNode, layoutNet, NET, NET_LAYOUT, nodeKey, ringInner, type Placed } from '../treeNet';
 import { num, t, type TextKey } from '../i18n';
 import { maxLevel, UPGRADE_IDS, type UpgradeId } from '../save';
 import { sfx } from '../sound';
 import { currentLevel, favoriteBranch } from '../progress';
-import { drawLock, setScreenInfo } from '../screens';
+import { setScreenInfo } from '../screens';
 import { COLORS, FONT, TEXT_COLORS } from '../theme';
 
 const { width: W } = CONFIG.screen;
@@ -17,12 +20,17 @@ const BUY = { w: 330, h: 56 };
 const BUY_CENTER = { x: DETAIL.x + DETAIL.w / 2, y: DETAIL.y + DETAIL.h - 16 - BUY.h / 2 };
 const PLAY = { x: W / 2 + 190, y: 650, w: 340, h: 76 };
 const MENU = { x: W / 2 - 190, y: 650, w: 340, h: 76 };
-/** Узел дерева: радиус круга, шаг сетки по колонкам и рядам, отступ от левого и верхнего края окна, пикселей. */
-const NODE_R = 36;
-const STEP = { x: 215, y: 105 };
-const ORIGIN = { x: 90, y: 56 };
-/** Касание короче этого и не дальше этого от места нажатия — тап (выбор узла), иначе — прокрутка. */
+/** Касание, сдвинувшееся не дальше этого, — тап (выбор узла), иначе — перетаскивание сети, пикселей экрана. */
 const TAP_MAX_MOVE = 12;
+/** Масштаб сети: пределы и подписи цепочек — не мельче этого (решение владельца 26 октября 2026, сообщение 1, п. 6.2–6.3). */
+const ZOOM_MIN = 0.3;
+const ZOOM_MAX = 2.2;
+const LABEL_MIN_ZOOM = 0.62;
+/** Размер подписи цепочки, пикселей мира. */
+const LABEL_PX = 20;
+/** Кнопка сброса сети (бесплатный сброс между попытками; решение владельца 26 октября 2026, сообщение 3, п. 4.2): круглая, в правом верхнем углу окна сети. */
+const RESPEC = { x: VIEW.x + VIEW.w - 36, y: VIEW.y + 36, r: 26 };
+const LAYOUT = layoutNet();
 
 /** Ключ названия улучшения: `upg` + id с заглавной буквы (`lives` → `upgLives`). */
 const nameKey = (id: UpgradeId): TextKey => `upg${id[0].toUpperCase()}${id.slice(1)}` as TextKey;
@@ -70,13 +78,13 @@ function effectParts(id: UpgradeId, level: number): { label: string; value: stri
   return i < 0 ? { label: '', value: text } : { label: text.slice(0, i), value: text.slice(i + 2) };
 }
 
-/** Центр узла в координатах содержимого дерева (до прокрутки). */
-function nodeCenter(id: UpgradeId): { x: number; y: number } {
-  const [col, row] = CONFIG.meta.treePos[id] ?? [0, 0];
-  return { x: ORIGIN.x + col * STEP.x, y: ORIGIN.y + row * STEP.y };
+/** Узел сети, которым на экране представлено улучшение (выбор и покупка по id в проверках): следующий, который можно взять, иначе первый не купленный, иначе последний уровень. */
+function representative(id: UpgradeId): string {
+  const next = nextNodeOf(id);
+  if (next) return next;
+  for (let L = 1; L <= maxLevel(id); L++) if (!nodeBought(nodeKey(id, L))) return nodeKey(id, L);
+  return nodeKey(id, maxLevel(id));
 }
-
-const CONTENT_H = Math.max(...UPGRADE_IDS.map((id) => nodeCenter(id).y)) + NODE_R + 52;
 
 /**
  * Узлы с меткой «★ рекомендуем» (решение владельца 15 октября 2026, docs/tester-feedback-plan-2026-10-15.md, пункт 8): «Сильное вещество», пока оно ниже 3-го уровня,
@@ -91,25 +99,23 @@ function recommendedIds(): UpgradeId[] {
   return ids;
 }
 
-interface NodeView {
-  id: UpgradeId;
-  gfx: Phaser.GameObjects.Graphics;
-  star: Phaser.GameObjects.Text;
-  level: Phaser.GameObjects.Text;
-  label: Phaser.GameObjects.Text;
-}
-
 /**
- * Экран «Улучшения» — дерево (docs/upgrades.md, часть 3, решение владельца 8 октября 2026): узлы-кружки, линии к родителю, закрытые узлы затемнены.
- * Тап по узлу выбирает его, справа — название, что даст следующий уровень, условие открытия и кнопка покупки. Дерево двигается пальцем и колесом мыши.
- * Ветка башни закрыта, пока не открыт уровень, на котором башня становится доступной. Открывается с экрана конца уровня и из главного меню.
+ * Экран «Улучшения» — сеть древа в виде «Атом» (решения владельца 26 октября 2026, сообщения 2–4; макет `?qa&treemock=net` принят): ядро «Сильное вещество», кольца-орбиты
+ * (открытые — синие, закрытые — серые, без текста), узлы башен — ромбы на границах колец. Узел можно взять, только если он соседний со взятым и его кольцо открыто
+ * (зелёный обод); купленные — золотые. Тап по узлу выбирает его, справа — название, что даст, условие и кнопка покупки этого узла. Сеть двигается пальцем и мышью,
+ * масштаб — колесом и щипком; на телефоне начальный масштаб крупнее (подписи читаются). Кнопка со стрелкой в углу — бесплатный сброс сети между попытками.
  */
 export class UpgradesScene extends Phaser.Scene {
-  private nodes: NodeView[] = [];
   private selected: UpgradeId = UPGRADE_IDS[0];
-  private scrollY = 0;
+  /** Выбранный узел сети (`id#L`). */
+  private selectedKey = '';
   private world!: Phaser.GameObjects.Container;
   private edges!: Phaser.GameObjects.Graphics;
+  private dots!: Phaser.GameObjects.Graphics;
+  private stars: Phaser.GameObjects.Text[] = [];
+  private labels: { text: Phaser.GameObjects.Text; ring: number }[] = [];
+  private zoom = 1;
+  private pan = { x: 0, y: 0 };
   private balance!: Phaser.GameObjects.Text;
   private detailName!: Phaser.GameObjects.Text;
   private detailLevel!: Phaser.GameObjects.Text;
@@ -119,9 +125,11 @@ export class UpgradesScene extends Phaser.Scene {
   private detailHint!: Phaser.GameObjects.Text;
   private buyBg!: Phaser.GameObjects.Graphics;
   private buyLabel!: Phaser.GameObjects.Text;
+  private respecGfx!: Phaser.GameObjects.Graphics;
   /** Откуда пришли: 'menu' — из главного меню («Играть» ведёт на выбор уровня); иначе с экрана конца уровня («Играть» начинает новую партию того же уровня). */
   private from: 'menu' | 'game' = 'game';
-  private dragFrom: { x: number; y: number; scroll: number; moved: boolean } | null = null;
+  private dragFrom: { x: number; y: number; pan: { x: number; y: number }; moved: boolean } | null = null;
+  private pinchFrom: { dist: number; zoom: number } | null = null;
   /** Уведомление «Открыта башня» (или null). */
   private toast: Phaser.GameObjects.Text | null = null;
 
@@ -134,64 +142,194 @@ export class UpgradesScene extends Phaser.Scene {
   }
 
   create(): void {
-    this.nodes = [];
     this.toast = null;
-    this.scrollY = 0;
-    this.selected = UPGRADE_IDS[0];
+    this.stars = [];
+    this.labels = [];
+    this.selected = 'damage';
+    this.selectedKey = representative('damage');
     this.cameras.main.setBackgroundColor(COLORS.background);
     this.add.text(W / 2, 40, t('upgradesTitle'), this.style(46, TEXT_COLORS.accent)).setOrigin(0.5);
     this.balance = this.add.text(W / 2, 88, '', this.style(30)).setOrigin(0.5);
 
-    // Окно дерева: рамка и прокручиваемое содержимое под маской
+    // Окно сети: рамка и сеть под маской
     const frame = this.add.graphics();
-    frame.fillStyle(0x0e1b38, 1).fillRoundedRect(VIEW.x, VIEW.y, VIEW.w, VIEW.h, 16);
-    frame.lineStyle(3, 0x3a5f9c, 1).strokeRoundedRect(VIEW.x, VIEW.y, VIEW.w, VIEW.h, 16);
-    this.world = this.add.container(VIEW.x, VIEW.y);
+    frame.fillStyle(0x0b1430, 1).fillRoundedRect(VIEW.x, VIEW.y, VIEW.w, VIEW.h, 16);
+    this.world = this.add.container(0, 0);
     const mask = this.make.graphics({ x: 0, y: 0 }, false);
     mask.fillStyle(0xffffff, 1).fillRect(VIEW.x, VIEW.y, VIEW.w, VIEW.h);
     this.world.setMask(mask.createGeometryMask());
+    this.drawBackdrop();
     this.edges = this.add.graphics();
-    this.world.add(this.edges);
-    for (const id of UPGRADE_IDS) this.addNode(id);
+    this.dots = this.add.graphics();
+    this.world.add([this.edges, this.dots]);
+    this.addTowerIcons();
+    this.addCore();
+    this.placeLabels();
+    const border = this.add.graphics();
+    border.lineStyle(3, 0x3a5f9c, 1).strokeRoundedRect(VIEW.x, VIEW.y, VIEW.w, VIEW.h, 16);
 
-    // Нажатие и прокрутка: короткое касание — выбор узла, движение — прокрутка
+    // Касание: короткое — выбор узла, движение — перетаскивание; два пальца — масштаб; колесо — масштаб
     const area = this.add.zone(VIEW.x + VIEW.w / 2, VIEW.y + VIEW.h / 2, VIEW.w, VIEW.h).setInteractive();
     area.on('pointerdown', (p: Phaser.Input.Pointer) => {
-      this.dragFrom = { x: p.x, y: p.y, scroll: this.scrollY, moved: false };
+      this.dragFrom = { x: p.x, y: p.y, pan: { ...this.pan }, moved: false };
     });
-    area.on('pointermove', (p: Phaser.Input.Pointer) => {
+    this.input.on('pointermove', (p: Phaser.Input.Pointer) => {
+      const a = this.input.pointer1;
+      const b = this.input.pointer2;
+      if (a.isDown && b.isDown) {
+        const dist = Phaser.Math.Distance.Between(a.x, a.y, b.x, b.y);
+        if (!this.pinchFrom) this.pinchFrom = { dist, zoom: this.zoom };
+        else if (this.pinchFrom.dist > 0) this.setView(this.pinchFrom.zoom * (dist / this.pinchFrom.dist), this.pan);
+        if (this.dragFrom) this.dragFrom.moved = true;
+        return;
+      }
+      this.pinchFrom = null;
       const d = this.dragFrom;
       if (!d || !p.isDown) return;
       if (Math.hypot(p.x - d.x, p.y - d.y) > TAP_MAX_MOVE) d.moved = true;
-      if (d.moved) this.setScroll(d.scroll - (p.y - d.y));
+      if (d.moved) this.setView(this.zoom, { x: d.pan.x + (p.x - d.x), y: d.pan.y + (p.y - d.y) });
     });
     const release = (p: Phaser.Input.Pointer): void => {
       const d = this.dragFrom;
       this.dragFrom = null;
+      this.pinchFrom = null;
       if (d && !d.moved) this.tapAt(p.x, p.y);
     };
     area.on('pointerup', release);
-    area.on('pointerupoutside', () => (this.dragFrom = null));
-    this.input.on('wheel', (_p: Phaser.Input.Pointer, _o: unknown, _dx: number, dy: number) => this.setScroll(this.scrollY + dy));
+    area.on('pointerupoutside', () => {
+      this.dragFrom = null;
+      this.pinchFrom = null;
+    });
+    this.input.on('wheel', (_p: Phaser.Input.Pointer, _o: unknown, _dx: number, dy: number) => this.setView(this.zoom * (dy > 0 ? 0.9 : 1.1), this.pan));
+
+    this.respecGfx = this.add.graphics();
+    this.add.zone(RESPEC.x, RESPEC.y, RESPEC.r * 2 + 8, RESPEC.r * 2 + 8).setInteractive({ useHandCursor: true }).on('pointerdown', () => this.onRespec());
 
     this.buildDetail();
     this.addBottomButton(PLAY, t('upgPlay'), 0x2a8a4a, COLORS.merge, () => (this.from === 'menu' ? this.scene.start('Levels') : this.scene.start('Game', { level: this.nextLevelToPlay() })));
     this.addBottomButton(MENU, t('toMenu'), 0x2a3550, 0x4a5c82, () => this.scene.start('Menu'));
-    this.drawEdges();
+    this.setView(this.startZoom(), { x: 0, y: 0 });
     this.refresh();
 
     exposeMetaDebug(() => this.describe());
-    setScreenInfo(() => (this.scene.isActive() ? { scene: 'upgrades', buttons: { play: PLAY, menu: MENU }, texts: [this.balance.text] } : null));
+    if (QA_MODE) window.__pvbUpgrades = { focus: (id: string) => this.focus(id) };
+    setScreenInfo(() => (this.scene.isActive() ? { scene: 'upgrades', buttons: { play: PLAY, menu: MENU, respec: { x: RESPEC.x, y: RESPEC.y, w: RESPEC.r * 2, h: RESPEC.r * 2 } }, texts: [this.balance.text] } : null));
   }
 
-  private addNode(id: UpgradeId): void {
-    const c = nodeCenter(id);
-    const gfx = this.add.graphics().setPosition(c.x, c.y);
-    const level = this.add.text(c.x, c.y, '', this.style(22)).setOrigin(0.5);
-    const label = this.add.text(c.x, c.y + NODE_R + 6, t(nameKey(id)), { ...this.style(17, TEXT_COLORS.main, false), align: 'center', wordWrap: { width: STEP.x - 24 } }).setOrigin(0.5, 0);
-    const star = this.add.text(c.x, c.y - NODE_R - 4, '★', this.style(30, TEXT_COLORS.accent)).setOrigin(0.5, 1).setVisible(false);
-    this.world.add([gfx, level, label, star]);
-    this.nodes.push({ id, gfx, star, level, label });
+  /** Число открытых колец (подряд от первого). */
+  private openRings(): number {
+    let k = 0;
+    while (k < LAYOUT.rings && isRingOpen(k + 1)) k++;
+    return k;
+  }
+
+  /** Начальный масштаб: ядро и открытые кольца по высоте окна, не мельче, чем нужно для чтения подписей; на телефоне — крупнее (подписи читаются, сообщение 1 от 26 октября, п. 6.3). */
+  private startZoom(): number {
+    const fit = VIEW.h / (2 * (ringInner(this.openRings() + 1) + 10));
+    const phone = window.innerWidth < 1000;
+    return Phaser.Math.Clamp(fit, phone ? 1.0 : 0.72, phone ? 1.3 : 1.1);
+  }
+
+  /** Масштаб и сдвиг сети (центр сети — в середине окна плюс сдвиг); сдвиг ограничен так, чтобы сеть не уходила из окна целиком. */
+  private setView(zoom: number, pan: { x: number; y: number }): void {
+    this.zoom = Phaser.Math.Clamp(zoom, ZOOM_MIN, ZOOM_MAX);
+    const reach = (ringInner(LAYOUT.rings + 1) + 40) * this.zoom;
+    this.pan = { x: Phaser.Math.Clamp(pan.x, -reach, reach), y: Phaser.Math.Clamp(pan.y, -reach, reach) };
+    this.world.setScale(this.zoom).setPosition(VIEW.x + VIEW.w / 2 + this.pan.x, VIEW.y + VIEW.h / 2 + this.pan.y);
+    const show = this.zoom >= LABEL_MIN_ZOOM;
+    for (const l of this.labels) l.text.setVisible(show);
+  }
+
+  /** Сдвигает сеть так, чтобы узел улучшения оказался в середине окна (для проверок и выбора). */
+  private focus(id: string): void {
+    const placed = LAYOUT.nodes.get(representative(id));
+    if (!placed) return;
+    this.setView(this.zoom, { x: -placed.x * this.zoom, y: -placed.y * this.zoom });
+  }
+
+  /** Точка мира на экране. */
+  private toScreen(x: number, y: number): { x: number; y: number } {
+    return { x: this.world.x + x * this.zoom, y: this.world.y + y * this.zoom };
+  }
+
+  /** Фон «Атома»: полосы колец (открытые синие, закрытые серые), орбиты, три наклонные орбиты. */
+  private drawBackdrop(): void {
+    const g = this.add.graphics();
+    for (let k = LAYOUT.rings; k >= 1; k--) {
+      const open = isRingOpen(k);
+      g.fillStyle(open ? 0x14295c : 0x1d2028, 1).fillCircle(0, 0, ringInner(k + 1));
+      g.lineStyle(2, open ? 0x3f6fc4 : 0x3a3f4a, 1).strokeCircle(0, 0, ringInner(k + 1));
+    }
+    g.fillStyle(0x0b1430, 1).fillCircle(0, 0, ringInner(1));
+    const outer = ringInner(LAYOUT.rings + 1) + 30;
+    for (const tilt of [0, Math.PI / 3, (2 * Math.PI) / 3]) {
+      const pts: Phaser.Math.Vector2[] = [];
+      for (let i = 0; i <= 120; i++) {
+        const a = (i / 120) * 2 * Math.PI;
+        const ex = Math.cos(a) * outer;
+        const ey = Math.sin(a) * outer * 0.26;
+        pts.push(new Phaser.Math.Vector2(ex * Math.cos(tilt) - ey * Math.sin(tilt), ex * Math.sin(tilt) + ey * Math.cos(tilt)));
+      }
+      g.lineStyle(4, 0x9fd0ff, 0.1).strokePoints(pts, true);
+    }
+    this.world.add(g);
+  }
+
+  /** Рисунки башен в ромбах узлов башен; у Таблетки (открыта с начала) — свой ромб у входа в её сектор. */
+  private addTowerIcons(): void {
+    for (const [key, placed] of LAYOUT.nodes) {
+      if (NET.nodes.get(key)?.ring !== 0) continue;
+      const id = NET.nodes.get(key)!.upgrade.replace(/^tower/, '');
+      const icon = this.add.container(placed.x, placed.y).setScale(0.2);
+      createTowerArt(this, icon, (id.charAt(0).toLowerCase() + id.slice(1)) as TowerId);
+      this.world.add(icon);
+    }
+  }
+
+  private addCore(): void {
+    const g = this.add.graphics();
+    g.fillStyle(COLORS.gold, 1).fillCircle(0, 0, NET_LAYOUT.coreR);
+    g.lineStyle(6, COLORS.goldEdge, 1).strokeCircle(0, 0, NET_LAYOUT.coreR);
+    g.lineStyle(12, 0xffe9a8, 0.18).strokeCircle(0, 0, NET_LAYOUT.coreR + 14);
+    const text = this.add.text(0, 0, t('upgDamage'), { ...this.style(17, '#3a2a00', false), align: 'center', wordWrap: { width: NET_LAYOUT.coreR * 1.8 } }).setOrigin(0.5);
+    this.world.add([g, text]);
+  }
+
+  /**
+   * Подписи цепочек (название узла) — у первой цепочки каждого улучшения, снаружи её конца; место, которое задевает узел, ядро или уже поставленную подпись, пропускается,
+   * пробуются другие (внутри, сбоку); подпись, которой негде встать, не выводится (сообщение 1 от 26 октября, п. 6.2). Мельче LABEL_MIN_ZOOM подписи скрыты.
+   */
+  private placeLabels(): void {
+    const boxes: Phaser.Geom.Rectangle[] = [...LAYOUT.nodes.values()].map((n) => new Phaser.Geom.Rectangle(n.x - n.r - 2, n.y - n.r - 2, n.r * 2 + 4, n.r * 2 + 4));
+    boxes.push(new Phaser.Geom.Rectangle(-NET_LAYOUT.coreR - 16, -NET_LAYOUT.coreR - 16, (NET_LAYOUT.coreR + 16) * 2, (NET_LAYOUT.coreR + 16) * 2));
+    const seen = new Set<string>();
+    for (const chain of NET.chains) {
+      if (seen.has(chain.upgrade)) continue;
+      seen.add(chain.upgrade);
+      const first = LAYOUT.nodes.get(chain.keys[0])!;
+      const last = LAYOUT.nodes.get(chain.keys[chain.keys.length - 1])!;
+      const text = this.add.text(0, 0, t(nameKey(chain.upgrade)), { ...this.style(LABEL_PX, TEXT_COLORS.main, false), align: 'center', wordWrap: { width: 150 } }).setOrigin(0, 0);
+      const w = text.width;
+      const h = text.height;
+      const out = { x: Math.cos(last.angle), y: Math.sin(last.angle) };
+      const side = { x: -out.y, y: out.x };
+      const spots = [
+        { x: last.x + out.x * (16 + w / 2) - w / 2, y: last.y + out.y * (16 + h / 2) - h / 2 },
+        { x: first.x - out.x * (16 + w / 2) - w / 2, y: first.y - out.y * (16 + h / 2) - h / 2 },
+        { x: last.x + side.x * (18 + w / 2) - w / 2, y: last.y + side.y * (18 + h / 2) - h / 2 },
+        { x: last.x - side.x * (18 + w / 2) - w / 2, y: last.y - side.y * (18 + h / 2) - h / 2 },
+        { x: last.x + out.x * (40 + w / 2) - w / 2, y: last.y + out.y * (40 + h / 2) - h / 2 },
+      ];
+      const spot = spots.find((c) => !boxes.some((b) => Phaser.Geom.Intersects.RectangleToRectangle(new Phaser.Geom.Rectangle(c.x, c.y, w, h), b)));
+      if (!spot) {
+        text.destroy();
+        continue;
+      }
+      text.setPosition(spot.x, spot.y);
+      boxes.push(new Phaser.Geom.Rectangle(spot.x, spot.y, w, h));
+      this.world.add(text);
+      this.labels.push({ text, ring: chain.ring });
+    }
   }
 
   private buildDetail(): void {
@@ -207,7 +345,7 @@ export class UpgradesScene extends Phaser.Scene {
     this.detailHint = this.add.text(x, BUY_CENTER.y - BUY.h / 2 - 34, '', this.style(22, TEXT_COLORS.accent, false)).setOrigin(0, 0);
     this.buyBg = this.add.graphics();
     this.buyLabel = this.add.text(BUY_CENTER.x, BUY_CENTER.y, '', this.style(26)).setOrigin(0.5);
-    this.add.zone(BUY_CENTER.x, BUY_CENTER.y, BUY.w, BUY.h).setInteractive({ useHandCursor: true }).on('pointerdown', () => this.onBuy(this.selected));
+    this.add.zone(BUY_CENTER.x, BUY_CENTER.y, BUY.w, BUY.h).setInteractive({ useHandCursor: true }).on('pointerdown', () => this.onBuy());
   }
 
   private addBottomButton(r: { x: number; y: number; w: number; h: number }, label: string, fill: number, line: number, onTap: () => void): void {
@@ -218,35 +356,35 @@ export class UpgradesScene extends Phaser.Scene {
     this.add.zone(r.x, r.y, r.w, r.h).setInteractive({ useHandCursor: true }).on('pointerdown', onTap);
   }
 
-  private setScroll(value: number): void {
-    this.scrollY = Phaser.Math.Clamp(value, 0, Math.max(0, CONTENT_H - VIEW.h));
-    this.world.y = VIEW.y - this.scrollY;
-  }
-
-  /** Тап по окну дерева: ближайший узел в пределах круга (с запасом под палец) становится выбранным. */
+  /** Тап по окну сети: ближайший узел в пределах круга (с запасом под палец) становится выбранным. */
   private tapAt(sx: number, sy: number): void {
-    const cx = sx - VIEW.x;
-    const cy = sy - VIEW.y + this.scrollY;
-    let best: UpgradeId | null = null;
-    let bestD = NODE_R + 14;
-    for (const id of UPGRADE_IDS) {
-      const c = nodeCenter(id);
-      const d = Math.hypot(c.x - cx, c.y - cy);
-      if (d < bestD) {
+    const wx = (sx - this.world.x) / this.zoom;
+    const wy = (sy - this.world.y) / this.zoom;
+    let best: Placed | null = null;
+    let bestD = Infinity;
+    for (const placed of LAYOUT.nodes.values()) {
+      const d = Math.hypot(placed.x - wx, placed.y - wy);
+      if (d < bestD && d <= placed.r + 14 / this.zoom) {
         bestD = d;
-        best = id;
+        best = placed;
       }
     }
-    if (best && best !== this.selected) {
-      this.selected = best;
-      sfx.select();
-      this.refresh();
-    }
+    if (!best) return;
+    const node = NET.nodes.get(best.key)!;
+    if (best.key === this.selectedKey) return;
+    this.selectedKey = best.key;
+    this.selected = node.upgrade;
+    sfx.select();
+    this.refresh();
   }
 
-  private onBuy(id: UpgradeId): void {
-    if (buyUpgrade(id)) {
+  private onBuy(): void {
+    const id = this.selected;
+    // выбран купленный узел — покупается следующий узел того же улучшения, который можно взять
+    const key = nodeBought(this.selectedKey) ? nextNodeOf(id) : this.selectedKey;
+    if (key && buyNode(key)) {
       sfx.place();
+      this.selectedKey = representative(id);
       this.refresh();
       // Узел башни: уведомление «Открыта башня» (конфликт 3 документа дизайна, принят владельцем 19 октября 2026)
       if (CONFIG.meta.upgrades[id].effect === 'tower') this.showToast(t('upgTowerBought', { name: t(nameKey(id)) }));
@@ -258,33 +396,77 @@ export class UpgradesScene extends Phaser.Scene {
     this.time.delayedCall(350, () => this.balance.setColor(TEXT_COLORS.main));
   }
 
-  /** Линии от родителя к узлу: зелёные, если узел открыт, иначе серые. В одной колонке — вертикально (если между узлами есть другие — обходом слева); в разных — ступенькой: вправо на полшага, по вертикали, вправо к узлу. */
+  /** Сброс сети: все малые и ключевые узлы возвращают ДНК (узлы башен остаются). */
+  private onRespec(): void {
+    if (resetNetwork() > 0) {
+      sfx.select();
+      this.selectedKey = representative(this.selected);
+      this.refresh();
+      return;
+    }
+    sfx.denied();
+  }
+
+  /** Связи сети: купленные с обеих сторон — золотые, от купленного к узлу, который можно взять, — зелёные, в открытых кольцах — синие, в закрытых — серые. */
   private drawEdges(): void {
-    this.edges.clear();
-    for (const id of UPGRADE_IDS) {
-      const req = requirementOf(id);
-      if (!req) continue;
-      const a = nodeCenter(req.id);
-      const b = nodeCenter(id);
-      const open = isNodeOpen(id);
-      this.edges.lineStyle(open ? 5 : 3, open ? COLORS.merge : 0x4a5c82, open ? 0.9 : 0.7);
-      if (Math.abs(a.x - b.x) < 1) {
-        const lo = Math.min(a.y, b.y);
-        const hi = Math.max(a.y, b.y);
-        const blocked = UPGRADE_IDS.some((other) => {
-          const c = nodeCenter(other);
-          return other !== id && other !== req.id && Math.abs(c.x - a.x) < 1 && c.y > lo && c.y < hi;
-        });
-        const sign = b.y > a.y ? 1 : -1;
-        if (!blocked) this.edges.beginPath().moveTo(a.x, a.y + sign * NODE_R).lineTo(b.x, b.y - sign * NODE_R).strokePath();
-        else {
-          const side = a.x - STEP.x * 0.36;
-          this.edges.beginPath().moveTo(a.x - NODE_R, a.y).lineTo(side, a.y).lineTo(side, b.y).lineTo(b.x - NODE_R, b.y).strokePath();
+    const g = this.edges;
+    g.clear();
+    const pos = (key: string): Placed | { x: number; y: number; r: number; angle: number } => (key === CORE ? { x: 0, y: 0, r: NET_LAYOUT.coreR, angle: 0 } : LAYOUT.nodes.get(key)!);
+    const ringOf = (key: string): number => (key === CORE ? 0 : NET.nodes.get(key)?.ring ?? 0);
+    const drawn = new Set<string>();
+    for (const [a, set] of NET.adj) {
+      for (const b of set) {
+        const pair = a < b ? `${a}|${b}` : `${b}|${a}`;
+        if (drawn.has(pair)) continue;
+        drawn.add(pair);
+        const pa = pos(a);
+        const pb = pos(b);
+        if (!pa || !pb) continue;
+        const gold = nodeBought(a) && nodeBought(b);
+        const lit = (nodeBought(a) && nodeAvailable(b)) || (nodeBought(b) && nodeAvailable(a));
+        const open = isRingOpen(Math.max(ringOf(a), ringOf(b)));
+        g.lineStyle(gold || lit ? 4 : 3, gold ? COLORS.gold : lit ? COLORS.merge : open ? 0x5a86cc : 0x464c58, gold || lit ? 0.95 : open ? 0.75 : 0.55);
+        // по ходу орбиты: угол и радиус меняются плавно
+        const a1 = Math.atan2(pa.y, pa.x);
+        const r1 = Math.hypot(pa.x, pa.y);
+        const r2 = Math.hypot(pb.x, pb.y);
+        const span = Phaser.Math.Angle.Wrap(Math.atan2(pb.y, pb.x) - a1);
+        if (r1 < 1) {
+          g.lineBetween(pa.x, pa.y, pb.x, pb.y);
+          continue;
         }
+        const steps = Math.max(2, Math.ceil(Math.abs(span) * 20));
+        const pts: Phaser.Math.Vector2[] = [];
+        for (let s = 0; s <= steps; s++) {
+          const f = s / steps;
+          const r = r1 + (r2 - r1) * f;
+          pts.push(new Phaser.Math.Vector2(Math.cos(a1 + span * f) * r, Math.sin(a1 + span * f) * r));
+        }
+        g.strokePoints(pts, false);
+      }
+    }
+  }
+
+  /** Узлы: купленные — золото, можно взять — синие с зелёным ободом, открыто, но путь не подведён — синие, закрытое кольцо — серые; выбранный — белый обод. Узлы башен — ромбы. */
+  private drawDots(): void {
+    const g = this.dots;
+    g.clear();
+    for (const [key, placed] of LAYOUT.nodes) {
+      const node = NET.nodes.get(key)!;
+      const bought = nodeBought(key);
+      const avail = nodeAvailable(key);
+      const open = isRingOpen(node.ring) && isBranchOpen(CONFIG.meta.upgrades[node.upgrade].branch);
+      const selected = key === this.selectedKey;
+      const fill = bought ? COLORS.gold : avail ? 0x2f7fd8 : open ? 0x24406e : 0x353a44;
+      const rim = selected ? 0xffffff : bought ? COLORS.goldEdge : avail ? COLORS.merge : isKeyNode(node.upgrade) ? (open ? 0xc9b37a : 0x6a6450) : open ? 0x5a8fd8 : 0x555b66;
+      if (node.ring === 0) {
+        const pts = [new Phaser.Math.Vector2(placed.x, placed.y - placed.r), new Phaser.Math.Vector2(placed.x + placed.r, placed.y), new Phaser.Math.Vector2(placed.x, placed.y + placed.r), new Phaser.Math.Vector2(placed.x - placed.r, placed.y)];
+        g.fillStyle(bought ? COLORS.gold : 0x1b2a4a, 1).fillPoints(pts, true);
+        g.lineStyle(selected ? 5 : 3, selected ? 0xffffff : bought ? COLORS.goldEdge : avail ? COLORS.merge : 0x5a8fd8, 1).strokePoints(pts, true);
         continue;
       }
-      const mid = a.x + STEP.x * 0.5;
-      this.edges.beginPath().moveTo(a.x + NODE_R, a.y).lineTo(mid, a.y).lineTo(mid, b.y).lineTo(b.x - NODE_R, b.y).strokePath();
+      g.fillStyle(fill, 1).fillCircle(placed.x, placed.y, placed.r);
+      g.lineStyle(selected ? 5 : isKeyNode(node.upgrade) ? 4 : 2, rim, 1).strokeCircle(placed.x, placed.y, placed.r);
     }
   }
 
@@ -296,42 +478,40 @@ export class UpgradesScene extends Phaser.Scene {
     this.tweens.add({ targets: text, alpha: 0, delay: 1800, duration: 500, onComplete: () => text.destroy() });
   }
 
-  /** Перерисовывает очки, линии, узлы и карточку выбранного узла. */
+  /** Перерисовывает очки, связи, узлы, подписи, кнопку сброса и карточку выбранного узла. */
   private refresh(): void {
     this.balance.setText(t('dnaBalance', { n: metaDna() }));
     this.drawEdges();
-    const recommended = recommendedIds();
-    for (const n of this.nodes) {
-      this.drawNode(n);
-      n.star.setVisible(recommended.includes(n.id));
-    }
+    this.drawDots();
+    for (const l of this.labels) l.text.setColor(isRingOpen(l.ring) ? TEXT_COLORS.main : TEXT_COLORS.dim);
+    // «★ рекомендуем» — над узлом, которым представлено улучшение
+    for (const s of this.stars) s.destroy();
+    this.stars = recommendedIds().map((id) => {
+      const placed = LAYOUT.nodes.get(representative(id))!;
+      const star = this.add.text(placed.x, placed.y - placed.r - 2, '★', this.style(26, TEXT_COLORS.accent)).setOrigin(0.5, 1);
+      this.world.add(star);
+      return star;
+    });
+    const refund = networkRefund();
+    this.respecGfx.clear();
+    this.respecGfx.fillStyle(refund > 0 ? 0x2a3f6e : 0x1e2638, 1).fillCircle(RESPEC.x, RESPEC.y, RESPEC.r);
+    this.respecGfx.lineStyle(3, refund > 0 ? 0x8fb8ff : 0x3a4560, 1).strokeCircle(RESPEC.x, RESPEC.y, RESPEC.r);
+    // стрелка-кольцо «вернуть»
+    this.respecGfx.lineStyle(4, refund > 0 ? 0xe8f0ff : 0x5a6680, 1).beginPath().arc(RESPEC.x, RESPEC.y, RESPEC.r * 0.5, -0.3, Math.PI * 1.45).strokePath();
+    const tipA = -0.3;
+    const tx = RESPEC.x + Math.cos(tipA) * RESPEC.r * 0.5;
+    const ty = RESPEC.y + Math.sin(tipA) * RESPEC.r * 0.5;
+    this.respecGfx.fillStyle(refund > 0 ? 0xe8f0ff : 0x5a6680, 1).fillTriangle(tx - 7, ty - 4, tx + 7, ty - 4, tx, ty + 7);
     this.refreshDetail();
-  }
-
-  private drawNode(n: NodeView): void {
-    const id = n.id;
-    const level = metaLevel(id);
-    const max = maxLevel(id);
-    const open = isNodeOpen(id);
-    const maxed = level >= max;
-    const can = canBuy(id);
-    const g = n.gfx;
-    g.clear();
-    const fill = maxed ? 0x6a5a18 : open ? 0x1d366a : 0x1a2338;
-    const edge = maxed ? COLORS.gold : can ? COLORS.merge : open ? 0x5a8fd8 : 0x3a4560;
-    g.fillStyle(fill, 1).fillCircle(0, 0, NODE_R);
-    g.lineStyle(id === this.selected ? 7 : 4, id === this.selected ? 0xffffff : edge, 1).strokeCircle(0, 0, NODE_R);
-    if (id === this.selected) g.lineStyle(3, edge, 1).strokeCircle(0, 0, NODE_R - 6);
-    if (!open) drawLock(g, 0, -2, 16);
-    n.level.setText(open ? `${level}/${max}` : '').setColor(maxed ? TEXT_COLORS.accent : TEXT_COLORS.main);
-    n.label.setColor(open ? TEXT_COLORS.main : TEXT_COLORS.dim);
   }
 
   private refreshDetail(): void {
     const id = this.selected;
     const spec = CONFIG.meta.upgrades[id];
     const level = metaLevel(id);
-    const price = nextPrice(id);
+    const node = NET.nodes.get(this.selectedKey);
+    const buyKey = node && !nodeBought(this.selectedKey) ? this.selectedKey : nextNodeOf(id);
+    const price = buyKey ? NET.nodes.get(buyKey)!.price : nextPrice(id);
     this.detailName.setText(t(nameKey(id)));
     this.detailLevel.setText(t('upgLevel', { n: level, max: maxLevel(id) }));
     this.detailHint.setText(recommendedIds().includes(id) ? t('upgRecommended') : '');
@@ -339,39 +519,49 @@ export class UpgradesScene extends Phaser.Scene {
     const now = effectParts(id, level);
     const next = effectParts(id, level + 1);
     const info = INFO_EFFECTS.has(spec.effect);
-    this.detailEffect.setText(price === null || info ? effectText(id, level) : `${now.label ? `${now.label}\n` : ''}${t('upgNowNext', { now: now.value, next: next.value })}`);
-    // условие открытия: ветка башни — купленным узлом башни, родитель — по дереву
+    const maxed = level >= maxLevel(id);
+    this.detailEffect.setText(maxed || info ? effectText(id, level) : `${now.label ? `${now.label}\n` : ''}${t('upgNowNext', { now: now.value, next: next.value })}`);
+    // условие: ветка башни — купленным узлом башни; путь по сети — родителем (кольцо закрыто — без текста, как и само кольцо)
     const lines: string[] = [];
     const towerNode = towerNodeId(spec.branch);
+    const ringClosed = buyKey === null && node !== undefined && !nodeBought(this.selectedKey) && !isRingOpen(node.ring);
     if (!isBranchOpen(spec.branch) && requirementOf(id)?.id !== towerNode) lines.push(t('upgLockedTower', { name: t(nameKey(towerNode)) }));
     const req = requirementOf(id);
-    if (req && !requirementMet(id)) lines.push(t('upgRequires', { name: t(nameKey(req.id)), n: req.level }));
+    if (!ringClosed && req && !requirementMet(id)) lines.push(t('upgRequires', { name: t(nameKey(req.id)), n: req.level }));
     this.detailNeed.setText(lines.join('\n'));
-    const open = isNodeOpen(id);
-    const enabled = canBuy(id);
+    const can = buyKey !== null && nodeAvailable(buyKey) && isBranchOpen(spec.branch) && metaDna() >= (price ?? Infinity);
+    const open = buyKey !== null && nodeAvailable(buyKey) && isBranchOpen(spec.branch);
     this.buyBg.clear();
-    this.buyBg.fillStyle(enabled ? 0x2a8a4a : 0x2a3550, 1).fillRoundedRect(BUY_CENTER.x - BUY.w / 2, BUY_CENTER.y - BUY.h / 2, BUY.w, BUY.h, 14);
-    this.buyBg.lineStyle(3, enabled ? COLORS.merge : 0x4a5c82, 1).strokeRoundedRect(BUY_CENTER.x - BUY.w / 2, BUY_CENTER.y - BUY.h / 2, BUY.w, BUY.h, 14);
-    const label = price === null ? t('upgMax') : !open ? t('upgClosed') : t('upgBuy', { n: price });
-    this.buyLabel.setText(label).setColor(enabled ? TEXT_COLORS.main : TEXT_COLORS.dim);
+    this.buyBg.fillStyle(can ? 0x2a8a4a : 0x2a3550, 1).fillRoundedRect(BUY_CENTER.x - BUY.w / 2, BUY_CENTER.y - BUY.h / 2, BUY.w, BUY.h, 14);
+    this.buyBg.lineStyle(3, can ? COLORS.merge : 0x4a5c82, 1).strokeRoundedRect(BUY_CENTER.x - BUY.w / 2, BUY_CENTER.y - BUY.h / 2, BUY.w, BUY.h, 14);
+    const label = maxed ? t('upgMax') : ringClosed ? '' : !open ? t('upgClosed') : t('upgBuy', { n: price ?? 0 });
+    this.buyLabel.setText(label).setColor(can ? TEXT_COLORS.main : TEXT_COLORS.dim);
     let size = 26;
     this.buyLabel.setFontSize(size);
     while (this.buyLabel.width > BUY.w - 24 && size > 14) this.buyLabel.setFontSize((size -= 2));
   }
 
-  /** Описание экрана для проверок (`window.__pvbMeta`): все узлы с положением на экране, выбранный узел и его карточка. */
+  /** Описание экрана для проверок (`window.__pvbMeta`): улучшения с узлом, которым каждое представлено на экране, выбранное улучшение и его карточка. */
   private describe(): MetaScreenInfo {
     const id = this.selected;
     return {
       visible: this.scene.isActive(),
       balance: this.balance.text,
       selected: id,
-      scroll: this.scrollY,
+      scroll: Math.round(this.pan.x * 1000 + this.pan.y),
       view: { ...VIEW },
+      zoom: this.zoom,
+      selectedKey: this.selectedKey,
+      labels: this.labels.filter((l) => l.text.visible).map((l) => {
+        const c = this.toScreen(l.text.x + l.text.width / 2, l.text.y + l.text.height / 2);
+        return { x: c.x, y: c.y, w: l.text.width * this.zoom, h: l.text.height * this.zoom };
+      }),
+      respec: { x: RESPEC.x, y: RESPEC.y, w: RESPEC.r * 2, h: RESPEC.r * 2 },
+      refund: networkRefund(),
       nodes: UPGRADE_IDS.map((nid) => {
-        const c = nodeCenter(nid);
-        const y = VIEW.y + c.y - this.scrollY;
-        const x = VIEW.x + c.x;
+        const placed = LAYOUT.nodes.get(representative(nid))!;
+        const c = this.toScreen(placed.x, placed.y);
+        const r = placed.r * this.zoom;
         return {
           id: nid,
           level: metaLevel(nid),
@@ -379,9 +569,9 @@ export class UpgradesScene extends Phaser.Scene {
           price: nextPrice(nid),
           canBuy: canBuy(nid),
           open: isNodeOpen(nid),
-          onScreen: y - NODE_R >= VIEW.y && y + NODE_R <= VIEW.y + VIEW.h,
-          rect: { x, y, w: NODE_R * 2, h: NODE_R * 2 },
-          label: this.labelRect(nid, x, y),
+          onScreen: c.x - r >= VIEW.x && c.x + r <= VIEW.x + VIEW.w && c.y - r >= VIEW.y && c.y + r <= VIEW.y + VIEW.h,
+          rect: { x: c.x, y: c.y, w: r * 2, h: r * 2 },
+          label: { x: c.x, y: c.y, w: 0, h: 0 },
           recommended: recommendedIds().includes(nid),
         };
       }),
@@ -393,14 +583,6 @@ export class UpgradesScene extends Phaser.Scene {
       },
       play: { x: PLAY.x, y: PLAY.y, w: PLAY.w, h: PLAY.h },
     };
-  }
-
-  /** Где на экране подпись узла (название под кружком): центр и размер текста. */
-  private labelRect(id: UpgradeId, x: number, y: number): { x: number; y: number; w: number; h: number } {
-    const label = this.nodes.find((n) => n.id === id)?.label;
-    const w = label?.displayWidth ?? 0;
-    const h = label?.displayHeight ?? 0;
-    return { x, y: y + NODE_R + 6 + h / 2, w, h };
   }
 
   /** Тексты карточки помещаются: название — не выше уровня, описание и условие — выше кнопки покупки, надпись кнопки — по её ширине. */
@@ -430,5 +612,12 @@ export class UpgradesScene extends Phaser.Scene {
   private nextLevelToPlay(): number {
     const level = currentLevel();
     return isLevelBeaten(level) && level < CONFIG.levels.count && isLevelOpen(level + 1) ? level + 1 : level;
+  }
+}
+
+declare global {
+  interface Window {
+    /** Только режим проверки: сдвинуть сеть к узлу улучшения (проверки выбирают узлы касанием). */
+    __pvbUpgrades?: { focus: (id: string) => void };
   }
 }
