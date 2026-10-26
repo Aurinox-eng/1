@@ -6,6 +6,7 @@
  * остальной код не меняется.
  */
 import { CONFIG } from './config';
+import { NET, nodeKey } from './treeNet';
 
 /** Id улучшения: ключ строки таблицы `CONFIG.meta.upgrades` (новая строка таблицы — новое улучшение без правок кода сохранения). */
 export type UpgradeId = string;
@@ -19,8 +20,10 @@ export interface MetaSave {
   v: 5;
   /** Очки ДНК на счёте (целое число ≥ 0). */
   dna: number;
-  /** Уровень каждого улучшения по id из таблицы (0 — не куплено; id, которых нет в записи, читаются как 0). */
+  /** Уровень каждого улучшения по id из таблицы (0 — не куплено; id, которых нет в записи, читаются как 0): число купленных узлов сети этого улучшения. */
   levels: Record<UpgradeId, number>;
+  /** Купленные узлы сети древа (`id#L`, `src/treeNet.ts`): уровни одного улучшения в сети можно взять не подряд (путь по орбите приходит к концу цепочки). Нет поля в записи — узлы 1…уровень каждого улучшения. */
+  nodes: string[];
   /** Прогресс по уровням: звёзды (0–3) и лучшая достигнутая волна (0 — уровень не играли); индекс 0 — уровень 1. Длина — `CONFIG.levels.count`. */
   progress: { stars: number[]; best: number[] };
   /** Какие плашки с описанием игрок уже видел («b:тип» — бактерия, «t:башня» — башня). */
@@ -61,14 +64,31 @@ export function maxLevel(id: UpgradeId): number {
 
 export function emptyMeta(): MetaSave {
   const zeros = (): number[] => Array.from({ length: CONFIG.levels.count }, () => 0);
-  return { v: 5, dna: 0, levels: Object.fromEntries(UPGRADE_IDS.map((id) => [id, 0])), progress: { stars: zeros(), best: zeros() }, seen: [], attempts: zeros(), log: [], bought: [], bossWins: zeros(), flawless: zeros() };
+  return { v: 5, dna: 0, levels: Object.fromEntries(UPGRADE_IDS.map((id) => [id, 0])), nodes: [], progress: { stars: zeros(), best: zeros() }, seen: [], attempts: zeros(), log: [], bought: [], bossWins: zeros(), flawless: zeros() };
+}
+
+/** Уровни улучшений по купленным узлам сети: число узлов каждого улучшения. */
+export function levelsOfNodes(nodes: string[]): Record<UpgradeId, number> {
+  const levels: Record<UpgradeId, number> = Object.fromEntries(UPGRADE_IDS.map((id) => [id, 0]));
+  for (const key of nodes) {
+    const node = NET.nodes.get(key);
+    if (node) levels[node.upgrade] += 1;
+  }
+  return levels;
+}
+
+/** Узлы сети по уровням улучшений: уровни 1…n подряд (сохранение до сети, подмена `&meta=` в режиме проверки). */
+export function nodesOfLevels(levels: Record<UpgradeId, number>): string[] {
+  const out: string[] = [];
+  for (const id of UPGRADE_IDS) for (let L = 1; L <= (levels[id] ?? 0); L++) out.push(nodeKey(id, L));
+  return out;
 }
 
 /** Приводит прочитанное к допустимому виду: чужие или испорченные значения заменяются нулём, уровни ограничиваются наибольшим. */
 export function sanitizeMeta(raw: unknown): MetaSave {
   const out = emptyMeta();
   if (typeof raw !== 'object' || raw === null) return out;
-  const r = raw as { dna?: unknown; levels?: unknown; progress?: unknown; seen?: unknown; attempts?: unknown; log?: unknown; bought?: unknown; bossWins?: unknown; flawless?: unknown };
+  const r = raw as { dna?: unknown; levels?: unknown; nodes?: unknown; progress?: unknown; seen?: unknown; attempts?: unknown; log?: unknown; bought?: unknown; bossWins?: unknown; flawless?: unknown };
   if (typeof r.dna === 'number' && Number.isFinite(r.dna) && r.dna > 0) out.dna = Math.floor(r.dna);
   if (typeof r.levels === 'object' && r.levels !== null) {
     const lv = r.levels as Record<string, unknown>;
@@ -77,6 +97,11 @@ export function sanitizeMeta(raw: unknown): MetaSave {
       if (typeof n === 'number' && Number.isFinite(n) && n > 0) out.levels[id] = Math.min(maxLevel(id), Math.floor(n));
     }
   }
+  // узлы сети: из записи (известные ключи, без повторов) — тогда уровни считаются по ним; без поля — узлы 1…уровень (сохранение до сети)
+  if (Array.isArray(r.nodes)) {
+    out.nodes = [...new Set(r.nodes.filter((k): k is string => typeof k === 'string' && NET.nodes.has(k)))];
+    out.levels = levelsOfNodes(out.nodes);
+  } else out.nodes = nodesOfLevels(out.levels);
   if (typeof r.progress === 'object' && r.progress !== null) {
     const pr = r.progress as { stars?: unknown; best?: unknown };
     const fill = (src: unknown, dst: number[], max: number): void => {
