@@ -118,7 +118,7 @@ function buildChains(): Chain[] {
       current.prices.push(price);
     });
   }
-  // продолжение веток башен: кольцо — через одно от входа
+  // продолжение веток башен: через два кольца от входа, не дальше последнего
   for (const tw of TOWERS) {
     for (const [suffix, count] of [['Power', EXT.power], ['Rate', EXT.rate]] as [string, number][]) {
       const base = ups[`${tw}${suffix}`];
@@ -133,7 +133,7 @@ function buildChains(): Chain[] {
         key: `${tw}${suffix}X`,
         label: `${t(`upg${cap(tw)}${suffix}` as TextKey)} +`,
         sector: tw,
-        ring: ENTRY[tw] + 2,
+        ring: Math.min(ENTRY[tw] + 3, RINGS),
         nodes: prices.map((_, i) => `${tw}${suffix}X#${i + 1}`),
         prices,
         parent: `${tw}${suffix}#${base.prices.length}`,
