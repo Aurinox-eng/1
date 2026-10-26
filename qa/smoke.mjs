@@ -6503,6 +6503,8 @@ function expectedStats(id, level, picks) {
     range: b.range * lv.reachMul,
     blastRadius: b.blastRadius * lv.reachMul,
     puddleRadius: b.puddleRadius * lv.reachMul,
+    // время лужи растёт с уровнем (puddleSecMul уровня) и мутацией «Стойкая» (puddleSecMul мутации; решение владельца 26 октября 2026, сообщение 3, п. 6)
+    puddleSec: (base.puddleSec ?? 0) * (lv.puddleSecMul ?? 1),
     slowFactor: b.slowFactor < 1 ? b.slowFactor ** lv.slowPower : 1,
     beamPulses: b.beamPulses > 0 ? b.beamPulses + lv.pulsesAdd : 0,
     // яд Антибиотика (src/towerStats.ts): сила растёт с уровнем слияния как урон, время яда от уровня не зависит; мутации «Долгий яд» (dotSecMul) и «Сильный яд» (dotDpsMul)
@@ -6542,6 +6544,7 @@ function expectedStats(id, level, picks) {
     }
     if (spec.blastMul) s.blastRadius *= scaled(spec.blastMul);
     if (spec.puddleRadiusMul) s.puddleRadius *= scaled(spec.puddleRadiusMul);
+    if (spec.puddleSecMul) s.puddleSec *= scaled(spec.puddleSecMul);
     if (spec.slowFactor !== undefined && share > 0) s.slowFactor = k === 0 ? Math.min(s.slowFactor, spec.slowFactor) : s.slowFactor * (1 - (1 - spec.slowFactor) * share);
     if (spec.pulsesAdd && s.beamPulses > 0) s.beamPulses += whole(spec.pulsesAdd);
     if (spec.extraTargets) extraTargets += whole(spec.extraTargets);
@@ -6759,6 +6762,7 @@ function cardTexts() {
     ['pillRapid', 'cooldownMul', rate],
     ['fizzFast', 'cooldownMul', rate],
     ['pillHunter', 'damageMul', (v) => ru(v)],
+    ['syrupSticky', 'puddleSecMul', (v) => ru(v)],
     ['syrupWide', 'puddleRadiusMul', (v) => ru(v)],
     ['fizzBig', 'blastMul', (v) => ru(v)],
     ['fizzAcid', 'acidMul', (v) => ru(v)],
