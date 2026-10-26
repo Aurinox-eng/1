@@ -531,7 +531,9 @@ export class UpgradesScene extends Phaser.Scene {
     // условие: ветка башни — купленным узлом башни; путь по сети — родителем (кольцо закрыто — без текста, как и само кольцо)
     const lines: string[] = [];
     const towerNode = towerNodeId(spec.branch);
-    const ringClosed = buyKey === null && node !== undefined && !nodeBought(this.selectedKey) && !isRingOpen(node.ring);
+    // узел, который купит кнопка (выбранный, если не куплен, иначе следующий): его кольцо закрыто — ни условия, ни подписи кнопки
+    const target = buyKey ? NET.nodes.get(buyKey) : node && !nodeBought(this.selectedKey) ? node : undefined;
+    const ringClosed = !maxed && target !== undefined && !isRingOpen(target.ring);
     if (!isBranchOpen(spec.branch) && requirementOf(id)?.id !== towerNode) lines.push(t('upgLockedTower', { name: t(nameKey(towerNode)) }));
     const req = requirementOf(id);
     if (!ringClosed && req && !requirementMet(id)) lines.push(t('upgRequires', { name: t(nameKey(req.id)), n: req.level }));
