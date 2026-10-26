@@ -40,21 +40,26 @@ export function drawBossDecor(g: Phaser.GameObjects.Graphics, id: BossId, r: num
       return;
     }
     case 'sporeling': {
+      // венчик из шести спор снаружи кольца босса
       for (let i = 0; i < 6; i++) {
         const a = (i / 6) * Math.PI * 2 - Math.PI / 2;
-        const x = Math.cos(a) * r * 1.12;
-        const y = Math.sin(a) * r * 1.12;
-        g.fillStyle(0xc58bff, 1).fillEllipse(x, y, r * 0.34, r * 0.22);
-        g.lineStyle(1.5, 0x5a2a8a, 1).strokeEllipse(x, y, r * 0.34, r * 0.22);
-        g.fillStyle(0xe8566e, 1).fillCircle(x, y, r * 0.06);
+        const x = Math.cos(a) * r * 1.62;
+        const y = Math.sin(a) * r * 1.62;
+        g.lineStyle(3, 0x8a5ac0, 1).lineBetween(Math.cos(a) * r * 1.25, Math.sin(a) * r * 1.25, x, y);
+        g.fillStyle(0xc58bff, 1).fillEllipse(x, y, r * 0.5, r * 0.36);
+        g.lineStyle(2, 0x4a1a7a, 1).strokeEllipse(x, y, r * 0.5, r * 0.36);
+        g.fillStyle(0xe8566e, 1).fillCircle(x, y, r * 0.1);
       }
       return;
     }
     case 'silencer': {
+      // дуги глушения по бокам, снаружи кольца: три светлые волны, гаснущие наружу
       for (const side of [-1, 1]) {
         for (let k = 0; k < 3; k++) {
-          const rad = r * (1.12 + k * 0.16);
-          g.lineStyle(3 - k * 0.6, 0x2a1450, 0.85 - k * 0.2).beginPath().arc(0, 0, rad, side < 0 ? Math.PI * 0.78 : -Math.PI * 0.22, side < 0 ? Math.PI * 1.22 : Math.PI * 0.22).strokePath();
+          const rad = r * (1.45 + k * 0.28);
+          const from = side < 0 ? Math.PI * 0.72 : -Math.PI * 0.28;
+          const to = side < 0 ? Math.PI * 1.28 : Math.PI * 0.28;
+          g.lineStyle(5 - k * 1.2, 0xb48cff, 0.95 - k * 0.25).beginPath().arc(0, 0, rad, from, to).strokePath();
         }
       }
       return;
