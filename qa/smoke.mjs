@@ -94,7 +94,7 @@
  *   deflation              economy.rewardMul: ×0,5 — два кокка номиналом 5 дают 2 + 3 = 5 монет (дробная часть копится); ×0,1 — 0 + 1, «+N» всплывает только при N ≥ 1
  *   camera-fit             самое сильное отдаление (считает игра, (считает игра): высота карты × масштаб ≤ высоты окна карты (568), ширина влезает, камера по центру и сдвигом не уводится
  *   almanac                экран «Альманах» из главного меню (компьютер ru, телефон ru, компьютер en): новый игрок — открыта только Таблетка, бактерий и боссов 0, закрытые записи «Ещё не встречалось»; после первой попытки — открыты вышедшие на поле виды; с &met=all&towers=all — все записи «Название: описание», боссы — имя; чисел нет; снимки almanac-reset/attempt1/all-…
- *   treemock               макет радиального древа (?qa&treemock): снимки 1280×720 и 844×390, на телефоне ещё с масштабом 1,8
+ *   treemock               макеты древа «Атом» и «PoE» (?qa&treemock=atom|poe): снимки 1280×720 и 844×390 с начальным масштабом и обзор ×0,5
  *   almanac-pause          «Альманах» с паузы партии (компьютер ru, телефон en): на паузе есть pauseAlmanacButton и pauseMenuButton, тап открывает альманах (сцена 'almanac'), «Назад» возвращает на паузу
  *                          (state 'paused', getState отвечает), тап по экрану возобновляет игру
  *   damage-numbers         числа урона над бактериями: после попаданий башни effects.damageNumbers растёт
@@ -9722,21 +9722,23 @@ async function runAlmanac(browser, baseUrl) {
   }
 }
 
-/** Макет радиального древа (`?qa&treemock`, п. 5.3 сообщения владельца 5 от 25 октября 2026): снимки 1280×720 и 844×390 (весь макет и с масштабом 1,8), без ошибок в консоли. */
+/** Макеты древа «Атом» и «PoE» (`?qa&treemock=atom|poe`, п. 6 решений владельца 26 октября 2026): снимки 1280×720 и 844×390 с начальным масштабом (центр и открытые кольца) и обзор всего древа (×0,5), без ошибок в консоли. */
 async function runTreeMock(browser, baseUrl) {
-  for (const [deviceKey, zoom] of [['desktop', 1], ['phone', 1], ['phone', 1.8]]) {
-    const device = VIEWPORTS[deviceKey];
-    const p = `[макет древа, ${device.label}, масштаб ${zoom}]`;
-    const context = await newDeviceContext(browser, device, 'ru');
-    const page = await context.newPage();
-    watchConsole(page, p);
-    await page.goto(`${baseUrl}?qa&treemock&zoom=${zoom}`, { waitUntil: 'load', timeout: 90000 });
-    await page.waitForFunction(() => document.querySelector('canvas') !== null, null, { timeout: 30000 });
-    await sleep(1500);
-    await frames(page, 3);
-    await shot(page, `treemock-${deviceKey}-zoom${String(zoom).replace('.', '_')}`);
-    check(`${p} макет нарисован (холст есть)`, await page.evaluate(() => document.querySelector('canvas') !== null), '');
-    await context.close();
+  for (const variant of ['atom', 'poe']) {
+    for (const [deviceKey, zoom] of [['desktop', ''], ['phone', ''], ['desktop', '0.5']]) {
+      const device = VIEWPORTS[deviceKey];
+      const p = `[макет древа ${variant}, ${device.label}, масштаб ${zoom || 'начальный'}]`;
+      const context = await newDeviceContext(browser, device, 'ru');
+      const page = await context.newPage();
+      watchConsole(page, p);
+      await page.goto(`${baseUrl}?qa&treemock=${variant}${zoom ? `&zoom=${zoom}` : ''}`, { waitUntil: 'load', timeout: 90000 });
+      await page.waitForFunction(() => document.querySelector('canvas') !== null, null, { timeout: 30000 });
+      await sleep(1500);
+      await frames(page, 3);
+      await shot(page, `treemock-${variant}-${deviceKey}-${zoom ? `zoom${zoom.replace('.', '_')}` : 'start'}`);
+      check(`${p} макет нарисован (холст есть)`, await page.evaluate(() => document.querySelector('canvas') !== null), '');
+      await context.close();
+    }
   }
 }
 
