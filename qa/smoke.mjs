@@ -8901,6 +8901,8 @@ async function runTreeShop(browser, baseUrl) {
     // ---- сброс сети: малые узлы возвращают ДНК, узел башни остаётся
     md = await metaOf(app.page);
     check(`${p} кнопка сброса вернёт ${md.screen.refund} ДНК = цены купленных малых узлов (${spentNet})`, md.screen.refund === spentNet, `${md.screen.refund}`);
+    const uiReset = await app.ui();
+    check(`${p} на кнопке сброса надпись «${i18nText('upgReset', li)}» (решение владельца 26 октября 2026, сообщение 6, п. 3)`, uiReset.texts.includes(i18nText('upgReset', li)), JSON.stringify(uiReset.texts));
     const dnaBeforeReset = md.dna;
     await app.input.tap(app.g(md.screen.respec.x, md.screen.respec.y));
     const mr = await waitMeta(app.page, (x) => x.dna !== dnaBeforeReset, 2000);
@@ -9682,7 +9684,7 @@ async function runTreeMock(browser, baseUrl) {
 
 /**
  * Лист «без лиц» (сообщение владельца 4 от 26 октября 2026, п. 2.3): страницы листа образцов `f1` (19 видов «было / стало») и `f2` (10 боссов) и плотная поздняя сцена
- * (стресс-сценарий, ≈ 200 бактерий всех видов) с лицами и без (`&faces=signs`), 1280×720 и 844×390. Это съёмка: проверяется только, что всё нарисовано без ошибок в консоли.
+ * (стресс-сценарий, ≈ 200 бактерий всех видов; лиц в игре нет с 26 октября 2026), 1280×720 и 844×390. Это съёмка: проверяется только, что всё нарисовано без ошибок в консоли.
  */
 async function runFaces(browser, baseUrl) {
   for (const deviceKey of ['desktop', 'phone']) {
@@ -9700,8 +9702,9 @@ async function runFaces(browser, baseUrl) {
       check(`${p} лист нарисован (холст есть)`, await tab.evaluate(() => document.querySelector('canvas') !== null), '');
       await context.close();
     }
-    for (const [tag, query] of [['before', ''], ['after', '&faces=signs']]) {
-      const p = `[поздняя сцена ${tag === 'before' ? 'с лицами' : 'без лиц'}, ${device.label}]`;
+    // с 26 октября 2026 (сообщение 6, п. 1) лиц в игре нет: поздняя сцена — одна, «стало»
+    for (const [tag, query] of [['after', '']]) {
+      const p = `[поздняя сцена без лиц, ${device.label}]`;
       const context = await newDeviceContext(browser, device, 'ru');
       const tab = await context.newPage();
       watchConsole(tab, p);
