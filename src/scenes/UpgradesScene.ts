@@ -578,7 +578,10 @@ export class UpgradesScene extends Phaser.Scene {
           price: nextPrice(nid),
           canBuy: canBuy(nid),
           open: isNodeOpen(nid),
-          onScreen: c.x - r >= VIEW.x && c.x + r <= VIEW.x + VIEW.w && c.y - r >= VIEW.y && c.y + r <= VIEW.y + VIEW.h,
+          // в окне сети и не под кнопкой сброса (касание там попадает в кнопку)
+          onScreen:
+            c.x - r >= VIEW.x && c.x + r <= VIEW.x + VIEW.w && c.y - r >= VIEW.y && c.y + r <= VIEW.y + VIEW.h &&
+            !(Math.abs(c.x - RESPEC.x) <= RESPEC.w / 2 + r && Math.abs(c.y - RESPEC.y) <= RESPEC.h / 2 + r),
           rect: { x: c.x, y: c.y, w: r * 2, h: r * 2 },
           label: { x: c.x, y: c.y, w: 0, h: 0 },
           recommended: recommendedIds().includes(nid),
