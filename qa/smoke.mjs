@@ -74,7 +74,7 @@
  *   meta-dna               очки ДНК: начисление за проигрыш и победу, один раз за партию, накопление, запись в хранилище
  *   meta-shop              экран «Улучшения» — дерево (компьютер ru, телефон en): переход с экрана конца уровня, тап по узлу выбирает его, покупка кнопкой карточки по ценам таблицы, нехватка очков, «Максимум», «Играть», тексты
  *   meta-effects           улучшения в партии: жизни, стартовые монеты, урон башен, награда за бактерий, «towerDamage» ветки башни (Сила таблетки)
- *   tree-shop              дерево улучшений (8 октября 2026; компьютер ru, телефон en): узлы как в таблице, узел закрыт, пока родитель не куплен до нужного уровня (покупка закрытого не проходит), условие в карточке,
+ *   tree-shop              сеть древа «Атом» (26 октября 2026; ранее — дерево улучшений, 8 октября 2026; компьютер ru, телефон en): узлы как в таблице, узел закрыт, пока родитель не куплен до нужного уровня (покупка закрытого не проходит), условие в карточке,
  *                          ветки башен закрыты, пока не куплен узел башни, прокрутка колесом и пальцем, выбор тапом, покупка, «Максимум», тексты помещаются в карточку (все узлы, ru и en)
  *   tree-effects           улучшения древа (этап 6б): числа башен по веткам (в том числе «towerDamage»), цена, продажа, щит у линии и звёзды, подкрепление
  *   level-waves            уровни (этап 5, шаг 1): с `&levelwaves` на уровне 1 состав волн из таблицы `waves.list`, на уровнях 2–10 — от генератора (30 волн, суммарная прочность бактерий больше, чем на уровне 1, и не меньше, чем на предыдущем уровне);
@@ -7869,26 +7869,14 @@ async function waitMeta(page, predicate, timeoutMs = 3000) {
   return m;
 }
 
-/** Сдвигает дерево на dy пикселей экрана игры (dy > 0 — содержимое едет вверх, прокрутка растёт): колесом мыши на компьютере, пальцем на телефоне. */
-async function scrollTree(app, m, dy) {
-  const v = m.screen.view;
-  const cx = v.x + v.w / 2;
-  const cy = v.y + v.h / 2;
-  if (!app.input.isTouch) await app.input.wheel(app.g(cx, cy), dy);
-  else await app.input.drag(app.g(cx, cy + dy / 2), app.g(cx, cy - dy / 2), { steps: 6, stepMs: 20 });
-}
-
 /** Прокручивает дерево, пока узел не окажется целиком в окне (onScreen); возвращает свежее описание. Если прокрутка упёрлась в край — останавливается. */
 async function scrollToNode(app, id) {
   let m = await metaOf(app.page);
-  for (let i = 0; i < 14; i++) {
-    const n = nodeOf(m, id);
-    if (!n || n.onScreen) return m;
-    const before = m.screen.scroll;
-    await scrollTree(app, m, n.rect.y < m.screen.view.y + m.screen.view.h / 2 ? -300 : 300);
-    m = await waitMeta(app.page, (mm) => mm.screen.scroll !== before, 1500);
-    if (m.screen.scroll === before) break;
-  }
+  const n = nodeOf(m, id);
+  if (!n || n.onScreen) return m;
+  // сеть древа: сдвиг к узлу улучшения (`window.__pvbUpgrades.focus`, только ?qa); перетаскивание и колесо проверяет сценарий tree-shop
+  await app.page.evaluate((nid) => window.__pvbUpgrades?.focus(nid), id);
+  m = await waitMeta(app.page, (mm) => nodeOf(mm, id)?.onScreen, 1500);
   return m;
 }
 
@@ -7926,19 +7914,6 @@ async function raiseNode(app, id, level) {
     m = r.after;
   }
   return m;
-}
-
-/**
- * Какие узлы должны быть открыты (правила src/meta.ts): ветка башни открыта, когда куплен узел башни (`branchOpen` из qa/lib.mjs; «Организм», «Защита», узлы башен, умения и Таблетка — всегда),
- * и родитель куплен до нужного уровня. `levels` — уровни улучшений в игре.
- */
-function expectedOpen(UP, levels) {
-  return Object.fromEntries(Object.keys(UP).map((id) => [id, branchOpen(UP[id].branch, levels) && (!UP[id].requires || (levels[UP[id].requires.id] ?? 0) >= UP[id].requires.level)]));
-}
-/** Узлы, у которых открытость на экране не совпала с правилами (пустой список — всё сошлось). */
-function openMismatch(UP, m) {
-  const want = expectedOpen(UP, m.levels);
-  return m.screen.nodes.filter((n) => n.open !== want[n.id]).map((n) => `${n.id}: на экране ${n.open}, по правилам ${want[n.id]}`);
 }
 
 /** Сохранение: чтение, повреждённые и чужие значения, недоступное хранилище. */
@@ -8698,7 +8673,7 @@ async function runMetaShop(browser, baseUrl) {
     const coinsNow = pre.coins ?? 0;
     const livesMax = UP.lives.prices.length;
     const dnaStart = sumOf(UP.lives.prices) + (UP.coins.prices[coinsNow] ?? 0) + 100;
-    const game = await openGame(context, baseUrl, p, { speed: 4, cfg: `${META_LOSE_CFG},meta.upgrades.reward.prices.0:99999`, isTouch: device.hasTouch, query: `&meta=dna:${dnaStart},${metaQuery(pre)}` });
+    const game = await openGame(context, baseUrl, p, { speed: 4, cfg: `${META_LOSE_CFG},meta.upgrades.reward.prices.0:99999`, isTouch: device.hasTouch, query: `&rings=6&meta=dna:${dnaStart},${metaQuery(pre)}` });
     let s = await waitFor(game.page, (x) => x.state === 'lost', WAIT_MS, 'проигрыш');
     check(`${p} на экране конца уровня есть кнопка «Улучшения» рядом с «Заново», не перекрывая её`, s.upgradesButton !== null && s.endButton !== null && s.upgradesButton.x - s.upgradesButton.w / 2 > s.endButton.x + s.endButton.w / 2, JSON.stringify([s.endButton, s.upgradesButton]));
     await sleep(CFG.restartLockMs + 250);
@@ -8807,28 +8782,19 @@ async function runMetaEffects(browser, baseUrl) {
   await context.close();
 }
 
-/**
- * Дерево улучшений (8 октября 2026, docs/upgrades.md, часть 3): узлы как в таблице; узел закрыт, пока родитель не куплен до нужного уровня (покупка закрытого не проходит, условие читается в карточке);
- * ветки башен закрыты, пока не куплен узел башни; прокрутка колесом и пальцем; тап по узлу выбирает его; покупка кнопкой карточки; «Максимум»; тексты помещаются в карточку у всех узлов (компьютер ru, телефон en).
- */
+/** Экран «Улучшения» — сеть древа «Атом» (решения владельца 26 октября 2026, сообщения 2–4): кольца по победам, соседство, орбиты, сброс, перетаскивание и масштаб, карточки всех улучшений. */
 async function runTreeShop(browser, baseUrl) {
   const UP = readMetaTable().upgrades;
   const ids = Object.keys(UP);
   const branches = [...new Set(ids.map((id) => UP[id].branch))];
-  const rootId = ids.find((id) => !UP[id].requires);
-  const childId = ids.find((id) => UP[id].requires?.id === rootId && UP[id].branch === UP[rootId].branch);
-  /** Первый узел ветки: тот, чей родитель лежит в другой ветке (или нет родителя). */
-  const branchRoot = (branch) => ids.find((id) => UP[id].branch === branch && UP[UP[id].requires?.id]?.branch !== branch);
-  /** Ветки башен, закрытые в новой игре (открываются узлом башни в древе), по цене узла, и сразу открытая ветка башни (Таблетка). */
   const towerBranches = branches.filter((b) => !['body', 'defense', 'towers', 'skills'].includes(b));
-  const lockedBranches = towerBranches.filter((b) => b !== 'pill').sort((a, b) => UP[towerNodeId(a)].prices[0] - UP[towerNodeId(b)].prices[0]);
-  const openTowerBranch = towerBranches.find((b) => b === 'pill');
-  const grandchildOf = (id) => ids.find((x) => UP[x].requires?.id === id && UP[x].branch === UP[id].branch);
+  const lockedBranches = towerBranches.filter((b) => b !== 'pill');
+  const keyOf = (id, level) => `${id}#${level}`;
 
   for (const [deviceKey, lang] of [['desktop', 'ru'], ['phone', 'en']]) {
     const device = VIEWPORTS[deviceKey];
     const li = lang === 'ru' ? 0 : 1;
-    const p = `[дерево улучшений, ${device.label}, ${lang}]`;
+    const p = `[сеть древа, ${device.label}, ${lang}]`;
     const context = await newDeviceContext(browser, device, lang);
     const openScreen = async (query) => {
       const app = await openMenu(context, baseUrl, p, { isTouch: device.hasTouch, query });
@@ -8840,9 +8806,20 @@ async function runTreeShop(browser, baseUrl) {
     const textsOk = (texts) =>
       texts.length === 5 &&
       texts.every((x) => typeof x === 'string' && !/undefined|upg[A-Z]|\{/.test(x)) &&
-      [0, 1, 2, 4].every((i) => texts[i]) &&
+      [0, 1, 2].every((i) => texts[i]) &&
       (lang === 'ru' ? /[А-Яа-я]/.test(texts.join('')) : !/[А-Яа-я]/.test(texts.join('')));
-    /** Выбирает каждый узел по очереди: карточка выбранного узла, тексты помещаются, название и условие на месте. Возвращает список замечаний. */
+    /** Открытость узла на экране согласована с сетью: открыт — значит ветка открыта и есть уровень в списке «можно взять» (или куплены все уровни). */
+    const openConsistent = (m) => {
+      const bad = [];
+      for (const n of m.screen.nodes) {
+        const maxed = n.level >= n.max;
+        const avail = m.available.some((k) => k.startsWith(`${n.id}#`));
+        const want = branchOpen(UP[n.id].branch, m.levels) && (maxed || avail);
+        if (n.open !== want) bad.push(`${n.id}: на экране ${n.open ? 'открыт' : 'закрыт'}, по сети ${want ? 'открыт' : 'закрыт'}`);
+      }
+      return bad;
+    };
+    /** Каждый узел по очереди: карточка, тексты помещаются, название на месте; у закрытого в открытом кольце — условие. */
     const checkAllNodes = async (app) => {
       const problems = [];
       for (const id of ids) {
@@ -8862,173 +8839,108 @@ async function runTreeShop(browser, baseUrl) {
       }
       return problems;
     };
-    /** Родитель → потомок: потомок закрыт и купить его нельзя, пока родитель не куплен до нужного уровня; на нужном уровне открывается. Покупает родителя до нужного уровня. */
-    const parentChild = async (app, parentId, kidId) => {
-      const req = UP[kidId].requires;
-      const reqLine = i18nText('upgRequires', li, { name: upgName(req.id, li), n: req.level });
-      let m = await selectNode(app, kidId);
-      const dnaBefore = m.dna;
-      const closed = !nodeOf(m, kidId).open && !nodeOf(m, kidId).canBuy && m.screen.detail.texts[3] === reqLine && m.screen.detail.texts[3].includes(upgName(req.id, li)) && m.screen.detail.texts[4] === i18nText('upgClosed', li);
-      check(`${p} узел «${kidId}» закрыт, пока «${req.id}» не куплен до уровня ${req.level}: в карточке «${reqLine}» (название родителя читается), подпись кнопки «${i18nText('upgClosed', li)}»`, closed, JSON.stringify([nodeOf(m, kidId), m.screen.detail.texts]));
-      let r = await buyNode(app, kidId, { expectBuy: false });
-      check(`${p} покупка закрытого «${kidId}» не проходит, хотя очков хватает (цена ${UP[kidId].prices[0]}): очки ${dnaBefore} и уровень 0 прежние`, r.after.dna === dnaBefore && r.after.levels[kidId] === 0, `очки ${r.after.dna}, уровень ${r.after.levels[kidId]}`);
-      let ok = true;
-      const log = [];
-      for (let k = r.after.levels[parentId] + 1; k <= req.level; k++) {
-        r = await buyNode(app, parentId);
-        const price = UP[parentId].prices[k - 1];
-        const kidOpen = nodeOf(r.after, kidId).open;
-        if (r.after.levels[parentId] !== k || r.after.dna !== r.before.dna - price || kidOpen !== (k >= req.level)) ok = false;
-        log.push(`уровень ${k}: цена ${price}, очки ${r.before.dna} → ${r.after.dna}, «${kidId}» ${kidOpen ? 'открыт' : 'закрыт'}`);
-      }
-      check(`${p} покупка «${parentId}» до уровня ${req.level} списывает цены таблицы, «${kidId}» открывается ровно на уровне ${req.level}`, ok && r.after.levels[parentId] === req.level, log.join('; '));
-      m = await selectNode(app, kidId);
-      check(`${p} после этого «${kidId}» открыт: условия в карточке нет, кнопка «${i18nText('upgBuy', li, { n: UP[kidId].prices[0] })}», купить можно`, nodeOf(m, kidId).open && nodeOf(m, kidId).canBuy && m.screen.detail.texts[3] === '' && m.screen.detail.texts[4] === i18nText('upgBuy', li, { n: UP[kidId].prices[0] }), JSON.stringify(m.screen.detail.texts));
-      r = await buyNode(app, kidId);
-      check(`${p} покупка «${kidId}» уровня 1 за ${UP[kidId].prices[0]}: уровень 1, очки ${r.before.dna} → ${r.before.dna - UP[kidId].prices[0]}`, r.after.levels[kidId] === 1 && r.after.dna === r.before.dna - UP[kidId].prices[0], `уровень ${r.after.levels[kidId]}, очки ${r.after.dna}`);
-      return r.after;
-    };
 
-    // ================= часть А: новая игра, очков много (3000), звёзд нет
+    // ================= часть А: новая игра, кольца — по победам (побед нет: открыто кольцо 1), очков много
     let app = await openScreen('&meta=dna:3000');
     let m = await waitMeta(app.page, (x) => x.screen.visible, 5000);
     const dnaA = m.dna;
-    check(`${p} на экране ${ids.length} узлов в порядке таблицы; у каждого уровень 0, наибольший уровень и цена первого уровня как в таблице`, m.screen.visible && m.screen.nodes.map((n) => n.id).join() === ids.join() && m.screen.nodes.every((n) => n.level === 0 && n.max === UP[n.id].prices.length && n.price === UP[n.id].prices[0]), JSON.stringify(m.screen.nodes.map((n) => [n.id, n.level, n.max, n.price])));
-    const mismatch0 = openMismatch(UP, m);
-    check(`${p} в новой игре открытость каждого узла совпадает с правилами (родитель куплен до нужного уровня, ветка башни открыта на карте уровней): открыт корень «${rootId}», закрыт «${childId}»`, mismatch0.length === 0 && nodeOf(m, rootId).open && !nodeOf(m, childId).open, mismatch0.join('; '));
+    check(`${p} на экране ${ids.length} улучшений в порядке таблицы, уровни 0, выбрано «Сильное вещество»; открыто только кольцо 1 (${m.rings.join(', ')})`, m.screen.nodes.map((n) => n.id).join() === ids.join() && m.screen.nodes.every((n) => n.level === 0) && m.screen.selected === 'damage' && m.rings.join() === '1', JSON.stringify({ sel: m.screen.selected, rings: m.rings }));
+    check(`${p} взять можно соседей ядра и купленных: «Сильное вещество» 1 и узел Сиропа — да, «Иммунный запас» (кольцо 2) и «Питательная среда» (родитель не куплен) — нет`, m.available.includes(keyOf('damage', 1)) && m.available.includes(keyOf(towerNodeId('syrup'), 1)) && !m.available.includes(keyOf('lives', 1)) && !m.available.includes(keyOf('coins', 1)), m.available.slice(0, 12).join(', '));
+    const mm0 = openConsistent(m);
+    check(`${p} открытость всех улучшений на экране согласована с сетью`, mm0.length === 0, mm0.slice(0, 4).join('; '));
     const v = m.screen.view;
     const detail = m.screen.detail;
-    const rects = m.screen.nodes.map((n) => n.rect);
+    check(`${p} окно сети, кнопка покупки, «Играть» и кнопка сброса внутри экрана, не налезают; карточка справа от окна`, v.x >= 0 && v.y >= 0 && v.x + v.w <= W && v.y + v.h <= H && insideScreen(detail.buy) && insideScreen(m.screen.play) && !overlaps(detail.buy, m.screen.play) && detail.buy.x - detail.buy.w / 2 >= v.x + v.w && m.screen.respec && insideScreen(m.screen.respec), JSON.stringify([v, detail.buy, m.screen.respec]));
+    // подписи цепочек видны при начальном масштабе и не налезают друг на друга и на узлы (п. 6.2 сообщения 1 от 26 октября 2026)
+    const labels = m.screen.labels ?? [];
     let clash = '';
-    rects.forEach((a, i) => rects.slice(i + 1).forEach((b, j) => { if (overlaps(a, b)) clash += ` ${ids[i]}×${ids[i + 1 + j]};`; }));
-    // подписи узлов (названия под кружками, в русском — до двух строк) не накрывают чужие кружки и друг друга (с a87e24b подпись «Быстрый обмен веществ» закрывалась кругом «Сильного вещества II»)
-    let labelClash = '';
-    m.screen.nodes.forEach((a, i) => m.screen.nodes.forEach((b, j) => {
-      if (i !== j && overlaps(a.label, b.rect)) labelClash += ` подпись «${a.id}» накрывает кружок «${b.id}»;`;
-      if (i < j && overlaps(a.label, b.label)) labelClash += ` подписи «${a.id}» и «${b.id}» налезают;`;
-    }));
-    check(`${p} подписи узлов (${m.screen.nodes.length}) не накрывают чужие кружки и друг друга`, labelClash === '', labelClash);
-    const inView = m.screen.nodes.filter((n) => n.onScreen).every((n) => n.rect.x - n.rect.w / 2 >= v.x && n.rect.x + n.rect.w / 2 <= v.x + v.w && n.rect.y - n.rect.h / 2 >= v.y && n.rect.y + n.rect.h / 2 <= v.y + v.h);
-    check(`${p} окно дерева, кнопка покупки в карточке и «Играть» внутри экрана и не налезают друг на друга, узлы между собой не налезают; в начале выбран корень «${rootId}»`, v.x >= 0 && v.y >= 0 && v.x + v.w <= W && v.y + v.h <= H && detail && insideScreen(detail.buy) && insideScreen(m.screen.play) && !overlaps(detail.buy, m.screen.play) && detail.buy.x - detail.buy.w / 2 >= v.x + v.w && clash === '' && inView && m.screen.selected === rootId, `${JSON.stringify(v)} ${JSON.stringify(detail && detail.buy)} ${clash}`);
-    await shot(app.page, `tree-shop-top-${deviceKey}-${lang}`);
-    if (UP[rootId].effect === 'damage') {
-      // «подпись\nСейчас +0 % → станет +10 %»: описание «подпись: значение» делится по первому «: » (как effectParts в UpgradesScene)
-      const descTpl = readI18n('upgDamageDesc')[li];
-      const cut = descTpl.indexOf(': ');
-      const valueTpl = descTpl.slice(cut + 2);
-      const next = `${descTpl.slice(0, cut)}\n${i18nText('upgNowNext', li, { now: valueTpl.split('{n}').join('0'), next: valueTpl.split('{n}').join(String(Math.round(UP[rootId].perLevel * 100))) })}`;
-      check(`${p} карточка корня «${rootId}»: «${i18nText('upgLevel', li, { n: 0, max: UP[rootId].prices.length })}», «${next}»`, detail.texts[1] === i18nText('upgLevel', li, { n: 0, max: UP[rootId].prices.length }) && detail.texts[2] === next, JSON.stringify(detail.texts));
+    labels.forEach((a, i) => labels.slice(i + 1).forEach((b, j) => { if (overlaps(a, b)) clash += ` ${i}×${i + 1 + j};`; }));
+    for (const n of m.screen.nodes.filter((x) => x.onScreen)) for (const [i, l] of labels.entries()) if (overlaps(l, n.rect)) clash += ` подпись ${i} на «${n.id}»;`;
+    check(`${p} начальный масштаб ×${f2(m.screen.zoom)}: подписи видны (${labels.length}) и не налезают друг на друга и на узлы`, labels.length >= 8 && clash === '', clash.slice(0, 300));
+    await shot(app.page, `tree-net-start-${deviceKey}-${lang}`);
+
+    // ---- закрытое кольцо: узел кольца 2 серый, купить нельзя, текста нет
+    m = await selectNode(app, 'lives');
+    check(`${p} «Иммунный запас» в закрытом кольце 2: выбран, закрыт, купить нельзя; в карточке нет условия и подписи кнопки (кольцо серое, без текста)`, m.screen.selected === 'lives' && !nodeOf(m, 'lives').open && !nodeOf(m, 'lives').canBuy && m.screen.detail.texts[3] === '' && m.screen.detail.texts[4] === '', JSON.stringify(m.screen.detail.texts));
+    let r = await buyNode(app, 'lives', { expectBuy: false });
+    check(`${p} тап по кнопке у закрытого кольца ничего не покупает: очки ${dnaA}, уровень 0`, r.after.dna === dnaA && r.after.levels.lives === 0, `очки ${r.after.dna}`);
+
+    // ---- родитель → потомок: «Питательная среда» открывается, когда куплено «Сильное вещество» 1
+    r = await buyNode(app, 'coins', { expectBuy: false });
+    check(`${p} «Питательная среда» закрыта, пока не куплено «Сильное вещество» 1: покупки нет, в карточке условие`, r.after.levels.coins === 0 && r.after.dna === dnaA && r.after.screen.detail.texts[3] === i18nText('upgRequires', li, { name: upgName('damage', li), n: 1 }), JSON.stringify(r.after.screen.detail.texts));
+    r = await buyNode(app, 'damage');
+    check(`${p} покупка «Сильное вещество» 1 за ${UP.damage.prices[0]}: уровень 1, узел «damage#1» куплен, «Питательная среда» 1 теперь можно взять`, r.after.levels.damage === 1 && r.after.dna === dnaA - UP.damage.prices[0] && r.after.nodes.includes(keyOf('damage', 1)) && r.after.available.includes(keyOf('coins', 1)), JSON.stringify({ lv: r.after.levels.damage, dna: r.after.dna }));
+    r = await buyNode(app, 'coins');
+    check(`${p} покупка «Питательная среда» 1 за ${UP.coins.prices[0]}`, r.after.levels.coins === 1 && r.after.dna === dnaA - UP.damage.prices[0] - UP.coins.prices[0], `уровень ${r.after.levels.coins}, очки ${r.after.dna}`);
+
+    // ---- ветка башни: «Сила» Сиропа закрыта до узла Сиропа
+    const syrupRoot = ids.find((id) => UP[id].branch === 'syrup' && UP[id].requires?.id === towerNodeId('syrup'));
+    r = await buyNode(app, syrupRoot, { expectBuy: false });
+    check(`${p} «${syrupRoot}» закрыт, пока не куплен узел Сиропа: покупки нет`, r.after.levels[syrupRoot] === 0, JSON.stringify(r.after.screen.detail.texts));
+    r = await buyNode(app, towerNodeId('syrup'));
+    const r2 = await buyNode(app, syrupRoot);
+    check(`${p} узел Сиропа куплен — «${syrupRoot}» 1 куплен`, r.after.levels[towerNodeId('syrup')] === 1 && r2.after.levels[syrupRoot] === 1, JSON.stringify({ t: r.after.levels[towerNodeId('syrup')], s: r2.after.levels[syrupRoot] }));
+    m = r2.after;
+    const spentNet = UP.damage.prices[0] + UP.coins.prices[0] + UP[syrupRoot].prices[0];
+    const towerSpent = UP[towerNodeId('syrup')].prices[0];
+
+    // ---- перетаскивание сдвигает сеть, выбор и очки не меняются; колесо меняет масштаб
+    const cx = v.x + v.w / 2;
+    const cy = v.y + v.h / 2;
+    const scroll0 = m.screen.scroll;
+    await app.input.drag(app.g(cx, cy), app.g(cx - 160, cy - 120), { steps: 8, stepMs: 20 });
+    let md = await waitMeta(app.page, (x) => x.screen.scroll !== scroll0, 2000);
+    check(`${p} перетаскивание сдвигает сеть (сдвиг ${scroll0} → ${md.screen.scroll}); узел под пальцем не выбран («${md.screen.selected}»), очки прежние`, md.screen.scroll !== scroll0 && md.screen.selected === syrupRoot && md.dna === m.dna, JSON.stringify({ s: md.screen.scroll, sel: md.screen.selected }));
+    if (!app.input.isTouch) {
+      const z0 = md.screen.zoom;
+      await app.input.wheel(app.g(cx, cy), -300);
+      const mz = await waitMeta(app.page, (x) => x.screen.zoom !== z0, 2000);
+      check(`${p} колесо мыши меняет масштаб сети: ×${f2(z0)} → ×${f2(mz.screen.zoom)}`, mz.screen.zoom !== z0, `${z0} → ${mz.screen.zoom}`);
     }
 
-    // ---- прокрутка: колесо мыши (компьютер) или палец (телефон), перетаскивание; узлы сдвигаются на столько же, выбор и очки не меняются
-    const far = m.screen.nodes.find((n) => !n.onScreen);
-    check(`${p} дерево длиннее окна: есть узел вне окна («${far?.id}»), прокрутка в начале 0`, Boolean(far) && m.screen.scroll === 0, `прокрутка ${m.screen.scroll}`);
-    if (far) {
-      const rootY0 = nodeOf(m, rootId).rect.y;
-      let ms = await scrollToNode(app, far.id);
-      const shifted = rootY0 - nodeOf(ms, rootId).rect.y;
-      check(`${p} прокрутка (${app.input.isTouch ? 'палец' : 'колесо мыши'}) доводит узел «${far.id}» до окна: прокрутка 0 → ${f2(ms.screen.scroll)}, корень сдвинулся на ${f2(shifted)}; выбор («${ms.screen.selected}») и очки (${ms.dna}) прежние`, ms.screen.scroll > 0 && nodeOf(ms, far.id).onScreen && Math.abs(shifted - ms.screen.scroll) < 0.6 && ms.screen.selected === rootId && ms.dna === dnaA, `прокрутка ${ms.screen.scroll}, сдвиг ${shifted}`);
-      await shot(app.page, `tree-shop-scrolled-${deviceKey}-${lang}`);
-      for (let i = 0; i < 10 && ms.screen.scroll > 0; i++) {
-        const prev = ms.screen.scroll;
-        await scrollTree(app, ms, -300);
-        ms = await waitMeta(app.page, (mm) => mm.screen.scroll < prev, 1500);
-      }
-      check(`${p} прокрутка обратно в начало: прокрутка 0, корень на прежнем месте (${f2(rootY0)})`, ms.screen.scroll === 0 && Math.abs(nodeOf(ms, rootId).rect.y - rootY0) < 0.6, `прокрутка ${ms.screen.scroll}, корень ${nodeOf(ms, rootId).rect.y}`);
-      // перетаскивание вверх на 200 px: на обоих устройствах это прокрутка, а не тап (сдвиг больше порога)
-      const cx = v.x + v.w / 2;
-      const y0 = v.y + v.h * 0.8;
-      await app.input.drag(app.g(cx, y0), app.g(cx, y0 - 200), { steps: 8, stepMs: 20 });
-      let md = await waitMeta(app.page, (mm) => mm.screen.scroll > 100, 2000);
-      check(`${p} перетаскивание вверх на 200 px сдвигает дерево на ${f2(md.screen.scroll)} (от 150 до 250); узел под пальцем не выбран («${md.screen.selected}»), ничего не куплено`, md.screen.scroll >= 150 && md.screen.scroll <= 250 && md.screen.selected === rootId && md.dna === dnaA, `прокрутка ${md.screen.scroll}, выбран ${md.screen.selected}, очки ${md.dna}`);
-      await app.input.drag(app.g(cx, y0 - 200), app.g(cx, y0), { steps: 8, stepMs: 20 });
-      md = await waitMeta(app.page, (mm) => mm.screen.scroll < 10, 2000);
-      if (!app.input.isTouch) {
-        await app.input.wheel(app.g(cx, v.y + v.h / 2), 200);
-        const mw = await waitMeta(app.page, (mm) => mm.screen.scroll > 0, 2000);
-        await app.input.wheel(app.g(cx, v.y + v.h / 2), -2000);
-        const mb = await waitMeta(app.page, (mm) => mm.screen.scroll === 0, 2000);
-        check(`${p} колесо мыши над окном дерева: вниз — прокрутка ${f2(mw.screen.scroll)} (больше 0), вверх — снова 0 (${f2(mb.screen.scroll)})`, mw.screen.scroll > 0 && mb.screen.scroll === 0, `${mw.screen.scroll} → ${mb.screen.scroll}`);
-      }
-    }
-
-    // ---- карточка каждого узла в новой игре: тексты помещаются (закрытые узлы ветки башни — две строки условия), название и условие на месте
-    const problemsA = await checkAllNodes(app);
-    check(`${p} все ${ids.length} узлов, по очереди: тап выбирает узел, тексты помещаются в карточку и над кнопкой, название как в i18n, у закрытых есть условие, сырых ключей нет`, problemsA.length === 0, problemsA.slice(0, 4).join(' || '));
-
-    // ---- выбор тапом, потом покупка: родитель → потомок
-    m = await selectNode(app, rootId);
-    let m2 = await selectNode(app, childId);
-    check(`${p} тап по узлу только выбирает: выбор «${rootId}» → «${childId}», очки не менялись (${m.dna} → ${m2.dna}), уровни нули`, m.screen.selected === rootId && m2.screen.selected === childId && m2.dna === m.dna && Object.values(m2.levels).every((x) => x === 0), `выбран ${m2.screen.selected}`);
-    m = await parentChild(app, rootId, childId);
-    await shot(app.page, `tree-shop-bought-${deviceKey}-${lang}`);
-
-    // ---- ветки башен, закрытые в новой игре: первый узел ветки закрыт, пока не куплен узел башни; покупка узла башни открывает ветку
-    for (const [i, b] of lockedBranches.slice(0, 2).entries()) {
-      const rid = branchRoot(b);
-      const node = towerNodeId(b);
-      for (const [pid, lv] of Object.entries(prereqLevels(UP, node)).reverse()) m = await raiseNode(app, pid, lv);
-      m = await parentChild(app, node, rid);
-      if (i === 0) await shot(app.page, `tree-shop-locked-${deviceKey}-${lang}`);
-    }
-
-    // ---- открытая ветка башни (Таблетка): корень открыт, когда куплен родитель; дальше та же цепочка родитель → потомок
-    if (openTowerBranch) {
-      const rid = branchRoot(openTowerBranch);
-      const kid = grandchildOf(rid);
-      // родитель корня ветки докупается до нужного уровня (у «Силы таблетки» — «Сильное вещество» 2)
-      for (const [pid, lv] of Object.entries(prereqLevels(UP, rid)).reverse()) m = await raiseNode(app, pid, lv);
-      m = await selectNode(app, rid);
-      check(`${p} ветка «${openTowerBranch}» открыта на карте, родитель «${UP[rid].requires?.id}» куплен до уровня ${UP[rid].requires?.level}: «${rid}» открыт, условия нет, купить можно`, nodeOf(m, rid).open && nodeOf(m, rid).canBuy && m.screen.detail.texts[3] === '', JSON.stringify(m.screen.detail.texts));
-      if (kid) await parentChild(app, rid, kid);
-    }
-    m = await metaOf(app.page);
-    const mismatchA = openMismatch(UP, m);
-    check(`${p} после покупок открытость узлов по-прежнему совпадает с правилами`, mismatchA.length === 0, mismatchA.join('; '));
+    // ---- сброс сети: малые узлы возвращают ДНК, узел башни остаётся
+    md = await metaOf(app.page);
+    check(`${p} кнопка сброса вернёт ${md.screen.refund} ДНК = цены купленных малых узлов (${spentNet})`, md.screen.refund === spentNet, `${md.screen.refund}`);
+    const dnaBeforeReset = md.dna;
+    await app.input.tap(app.g(md.screen.respec.x, md.screen.respec.y));
+    const mr = await waitMeta(app.page, (x) => x.dna !== dnaBeforeReset, 2000);
+    check(`${p} сброс: очки ${dnaBeforeReset} → ${mr.dna} (= ${dnaA} − узел Сиропа ${towerSpent}), малые узлы обнулены, узел Сиропа остался`, mr.dna === dnaA - towerSpent && mr.levels.damage === 0 && mr.levels.coins === 0 && mr.levels[syrupRoot] === 0 && mr.levels[towerNodeId('syrup')] === 1 && mr.screen.refund === 0, JSON.stringify({ dna: mr.dna, lv: [mr.levels.damage, mr.levels.coins, mr.levels[syrupRoot], mr.levels[towerNodeId('syrup')]] }));
+    await shot(app.page, `tree-net-reset-${deviceKey}-${lang}`);
     await app.page.close();
 
-    // ================= часть Б: «Максимум». Корень на предпоследнем уровне, куплены узлы всех башен (все ветки башен открыты), очков много
-    const maxLv = UP[rootId].prices.length;
-    app = await openScreen(`&meta=dna:5000,${rootId}:${maxLv - 1},${lockedBranches.map((b) => `${towerNodeId(b)}:1`).join(',')}`);
+    // ================= часть Б: победа на уровне 2 (звёзды 1,1) — открыто кольцо 2; «Иммунный запас» открывается после «Питательной среды» 3
+    app = await openScreen(`&meta=dna:2000,damage:1,coins:3&stars=1,1`);
     m = await waitMeta(app.page, (x) => x.screen.visible, 5000);
-    const mismatchB = openMismatch(UP, m);
-    check(`${p} при купленных узлах всех башен и «${rootId}» ${maxLv - 1}: первые узлы всех веток башен открыты, открытость узлов совпадает с правилами`, mismatchB.length === 0 && lockedBranches.every((b) => nodeOf(m, branchRoot(b)).open), mismatchB.join('; '));
-    const dnaMax0 = m.dna;
-    const r = await buyNode(app, rootId);
-    const texts = r.after.screen.detail.texts;
-    const maxLine = i18nText('upgMax', li);
-    check(`${p} последний уровень «${rootId}» (${maxLv}) куплен за ${UP[rootId].prices[maxLv - 1]}: подпись кнопки «${maxLine}», цены нет, купить нельзя; «${i18nText('upgLevel', li, { n: maxLv, max: maxLv })}»`, r.after.levels[rootId] === maxLv && r.after.dna === dnaMax0 - UP[rootId].prices[maxLv - 1] && texts[4] === maxLine && texts[1] === i18nText('upgLevel', li, { n: maxLv, max: maxLv }) && nodeOf(r.after, rootId).price === null && !nodeOf(r.after, rootId).canBuy, JSON.stringify([texts, nodeOf(r.after, rootId)]));
-    if (UP[rootId].effect === 'damage') {
-      const total = i18nText('upgDamageDesc', li, { n: Math.round(UP[rootId].perLevel * maxLv * 100) });
-      check(`${p} на наибольшем уровне вместо «Дальше» стоит итог: «${total}»`, texts[2] === total, texts[2]);
-    }
-    const again = await buyNode(app, rootId, { expectBuy: false });
-    check(`${p} на наибольшем уровне повторная покупка ничего не делает: очки ${r.after.dna}, уровень ${maxLv}`, again.after.dna === r.after.dna && again.after.levels[rootId] === maxLv, `очки ${again.after.dna}, уровень ${again.after.levels[rootId]}`);
-    await shot(app.page, `tree-shop-max-${deviceKey}-${lang}`);
-    const problemsB = await checkAllNodes(app);
-    check(`${p} все ${ids.length} узлов, ветки башен открыты: тексты помещаются в карточку, у открытых узлов условия нет, у закрытых есть, сырых ключей нет`, problemsB.length === 0, problemsB.slice(0, 4).join(' || '));
+    check(`${p} победа на уровне 2: открыты кольца 1–2 (${m.rings.join(', ')}), «Иммунный запас» 1 можно взять`, m.rings.join() === '1,2' && m.available.includes(keyOf('lives', 1)), JSON.stringify(m.rings));
+    r = await buyNode(app, 'lives');
+    check(`${p} покупка «Иммунный запас» 1 за ${UP.lives.prices[0]} в открытом кольце 2`, r.after.levels.lives === 1, `уровень ${r.after.levels.lives}`);
+    await shot(app.page, `tree-net-ring2-${deviceKey}-${lang}`);
+    await app.page.close();
 
+    // ================= часть В: все кольца (&rings=6), куплены узлы всех башен — соседство по орбите, «Максимум», карточки всех улучшений
+    const maxLv = UP.damage.prices.length;
+    app = await openScreen(`&rings=6&meta=dna:5000,damage:${maxLv - 1},${lockedBranches.map((b) => `${towerNodeId(b)}:1`).join(',')}`);
+    m = await waitMeta(app.page, (x) => x.screen.visible, 5000);
+    // по орбите: купленный конец цепочки делает соседа по орбите доступным (если ветка соседа открыта)
+    const orbitBad = m.orbit.filter(([a, b]) => (m.nodes.includes(a) && !m.nodes.includes(b) && !m.available.includes(b)) || (m.nodes.includes(b) && !m.nodes.includes(a) && !m.available.includes(a)));
+    const orbitUsed = m.orbit.filter(([a, b]) => m.nodes.includes(a) !== m.nodes.includes(b));
+    check(`${p} связи по орбите (${m.orbit.length}): у купленного конца цепочки сосед по орбите доступен (проверено ${orbitUsed.length})`, m.orbit.length >= 10 && orbitUsed.length >= 1 && orbitBad.length === 0, JSON.stringify(orbitBad.slice(0, 4)));
+    const mmB = openConsistent(m);
+    check(`${p} при всех кольцах и башнях открытость согласована с сетью`, mmB.length === 0, mmB.slice(0, 4).join('; '));
+    const dnaMax0 = m.dna;
+    r = await buyNode(app, 'damage');
+    const texts = r.after.screen.detail.texts;
+    check(`${p} последний уровень «Сильного вещества» (${maxLv}) куплен за ${UP.damage.prices[maxLv - 1]}: подпись кнопки «${i18nText('upgMax', li)}», цены нет, купить нельзя`, r.after.levels.damage === maxLv && r.after.dna === dnaMax0 - UP.damage.prices[maxLv - 1] && texts[4] === i18nText('upgMax', li) && nodeOf(r.after, 'damage').price === null && !nodeOf(r.after, 'damage').canBuy, JSON.stringify([texts, nodeOf(r.after, 'damage')]));
+    const again = await buyNode(app, 'damage', { expectBuy: false });
+    check(`${p} на наибольшем уровне повторная покупка ничего не делает`, again.after.dna === r.after.dna && again.after.levels.damage === maxLv, `очки ${again.after.dna}`);
+    const problems = await checkAllNodes(app);
+    check(`${p} все ${ids.length} улучшений по очереди: тап выбирает, тексты помещаются, название как в i18n, у закрытых есть условие, сырых ключей нет`, problems.length === 0, problems.slice(0, 4).join(' || '));
+    await shot(app.page, `tree-net-all-${deviceKey}-${lang}`);
+    await app.page.close();
     await context.close();
   }
-
-  // ================= часть В: башни открываются по цепочке древа (компьютер, ru): куплены узлы Сиропа и Шипучки — их ветки открыты, узел Шприца открыт (родитель куплен), ветка Шприца закрыта
-  const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
-  const p = '[дерево улучшений: открытие веток]';
-  const app = await openMenu(context, baseUrl, p, { query: `&meta=dna:0,${towerNodeId('syrup')}:1,${towerNodeId('fizz')}:1` });
-  const u = await app.ui();
-  await app.tapRect(u.buttons.upgrades);
-  await app.waitUi('upgrades', 'экран «Улучшения»');
-  let m = await waitMeta(app.page, (x) => x.screen.visible, 5000);
-  const mism = openMismatch(UP, m);
-  check(`${p} куплены узлы «Сироп» и «Шипучка»: их ветки открыты, узел «Шприц» открыт, ветка Шприца закрыта`, nodeOf(m, branchRoot('syrup')).open && nodeOf(m, branchRoot('fizz')).open && nodeOf(m, towerNodeId('syringe')).open && !nodeOf(m, branchRoot('syringe')).open && mism.length === 0, `${mism.join('; ')}`);
-  m = await selectNode(app, branchRoot('syringe'));
-  const line = i18nText('upgRequires', 0, { name: upgName(towerNodeId('syringe'), 0), n: 1 });
-  check(`${p} в закрытой ветке Шприца в карточке «${line}»`, m.screen.detail.texts[3] === line, m.screen.detail.texts[3]);
-  await app.page.close();
-  await context.close();
 }
 
-/** Улучшения древа защиты (этап 6б, docs/upgrades.md, разделы 12 и 15): числа башен по веткам, цена и продажа, щит у линии и звёзды, подкрепление. Все ожидаемые числа — из таблицы `meta.upgrades` в config.ts. */
 async function runTreeEffects(browser, baseUrl) {
   const p = '[улучшения древа]';
   const UP = readMetaTable().upgrades;
