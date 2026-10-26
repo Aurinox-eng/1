@@ -9744,6 +9744,28 @@ async function runTreeMock(browser, baseUrl) {
       await context.close();
     }
   }
+  // Сеть «Атом» на настоящих узлах (п. 4.5 сообщения 3 от 26 октября 2026; план docs/levels30-enemies-plan-2026-10-26.md, пп. 2–3): размер древа, ДНК колец, связность купленного
+  const RING_DNA = [2485, 4069, 5011, 7581, 6724, 7400];
+  for (const [deviceKey, zoom] of [['desktop', ''], ['phone', ''], ['desktop', '0.4'], ['phone', '1.6']]) {
+    const device = VIEWPORTS[deviceKey];
+    const p = `[макет сети «Атом», ${device.label}, масштаб ${zoom || 'начальный'}]`;
+    const context = await newDeviceContext(browser, device, 'ru');
+    const page = await context.newPage();
+    watchConsole(page, p);
+    await page.goto(`${baseUrl}?qa&treemock=net${zoom ? `&zoom=${zoom}` : ''}`, { waitUntil: 'load', timeout: 90000 });
+    await page.waitForFunction(() => window.__treeNet !== undefined, null, { timeout: 30000 });
+    await sleep(1500);
+    await frames(page, 3);
+    await shot(page, `treemock-net-${deviceKey}-${zoom ? `zoom${zoom.replace('.', '_')}` : 'start'}`);
+    const net = await page.evaluate(() => window.__treeNet);
+    if (deviceKey === 'desktop' && !zoom) {
+      check(`${p} узлов 307 (229 нынешних уровней + 48 продолжения + 21 перемычка + 9 башен): ${net.nodes}`, net.nodes === 307 && net.newNodes === 69 && net.bridges === 21, JSON.stringify(net));
+      check(`${p} ДНК древа 36 920 (план, п. 2): ${net.treeDna}`, net.treeDna === 36920, JSON.stringify(net));
+      check(`${p} ДНК колец как в плане (п. 3): ${net.ringDna.join(', ')}`, RING_DNA.every((v, i) => net.ringDna[i] === v), JSON.stringify(net.ringDna));
+      check(`${p} купленное связано с ядром или купленной башней, есть узлы «можно взять» (${net.available}), куплено ${net.boughtDna} ДНК — не больше ДНК к победе на уровне 2 (2 785)`, net.boughtConnected && net.available > 0 && net.boughtDna <= 2785, JSON.stringify(net));
+    }
+    await context.close();
+  }
 }
 
 /** «Альманах» с паузы партии: кнопки на паузе, альманах поверх приостановленной партии, «Назад» возвращает на паузу, тап по экрану продолжает игру. */
