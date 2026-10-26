@@ -6752,40 +6752,39 @@ function cardTexts() {
   // тексты мутаций называют числа из config.ts: если баланс поменяли, а текст нет — красно
   const ru = (n) => String(n).replace('.', ',');
   const M = (id) => Object.values(S4.mutations).flat(2).find((m) => m.id === id);
+  // (таблица п. 3.3, принята владельцем 26 октября 2026) пауза — «в k раза чаще» (k = 1 / множитель паузы, один знак); множители — «в N раза»; «вдвое» / «twice»;
+  // «Едкая», «Липкая», «Кислота» (время), «Больше ударов» и угол Лампы — без чисел (п. 4.3; угол — через множитель ширины)
+  const rate = (v) => ru(Math.round((1 / v) * 10) / 10);
   const mentions = [
-    ['pillRapid', 'cooldownMul', (v) => String(Math.round((1 - v) * 100))],
-    ['fizzFast', 'cooldownMul', (v) => String(Math.round((1 - v) * 100))],
+    ['pillRapid', 'cooldownMul', rate],
+    ['fizzFast', 'cooldownMul', rate],
     ['pillHunter', 'damageMul', (v) => ru(v)],
     ['syrupWide', 'puddleRadiusMul', (v) => ru(v)],
-    ['syrupCaustic', 'poisonPerSec', (v) => ru(v)],
     ['fizzBig', 'blastMul', (v) => ru(v)],
-    ['fizzAcid', 'acidMul', (v) => String(Math.round((v - 1) * 100))],
-    ['fizzAcid', 'acidSec', (v) => String(v)],
-    ['syringeMore', 'pulsesAdd', (v) => `+${v}`],
+    ['fizzAcid', 'acidMul', (v) => ru(v)],
     ['syringePierce', 'damageMul', (v) => ru(v)],
-    ['ampuleRapid', 'cooldownMul', (v) => String(Math.round((1 - v) * 100))],
+    ['ampuleRapid', 'cooldownMul', rate],
     ['ampuleMight', 'damageMul', (v) => ru(v)],
-    ['antibioticQuick', 'cooldownMul', (v) => String(Math.round((1 - v) * 100))],
+    ['antibioticQuick', 'cooldownMul', rate],
     ['antibioticLong', 'dotSecMul', (v) => ru(v)],
     ['antibioticStrong', 'dotDpsMul', (v) => ru(v)],
-    // пачка 2: Лампа (угол конуса в градусах — от угла башни в таблице × множитель; урон; длина) и Витамин (прибавка к скорости, радиус)
-    ['lampNarrow', 'coneMul', (v) => String(Math.round(TW.lamp.coneDeg * v))],
+    // Лампа: «шире в N раза» — по углу с потолком mutationCaps.coneDeg; урон; длина. Витамин: прибавка к скорости, радиус
     ['lampNarrow', 'damageMul', (v) => ru(v)],
-    ['lampWide', 'coneMul', (v) => String(Math.round(Math.min(CAPS.coneDeg, TW.lamp.coneDeg * v)))],
+    ['lampWide', 'coneMul', (v) => ru(Math.round((Math.min(CAPS.coneDeg, TW.lamp.coneDeg * v) / TW.lamp.coneDeg) * 10) / 10)],
     ['lampBlaze', 'damageMul', (v) => ru(v)],
     ['lampFar', 'rangeMul', (v) => ru(v)],
     ['vitaminBoost', 'auraBonusMul', (v) => ru(v)],
     ['vitaminFar', 'rangeMul', (v) => ru(v)],
     ['vitaminStrong', 'auraBonusMul', (v) => ru(v)],
     ['vitaminDouble', 'rangeMul', (v) => ru(v)],
-    // пачка 3: Холод (время заморозки, пауза, радиус) и Пластырь (время приклеивания, пауза, урон ловушки)
+    // Холод (время заморозки, частота, радиус) и Пластырь (время приклеивания, частота, урон ловушки: ×2 — «вдвое» / «twice»)
     ['frostDeep', 'freezeMul', (v) => ru(v)],
-    ['frostFrequent', 'cooldownMul', (v) => String(Math.round((1 - v) * 100))],
+    ['frostFrequent', 'cooldownMul', rate],
     ['frostLong', 'freezeMul', (v) => ru(v)],
     ['frostWide', 'rangeMul', (v) => ru(v)],
     ['patchSticky', 'trapSecMul', (v) => ru(v)],
-    ['patchQuick', 'cooldownMul', (v) => String(Math.round((1 - v) * 100))],
-    ['patchCaustic', 'trapDpsMul', (v) => ru(v)],
+    ['patchQuick', 'cooldownMul', rate],
+    ['patchCaustic', 'trapDpsMul', (v) => (v === 2 ? ['вдвое', 'twice'] : ru(v))],
   ];
   const stale = [];
   for (const [id, field, fmt] of mentions) {
@@ -6796,11 +6795,30 @@ function cardTexts() {
     }
     const [ruText] = readI18n(`mutd${cap(id)}`);
     const enText = readI18n(`mutd${cap(id)}`)[1];
-    const want = fmt(spec[field]);
+    const got = fmt(spec[field]);
+    const [want, wantEn] = Array.isArray(got) ? got : [got, got.replace(',', '.')];
     if (!ruText.includes(want)) stale.push(`${id} (ru «${ruText}») не называет ${want}`);
-    if (!enText.includes(want.replace(',', '.'))) stale.push(`${id} (en «${enText}») не называет ${want.replace(',', '.')}`);
+    if (!enText.includes(wantEn)) stale.push(`${id} (en «${enText}») не называет ${wantEn}`);
   }
   check(`${p} описания мутаций называют те же числа, что config.ts (${mentions.length} описаний)`, stale.length === 0, stale.join('; '));
+  // ключевые узлы древа (п. 4.2 решения владельца 26 октября 2026): множители урона Прожектора и Хрупкости и «вполсилы» Рикошета и Разрыва — из config.ts (keyNodes)
+  const cfgText = fs.readFileSync(path.join(ROOT, 'src/config.ts'), 'utf8');
+  const keyBlock = cfgText.slice(cfgText.indexOf('keyNodes: {'), cfgText.indexOf('\n  },', cfgText.indexOf('keyNodes: {')));
+  const keyNum = (tower, field) => Number(new RegExp(`\\n\\s*${tower}: \\{[^}]*\\b${field}: ([\\d.]+)`).exec(keyBlock)?.[1]);
+  const keyStale = [];
+  for (const [key, tower, field, fmt] of [
+    ['upgInfoLampKey', 'lamp', 'damageMul', (v) => [ru(v), String(v)]],
+    ['upgInfoFrostKey', 'frost', 'damageMul', (v) => [ru(v), String(v)]],
+    ['upgInfoPillKey', 'pill', 'damageShare', (v) => (v === 0.5 ? ['вполсилы', 'half strength'] : [ru(v), String(v)])],
+    ['upgInfoAmpuleKey', 'ampule', 'damageShare', (v) => (v === 0.5 ? ['вполсилы', 'half strength'] : [ru(v), String(v)])],
+  ]) {
+    const v = keyNum(tower, field);
+    const [wantRu, wantEn] = fmt(v);
+    const [ruText, enText] = readI18n(key);
+    if (!Number.isFinite(v)) keyStale.push(`${key}: в config.ts нет keyNodes.${tower}.${field}`);
+    else if (!ruText.includes(wantRu) || !enText.includes(wantEn)) keyStale.push(`${key}: «${ruText}» / «${enText}» не называет ${wantRu} / ${wantEn}`);
+  }
+  check(`${p} описания ключевых узлов называют те же числа, что config.ts (Прожектор, Хрупкость, Рикошет, Разрыв)`, keyStale.length === 0, keyStale.join('; '));
 }
 
 // ---------------------------------------------------------------- карточка: выбор, закрытие, кнопки
