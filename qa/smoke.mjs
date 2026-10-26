@@ -8057,6 +8057,20 @@ async function runBosses(browser, baseUrl) {
   const [miniWave, miniId] = bossWaves[0];
   const fever = { sec: readConfigNumber('fever', 'durationSec'), recharge: readConfigNumber('fever', 'rechargeSec') };
 
+  // 0) перед волной с мини-боссом — знак без текста (решение владельца 26 октября 2026, сообщение 1, п. 3.1): таймер волны красный и отдельный звук, строки «Следующая волна» нет;
+  //    с началом волны таймер снова обычный
+  {
+    const g0 = await openGame(context, baseUrl, `${p} знак перед боссом`, { speed: 4, cfg: 'lives.start:500', query: `&levelwaves&level=1&towers=all&wave=${miniWave - 1}` });
+    const before = await g0.state();
+    check(`${p} в волне ${miniWave - 1} (до волны мини-босса) таймер не красный`, before.ui.waveWarn === false, JSON.stringify({ wave: before.wave, warn: before.ui.waveWarn }));
+    const warned = await waitForGame(g0.page, (x) => x.ui.waveWarn === true || x.state !== 'playing', `пауза перед волной ${miniWave}`, { gameSec: 180 });
+    check(`${p} перед волной ${miniWave} с мини-боссом таймер волны красный, строк вверху нет (строка: ${JSON.stringify(warned.toast.text)})`, warned.ui.waveWarn === true && warned.toast.text === null && warned.toast.queued.length === 0, JSON.stringify({ warn: warned.ui.waveWarn, toast: warned.toast }));
+    await shot(g0.page, 'boss-warn-timer');
+    const started = await waitForGame(g0.page, (x) => x.wave >= miniWave || x.state !== 'playing', `начало волны ${miniWave}`, { gameSec: 120 });
+    check(`${p} с началом волны ${miniWave} таймер снова обычный`, started.wave === miniWave && started.ui.waveWarn === false, JSON.stringify({ wave: started.wave, warn: started.ui.waveWarn }));
+    await g0.page.close();
+  }
+
   // 1) мини-босс своей волны; без узла «Лихорадка» кнопки нет
   let game = await openGame(context, baseUrl, p, { speed: 4, cfg: 'lives.start:500', query: `&levelwaves&level=1&towers=all&wave=${miniWave}` });
   let s = await game.state();
