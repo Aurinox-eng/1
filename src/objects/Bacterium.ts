@@ -2,7 +2,7 @@ import Phaser from 'phaser';
 import { CONFIG, type BossId, type BossSpec, type Ward } from '../config';
 import { EDGES_FROM } from '../level';
 import { pointAt, type Edge } from '../pathing';
-import { NO_BREATH, NO_FACE } from '../debug';
+import { FACE_SIGNS, NO_BREATH, NO_FACE } from '../debug';
 import { COLORS, TOWER_MARK } from '../theme';
 import { artDensity, artImage, bakeArt, discImage, ringImage, setArt, squareBox, type ArtBox } from '../art';
 import type { Tower } from './Tower';
@@ -80,8 +80,8 @@ function cracksTexture(scene: Phaser.Scene, kind: BacteriumKind, damage: number,
  * Образец бактерии для листа образцов режима проверки (`?qa&artsheet`): тело при заданном HP, трещины и лицо; legacy — прежний рисунок (до переноса стиля).
  * Центр образца — (0, 0); в игре не используется.
  */
-export function bacteriumSample(scene: Phaser.Scene, kind: BacteriumKind, hp: number, maxHp: number, legacy = false, smallFace = false): Phaser.GameObjects.Container {
-  const parts: Phaser.GameObjects.Image[] = [artImage(scene, bodyTexture(scene, kind, shellWidth(kind, hp, maxHp), legacy, 'open', smallFace), bodyBox(kind, legacy))];
+export function bacteriumSample(scene: Phaser.Scene, kind: BacteriumKind, hp: number, maxHp: number, legacy = false, smallFace = false, face: Eyes = 'open'): Phaser.GameObjects.Container {
+  const parts: Phaser.GameObjects.Image[] = [artImage(scene, bodyTexture(scene, kind, shellWidth(kind, hp, maxHp), legacy, face, smallFace), bodyBox(kind, legacy))];
   const damage = crackCount(hp, maxHp);
   if (damage > 0) {
     const { key, box } = cracksTexture(scene, kind, damage, maxHp);
@@ -682,12 +682,12 @@ export class Bacterium {
 
   /** Состояние глаз для картинки тела: без лица (режим проверки), открыты или закрыты (моргание). */
   private eyes(): Eyes {
-    return NO_FACE ? 'none' : this.eyesShut ? 'shut' : 'open';
+    return NO_FACE ? 'none' : FACE_SIGNS ? 'signs' : this.eyesShut ? 'shut' : 'open';
   }
 
   /** Глаза закрываются (моргание) или открываются: меняется картинка тела. */
   private shutEyes(shut: boolean): void {
-    if (NO_FACE || shut === this.eyesShut) return;
+    if (NO_FACE || FACE_SIGNS || shut === this.eyesShut) return;
     this.eyesShut = shut;
     this.applyBody();
   }

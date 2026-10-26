@@ -36,9 +36,9 @@
     "towers_only": ""
   },
   {
-    "group": "Альманах, числа урона, строка проигрыша, строка итога, очередь уведомлений, тряска, макет древа (almanac, almanac-pause, damage-numbers, lose-line, attempt-line, toast-queue, shake, treemock)",
+    "group": "Альманах, числа урона, строка проигрыша, строка итога, очередь уведомлений, тряска, макет древа, лист без лиц (almanac, almanac-pause, damage-numbers, lose-line, attempt-line, toast-queue, shake, treemock, faces)",
     "key": "almanac",
-    "scenarios": "almanac almanac-pause damage-numbers lose-line attempt-line toast-queue shake treemock",
+    "scenarios": "almanac almanac-pause damage-numbers lose-line attempt-line toast-queue shake treemock faces",
     "towers_only": ""
   },
   {

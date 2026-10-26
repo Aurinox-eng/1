@@ -484,8 +484,8 @@ function shellQuant(kind: StyleKind, sw: number): number {
   return Math.round(q * 10) / 10;
 }
 
-/** Лицо на картинке тела: нет лица, глаза открыты, глаза закрыты (моргание). */
-export type Eyes = 'none' | 'open' | 'shut';
+/** Лицо на картинке тела: нет лица, глаза открыты, глаза закрыты (моргание), только знаки вида без черт лица (крест, звезда, стрелка-кольцо, вакуоль; решение владельца 26 октября 2026, сообщение 4, п. 2). */
+export type Eyes = 'none' | 'open' | 'shut' | 'signs';
 
 /**
  * Картинка тела с оболочкой толщины sw и лицом: одна на вид, толщину и состояние глаз. Лицо нарисовано прямо на теле, поэтому у бактерии на экране один объект вместо двух
@@ -494,7 +494,7 @@ export type Eyes = 'none' | 'open' | 'shut';
  */
 export function styleBodyKey(scene: Phaser.Scene, kind: StyleKind, sw: number, eyes: Eyes = 'open', small = false): string {
   const q = shellQuant(kind, sw);
-  const faceTag = eyes === 'none' ? '' : `-${eyes === 'open' ? 'o' : 'b'}${small ? '-s' : ''}`;
+  const faceTag = eyes === 'none' ? '' : eyes === 'signs' ? '-k' : `-${eyes === 'open' ? 'o' : 'b'}${small ? '-s' : ''}`;
   return bakeCanvasArt(scene, `style-body-${kind}-${q}${faceTag}`, styleBodyBox(kind), (ctx, d) => {
     ctx.save();
     if (isCoreKind(kind)) drawBodyCanvas(ctx, d, kind, q);
@@ -502,7 +502,8 @@ export function styleBodyKey(scene: Phaser.Scene, kind: StyleKind, sw: number, e
     ctx.restore();
     if (eyes === 'none') return;
     ctx.save();
-    if (isCoreKind(kind)) drawFaceCore(ctx, kind, eyes === 'shut', small);
+    if (eyes === 'signs') drawKindSigns(ctx, kind);
+    else if (isCoreKind(kind)) drawFaceCore(ctx, kind, eyes === 'shut', small);
     else drawFaceStyle(ctx, kind, eyes === 'shut');
     ctx.restore();
   });
@@ -794,18 +795,7 @@ function drawFaceStyle(ctx: CanvasRenderingContext2D, kind: StyleKind, blink: bo
     }
     case 'healer': {
       // лекарь: розовый крест на лбу и добрые глаза
-      const cy = -r * 0.5;
-      const arm = r * 0.27;
-      const th = r * 0.15;
-      ctx.fillStyle = css(COLORS.cross);
-      ctx.strokeStyle = css(darken(COLORS.cross, 0.5));
-      ctx.lineWidth = 1.4;
-      rrPath(ctx, -th / 2, cy - arm, th, arm * 2, th * 0.3);
-      ctx.fill();
-      ctx.stroke();
-      rrPath(ctx, -arm, cy - th / 2, arm * 2, th, th * 0.3);
-      ctx.fill();
-      ctx.stroke();
+      healerCross(ctx, r, -r * 0.5, 1);
       eyePair(ctx, blink, r * 0.28, r * 0.08, r * 0.16, r * 0.17, r * 0.09, ink, dark, 1.3);
       smileArc(ctx, 0, r * 0.3, r * 0.17, r * 0.07, ink);
       return;
@@ -843,33 +833,14 @@ function drawFaceStyle(ctx: CanvasRenderingContext2D, kind: StyleKind, blink: bo
     }
     case 'regen': {
       // регенератор: белая стрелка-кольцо вокруг доброго лица
-      ctx.lineWidth = Math.max(3, r * 0.09);
-      ctx.strokeStyle = 'rgba(255,255,255,0.7)';
-      ctx.beginPath();
-      ctx.arc(0, 0, r * 0.76, -0.4, Math.PI * 1.45);
-      ctx.stroke();
-      const tipA = Math.PI * 1.45;
-      const tx = Math.cos(tipA) * r * 0.76;
-      const ty = Math.sin(tipA) * r * 0.76;
-      ctx.fillStyle = 'rgba(255,255,255,0.85)';
-      ctx.beginPath();
-      ctx.moveTo(tx + r * 0.18, ty - r * 0.02);
-      ctx.lineTo(tx - r * 0.12, ty - r * 0.18);
-      ctx.lineTo(tx - r * 0.12, ty + r * 0.18);
-      ctx.closePath();
-      ctx.fill();
+      regenArrow(ctx, r);
       eyePair(ctx, blink, r * 0.25, -r * 0.05, r * 0.15, r * 0.16, r * 0.085, ink, dark, 1.3);
       smileArc(ctx, 0, r * 0.14, r * 0.16, r * 0.065, ink);
       return;
     }
     case 'commander': {
       // командир: золотая звезда на лбу и суровый взгляд
-      ctx.fillStyle = css(COLORS.star);
-      ctx.strokeStyle = css(darken(COLORS.star, 0.55));
-      ctx.lineWidth = 1.4;
-      starPath(ctx, 0, -r * 0.5, r * 0.25);
-      ctx.fill();
-      ctx.stroke();
+      commanderStar(ctx, r, -r * 0.5, 0.25);
       eyePair(ctx, blink, r * 0.27, r * 0.1, r * 0.15, r * 0.13, r * 0.075, ink, '#0a1030', 1.3, false, '#f1f4ff');
       for (const s of [-1, 1] as const) brow(ctx, s * r * 0.4, r * 0.0, s * r * 0.12, r * 0.04, r * 0.07, ink);
       ctx.lineWidth = r * 0.06;
@@ -994,6 +965,96 @@ function drawFaceStyle(ctx: CanvasRenderingContext2D, kind: StyleKind, blink: bo
         brow(ctx, cx + s * r * 0.2, -r * 0.27, cx - s * r * 0.16, -r * 0.17, r * 0.07, ink);
       }
       smileArc(ctx, r * 0.06, r * 0.2, r * 0.14, r * 0.06, ink, 0.1, 0.8);
+      return;
+    }
+    default:
+      return;
+  }
+}
+
+// ---------------------------------------------------------------- знаки вида без лица
+
+/** Крест лекаря: центр по вертикали cy, размер ×k к прежнему. */
+function healerCross(ctx: CanvasRenderingContext2D, r: number, cy: number, k: number): void {
+  const arm = r * 0.27 * k;
+  const th = r * 0.15 * k;
+  ctx.fillStyle = css(COLORS.cross);
+  ctx.strokeStyle = css(darken(COLORS.cross, 0.5));
+  ctx.lineWidth = 1.4;
+  rrPath(ctx, -th / 2, cy - arm, th, arm * 2, th * 0.3);
+  ctx.fill();
+  ctx.stroke();
+  rrPath(ctx, -arm, cy - th / 2, arm * 2, th, th * 0.3);
+  ctx.fill();
+  ctx.stroke();
+}
+
+/** Белая стрелка-кольцо регенератора. */
+function regenArrow(ctx: CanvasRenderingContext2D, r: number): void {
+  ctx.lineWidth = Math.max(3, r * 0.09);
+  ctx.strokeStyle = 'rgba(255,255,255,0.7)';
+  ctx.beginPath();
+  ctx.arc(0, 0, r * 0.76, -0.4, Math.PI * 1.45);
+  ctx.stroke();
+  const tipA = Math.PI * 1.45;
+  const tx = Math.cos(tipA) * r * 0.76;
+  const ty = Math.sin(tipA) * r * 0.76;
+  ctx.fillStyle = 'rgba(255,255,255,0.85)';
+  ctx.beginPath();
+  ctx.moveTo(tx + r * 0.18, ty - r * 0.02);
+  ctx.lineTo(tx - r * 0.12, ty - r * 0.18);
+  ctx.lineTo(tx - r * 0.12, ty + r * 0.18);
+  ctx.closePath();
+  ctx.fill();
+}
+
+/** Золотая звезда командира: центр по вертикали cy, радиус k·r. */
+function commanderStar(ctx: CanvasRenderingContext2D, r: number, cy: number, k: number): void {
+  ctx.fillStyle = css(COLORS.star);
+  ctx.strokeStyle = css(darken(COLORS.star, 0.55));
+  ctx.lineWidth = 1.4;
+  starPath(ctx, 0, cy, r * k);
+  ctx.fill();
+  ctx.stroke();
+}
+
+/**
+ * Знаки вида без черт лица (решение владельца 26 октября 2026, сообщение 4, п. 2): крест лекаря, звезда командира и стрелка-кольцо регенератора — в центре тела и крупнее,
+ * у поглотителя вместо рта с зубами — пищеварительная вакуоль (тёмный пузырь со съеденной крупинкой, сбоку). У остальных видов знак — само тело (броня, шипы, пятна, жгутики, щупальца).
+ */
+function drawKindSigns(ctx: CanvasRenderingContext2D, kind: StyleKind): void {
+  const r = CONFIG.types[kind].radius;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  switch (kind) {
+    case 'healer':
+      healerCross(ctx, r, 0, 1.45);
+      return;
+    case 'commander':
+      commanderStar(ctx, r, r * 0.02, 0.38);
+      return;
+    case 'regen':
+      regenArrow(ctx, r);
+      return;
+    case 'phago': {
+      const col = COLORS.kinds[kind];
+      const vx = r * 0.18;
+      const vy = r * 0.08;
+      const grad = ctx.createRadialGradient(vx - r * 0.12, vy - r * 0.12, 0, vx, vy, r * 0.42);
+      grad.addColorStop(0, css(lighten(col.crack, 0.25)));
+      grad.addColorStop(1, css(col.crack));
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.ellipse(vx, vy, r * 0.4, r * 0.34, -0.3, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.lineWidth = 1.6;
+      ctx.strokeStyle = css(darken(col.shell, 0.55));
+      ctx.stroke();
+      // съеденная крупинка внутри вакуоли
+      ctx.fillStyle = css(lighten(col.body, 0.35));
+      ctx.beginPath();
+      ctx.ellipse(vx + r * 0.08, vy + r * 0.04, r * 0.12, r * 0.09, 0.5, 0, Math.PI * 2);
+      ctx.fill();
       return;
     }
     default:

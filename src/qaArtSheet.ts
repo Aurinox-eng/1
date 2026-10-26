@@ -1,7 +1,9 @@
 import Phaser from 'phaser';
 import { CONFIG } from './config';
 import { ART_SHEET_PAGE } from './debug';
-import { bacteriumSample, type BacteriumKind } from './objects/Bacterium';
+import { t, type TextKey } from './i18n';
+import { bacteriumSample, extentOf, type BacteriumKind } from './objects/Bacterium';
+import { ringImage } from './art';
 import { createTowerArtSample, type TowerId } from './objects/Tower';
 import { COLORS } from './theme';
 
@@ -24,6 +26,14 @@ export class ArtSheetScene extends Phaser.Scene {
     this.add.rectangle(W / 2, H / 2, W, H, 0x14264a);
     if (ART_SHEET_PAGE === 'b1' || ART_SHEET_PAGE === 'b2') {
       this.bacteriaPage(ART_SHEET_PAGE === 'b1' ? KINDS.slice(0, 10) : KINDS.slice(10));
+      return;
+    }
+    if (ART_SHEET_PAGE === 'f1') {
+      this.facesKindsPage();
+      return;
+    }
+    if (ART_SHEET_PAGE === 'f2') {
+      this.facesBossesPage();
       return;
     }
     if (ART_SHEET_PAGE === 't1' || ART_SHEET_PAGE === 't2') {
@@ -106,6 +116,62 @@ export class ArtSheetScene extends Phaser.Scene {
       [maxHp, 1].forEach((hp, j) => {
         const sample = bacteriumSample(this, kind, hp, maxHp);
         sample.setPosition(cx + (j === 0 ? -62 : 62), cy).setScale(scale);
+      });
+    });
+  }
+
+  /** Заголовок страницы «было / стало». */
+  private facesHeader(text: string): void {
+    this.add.text(CONFIG.screen.width / 2, 16, text, { fontFamily: 'Arial', fontSize: '17px', color: '#cfe0ff' }).setOrigin(0.5, 0.5);
+  }
+
+  /**
+   * Страница `f1` (решение владельца 26 октября 2026, сообщение 4, п. 2.3): 19 видов «было / стало» — слева нынешний рисунок (рот, румянец, брови, зубы), справа без черт лица,
+   * только знаки вида. Пять видов в ряд, четыре ряда; крупные виды уменьшены, чтобы влезли в клетку (одинаково слева и справа).
+   */
+  private facesKindsPage(): void {
+    this.facesHeader('БЕЗ ЛИЦ: 19 видов — слева было, справа стало');
+    const W = CONFIG.screen.width;
+    const cellW = W / 5;
+    const cellH = 172;
+    KINDS.forEach((kind, i) => {
+      const cx = (i % 5) * cellW + cellW / 2;
+      const cy = 44 + Math.floor(i / 5) * cellH + cellH / 2;
+      this.add.rectangle(cx, cy, cellW - 8, cellH - 8, 0x1d3a6a, 0.45);
+      this.add.text(cx, cy - cellH / 2 + 14, t(`bacName${kind.charAt(0).toUpperCase()}${kind.slice(1)}` as TextKey), { fontFamily: 'Arial', fontSize: '14px', color: '#cfe0ff' }).setOrigin(0.5, 0.5);
+      const scale = Math.min(1, 54 / extentOf(kind));
+      const maxHp = CONFIG.types[kind].hp;
+      (['open', 'signs'] as const).forEach((face, j) => {
+        bacteriumSample(this, kind, maxHp, maxHp, false, false, face).setPosition(cx + (j === 0 ? -60 : 60), cy + 10).setScale(scale);
+      });
+    });
+  }
+
+  /**
+   * Страница `f2`: 10 боссов «было / стало» — тело вида-основы ×`bossRules.scale` с кольцом цвета босса, как в бою; уменьшено, чтобы влезло в клетку (подпись — имя босса).
+   */
+  private facesBossesPage(): void {
+    this.facesHeader('БЕЗ ЛИЦ: 10 боссов — слева было, справа стало');
+    const W = CONFIG.screen.width;
+    const cellW = W / 5;
+    const cellH = 336;
+    const ids = Object.keys(CONFIG.bosses) as (keyof typeof CONFIG.bosses)[];
+    ids.forEach((id, i) => {
+      const boss = CONFIG.bosses[id];
+      const kind = boss.base as BacteriumKind;
+      const cx = (i % 5) * cellW + cellW / 2;
+      const cy = 44 + Math.floor(i / 5) * cellH + cellH / 2;
+      this.add.rectangle(cx, cy, cellW - 8, cellH - 8, 0x1d3a6a, 0.45);
+      this.add.text(cx, cy - cellH / 2 + 16, t(`boss${id.charAt(0).toUpperCase()}${id.slice(1)}` as TextKey), { fontFamily: 'Arial', fontSize: '14px', color: '#cfe0ff' }).setOrigin(0.5, 0.5);
+      const scale = CONFIG.bossRules.scale;
+      const r = CONFIG.types[kind].radius;
+      const fit = Math.min(1, 64 / (Math.max(r, extentOf(kind)) * scale + 10));
+      (['open', 'signs'] as const).forEach((face, j) => {
+        const holder = this.add.container(cx, cy + (j === 0 ? -60 : 88));
+        holder.add(bacteriumSample(this, kind, CONFIG.types[kind].hp, CONFIG.types[kind].hp, false, false, face).setScale(scale));
+        holder.add(ringImage(this, 0, 0, r * scale + 10, 6, boss.color, 0.95));
+        holder.setScale(fit);
+        this.add.text(cx - cellW / 2 + 10, cy + (j === 0 ? -60 : 88), j === 0 ? 'было' : 'стало', { fontFamily: 'Arial', fontSize: '12px', color: '#9fb4d8' }).setOrigin(0, 0.5);
       });
     });
   }

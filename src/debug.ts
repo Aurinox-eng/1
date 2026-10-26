@@ -43,10 +43,12 @@ export const PILL_EYES_OFF: boolean = QA_MODE && params.get('pilleyes') === '0';
  */
 export const NO_FACE: boolean = QA_MODE && params.has('noface');
 export const NO_BREATH: boolean = QA_MODE && params.has('nobreath');
+/** Только режим проверки (лист «без лиц», сообщение владельца 4 от 26 октября 2026, п. 2.3): `?qa&faces=signs` — у бактерий только знаки вида, без черт лица. В игровой сборке всегда false. */
+export const FACE_SIGNS: boolean = QA_MODE && params.get('faces') === 'signs';
 
 /** Только режим проверки: `?qa&artsheet` — вместо игры показывается лист образцов пилота этапа 8. */
 export const ART_SHEET: boolean = QA_MODE && params.has('artsheet');
-/** Страница листа образцов: пусто — пилот (новое рядом с прежним), `b1`, `b2` — все 19 бактерий, `t1`, `t2` — все 10 башен по уровням. */
+/** Страница листа образцов: пусто — пилот (новое рядом с прежним), `b1`, `b2` — все 19 бактерий, `t1`, `t2` — все 10 башен по уровням, `f1` — 19 видов «было / стало» без лиц, `f2` — 10 боссов «было / стало». */
 export const ART_SHEET_PAGE: string = params.get('artsheet') ?? '';
 /** Только режим проверки: `?qa&treemock` — вместо игры макет радиального древа (п. 5 сообщения владельца 5 от 25 октября 2026), `&zoom=1.8` — начальный масштаб. */
 export const TREE_MOCK: boolean = QA_MODE && params.has('treemock');

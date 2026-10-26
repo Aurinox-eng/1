@@ -10,7 +10,8 @@
  */
 import { CONFIG, type UpgradeBranch, type UpgradeEffect } from './config';
 import { QA_MODE, READY_OVERRIDE } from './debug';
-import { emptyMeta, loadMeta, MAX_LOG, MAX_LOG_LEN, maxLevel, META_KEY, saveMeta, tryLoadMeta, UPGRADE_IDS, type MetaSave, type UpgradeId } from './save';
+import { emptyMeta, loadMeta, MAX_LOG, MAX_LOG_LEN, maxLevel, META_KEY, nodesOfLevels, saveMeta, tryLoadMeta, UPGRADE_IDS, type MetaSave, type UpgradeId } from './save';
+import { CORE, NET, nodeKey } from './treeNet';
 import { setLevelReachedCheck, setTowerOwnedCheck } from './progress';
 
 function readOverride(): MetaSave | null {
@@ -26,6 +27,7 @@ function readOverride(): MetaSave | null {
     else if (UPGRADE_IDS.includes(key)) out.levels[key] = Math.min(maxLevel(key), Math.floor(value));
     else console.warn(`meta: не понял «${item}» — пропускаю`);
   }
+  out.nodes = nodesOfLevels(out.levels);
   return out;
 }
 
@@ -98,41 +100,123 @@ export function metaLevels(): Record<UpgradeId, number> {
   return { ...state.levels };
 }
 
-/** Цена следующего уровня улучшения или null, если куплен наибольший. */
-export function nextPrice(id: UpgradeId): number | null {
-  return CONFIG.meta.upgrades[id].prices[state.levels[id]] ?? null;
+// ---------------------------------------------------------------- сеть древа: кольца, соседство, покупка, сброс (`src/treeNet.ts`, `meta.network`)
+
+/** Только режим проверки: `?qa&rings=N` — открыты кольца 1…N, независимо от побед. */
+const RINGS_OVERRIDE: number | null = (() => {
+  if (!QA_MODE) return null;
+  const raw = new URLSearchParams(window.location.search).get('rings');
+  const n = raw === null ? NaN : Math.floor(Number(raw));
+  return Number.isFinite(n) && n >= 0 ? n : null;
+})();
+
+/** Открыто ли кольцо k: 1 — сразу, остальные — победой на уровне `ringOpenAfter[k − 1]`; 0 — узлы башен (вне колец). */
+export function isRingOpen(ring: number): boolean {
+  if (ring <= 0) return true;
+  if (RINGS_OVERRIDE !== null) return ring <= RINGS_OVERRIDE;
+  const after = CONFIG.meta.network.ringOpenAfter[ring - 1];
+  if (after === undefined) return false;
+  return after <= 0 || isLevelBeaten(after);
 }
 
-/** Условие открытия узла дерева: родитель и нужный уровень (null — узел открыт с начала). */
+/** Куплен ли узел сети (`id#L`); ядро — всегда. */
+export function nodeBought(key: string): boolean {
+  if (key === CORE) return true;
+  return state.nodes.includes(key);
+}
+
+/** Можно ли взять узел по сети (очки не учитываются): не куплен, кольцо открыто, сосед купленного (или ядра). */
+export function nodeAvailable(key: string): boolean {
+  const node = NET.nodes.get(key);
+  if (!node || nodeBought(key) || !isRingOpen(node.ring)) return false;
+  for (const q of NET.adj.get(key) ?? []) if (nodeBought(q)) return true;
+  return false;
+}
+
+/** Узел улучшения, который купит `buyUpgrade`: наименьший не купленный уровень, который можно взять по сети; null — такого нет. */
+export function nextNodeOf(id: UpgradeId): string | null {
+  for (let L = 1; L <= maxLevel(id); L++) {
+    const key = nodeKey(id, L);
+    if (nodeAvailable(key)) return key;
+  }
+  return null;
+}
+
+/** Цена следующей покупки улучшения: узел, который можно взять, иначе наименьший не купленный уровень; null — куплены все уровни. */
+export function nextPrice(id: UpgradeId): number | null {
+  const key = nextNodeOf(id) ?? firstUnbought(id);
+  return key ? NET.nodes.get(key)!.price : null;
+}
+
+function firstUnbought(id: UpgradeId): string | null {
+  for (let L = 1; L <= maxLevel(id); L++) if (!nodeBought(nodeKey(id, L))) return nodeKey(id, L);
+  return null;
+}
+
+/** Условие открытия узла дерева: родитель и нужный уровень (null — узел открыт с начала); для подписи карточки. */
 export function requirementOf(id: UpgradeId): { id: UpgradeId; level: number } | null {
   const req = CONFIG.meta.upgrades[id].requires;
   return req ? { id: req[0], level: req[1] } : null;
 }
 
-/** Выполнено ли условие дерева: родитель куплен до нужного уровня. */
+/** Подведён ли путь по сети к следующему не купленному уровню (кольцо не учитывается). */
 export function requirementMet(id: UpgradeId): boolean {
-  const req = requirementOf(id);
-  return !req || (state.levels[req.id] ?? 0) >= req.level;
+  const key = firstUnbought(id);
+  if (!key) return true;
+  for (let L = 1; L <= maxLevel(id); L++) {
+    const k = nodeKey(id, L);
+    if (nodeBought(k)) continue;
+    for (const q of NET.adj.get(k) ?? []) if (nodeBought(q)) return true;
+  }
+  return false;
 }
 
-/** Узел доступен для покупки по структуре древа (ветка открыта, родитель куплен); очки не учитываются. */
+/** Узел доступен для покупки по сети (ветка открыта, есть уровень, который можно взять: кольцо открыто, сосед купленного); купленный до наибольшего уровня — открыт; очки не учитываются. */
 export function isNodeOpen(id: UpgradeId): boolean {
-  return isBranchOpen(CONFIG.meta.upgrades[id].branch) && requirementMet(id);
+  return isBranchOpen(CONFIG.meta.upgrades[id].branch) && (firstUnbought(id) === null || nextNodeOf(id) !== null);
 }
 
 export function canBuy(id: UpgradeId): boolean {
-  const price = nextPrice(id);
-  return price !== null && state.dna >= price && isNodeOpen(id);
+  const key = nextNodeOf(id);
+  return key !== null && isBranchOpen(CONFIG.meta.upgrades[id].branch) && state.dna >= NET.nodes.get(key)!.price;
 }
 
-/** Покупает следующий уровень улучшения; false, если куплен наибольший уровень, узел закрыт или не хватает очков. */
-export function buyUpgrade(id: UpgradeId): boolean {
+/** Покупает узел сети; false — нельзя взять по сети или не хватает очков. */
+export function buyNode(key: string): boolean {
   refresh();
-  const price = nextPrice(id);
-  if (price === null || state.dna < price || !isNodeOpen(id)) return false;
-  state = { ...state, dna: state.dna - price, levels: { ...state.levels, [id]: state.levels[id] + 1 }, bought: [...state.bought, id] };
+  const node = NET.nodes.get(key);
+  if (!node || !nodeAvailable(key) || !isBranchOpen(CONFIG.meta.upgrades[node.upgrade].branch) || state.dna < node.price) return false;
+  const id = node.upgrade;
+  state = { ...state, dna: state.dna - node.price, levels: { ...state.levels, [id]: state.levels[id] + 1 }, nodes: [...state.nodes, key], bought: [...state.bought, id] };
   persist();
   return true;
+}
+
+/** Покупает следующий уровень улучшения (узел `nextNodeOf`); false, если взять нечего, узел закрыт или не хватает очков. */
+export function buyUpgrade(id: UpgradeId): boolean {
+  const key = nextNodeOf(id);
+  return key !== null && buyNode(key);
+}
+
+/** Сколько ДНК вернёт сброс сети: цены купленных малых и ключевых узлов (узлы башен не возвращаются). */
+export function networkRefund(): number {
+  return state.nodes.reduce((sum, key) => {
+    const node = NET.nodes.get(key);
+    return sum + (node && node.ring > 0 ? node.price : 0);
+  }, 0);
+}
+
+/** Сброс сети между попытками (решение владельца 26 октября 2026, сообщение 3, п. 4.2: бесплатный): все малые и ключевые узлы возвращают ДНК, узлы башен остаются. */
+export function resetNetwork(): number {
+  refresh();
+  const refund = networkRefund();
+  if (refund <= 0) return 0;
+  const keep = state.nodes.filter((key) => (NET.nodes.get(key)?.ring ?? 1) === 0);
+  const levels = { ...state.levels };
+  for (const id of UPGRADE_IDS) if (CONFIG.meta.upgrades[id].branch !== 'towers') levels[id] = 0;
+  state = { ...state, dna: state.dna + refund, levels, nodes: keep };
+  persist();
+  return refund;
 }
 
 /** Id узла башни в древе: `tower` + id башни с заглавной буквы (`fizz` → `towerFizz`); у Таблетки узла нет. */
@@ -409,10 +493,16 @@ type Rect = { x: number; y: number; w: number; h: number };
 export interface MetaScreenInfo {
   visible: boolean;
   balance: string;
-  /** Выбранный узел (id), прокрутка дерева и окно дерева. */
+  /** Выбранный узел (id), сдвиг сети (одно число из сдвига по x и y) и окно сети. */
   selected: string;
   scroll: number;
   view: Rect;
+  /** Сеть: масштаб, выбранный узел сети (`id#L`), подписи цепочек на экране (видимые), кнопка сброса сети и сколько ДНК он вернёт. */
+  zoom?: number;
+  selectedKey?: string;
+  labels?: Rect[];
+  respec?: Rect | null;
+  refund?: number;
   nodes: { id: UpgradeId; level: number; max: number; price: number | null; canBuy: boolean; open: boolean; onScreen: boolean; rect: Rect; /** Подпись под кружком (название узла): центр и размер на экране игры. */ label: Rect; recommended: boolean }[];
   /** Карточка выбранного узла: тексты (название, уровень, что даст дальше, условие, кнопка), кнопка покупки, помещаются ли тексты. */
   detail: { texts: string[]; buy: Rect; fits: boolean; /** «★ рекомендуем» у узла с меткой (иначе пусто). */ hint: string } | null;
@@ -430,6 +520,12 @@ export interface MetaDebugSnapshot {
   screen: MetaScreenInfo;
   /** Первые победы над боссами по уровням (биты) и награды «без потерь». */
   bossWins: number[];
+  /** Сеть древа: купленные узлы (`id#L`), узлы, которые можно взять (кольцо открыто, сосед купленного), открытые кольца. */
+  nodes: string[];
+  available: string[];
+  rings: number[];
+  /** Связи сети по орбите между соседними секторами (`src/treeNet.ts`). */
+  orbit: [string, string][];
   flawless: number[];
 }
 
@@ -441,7 +537,7 @@ declare global {
 
 /** Делает состояние очков и улучшений доступным проверкам (`window.__pvbMeta`); `screen` отдаёт описание экрана «Улучшения» (или «не показан»). */
 export function exposeMetaDebug(screen: () => MetaScreenInfo): void {
-  if (QA_MODE) window.__pvbMeta = { getMeta: () => ({ log: [...state.log], logMax: MAX_LOG_LEN, dna: state.dna, levels: metaLevels(), progress: { stars: [...state.progress.stars], best: [...state.progress.best] }, seen: [...state.seen], bossWins: [...state.bossWins], flawless: [...state.flawless], screen: screen() }), dnaFor: dnaParts, starsFor: starsForLoss };
+  if (QA_MODE) window.__pvbMeta = { getMeta: () => ({ log: [...state.log], logMax: MAX_LOG_LEN, dna: state.dna, levels: metaLevels(), progress: { stars: [...state.progress.stars], best: [...state.progress.best] }, seen: [...state.seen], bossWins: [...state.bossWins], flawless: [...state.flawless], screen: screen(), nodes: [...state.nodes], available: [...NET.nodes.keys()].filter(nodeAvailable), rings: [1, 2, 3, 4, 5, 6].filter(isRingOpen), orbit: NET.orbit.map(([a, b]) => [a, b] as [string, string]) }), dnaFor: dnaParts, starsFor: starsForLoss };
 }
 
 export const HIDDEN_SCREEN: MetaScreenInfo = { visible: false, balance: '', selected: '', scroll: 0, view: { x: 0, y: 0, w: 0, h: 0 }, nodes: [], detail: null, play: null };

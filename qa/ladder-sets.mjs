@@ -15,7 +15,7 @@
  *   node qa/ladder-sets.mjs --solo=fizz --levels=5,10   только эти уровни (по умолчанию 2–10)
  * Строка `meta` вставляется в поле «meta» запуска balance.yml (или в `--meta=` бота).
  */
-import { buyBest, buyGreedy, buyOrderSolo, parseArgs, readMetaTable } from './lib.mjs';
+import { buyBest, buyGreedy, buyOrderSolo, parseArgs, openRingsAt, readMetaTable } from './lib.mjs';
 
 /** Очки к k-й партии на уровне N по модели. */
 export function modelDna(level, attempt, { start = 250, perLevel = 340, fail = 105 } = {}) {
@@ -24,10 +24,13 @@ export function modelDna(level, attempt, { start = 250, perLevel = 340, fail = 1
 
 /** Эталонный набор: { level, attempt, dna, spent, meta (строка «id:уровень,…»), levels }. */
 export function referenceSet(level, attempt, model = {}, solo = null) {
-  const { upgrades } = readMetaTable();
+  const meta0 = readMetaTable();
+  const { upgrades } = meta0;
   const dna = modelDna(level, attempt, model);
   const empty = Object.fromEntries(Object.keys(upgrades).map((id) => [id, 0]));
-  const bought = solo ? buyGreedy({ upgrades, order: buyOrderSolo(upgrades, solo), levels: empty, dna }) : buyBest({ upgrades, levels: empty, dna });
+  // кольца сети древа: открыты те, что открываются победами на уровнях до этого
+  const openRing = openRingsAt(meta0, level);
+  const bought = solo ? buyGreedy({ upgrades, order: buyOrderSolo(upgrades, solo), levels: empty, dna, openRing }) : buyBest({ upgrades, levels: empty, dna, openRing });
   const meta = Object.entries(bought.levels)
     .filter(([, n]) => n > 0)
     .map(([id, n]) => `${id}:${n}`)
