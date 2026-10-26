@@ -143,7 +143,7 @@ export interface BossSpec {
 /**
  * Мутация башни (выбор на уровнях 2 и 4): заплатка к числам башни. Все поля необязательны, пропущенное — «не меняет».
  *  damageMul, cooldownMul, blastMul, puddleRadiusMul — множители урона, паузы, радиуса взрыва, радиуса лужи;
- *  slowFactor — замедление в луже (меньше — сильнее; берётся меньшее из текущего и этого);
+ *  slowFactor — замедление в луже (меньше — сильнее; берётся меньшее из текущего и этого); puddleSecMul — множитель времени жизни лужи;
  *  pulsesAdd — ударов в очереди луча сверх текущих;
  *  armorPierce — удар игнорирует броню; extraTargets — сколько ещё целей бьёт за выстрел; toughest — бьёт самую прочную цель в радиусе;
  *  poisonPerSec — лужа жжёт всех в ней на столько HP в секунду; puddleCount — сколько луж за выстрел;
@@ -161,6 +161,7 @@ export interface MutationSpec {
   blastMul?: number;
   puddleRadiusMul?: number;
   slowFactor?: number;
+  puddleSecMul?: number;
   pulsesAdd?: number;
   armorPierce?: boolean;
   extraTargets?: number;
@@ -934,7 +935,8 @@ export const CONFIG = {
       [{ id: 'pillDouble', extraTargets: 1 }, { id: 'pillHunter', toughest: true, damageMul: 1.5 }],
     ],
     syrup: [
-      [{ id: 'syrupSticky', slowFactor: 0.25 }, { id: 'syrupWide', puddleRadiusMul: 1.6 }],
+      // «Стойкая» (id прежний — syrupSticky): лужа держится в 1,5 раза дольше; было «Липкая» — замедление до 0,25, с V не действовала (решение владельца 26 октября 2026, сообщение 3, п. 6)
+      [{ id: 'syrupSticky', puddleSecMul: 1.5 }, { id: 'syrupWide', puddleRadiusMul: 1.6 }],
       [{ id: 'syrupCaustic', poisonPerSec: 1.5 }, { id: 'syrupTwin', puddleCount: 2 }],
     ],
     fizz: [

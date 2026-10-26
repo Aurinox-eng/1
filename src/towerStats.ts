@@ -190,6 +190,7 @@ export function computeStats(id: TowerKey, level: number, picks: readonly string
     }
     if (spec.blastMul) s.blastRadius *= scaled(spec.blastMul);
     if (spec.puddleRadiusMul) s.puddleRadius *= scaled(spec.puddleRadiusMul);
+    if (spec.puddleSecMul) s.puddleSec *= scaled(spec.puddleSecMul);
     if (spec.slowFactor !== undefined && share > 0) s.slowFactor = k === 0 ? Math.min(s.slowFactor, spec.slowFactor) : s.slowFactor * (1 - (1 - spec.slowFactor) * share);
     if (spec.pulsesAdd && s.beamPulses > 0) s.beamPulses += whole(spec.pulsesAdd);
     if (spec.armorPierce) s.armorPierce = true;

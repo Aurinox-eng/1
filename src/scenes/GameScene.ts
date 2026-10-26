@@ -1725,6 +1725,7 @@ export class GameScene extends Phaser.Scene {
       ['chgBlast', a.blastRadius, b.blastRadius, (x) => String(Math.round(x))],
       ['chgPuddle', a.puddleRadius, b.puddleRadius, (x) => String(Math.round(x))],
       ['chgPuddles', a.puddleCount, b.puddleCount, String],
+      ['chgPuddleSec', a.puddleSec, b.puddleSec, n],
       ['chgSlow', a.slowFactor, b.slowFactor, n2],
       ['chgPoison', a.poisonPerSec, b.poisonPerSec, n],
       ['chgDotHp', a.dotPerSec * a.dotSec, b.dotPerSec * b.dotSec, n],

@@ -11,6 +11,7 @@ import { GameScene } from './scenes/GameScene';
 import { LevelsScene } from './scenes/LevelsScene';
 import { ArtSheetScene } from './qaArtSheet';
 import { TreeMockScene } from './qaTreeMock';
+import { TreeNetScene } from './qaTreeNet';
 import { MenuScene } from './scenes/MenuScene';
 import { UpgradesScene } from './scenes/UpgradesScene';
 import { COLORS } from './theme';
@@ -56,7 +57,11 @@ async function boot(): Promise<void> {
   // Лист образцов пилота этапа 8 (только `?qa&artsheet`): в игровой сборке ART_SHEET всегда false, и сцена вместе с файлом qaArtSheet.ts в неё не попадает
   if (ART_SHEET) game.scene.add('ArtSheet', ArtSheetScene, true);
   // Макет радиального древа (только `?qa&treemock`): в игровой сборке TREE_MOCK всегда false
-  if (TREE_MOCK) game.scene.add('TreeMock', TreeMockScene, true);
+  // `&treemock=net` — сеть «Атом» на настоящих узлах (п. 4.5 сообщения 3 от 26 октября 2026)
+  if (TREE_MOCK) {
+    if (new URLSearchParams(window.location.search).get('treemock') === 'net') game.scene.add('TreeNet', TreeNetScene, true);
+    else game.scene.add('TreeMock', TreeMockScene, true);
+  }
 
   // Площадка: `LoadingAPI.ready()` после второго шага цикла (меню нарисовано и принимает ввод); пауза и возобновление (требование 1.3) глушат и возвращают звук, пауза ставит партию на паузу
   let steps = 0;
