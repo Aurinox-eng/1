@@ -4,6 +4,7 @@ import { ART_SHEET_PAGE } from './debug';
 import { t, type TextKey } from './i18n';
 import { bacteriumSample, extentOf, type BacteriumKind } from './objects/Bacterium';
 import { ringImage } from './art';
+import { BOSS_TINT, drawBossDecor } from './objects/bossDecor';
 import { createTowerArtSample, type TowerId } from './objects/Tower';
 import { COLORS } from './theme';
 
@@ -34,6 +35,10 @@ export class ArtSheetScene extends Phaser.Scene {
     }
     if (ART_SHEET_PAGE === 'f2') {
       this.facesBossesPage();
+      return;
+    }
+    if (ART_SHEET_PAGE === 'f3') {
+      this.bossTwinsPage();
       return;
     }
     if (ART_SHEET_PAGE === 't1' || ART_SHEET_PAGE === 't2') {
@@ -172,6 +177,43 @@ export class ArtSheetScene extends Phaser.Scene {
         holder.add(ringImage(this, 0, 0, r * scale + 10, 6, boss.color, 0.95));
         holder.setScale(fit);
         this.add.text(cx - cellW / 2 + 10, cy + (j === 0 ? -60 : 88), j === 0 ? 'было' : 'стало', { fontFamily: 'Arial', fontSize: '12px', color: '#9fb4d8' }).setOrigin(0, 0.5);
+      });
+    });
+  }
+
+  /**
+   * Страница `f3` (решение владельца 26 октября 2026, сообщение 6, п. 4): боссы-двойники — Матка роя и Мать спор (тело Матки), Споровик и Глушитель (тело споры).
+   * Сверху — как сейчас (одно тело, отличается только цвет кольца), снизу — свой цвет тела и свой отличительный элемент (`src/objects/bossDecor.ts`). Пары стоят рядом.
+   */
+  private bossTwinsPage(): void {
+    this.facesHeader('БОССЫ-ДВОЙНИКИ: сверху как сейчас, снизу — свой цвет и свой знак');
+    const W = CONFIG.screen.width;
+    const ids = ['swarmQueen', 'sporeMother', 'sporeling', 'silencer'] as const;
+    const cellW = W / 4;
+    ids.forEach((id, i) => {
+      const boss = CONFIG.bosses[id];
+      const kind = boss.base as BacteriumKind;
+      const cx = i * cellW + cellW / 2;
+      this.add.rectangle(cx, 380, cellW - 10, 660, i < 2 ? 0x1d3a6a : 0x24305a, 0.45);
+      this.add.text(cx, 64, t(`boss${id.charAt(0).toUpperCase()}${id.slice(1)}` as TextKey), { fontFamily: 'Arial', fontSize: '18px', color: '#cfe0ff' }).setOrigin(0.5, 0.5);
+      const scale = CONFIG.bossRules.scale;
+      const r = CONFIG.types[kind].radius;
+      const fit = Math.min(1, 118 / (Math.max(r, extentOf(kind)) * scale * 1.35 + 10));
+      ([false, true] as const).forEach((after, j) => {
+        const y = j === 0 ? 220 : 530;
+        const holder = this.add.container(cx, y);
+        const body = bacteriumSample(this, kind, CONFIG.types[kind].hp, CONFIG.types[kind].hp, false, false, 'signs').setScale(scale);
+        if (after && BOSS_TINT[id] !== undefined) for (const part of body.list as Phaser.GameObjects.Image[]) part.setTint(BOSS_TINT[id]!);
+        holder.add(body);
+        if (after) {
+          const g = this.add.graphics();
+          drawBossDecor(g, id, r);
+          g.setScale(scale);
+          holder.add(g);
+        }
+        holder.add(ringImage(this, 0, 0, r * scale + 10, 6, boss.color, 0.95));
+        holder.setScale(fit);
+        this.add.text(cx, y + 150, after ? 'стало' : 'было', { fontFamily: 'Arial', fontSize: '14px', color: '#9fb4d8' }).setOrigin(0.5, 0.5);
       });
     });
   }

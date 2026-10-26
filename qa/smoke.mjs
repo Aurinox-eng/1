@@ -9689,7 +9689,7 @@ async function runTreeMock(browser, baseUrl) {
 async function runFaces(browser, baseUrl) {
   for (const deviceKey of ['desktop', 'phone']) {
     const device = VIEWPORTS[deviceKey];
-    for (const page of ['f1', 'f2']) {
+    for (const page of ['f1', 'f2', 'f3']) {
       const p = `[лист без лиц ${page}, ${device.label}]`;
       const context = await newDeviceContext(browser, device, 'ru');
       const tab = await context.newPage();
