@@ -19,7 +19,8 @@ export interface CardModel {
   /** Башня с лучом: показываются кнопки поворота на 45° влево и вправо. */
   beam: boolean;
   /** Слияние: можно («ready»), нет пары («none»), высший уровень («max»), идёт выбор пары («active» — кнопка «Отмена»). */
-  merge: 'ready' | 'none' | 'max' | 'active';
+  /** cap — башня на пределе роста уровня игры (`growthLimits`): кнопка серая, без текста. */
+  merge: 'ready' | 'none' | 'max' | 'cap' | 'active';
   sell: number;
   /** Подсказка режима слияния (рисуется в узкой полосе вместо полной карточки); null — не режим слияния. */
   mergeHint: string | null;
@@ -305,7 +306,7 @@ export class TowerCard {
     const mergeEdge = m.merge === 'active' ? 0xffb347 : this.mergeEnabled ? COLORS.merge : 0x3a4a6b;
     this.btns.fillStyle(mergeColor, 1).fillRoundedRect(mergeX - BTN_W / 2, cy - BTN_H / 2, BTN_W, BTN_H, 14);
     this.btns.lineStyle(3, mergeEdge, 1).strokeRoundedRect(mergeX - BTN_W / 2, cy - BTN_H / 2, BTN_W, BTN_H, 14);
-    const mergeLabel = { ready: t('cardMerge'), active: t('cardMergeCancel'), none: t('cardNoPair'), max: t('cardMaxLevel') }[m.merge];
+    const mergeLabel = { ready: t('cardMerge'), active: t('cardMergeCancel'), none: t('cardNoPair'), max: t('cardMaxLevel'), cap: '' }[m.merge];
     this.mergeText.setText(mergeLabel).setColor(this.mergeEnabled ? TEXT_COLORS.main : TEXT_COLORS.dim);
     const longLabel = this.mergeText.width > BTN_W - 16;
     if (longLabel) this.mergeText.setScale((BTN_W - 16) / this.mergeText.width);

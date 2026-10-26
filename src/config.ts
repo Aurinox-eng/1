@@ -912,6 +912,16 @@ export const CONFIG = {
     { damageMul: 3.6, cooldownMul: 0.9, reachMul: 1.08, pulsesAdd: 0, slowPower: 1.3, puddleSecMul: 1.3 },
     { damageMul: 6.4, cooldownMul: 0.85, reachMul: 1.12, pulsesAdd: 1, slowPower: 1.45, puddleSecMul: 1.45 },
   ],
+  /** Пределы роста по уровням игры (решение владельца 26 октября 2026, сообщение 4, п. 3: п. 5 плана `docs/levels30-enemies-plan-2026-10-26.md` принят): с уровня игры `fromLevel` —
+   *  наибольший уровень слияния `merge` (не выше числа строк `towerLevels`) и ранг опыта `rank` (звёзды ранга; действует вместе с рангами опыта). Строки — по возрастанию `fromLevel`.
+   *  Недоступное — серое, без текста: кнопка «Слить» у башни на пределе серая. Максимум (VIII, ★8) — с 15-го уровня. */
+  growthLimits: [
+    { fromLevel: 1, merge: 5, rank: 4 },
+    { fromLevel: 5, merge: 6, rank: 5 },
+    { fromLevel: 10, merge: 7, rank: 6 },
+    { fromLevel: 13, merge: 7, rank: 7 },
+    { fromLevel: 15, merge: 8, rank: 8 },
+  ] as { fromLevel: number; merge: number; rank: number }[],
   /** Рост времени заморозки Холода с уровнем башни: время × (damageMul уровня) ^ это число (0,25: уровень 2 — ×1,17, 3 — ×1,38, 4 — ×1,59; у Холода своего урона нет). Время приклеивания Пластыря с уровнем не растёт, его урон в секунду растёт как урон (damageMul). */
   freezeLevelPower: 0.25,
   /** Уровни, на которых башня получает выбор мутации (по одному выбору на каждый порог; выбор бесплатный и окончательный). */

@@ -25,7 +25,7 @@ import { pointAt, tileCenter, unitCenter, type Edge } from '../pathing';
 import { gameplay } from '../sdk';
 import { sfx } from '../sound';
 import { wardBlocks } from '../ward';
-import { computeStats, MAX_TOWER_LEVEL, mutationById, mutationOptions, mutationStacks, towerPrice, type TowerStats } from '../towerStats';
+import { computeStats, MAX_TOWER_LEVEL, mergeCap, mutationById, mutationOptions, mutationStacks, towerPrice, type TowerStats } from '../towerStats';
 import { COLORS, FONT, TEXT_COLORS } from '../theme';
 import { FPS_ENABLED, FpsMeter, frameReport, installFrameStats } from '../perf';
 import { Panel, TOP_H, VIEW } from '../ui/Panel';
@@ -1601,7 +1601,7 @@ export class GameScene extends Phaser.Scene {
 
   /** С какими башнями можно слить эту: другие того же вида и уровня в радиусе слияния `mergeRadiusPx` (если уровень не высший и мутация выбрана у обеих). */
   private mergeCandidates(tower: Tower): Tower[] {
-    if (tower.level >= MAX_TOWER_LEVEL || tower.pendingTier !== null) return [];
+    if (tower.level >= mergeCap(currentLevel()) || tower.pendingTier !== null) return [];
     return this.towers.filter(
       (other) =>
         other !== tower &&
@@ -1814,7 +1814,7 @@ export class GameScene extends Phaser.Scene {
     this.cardLatch = tower.latchMul;
     this.cardAura = tower.auraMul;
     const tier = tower.pendingTier;
-    const merge = tower.level >= MAX_TOWER_LEVEL ? 'max' : this.mergeMode ? 'active' : this.mergeCandidates(tower).length > 0 ? 'ready' : 'none';
+    const merge = tower.level >= MAX_TOWER_LEVEL ? 'max' : tower.level >= mergeCap(currentLevel()) ? 'cap' : this.mergeMode ? 'active' : this.mergeCandidates(tower).length > 0 ? 'ready' : 'none';
     this.panel.showCard({
       id: tower.id,
       name: t(`tower${tower.id.charAt(0).toUpperCase()}${tower.id.slice(1)}` as TextKey),

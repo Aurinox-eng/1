@@ -91,6 +91,23 @@ export function towerPrice(id: TowerKey): number {
 /** Самый высокий уровень башни. */
 export const MAX_TOWER_LEVEL = CONFIG.towerLevels.length;
 
+/** Строка пределов роста для уровня игры (`growthLimits`: последняя строка с `fromLevel` не больше уровня). */
+function growthLimit(gameLevel: number): { merge: number; rank: number } {
+  let row = CONFIG.growthLimits[0];
+  for (const r of CONFIG.growthLimits) if (r.fromLevel <= gameLevel) row = r;
+  return row;
+}
+
+/** Наибольший уровень слияния на уровне игры: предел роста, но не выше числа уровней башни. */
+export function mergeCap(gameLevel: number): number {
+  return Math.min(MAX_TOWER_LEVEL, growthLimit(gameLevel).merge);
+}
+
+/** Наибольший ранг опыта на уровне игры (звёзды ранга). */
+export function rankCap(gameLevel: number): number {
+  return growthLimit(gameLevel).rank;
+}
+
 /** Два варианта мутации на пороге tier (0 — первый порог, 1 — второй) для башни id. */
 export function mutationOptions(id: TowerKey, tier: number): MutationSpec[] {
   return CONFIG.mutations[id]?.[tier] ?? [];
