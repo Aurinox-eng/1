@@ -355,7 +355,6 @@ const ru = {
   mutPatchTwin: 'Две ловушки',
   mutdPatchTwin: 'Ловушка ещё под одну цель',
   // Переработка, пакет «Уровень 1» (документ дизайна docs/redesign-2026-10-19.md, принят владельцем 19 октября 2026)
-  nextWaveBoss: 'Следующая волна: {name}',
   bossColony: 'Колония',
   bossRodLeader: 'Вожак палочек',
   bossArmadillo: 'Броненосец',
@@ -758,7 +757,6 @@ const en: Record<TextKey, string> = {
   mutdPatchCaustic: 'Trap damage ×2',
   mutPatchTwin: 'Two traps',
   mutdPatchTwin: 'A trap under one more target',
-  nextWaveBoss: 'Next wave: {name}',
   bossColony: 'Colony',
   bossRodLeader: 'Rod Leader',
   bossArmadillo: 'Armadillo',

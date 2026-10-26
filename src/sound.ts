@@ -246,6 +246,12 @@ class Sfx {
     this.tone({ from: 1000, to: 1100, ms: 180, type: 'square', gain: 0.4, delayMs: 200 });
   }
 
+  /** Следующая волна — с боссом: два низких тревожных удара (знак без текста, п. 3.1 сообщения владельца 1 от 26 октября 2026). */
+  bossWarn(): void {
+    this.tone({ from: 180, to: 150, ms: 260, type: 'sawtooth', gain: 0.55 });
+    this.tone({ from: 180, to: 120, ms: 380, type: 'sawtooth', gain: 0.6, delayMs: 320 });
+  }
+
   /** Спора заглушила башню: низкий «бззз». */
   disabled(): void {
     if (!this.gate('disabled')) return;
