@@ -90,6 +90,8 @@ interface ListCard {
 export class Panel {
   private readonly waveText: Phaser.GameObjects.Text;
   private readonly nextWaveText: Phaser.GameObjects.Text;
+  /** Таймер волны красный: следующая волна с боссом. */
+  private waveWarn = false;
   private readonly bar: Phaser.GameObjects.Graphics;
   private readonly coinsText: Phaser.GameObjects.Text;
   private readonly livesText: Phaser.GameObjects.Text;
@@ -234,9 +236,12 @@ export class Panel {
 
   // ---------------------------------------------------------------- что показывать
 
-  setWave(n: number, total: number, progress: number, nextInSec: number | null): void {
+  /** `bossNext` — следующая волна с боссом: таймер волны красный (знак без текста). */
+  setWave(n: number, total: number, progress: number, nextInSec: number | null, bossNext = false): void {
     this.waveText.setText(t('wave', { n, total }));
     this.nextWaveText.setText(nextInSec === null ? '' : t('nextWave', { n: Math.ceil(nextInSec) }));
+    this.waveWarn = bossNext && nextInSec !== null;
+    this.nextWaveText.setColor(this.waveWarn ? '#ff5a5a' : TEXT_COLORS.soft).setFontStyle(this.waveWarn ? 'bold' : 'normal');
     const bx = 200;
     const bw = 130;
     const by = TOP_H / 2 - 4;
@@ -431,6 +436,8 @@ export class Panel {
     livesText: string;
     /** Постоянная подсказка снизу окна карты (null — не показана). */
     hint: string | null;
+    /** Таймер волны красный (следующая волна с боссом). */
+    waveWarn: boolean;
   } {
     const towerButtons = TOWER_IDS.map((id) => {
       const x = this.cardX(this.order.indexOf(id)) + CARD.w / 2;
@@ -448,6 +455,7 @@ export class Panel {
       lives: this.lives,
       livesText: this.livesText.text,
       hint: this.hintMessage,
+      waveWarn: this.waveWarn,
     };
   }
 

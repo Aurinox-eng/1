@@ -50,7 +50,11 @@ function effectText(id: UpgradeId, level: number): string {
     case 'sellRefund':
       value = Math.round((CONFIG.economy.sellRefund + total) * 100);
       break;
-    case 'damage': case 'towerDamage': case 'reward': case 'price': case 'cooldown': case 'range': case 'puddleSec': case 'auraBoost': case 'freezeTime':
+    case 'cooldown':
+      // «стреляет чаще: в k раза» (таблица п. 3.3, принята владельцем 26 октября 2026): пауза ×(1 + total) — стрельба чаще в 1 / (1 + total) раза, с двумя знаками
+      value = Math.round(100 / (1 + total)) / 100;
+      break;
+    case 'damage': case 'towerDamage': case 'reward': case 'price': case 'range': case 'puddleSec': case 'auraBoost': case 'freezeTime':
       value = Math.round(Math.abs(total) * 100);
       break;
     default:

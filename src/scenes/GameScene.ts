@@ -42,8 +42,6 @@ const hitNum = (x: number): string => num(x < 1 ? Math.round(x * 100) / 100 : Ma
 const RESIST_COLOR = 0x9aa6bd;
 /** Цвет облачка у дула по башне (вид, не баланс). */
 const MUZZLE_PUFF: Partial<Record<string, number>> = { pill: 0xffffff, syrup: COLORS.syrup, fizz: COLORS.acid, syringe: COLORS.needle, ampule: 0x9fdcff, antibiotic: COLORS.antibiotic };
-/** Сколько миллисекунд висит строка «Новая бактерия: …» / «Открыта башня: …» (игра при этом идёт). */
-const NEWS_MS = 4200;
 /** Защита от «прыжков» после сворачивания вкладки: один кадр не длиннее 50 мс. */
 const MAX_FRAME_MS = 50;
 /** Наибольший шаг расчёта игры, секунды игрового времени: кадр на высокой скорости (×3, ×5) или на медленном устройстве делится на несколько шагов не длиннее этого, поэтому ход боя
@@ -173,6 +171,8 @@ export class GameScene extends Phaser.Scene {
   private mergeMode = false;
   /** Сколько жизней отняла каждая порода бактерий за партию (то, что реально списано; поглощённое щитом не считается): для строки на экране проигрыша. */
   private livesLostByKind: Partial<Record<BacteriumKind, number>> = {};
+  /** Следующая волна — с боссом: таймер волны красный (п. 3.1 сообщения владельца 1 от 26 октября 2026). */
+  private bossNext = false;
   private merges = 0;
   private sells = 0;
   private mutationsPicked = 0;
@@ -655,6 +655,7 @@ export class GameScene extends Phaser.Scene {
     this.waveSpawned = 0;
     this.spawnTimer = 0;
     this.phase = 'spawning';
+    this.bossNext = false;
     sfx.wave();
   }
 
@@ -729,13 +730,17 @@ export class GameScene extends Phaser.Scene {
     this.waveSpawned = 0;
     this.spawnTimer = 0;
     this.phase = 'spawning';
+    this.bossNext = false;
     sfx.wave();
   }
 
-  /** Перед волной с боссом (индекс `index` с нуля) — строка «Следующая волна: <имя>» (информация, не совет: конфликт 4 документа дизайна, принят владельцем). */
+  /**
+   * Перед волной с боссом (индекс `index` с нуля) — знак без текста: таймер волны красный и отдельный звук (решение владельца 26 октября 2026, сообщение 1, п. 3.1;
+   * строка «Следующая волна: <имя>» убрана — конфликт 4 документа дизайна отменён в этой части). Таймер гаснет с началом волны.
+   */
   private announceBoss(index: number): void {
-    const boss = this.params.plan?.waves[index]?.boss;
-    if (boss) this.panel.news(t('nextWaveBoss', { name: t(`boss${boss.charAt(0).toUpperCase()}${boss.slice(1)}` as TextKey) }), NEWS_MS);
+    this.bossNext = Boolean(this.params.plan?.waves[index]?.boss);
+    if (this.bossNext) sfx.bossWarn();
   }
 
   /** Жизней в начале партии: из таблицы плюс купленные улучшения (docs/upgrades.md). */
@@ -2378,7 +2383,7 @@ export class GameScene extends Phaser.Scene {
     const key = `${Math.max(1, this.waveIdx)}|${next === null ? '-' : Math.ceil(next)}|${Math.round(progress * 200)}`;
     if (key === this.panelKey) return;
     this.panelKey = key;
-    this.panel.setWave(Math.max(1, this.waveIdx), this.waveTotal(), progress, next);
+    this.panel.setWave(Math.max(1, this.waveIdx), this.waveTotal(), progress, next, this.bossNext);
     this.panel.setWaveButton(next !== null, next === null ? 0 : this.skipBonus());
   }
 

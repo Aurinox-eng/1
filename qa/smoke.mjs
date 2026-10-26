@@ -94,7 +94,7 @@
  *   deflation              economy.rewardMul: ×0,5 — два кокка номиналом 5 дают 2 + 3 = 5 монет (дробная часть копится); ×0,1 — 0 + 1, «+N» всплывает только при N ≥ 1
  *   camera-fit             самое сильное отдаление (считает игра, (считает игра): высота карты × масштаб ≤ высоты окна карты (568), ширина влезает, камера по центру и сдвигом не уводится
  *   almanac                экран «Альманах» из главного меню (компьютер ru, телефон ru, компьютер en): новый игрок — открыта только Таблетка, бактерий и боссов 0, закрытые записи «Ещё не встречалось»; после первой попытки — открыты вышедшие на поле виды; с &met=all&towers=all — все записи «Название: описание», боссы — имя; чисел нет; снимки almanac-reset/attempt1/all-…
- *   treemock               макет радиального древа (?qa&treemock): снимки 1280×720 и 844×390, на телефоне ещё с масштабом 1,8
+ *   treemock               макеты древа «Атом» и «PoE» (?qa&treemock=atom|poe): снимки 1280×720 и 844×390 с начальным масштабом и обзор ×0,5
  *   almanac-pause          «Альманах» с паузы партии (компьютер ru, телефон en): на паузе есть pauseAlmanacButton и pauseMenuButton, тап открывает альманах (сцена 'almanac'), «Назад» возвращает на паузу
  *                          (state 'paused', getState отвечает), тап по экрану возобновляет игру
  *   damage-numbers         числа урона над бактериями: после попаданий башни effects.damageNumbers растёт
@@ -6752,40 +6752,39 @@ function cardTexts() {
   // тексты мутаций называют числа из config.ts: если баланс поменяли, а текст нет — красно
   const ru = (n) => String(n).replace('.', ',');
   const M = (id) => Object.values(S4.mutations).flat(2).find((m) => m.id === id);
+  // (таблица п. 3.3, принята владельцем 26 октября 2026) пауза — «в k раза чаще» (k = 1 / множитель паузы, один знак); множители — «в N раза»; «вдвое» / «twice»;
+  // «Едкая», «Липкая», «Кислота» (время), «Больше ударов» и угол Лампы — без чисел (п. 4.3; угол — через множитель ширины)
+  const rate = (v) => ru(Math.round((1 / v) * 10) / 10);
   const mentions = [
-    ['pillRapid', 'cooldownMul', (v) => String(Math.round((1 - v) * 100))],
-    ['fizzFast', 'cooldownMul', (v) => String(Math.round((1 - v) * 100))],
+    ['pillRapid', 'cooldownMul', rate],
+    ['fizzFast', 'cooldownMul', rate],
     ['pillHunter', 'damageMul', (v) => ru(v)],
     ['syrupWide', 'puddleRadiusMul', (v) => ru(v)],
-    ['syrupCaustic', 'poisonPerSec', (v) => ru(v)],
     ['fizzBig', 'blastMul', (v) => ru(v)],
-    ['fizzAcid', 'acidMul', (v) => String(Math.round((v - 1) * 100))],
-    ['fizzAcid', 'acidSec', (v) => String(v)],
-    ['syringeMore', 'pulsesAdd', (v) => `+${v}`],
+    ['fizzAcid', 'acidMul', (v) => ru(v)],
     ['syringePierce', 'damageMul', (v) => ru(v)],
-    ['ampuleRapid', 'cooldownMul', (v) => String(Math.round((1 - v) * 100))],
+    ['ampuleRapid', 'cooldownMul', rate],
     ['ampuleMight', 'damageMul', (v) => ru(v)],
-    ['antibioticQuick', 'cooldownMul', (v) => String(Math.round((1 - v) * 100))],
+    ['antibioticQuick', 'cooldownMul', rate],
     ['antibioticLong', 'dotSecMul', (v) => ru(v)],
     ['antibioticStrong', 'dotDpsMul', (v) => ru(v)],
-    // пачка 2: Лампа (угол конуса в градусах — от угла башни в таблице × множитель; урон; длина) и Витамин (прибавка к скорости, радиус)
-    ['lampNarrow', 'coneMul', (v) => String(Math.round(TW.lamp.coneDeg * v))],
+    // Лампа: «шире в N раза» — по углу с потолком mutationCaps.coneDeg; урон; длина. Витамин: прибавка к скорости, радиус
     ['lampNarrow', 'damageMul', (v) => ru(v)],
-    ['lampWide', 'coneMul', (v) => String(Math.round(Math.min(CAPS.coneDeg, TW.lamp.coneDeg * v)))],
+    ['lampWide', 'coneMul', (v) => ru(Math.round((Math.min(CAPS.coneDeg, TW.lamp.coneDeg * v) / TW.lamp.coneDeg) * 10) / 10)],
     ['lampBlaze', 'damageMul', (v) => ru(v)],
     ['lampFar', 'rangeMul', (v) => ru(v)],
     ['vitaminBoost', 'auraBonusMul', (v) => ru(v)],
     ['vitaminFar', 'rangeMul', (v) => ru(v)],
     ['vitaminStrong', 'auraBonusMul', (v) => ru(v)],
     ['vitaminDouble', 'rangeMul', (v) => ru(v)],
-    // пачка 3: Холод (время заморозки, пауза, радиус) и Пластырь (время приклеивания, пауза, урон ловушки)
+    // Холод (время заморозки, частота, радиус) и Пластырь (время приклеивания, частота, урон ловушки: ×2 — «вдвое» / «twice»)
     ['frostDeep', 'freezeMul', (v) => ru(v)],
-    ['frostFrequent', 'cooldownMul', (v) => String(Math.round((1 - v) * 100))],
+    ['frostFrequent', 'cooldownMul', rate],
     ['frostLong', 'freezeMul', (v) => ru(v)],
     ['frostWide', 'rangeMul', (v) => ru(v)],
     ['patchSticky', 'trapSecMul', (v) => ru(v)],
-    ['patchQuick', 'cooldownMul', (v) => String(Math.round((1 - v) * 100))],
-    ['patchCaustic', 'trapDpsMul', (v) => ru(v)],
+    ['patchQuick', 'cooldownMul', rate],
+    ['patchCaustic', 'trapDpsMul', (v) => (v === 2 ? ['вдвое', 'twice'] : ru(v))],
   ];
   const stale = [];
   for (const [id, field, fmt] of mentions) {
@@ -6796,11 +6795,30 @@ function cardTexts() {
     }
     const [ruText] = readI18n(`mutd${cap(id)}`);
     const enText = readI18n(`mutd${cap(id)}`)[1];
-    const want = fmt(spec[field]);
+    const got = fmt(spec[field]);
+    const [want, wantEn] = Array.isArray(got) ? got : [got, got.replace(',', '.')];
     if (!ruText.includes(want)) stale.push(`${id} (ru «${ruText}») не называет ${want}`);
-    if (!enText.includes(want.replace(',', '.'))) stale.push(`${id} (en «${enText}») не называет ${want.replace(',', '.')}`);
+    if (!enText.includes(wantEn)) stale.push(`${id} (en «${enText}») не называет ${wantEn}`);
   }
   check(`${p} описания мутаций называют те же числа, что config.ts (${mentions.length} описаний)`, stale.length === 0, stale.join('; '));
+  // ключевые узлы древа (п. 4.2 решения владельца 26 октября 2026): множители урона Прожектора и Хрупкости и «вполсилы» Рикошета и Разрыва — из config.ts (keyNodes)
+  const cfgText = fs.readFileSync(path.join(ROOT, 'src/config.ts'), 'utf8');
+  const keyBlock = cfgText.slice(cfgText.indexOf('keyNodes: {'), cfgText.indexOf('\n  },', cfgText.indexOf('keyNodes: {')));
+  const keyNum = (tower, field) => Number(new RegExp(`\\n\\s*${tower}: \\{[^}]*\\b${field}: ([\\d.]+)`).exec(keyBlock)?.[1]);
+  const keyStale = [];
+  for (const [key, tower, field, fmt] of [
+    ['upgInfoLampKey', 'lamp', 'damageMul', (v) => [ru(v), String(v)]],
+    ['upgInfoFrostKey', 'frost', 'damageMul', (v) => [ru(v), String(v)]],
+    ['upgInfoPillKey', 'pill', 'damageShare', (v) => (v === 0.5 ? ['вполсилы', 'half strength'] : [ru(v), String(v)])],
+    ['upgInfoAmpuleKey', 'ampule', 'damageShare', (v) => (v === 0.5 ? ['вполсилы', 'half strength'] : [ru(v), String(v)])],
+  ]) {
+    const v = keyNum(tower, field);
+    const [wantRu, wantEn] = fmt(v);
+    const [ruText, enText] = readI18n(key);
+    if (!Number.isFinite(v)) keyStale.push(`${key}: в config.ts нет keyNodes.${tower}.${field}`);
+    else if (!ruText.includes(wantRu) || !enText.includes(wantEn)) keyStale.push(`${key}: «${ruText}» / «${enText}» не называет ${wantRu} / ${wantEn}`);
+  }
+  check(`${p} описания ключевых узлов называют те же числа, что config.ts (Прожектор, Хрупкость, Рикошет, Разрыв)`, keyStale.length === 0, keyStale.join('; '));
 }
 
 // ---------------------------------------------------------------- карточка: выбор, закрытие, кнопки
@@ -8039,6 +8057,20 @@ async function runBosses(browser, baseUrl) {
   const [miniWave, miniId] = bossWaves[0];
   const fever = { sec: readConfigNumber('fever', 'durationSec'), recharge: readConfigNumber('fever', 'rechargeSec') };
 
+  // 0) перед волной с мини-боссом — знак без текста (решение владельца 26 октября 2026, сообщение 1, п. 3.1): таймер волны красный и отдельный звук, строки «Следующая волна» нет;
+  //    с началом волны таймер снова обычный
+  {
+    const g0 = await openGame(context, baseUrl, `${p} знак перед боссом`, { speed: 4, cfg: 'lives.start:500', query: `&levelwaves&level=1&towers=all&wave=${miniWave - 1}` });
+    const before = await g0.state();
+    check(`${p} в волне ${miniWave - 1} (до волны мини-босса) таймер не красный`, before.ui.waveWarn === false, JSON.stringify({ wave: before.wave, warn: before.ui.waveWarn }));
+    const warned = await waitForGame(g0.page, (x) => x.ui.waveWarn === true || x.state !== 'playing', `пауза перед волной ${miniWave}`, { gameSec: 180 });
+    check(`${p} перед волной ${miniWave} с мини-боссом таймер волны красный, строк вверху нет (строка: ${JSON.stringify(warned.toast.text)})`, warned.ui.waveWarn === true && warned.toast.text === null && warned.toast.queued.length === 0, JSON.stringify({ warn: warned.ui.waveWarn, toast: warned.toast }));
+    await shot(g0.page, 'boss-warn-timer');
+    const started = await waitForGame(g0.page, (x) => x.wave >= miniWave || x.state !== 'playing', `начало волны ${miniWave}`, { gameSec: 120 });
+    check(`${p} с началом волны ${miniWave} таймер снова обычный`, started.wave === miniWave && started.ui.waveWarn === false, JSON.stringify({ wave: started.wave, warn: started.ui.waveWarn }));
+    await g0.page.close();
+  }
+
   // 1) мини-босс своей волны; без узла «Лихорадка» кнопки нет
   let game = await openGame(context, baseUrl, p, { speed: 4, cfg: 'lives.start:500', query: `&levelwaves&level=1&towers=all&wave=${miniWave}` });
   let s = await game.state();
@@ -9275,18 +9307,32 @@ function readBossIds() {
 }
 const BOSS_IDS = readBossIds();
 
+/** Части описания вида, называющие башню (AlmanacScene.ts, KIND_TOWER_PARTS): вид → [[башня, ключ]]. */
+function readKindTowerParts() {
+  const src = fs.readFileSync(path.join(ROOT, 'src/scenes/AlmanacScene.ts'), 'utf8');
+  const block = src.slice(src.indexOf('const KIND_TOWER_PARTS'), src.indexOf('};', src.indexOf('const KIND_TOWER_PARTS')));
+  return Object.fromEntries([...block.matchAll(/^\s*(\w+): \[(.*)\],?$/gm)].map((m) => [m[1], [...m[2].matchAll(/\['(\w+)', '(\w+)'\]/g)].map((x) => [x[1], x[2]])]));
+}
+const KIND_TOWER_PARTS = readKindTowerParts();
+/** Строки жёстких свойств (AlmanacScene.ts, WARD_LINES): вид, ключ, башня, без которой строка не выводится (null — строка башню не называет); все свойства включены на уровне 1. */
+const WARD_NOTES = [['runner', 'almWardRunner', 'syrup'], ['armored', 'almWardArmored', null], ['slick', 'almWardSlick', 'syringe']];
+
 /**
- * Строки альманаха, которые должна показать игра (решение владельца 25 октября 2026, сообщение 5, п. 2): открытая башня и бактерия — «Название: короткое описание»,
- * открытый босс — только имя, закрытая запись — только «Ещё не встречалось». `open(id)` — открыта ли запись.
+ * Строки альманаха, которые должна показать игра (решения владельца 25 октября 2026, сообщение 5, п. 2, и 26 октября 2026, сообщение 1, п. 2): открытая башня — «Название: описание»,
+ * открытая бактерия — «Название: особенность. части о купленных башнях» (у кокка — только название) и « | строка свойства», если её башня куплена; босс — «Имя: особенности»;
+ * закрытая запись — только «Ещё не встречалось». `open(id)` — открыта ли запись, `owned(tower)` — куплена ли башня.
  */
-function almanacRows(tab, li, open = () => true) {
+function almanacRows(tab, li, open = () => true, owned = () => true) {
   const ids = tab === 'towers' ? TOWER_ORDER : tab === 'bacteria' ? KINDS : BOSS_IDS;
   const closed = readI18n('almBacClosed')[li];
   return ids.map((id) => {
     if (!open(id)) return closed;
-    if (tab === 'bosses') return readI18n(`boss${capId(id)}`)[li];
-    const name = readI18n(tab === 'towers' ? `tower${capId(id)}` : `bacName${capId(id)}`)[li];
-    return `${name}: ${readI18n(tab === 'towers' ? `almTower${capId(id)}` : `almBac${capId(id)}`)[li]}`;
+    if (tab === 'bosses') return `${readI18n(`boss${capId(id)}`)[li]}: ${readI18n(`almBoss${capId(id)}`)[li]}`;
+    if (tab === 'towers') return `${readI18n(`tower${capId(id)}`)[li]}: ${readI18n(`almTower${capId(id)}`)[li]}`;
+    const name = readI18n(`bacName${capId(id)}`)[li];
+    const parts = [readI18n(`almBac${capId(id)}`)[li], ...(KIND_TOWER_PARTS[id] ?? []).filter(([tw]) => owned(tw)).map(([, key]) => readI18n(key)[li])].filter((x) => x.length > 0);
+    const notes = WARD_NOTES.filter(([kind, , tw]) => kind === id && (tw === null || owned(tw))).map(([, key]) => readI18n(key)[li]);
+    return `${parts.length ? `${name}: ${parts.join('. ')}` : name}${notes.map((n) => ` | ${n}`).join('')}`;
   });
 }
 const rowsMatch = (texts, rows) => texts.length === rows.length && rows.every((r, i) => texts[i] === r);
@@ -9583,31 +9629,19 @@ async function runAlmanac(browser, baseUrl) {
     const slick = /\n\s*slick: \{[^}]*\}/.exec(cfgSrc)?.[0] ?? '';
     const slickFlags = ['slowImmune', 'freezeImmune', 'trapImmune'].map((k) => new RegExp(`${k}: 1\\b`).test(slick));
     check(`${p} в config.ts Слизень не берут Сироп, Холод и Пластырь (slowImmune, freezeImmune, trapImmune = 1)`, slickFlags.every(Boolean), JSON.stringify(slickFlags));
-    const slickText = readI18n('almBacSlick');
-    for (const [li, lang] of [[0, 'ru'], [1, 'en']]) {
-      const names = ['towerSyrup', 'towerFrost', 'towerPatch'].map((k) => readI18n(k)[li]);
-      check(`${p} текст о Слизне (${lang}) называет Сироп, Холод и Пластырь: «${slickText[li]}»`, names.every((n) => slickText[li].includes(n)), names.join(', '));
-    }
-    // (решение владельца 18 октября 2026, ответ 10: остальные расхождения Альманаха — да) тексты о Прыгуне, Гиганте и Холоде называют башни, которые не действуют, по флагам config.ts
+    // (решение владельца 26 октября 2026, сообщение 1, п. 2.1) «на него не действует» — частями, каждая называет свою башню и выводится, только если башня куплена:
+    // в AlmanacScene.ts (KIND_TOWER_PARTS) у Слизня, Прыгуна и Гиганта есть часть на каждую башню, которой не даёт действовать флаг config.ts
     const flagsOf = (kind) => {
       const row = new RegExp(`\\n\\s*${kind}: \\{[^}]*\\}`).exec(cfgSrc)?.[0] ?? '';
       return Object.fromEntries(['slowImmune', 'freezeImmune', 'trapImmune'].map((k) => [k, new RegExp(`${k}: 1\\b`).test(row)]));
     };
-    const towerOfFlag = { slowImmune: 'towerSyrup', freezeImmune: 'towerFrost', trapImmune: 'towerPatch' };
-    for (const [kind, key] of [['leaper', 'almBacLeaper'], ['giant', 'almBacGiant']]) {
-      const flags = flagsOf(kind);
-      const text = readI18n(key);
-      for (const [li, lang] of [[0, 'ru'], [1, 'en']]) {
-        const need = Object.entries(flags).filter(([, on]) => on).map(([k]) => readI18n(towerOfFlag[k])[li]);
-        check(`${p} текст о ${kind} (${lang}) называет все башни, которые на него не действуют (${need.join(', ')}): «${text[li]}»`, need.length > 0 && need.every((n) => text[li].includes(n)), JSON.stringify(flags));
-      }
-    }
-    const frostText = readI18n('almTowerFrost');
-    const frozenNot = ['slick', 'giant', 'leaper', 'coccus'].filter((k) => flagsOf(k).freezeImmune);
-    for (const [li, lang] of [[0, 'ru'], [1, 'en']]) {
-      // в тексте падежи («Слизня», «Гиганта»): сверяются первые четыре буквы названия («Слиз», «Гига»)
-      const stems = frozenNot.map((k) => readI18n(`bacName${k.charAt(0).toUpperCase()}${k.slice(1)}`)[li].slice(0, 4));
-      check(`${p} текст Холода (${lang}) называет исключения — не замерзают ${frozenNot.join(', ')}: «${frostText[li]}»`, stems.every((s) => frostText[li].includes(s)), stems.join(', '));
+    const almSrc2 = fs.readFileSync(path.join(ROOT, 'src/scenes/AlmanacScene.ts'), 'utf8');
+    const towerOfFlag = { slowImmune: 'syrup', freezeImmune: 'frost', trapImmune: 'patch' };
+    for (const kind of ['slick', 'leaper', 'giant']) {
+      const parts = new RegExp(`^\\s*${kind}: \\[(.*)\\],?$`, 'm').exec(almSrc2.slice(almSrc2.indexOf('KIND_TOWER_PARTS')))?.[1] ?? '';
+      const towers = [...parts.matchAll(/\['(\w+)', '\w+'\]/g)].map((m) => m[1]);
+      const need = Object.entries(flagsOf(kind)).filter(([, on]) => on).map(([k]) => towerOfFlag[k]);
+      check(`${p} у ${kind} есть часть описания на каждую башню, которая на него не действует (${need.join(', ')}): ${towers.join(', ')}`, need.length > 0 && need.every((tw) => towers.includes(tw)), parts);
     }
     // записи в обе стороны: если бактерия есть в «сильна против» башни, башня есть в «бьют» бактерии (по 2.3 предложений — для Гиганта и Выводка)
     for (const [tower, kind] of [['syrup', 'giant'], ['antibiotic', 'giant'], ['patch', 'brood']]) {
@@ -9629,11 +9663,11 @@ async function runAlmanac(browser, baseUrl) {
       return waitUiWhere(page, (x) => x && x.scene === 'almanac' && x.texts.length === count && (tab !== 'towers' || x.texts.some((r) => r.startsWith(readI18n('towerPill')[li]))), 5000, `вкладка «${tab}»`).catch(async () => (await uiOf(page)) ?? { scene: 'нет экрана', texts: [], buttons: u.buttons });
     };
     /** Три вкладки: строки по `open` и снимки `almanac-<имя>-<вкладка>-…`. */
-    const checkTabs = async (page, g, label, shotName, open) => {
+    const checkTabs = async (page, g, label, shotName, open, owned = () => true, tabs = ['towers', 'bacteria', 'bosses']) => {
       let u = await waitUiWhere(page, (x) => x && x.scene === 'almanac', 10000, 'экран «Альманах»');
-      for (const tab of ['towers', 'bacteria', 'bosses']) {
+      for (const tab of tabs) {
         if (tab !== 'towers') u = await openTab(page, g, u, tab);
-        const want = almanacRows(tab, li, (id) => open(tab, id));
+        const want = almanacRows(tab, li, (id) => open(tab, id), owned);
         check(`${p} ${label}, вкладка «${tab}»: ${want.filter((r) => r !== readI18n('almBacClosed')[li]).length} открытых записей из ${want.length}, закрытые — только «${readI18n('almBacClosed')[li]}», чисел нет`,
           u.scene === 'almanac' && rowsMatch(u.texts, want) && !u.texts.some((r) => /\d/.test(r)), `экран ${u.scene}: ${JSON.stringify(u.texts).slice(0, 400)}`);
         await frames(page, 3);
@@ -9646,7 +9680,7 @@ async function runAlmanac(browser, baseUrl) {
     let u = await app.ui();
     check(`${p} в главном меню есть кнопка «Альманах» (внутри экрана, не налезает на «Играть» и «Улучшения»)`, Boolean(u.buttons.almanac) && insideScreen(u.buttons.almanac) && !overlaps(u.buttons.almanac, u.buttons.play) && !overlaps(u.buttons.almanac, u.buttons.upgrades), JSON.stringify(u.buttons));
     await app.tapRect(u.buttons.almanac);
-    u = await checkTabs(app.page, app.tapRect, 'новый игрок', 'reset', (tab, id) => tab === 'towers' && id === 'pill');
+    u = await checkTabs(app.page, app.tapRect, 'новый игрок', 'reset', (tab, id) => tab === 'towers' && id === 'pill', (tw) => tw === 'pill');
     check(`${p} кнопки «Назад», «Башни», «Бактерии» и «Боссы» внутри экрана и не налезают друг на друга`, [u.buttons.back, u.buttons.towers, u.buttons.bacteria, u.buttons.bosses].every(insideScreen) && !overlaps(u.buttons.back, u.buttons.towers) && !overlaps(u.buttons.towers, u.buttons.bacteria) && !overlaps(u.buttons.bacteria, u.buttons.bosses), JSON.stringify(u.buttons));
     await app.tapRect(u.buttons.back);
     u = await app.waitUi('menu', 'меню после «Назад» из альманаха');
@@ -9665,32 +9699,46 @@ async function runAlmanac(browser, baseUrl) {
       await settle();
     };
     check(`${p} за первую попытку на поле вышли виды: ${[...met].join(', ')}`, met.size > 0, JSON.stringify(s.introduced));
-    await checkTabs(game.page, gameTap, `после первой попытки (встречены ${[...met].join(', ')})`, 'attempt1', (tab, id) => (tab === 'towers' ? id === 'pill' : tab === 'bacteria' ? met.has(id) : false));
+    await checkTabs(game.page, gameTap, `после первой попытки (встречены ${[...met].join(', ')})`, 'attempt1', (tab, id) => (tab === 'towers' ? id === 'pill' : tab === 'bacteria' ? met.has(id) : false), (tw) => tw === 'pill');
     await game.page.close();
     // 3) всё встречено и все башни куплены: строки «Название: описание», у боссов — только имя
     const all = await openMenu(context, baseUrl, `${p} всё открыто`, { query: '&met=all&towers=all', isTouch: device.hasTouch });
     u = await all.ui();
     await all.tapRect(u.buttons.almanac);
     await checkTabs(all.page, all.tapRect, 'всё встречено', 'all', () => true);
+    await all.page.close();
+    // 4) встречены кокк и бегун, Сироп не куплен: у бегуна нет строки свойства (она называет Сироп — решение владельца 26 октября 2026, сообщение 1, п. 2.1); 5) Сироп куплен — строка есть
+    for (const [label, shotName, meta, owned] of [['бегун без Сиропа', 'runner-nosyrup', '', (tw) => tw === 'pill'], ['бегун после покупки Сиропа', 'runner-syrup', '&meta=towerSyrup:1', (tw) => tw === 'pill' || tw === 'syrup']]) {
+      const m = await openMenu(context, baseUrl, `${p} ${label}`, { query: `&met=coccus,runner${meta}`, isTouch: device.hasTouch });
+      u = await m.ui();
+      await m.tapRect(u.buttons.almanac);
+      await checkTabs(m.page, m.tapRect, label, shotName, (tab, id) => (tab === 'towers' ? owned(id) : tab === 'bacteria' ? id === 'coccus' || id === 'runner' : false), owned, ['towers', 'bacteria']);
+      const runnerRow = (await uiOf(m.page)).texts.find((r) => r.startsWith(readI18n('bacNameRunner')[li])) ?? '';
+      const syrupName = readI18n('towerSyrup')[li];
+      check(`${p} ${label}: строка бегуна «${runnerRow}» ${owned('syrup') ? 'называет' : 'не называет'} Сироп`, owned('syrup') ? runnerRow.includes(syrupName) : !runnerRow.includes(syrupName), runnerRow);
+      await m.page.close();
+    }
     await context.close();
   }
 }
 
-/** Макет радиального древа (`?qa&treemock`, п. 5.3 сообщения владельца 5 от 25 октября 2026): снимки 1280×720 и 844×390 (весь макет и с масштабом 1,8), без ошибок в консоли. */
+/** Макеты древа «Атом» и «PoE» (`?qa&treemock=atom|poe`, п. 6 решений владельца 26 октября 2026): снимки 1280×720 и 844×390 с начальным масштабом (центр и открытые кольца) и обзор всего древа (×0,5), без ошибок в консоли. */
 async function runTreeMock(browser, baseUrl) {
-  for (const [deviceKey, zoom] of [['desktop', 1], ['phone', 1], ['phone', 1.8]]) {
-    const device = VIEWPORTS[deviceKey];
-    const p = `[макет древа, ${device.label}, масштаб ${zoom}]`;
-    const context = await newDeviceContext(browser, device, 'ru');
-    const page = await context.newPage();
-    watchConsole(page, p);
-    await page.goto(`${baseUrl}?qa&treemock&zoom=${zoom}`, { waitUntil: 'load', timeout: 90000 });
-    await page.waitForFunction(() => document.querySelector('canvas') !== null, null, { timeout: 30000 });
-    await sleep(1500);
-    await frames(page, 3);
-    await shot(page, `treemock-${deviceKey}-zoom${String(zoom).replace('.', '_')}`);
-    check(`${p} макет нарисован (холст есть)`, await page.evaluate(() => document.querySelector('canvas') !== null), '');
-    await context.close();
+  for (const variant of ['atom', 'poe']) {
+    for (const [deviceKey, zoom] of [['desktop', ''], ['phone', ''], ['desktop', '0.5']]) {
+      const device = VIEWPORTS[deviceKey];
+      const p = `[макет древа ${variant}, ${device.label}, масштаб ${zoom || 'начальный'}]`;
+      const context = await newDeviceContext(browser, device, 'ru');
+      const page = await context.newPage();
+      watchConsole(page, p);
+      await page.goto(`${baseUrl}?qa&treemock=${variant}${zoom ? `&zoom=${zoom}` : ''}`, { waitUntil: 'load', timeout: 90000 });
+      await page.waitForFunction(() => document.querySelector('canvas') !== null, null, { timeout: 30000 });
+      await sleep(1500);
+      await frames(page, 3);
+      await shot(page, `treemock-${variant}-${deviceKey}-${zoom ? `zoom${zoom.replace('.', '_')}` : 'start'}`);
+      check(`${p} макет нарисован (холст есть)`, await page.evaluate(() => document.querySelector('canvas') !== null), '');
+      await context.close();
+    }
   }
 }
 
