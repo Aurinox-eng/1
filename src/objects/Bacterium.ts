@@ -2,7 +2,7 @@ import Phaser from 'phaser';
 import { CONFIG, type BossId, type BossSpec, type Ward } from '../config';
 import { EDGES_FROM } from '../level';
 import { pointAt, type Edge } from '../pathing';
-import { FACE_SIGNS, NO_BREATH, NO_FACE } from '../debug';
+import { NO_BREATH, NO_FACE } from '../debug';
 import { COLORS, TOWER_MARK } from '../theme';
 import { artDensity, artImage, bakeArt, discImage, ringImage, setArt, squareBox, type ArtBox } from '../art';
 import type { Tower } from './Tower';
@@ -680,14 +680,14 @@ export class Bacterium {
     if (this.cracksKey && this.cracks.visible) this.cracks.setScale(q / artDensity(this.cracksKey));
   }
 
-  /** Состояние глаз для картинки тела: без лица (режим проверки), открыты или закрыты (моргание). */
+  /** Лицо на картинке тела: лиц нет ни у кого — только знаки вида (решение владельца 26 октября 2026, сообщения 4 и 6); `?qa&noface` — без знаков (замер скорости). */
   private eyes(): Eyes {
-    return NO_FACE ? 'none' : FACE_SIGNS ? 'signs' : this.eyesShut ? 'shut' : 'open';
+    return NO_FACE ? 'none' : 'signs';
   }
 
   /** Глаза закрываются (моргание) или открываются: меняется картинка тела. */
   private shutEyes(shut: boolean): void {
-    if (NO_FACE || FACE_SIGNS || shut === this.eyesShut) return;
+    if (!EYES_DRAWN || NO_FACE || shut === this.eyesShut) return;
     this.eyesShut = shut;
     this.applyBody();
   }

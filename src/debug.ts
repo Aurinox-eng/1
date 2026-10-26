@@ -43,8 +43,6 @@ export const PILL_EYES_OFF: boolean = QA_MODE && params.get('pilleyes') === '0';
  */
 export const NO_FACE: boolean = QA_MODE && params.has('noface');
 export const NO_BREATH: boolean = QA_MODE && params.has('nobreath');
-/** Только режим проверки (лист «без лиц», сообщение владельца 4 от 26 октября 2026, п. 2.3): `?qa&faces=signs` — у бактерий только знаки вида, без черт лица. В игровой сборке всегда false. */
-export const FACE_SIGNS: boolean = QA_MODE && params.get('faces') === 'signs';
 
 /** Только режим проверки: `?qa&artsheet` — вместо игры показывается лист образцов пилота этапа 8. */
 export const ART_SHEET: boolean = QA_MODE && params.has('artsheet');
