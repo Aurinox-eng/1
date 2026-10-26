@@ -48,6 +48,8 @@ export const NO_BREATH: boolean = QA_MODE && params.has('nobreath');
 export const ART_SHEET: boolean = QA_MODE && params.has('artsheet');
 /** Страница листа образцов: пусто — пилот (новое рядом с прежним), `b1`, `b2` — все 19 бактерий, `t1`, `t2` — все 10 башен по уровням. */
 export const ART_SHEET_PAGE: string = params.get('artsheet') ?? '';
+/** Только режим проверки: `?qa&treemock` — вместо игры макет радиального древа (п. 5 сообщения владельца 5 от 25 октября 2026), `&zoom=1.8` — начальный масштаб. */
+export const TREE_MOCK: boolean = QA_MODE && params.has('treemock');
 
 /** Не показывать плашки с описанием (только вместе с ?qa): нужно проверкам, которые проверяют не плашки, а бой и интерфейс. */
 

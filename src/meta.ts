@@ -77,6 +77,7 @@ if (!noPersist) {
 /** Сбрасывает весь прогресс вне партии (очки ДНК, улучшения, уровни и звёзды, показанные подсказки) и записывает пустое сохранение; звук, скорость и язык хранятся отдельно и не затрагиваются. */
 export function resetProgress(): void {
   state = emptyMeta();
+  seenHere.clear();
   persist();
 }
 
@@ -348,8 +349,20 @@ export function metaSeen(): string[] {
   return SEEN_STORED ? [...state.seen] : [];
 }
 
+/** Встреченное на этой странице (с хранилищем и без): Альманах открывает запись и в режиме проверки без `&persistseen`. */
+const seenHere = new Set<string>();
+/** `?qa&met=all` — Альманах: все бактерии и боссы считаются встреченными (снимки и проверки записей); в сохранение ничего не пишется. */
+const MET_ALL = QA_MODE && new URLSearchParams(window.location.search).get('met') === 'all';
+
+/** Встречалось ли (`b:вид` — бактерия, `boss:id` — босс): в сохранении, на этой странице или подменой `&met=all`. */
+export function wasMet(key: string): boolean {
+  return MET_ALL || seenHere.has(key) || state.seen.includes(key);
+}
+
 export function markSeen(key: string): void {
-  if (!SEEN_STORED || key.length > 40) return;
+  if (key.length > 40) return;
+  seenHere.add(key);
+  if (!SEEN_STORED) return;
   refresh();
   if (state.seen.includes(key) || state.seen.length >= 200) return;
   state = { ...state, seen: [...state.seen, key] };

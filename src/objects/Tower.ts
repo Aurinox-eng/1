@@ -1306,15 +1306,11 @@ export class Tower {
 
   private drawSelectRing(): void {
     this.selectRing.clear();
-    // радиус стрельбы (у луча его нет — там пунктир направления)
-    if (!this.isBeam) {
-      this.selectRing.fillStyle(COLORS.ghost, 0.1).fillCircle(0, 0, this.stats.range);
-      this.selectRing.lineStyle(2.5, COLORS.ghostEdge, 0.9).strokeCircle(0, 0, this.stats.range);
-    }
+    // только золотое кольцо: голубой радиус стрельбы виден лишь пока башня ставится (решение владельца 25 октября 2026, сообщение 5, п. 3.4)
     this.selectRing.lineStyle(5, COLORS.gold, 1).strokeCircle(0, 0, 46);
   }
 
-  /** Башня выбрана игроком: золотое кольцо и (кроме луча) круг радиуса стрельбы. */
+  /** Башня выбрана игроком: золотое кольцо. */
   setSelected(on: boolean): void {
     this.selectRing.setVisible(on);
     if (on) this.drawSelectRing();

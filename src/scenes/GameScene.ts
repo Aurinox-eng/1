@@ -5,7 +5,7 @@ import { exposeDebug, QA_ENTRANCE, QA_MODE, QA_NORENDER, QA_START_WAVE, STRESS, 
 import { placeTowerQa, qaLog, qaSnapshot, setupStress, stressFrame } from '../qaTools';
 import { Effects } from '../effects';
 import { drawStar, setScreenInfo } from '../screens';
-import { attemptNumber, autoWaveOwned, awardDna, boughtSinceLast, dnaParts, coinsBonus, exposeMetaDebug, feverOwned, finishAttempt, HIDDEN_SCREEN, isLevelBeaten, isLevelOpen, livesBonus, markSeen, metaDna, metaLevels, metaSeen, nextBigNode, recordResult, refundBonus, rewardMul, shieldCharges, starsForLoss, waveCoinsBonus, type DnaInput, type DnaParts } from '../meta';
+import { attemptNumber, autoWaveOwned, awardDna, boughtSinceLast, dnaParts, coinsBonus, exposeMetaDebug, feverOwned, finishAttempt, HIDDEN_SCREEN, isLevelBeaten, isLevelOpen, livesBonus, markSeen, wasMet, metaDna, metaLevels, nextBigNode, recordResult, refundBonus, rewardMul, shieldCharges, starsForLoss, waveCoinsBonus, type DnaInput, type DnaParts } from '../meta';
 import { attemptLine, copyText } from '../attempt';
 import { num, t, type TextKey } from '../i18n';
 import { aimAngle, BLOCKED_TILES, EDGES, ENTRANCE_EDGES, LEVEL, PATH_TILES, WORLD, cellKey, useLevelMap, worldToCell } from '../level';
@@ -20,12 +20,12 @@ import { Cloud } from '../objects/Cloud';
 import { Trap } from '../objects/Trap';
 import { Puddle } from '../objects/Puddle';
 import { beamReach, createTowerArt, defaultAim, drawAimLine, Tower, type TowerId } from '../objects/Tower';
-import { artStats, ringImage } from '../art';
+import { artStats } from '../art';
 import { pointAt, tileCenter, unitCenter, type Edge } from '../pathing';
 import { gameplay } from '../sdk';
 import { sfx } from '../sound';
 import { wardBlocks } from '../ward';
-import { computeStats, MAX_TOWER_LEVEL, mutationById, mutationOptions, mutationStacks, statDps, towerPrice, type MutationCap, type TowerStats } from '../towerStats';
+import { computeStats, MAX_TOWER_LEVEL, mutationById, mutationOptions, mutationStacks, towerPrice, type TowerStats } from '../towerStats';
 import { COLORS, FONT, TEXT_COLORS } from '../theme';
 import { FPS_ENABLED, FpsMeter, frameReport, installFrameStats } from '../perf';
 import { Panel, TOP_H, VIEW } from '../ui/Panel';
@@ -36,23 +36,14 @@ const ZOOM_MIN = Math.min(VIEW.w / WORLD.w, VIEW.h / WORLD.h);
 /** Цвет числа урона по способу стрельбы башни: Таблетка — белый, Шипучка — розовый, Шприц — бирюзовый, лужа (ядовитая мутация Сиропа) — оранжевый, Ампула — светло-голубой;
  *  яд Антибиотика чисел не показывает (цвет нужен для полноты таблицы); Лампа — жёлтый, Витамин не бьёт (цвет для полноты); Холод и Пластырь прямым ударом не бьют (цвета для полноты). */
 const DAMAGE_COLORS: Record<TowerStats['targeting'], number> = { radius: 0xffffff, area: COLORS.fizz, beam: COLORS.needle, puddle: COLORS.puddle, snipe: 0x9fe4ff, poison: COLORS.poison, cone: COLORS.lamp, aura: 0xffffff, freeze: COLORS.frost, trap: COLORS.patch };
+/** Урон одного выстрела в карточке: до 1 — с двумя знаками после запятой (тик Лампы), дальше — с одним. */
+const hitNum = (x: number): string => num(x < 1 ? Math.round(x * 100) / 100 : Math.round(x * 10) / 10);
 /** Цвет числа урона, когда удар ослаблен памятью мутанта (башня того же вида, что и прошлая). */
 const RESIST_COLOR = 0x9aa6bd;
 /** Цвет облачка у дула по башне (вид, не баланс). */
 const MUZZLE_PUFF: Partial<Record<string, number>> = { pill: 0xffffff, syrup: COLORS.syrup, fizz: COLORS.acid, syringe: COLORS.needle, ampule: 0x9fdcff, antibiotic: COLORS.antibiotic };
 /** Сколько миллисекунд висит строка «Новая бактерия: …» / «Открыта башня: …» (игра при этом идёт). */
 const NEWS_MS = 4200;
-/** О чём игрок уже узнал из строк-уведомлений («b:тип» — бактерия, «t:башня» — башня): повторные партии подряд их не повторяют. */
-const seenNews = new Set<string>(metaSeen());
-/** После сброса прогресса в меню все уведомления и подсказки показываются заново. */
-export function forgetNews(): void {
-  seenNews.clear();
-}
-/** Запоминает уведомление как показанное (и в сохранении, чтобы после обновления страницы оно не повторялось). */
-function rememberNews(key: string): void {
-  seenNews.add(key);
-  markSeen(key);
-}
 /** Защита от «прыжков» после сворачивания вкладки: один кадр не длиннее 50 мс. */
 const MAX_FRAME_MS = 50;
 /** Наибольший шаг расчёта игры, секунды игрового времени: кадр на высокой скорости (×3, ×5) или на медленном устройстве делится на несколько шагов не длиннее этого, поэтому ход боя
@@ -62,8 +53,6 @@ const SIM_STEP_SEC = 1 / 30;
 const MAX_SPAWNS_PER_FRAME = 10;
 /** Все типы бактерий в порядке появления в игре. */
 const KINDS = Object.keys(CONFIG.types) as BacteriumKind[];
-/** Сколько миллисекунд держится сообщение о новом типе. */
-const NEW_TYPE_TOAST_MS = 4200;
 /** Цепной взрыв: пауза до второго взрыва, секунд; радиус поиска бактерии для него, пикселей. */
 const CHAIN_DELAY_SEC = 0.3;
 const CHAIN_REACH_PX = 160;
@@ -182,12 +171,8 @@ export class GameScene extends Phaser.Scene {
   /** Поставленная башня, выбранная на карте (её карточка — в правой панели), и идёт ли выбор пары для слияния. */
   private selectedTower: Tower | null = null;
   private mergeMode = false;
-  /** Круг слияния вокруг выбранной башни. */
-  private mergeRing!: Phaser.GameObjects.Image;
   /** Сколько жизней отняла каждая порода бактерий за партию (то, что реально списано; поглощённое щитом не считается): для строки на экране проигрыша. */
   private livesLostByKind: Partial<Record<BacteriumKind, number>> = {};
-  /** Башни пары, на которую сейчас показывается разовая подсказка о слиянии (пусто — подсказки нет). */
-  private mergeHintTowers: Tower[] = [];
   private merges = 0;
   private sells = 0;
   private mutationsPicked = 0;
@@ -425,8 +410,6 @@ export class GameScene extends Phaser.Scene {
     this.bossBarText = this.add.text(BOSS_BAR.x, BOSS_BAR.y - BOSS_BAR.h / 2 - 2, '', this.textStyle(18)).setOrigin(0.5, 1).setDepth(99).setVisible(false);
     if (feverOwned()) this.buildFeverButton();
     this.buildGhost();
-    this.mergeRing = ringImage(this, 0, 0, CONFIG.mergeRadiusPx, 5, COLORS.merge, 0.45).setVisible(false);
-    this.ghostLayer.add(this.mergeRing);
     this.userSpeed = this.loadSpeed();
     this.panel = new Panel(this, {
       onTower: (id) => this.toggleTower(id),
@@ -821,14 +804,23 @@ export class GameScene extends Phaser.Scene {
     this.bacteria.push(born);
     this.spawned++;
     if (QA_MODE) qaLog(this, 'spawn', { id: born.id, kind, edge: edge.id, boss: item.boss ?? null });
-    if (item.boss) return; // босс — не новый вид: уведомление о нём — строка перед волной
-    if (!this.introduced.includes(kind)) this.introduced.push(kind);
-    // Уведомление о новой бактерии — одно, в момент её выхода и на всех уровнях (решение владельца 18 октября 2026); тип, о котором игрок уже узнал, не повторяется
-    if (!seenNews.has(`b:${kind}`)) {
-      rememberNews(`b:${kind}`);
-      this.panel.news(t('newBacteriaToast', { name: t(`bacName${kind.charAt(0).toUpperCase()}${kind.slice(1)}` as TextKey) }), NEW_TYPE_TOAST_MS);
-      sfx.newType();
+    if (item.boss) {
+      // босс — не новый вид: в Альманахе открывается его запись (строка о нём — перед волной)
+      markSeen(`boss:${item.boss}`);
+      return;
     }
+    if (!this.introduced.includes(kind)) this.introduced.push(kind);
+    this.meet(kind);
+  }
+
+  /**
+   * Бактерия вышла на поле: её запись в Альманахе открыта (решение владельца 25 октября 2026, сообщение 5, п. 2.1). Уведомления «Новая бактерия» в бою нет (там же, п. 3.1);
+   * при первой встрече вида остаётся только звук.
+   */
+  private meet(kind: BacteriumKind): void {
+    if (wasMet(`b:${kind}`)) return;
+    markSeen(`b:${kind}`);
+    sfx.newType();
   }
 
   /** Жёсткое свойство бактерии на этом уровне (`plan.hardWalls`): бегун, бронированный, слизень — по виду; босс последней волны — фаза «только взрыв и луч». */
@@ -1150,6 +1142,7 @@ export class GameScene extends Phaser.Scene {
         const child = new Bacterium(this, this.bacteriaLayer, BREWS_INTO, mother.edge, mother.s, mother.hpMul, this.childExtra(mother));
         child.moveForward(i * CONFIG.types[BREWS_INTO].radius * 2);
         this.bacteria.push(child);
+        this.meet(BREWS_INTO);
       }
       this.effects.flash(mother.x, mother.y, mother.radius * 0.8, COLORS.egg);
     }
@@ -1353,6 +1346,7 @@ export class GameScene extends Phaser.Scene {
       const child = new Bacterium(this, this.bacteriaLayer, kind, parent.edge, parent.s, parent.hpMul, this.childExtra(parent));
       child.moveForward(i * CONFIG.types[kind].radius * 1.6);
       this.bacteria.push(child);
+      this.meet(kind);
     }
     if (count > 0) this.effects.flash(parent.x, parent.y, parent.radius * 0.6, COLORS.egg);
   }
@@ -1429,6 +1423,7 @@ export class GameScene extends Phaser.Scene {
       const child = new Bacterium(this, this.bacteriaLayer, SPLITS_INTO, parent.edge, parent.s, parent.hpMul, this.childExtra(parent));
       child.moveForward(i * splitGapPx);
       this.bacteria.push(child);
+      this.meet(SPLITS_INTO);
     }
   }
 
@@ -1524,27 +1519,9 @@ export class GameScene extends Phaser.Scene {
     this.updateHint();
   }
 
-  /** Нижняя подсказка: только разовая подсказка о слиянии (решение владельца 18 октября 2026: во время партии игра не объясняет и не советует). */
+  /** Нижняя подсказка в бою не показывается (решение владельца 25 октября 2026, сообщение 5, п. 3.1: подсказок слияния нет); строка снимается. */
   private updateHint(): void {
-    if (this.mergeMode) {
-      this.panel.setHint(null); // подсказка слияния — в узкой полосе карточки (иначе плашка над карточкой закрывала бы кандидатов)
-      return;
-    }
-    // Разовая подсказка о слиянии: первая пара одинаковых башен рядом мигает, внизу — как её слить (пока башня не выбрана: у выбранной в карточке уже горит «Слить»)
-    this.mergeHintTowers = this.mergeHintPair();
-    for (const tower of this.towers) tower.setMergeCandidate(this.mergeHintTowers.includes(tower));
-    const mergeLine = this.mergeHintTowers.length > 0 && !this.selectedTower ? t('hintMergePair') : null;
-    this.panel.setHint(mergeLine);
-  }
-
-  /** Первая пара одинаковых башен в радиусе слияния, пока игрок ни разу не включал «Слить» (запоминается как `h:merge` вместе с показанными уведомлениями); иначе пусто. */
-  private mergeHintPair(): Tower[] {
-    if (this.mergeMode || seenNews.has('h:merge')) return [];
-    for (const tower of this.towers) {
-      const other = this.mergeCandidates(tower)[0];
-      if (other) return [tower, other];
-    }
-    return [];
+    this.panel.setHint(null);
   }
 
   /** Башня, стоящая в клетке (или null). */
@@ -1613,7 +1590,6 @@ export class GameScene extends Phaser.Scene {
     this.cancelMerge(false);
     this.selectedTower?.setSelected(false);
     this.selectedTower = null;
-    this.updateMergeRing();
     this.panel.hideCard();
     this.updateHint();
   }
@@ -1631,14 +1607,6 @@ export class GameScene extends Phaser.Scene {
     );
   }
 
-  /** Круг слияния вокруг выбранной башни (пока она может сливаться); без выбранной башни скрыт. */
-  private updateMergeRing(): void {
-    const tower = this.selectedTower;
-    const show = Boolean(tower) && tower!.level < MAX_TOWER_LEVEL && tower!.pendingTier === null;
-    this.mergeRing.setVisible(show);
-    if (show) this.mergeRing.setPosition(tower!.x, tower!.y);
-  }
-
   /** Кнопка «Слить» / «Отмена» в карточке. */
   private toggleMerge(): void {
     if (this.state !== 'playing' || !this.selectedTower) return;
@@ -1649,8 +1617,6 @@ export class GameScene extends Phaser.Scene {
     const candidates = this.mergeCandidates(this.selectedTower);
     if (candidates.length === 0) return;
     this.mergeMode = true;
-    rememberNews('h:merge');
-    this.mergeHintTowers = [];
     for (const tower of this.towers) tower.setMergeCandidate(false);
     for (const tower of candidates) tower.setMergeCandidate(true);
     sfx.select();
@@ -1684,7 +1650,6 @@ export class GameScene extends Phaser.Scene {
     sfx.merge();
     this.selectedTower = null;
     this.selectTower(target);
-    this.panel.toast(t(target.pendingTier !== null ? 'toastPickMutation' : 'toastMerged', { n: target.level }));
   }
 
   /** Убирает башню с карты (слияние или продажа): клетка свободна, её очередь луча обрывается. */
@@ -1716,7 +1681,6 @@ export class GameScene extends Phaser.Scene {
     this.removeTower(tower);
     sfx.sell();
     this.panel.setCoins(this.coins);
-    this.panel.toast(t('toastSold', { n: value }));
     this.updateHint();
     for (const other of this.towers) other.setMergeCandidate(false);
   }
@@ -1738,15 +1702,6 @@ export class GameScene extends Phaser.Scene {
   }
 
   /**
-   * Урон в секунду по одной цели, как в бою: у луча — вся очередь по цели на линии («Спираль» делает каждый следующий удар сильнее на `spiral` × множитель урона уровня башни,
-   * как в `beamPulse`), у остальных — один удар; делится на настоящую паузу между выстрелами (с аурой Витамина рядом и присосавшимся паразитом, как в `Tower.update`).
-   * Вторая цель «Двойного выстрела» и второй луч в число не входят: это другие цели.
-   */
-  private dps(tower: Tower): number {
-    return statDps(tower.stats, tower.level) / (tower.auraMul * tower.latchMul);
-  }
-
-  /**
    * Вариант мутации на карточке выбора (решение владельца 20 октября 2026, сообщение 2, п. 3.1): что изменится — «было → станет» по `computeStats` (числа без ауры, паразита и «Лихорадки»),
    * и потолок, в который числа упрутся после выбора (документ дизайна, п. 4.2). Ничего не меняется (копия с долей 0, второй «включатель») — «без изменений».
    */
@@ -1757,7 +1712,7 @@ export class GameScene extends Phaser.Scene {
     const n2 = (x: number): string => num(Math.round(x * 100) / 100);
     const yesNo = (x: number): string => t(x > 0 ? 'chgYes' : 'chgNo');
     const rows: [TextKey, number, number, (x: number) => string][] = [
-      ['chgDps', statDps(a, tower.level), statDps(b, tower.level), n],
+      ['chgHit', a.damage, b.damage, hitNum],
       ['chgTargets', 1 + a.extraTargets, 1 + b.extraTargets, String],
       ['chgPulses', a.beamPulses, b.beamPulses, String],
       ['chgBeams', a.secondBeam ? 2 : 1, b.secondBeam ? 2 : 1, String],
@@ -1767,7 +1722,7 @@ export class GameScene extends Phaser.Scene {
       ['chgPuddles', a.puddleCount, b.puddleCount, String],
       ['chgSlow', a.slowFactor, b.slowFactor, n2],
       ['chgPoison', a.poisonPerSec, b.poisonPerSec, n],
-      ['chgDot', a.dotPerSec, b.dotPerSec, n],
+      ['chgDotHp', a.dotPerSec * a.dotSec, b.dotPerSec * b.dotSec, n],
       ['chgDotSec', a.dotSec, b.dotSec, n],
       ['chgAcid', a.acidMul, b.acidMul, n2],
       ['chgCone', a.coneDeg, b.coneDeg, (x) => String(Math.round(x))],
@@ -1775,26 +1730,15 @@ export class GameScene extends Phaser.Scene {
       ['chgAura', a.auraMul, b.auraMul, n2],
       ['chgFreeze', a.freezeSec, b.freezeSec, n],
       ['chgTrap', a.trapSec, b.trapSec, n],
-      ['chgTrapDps', a.trapDps, b.trapDps, n],
+      ['chgTrapHp', a.trapDps * a.trapSec, b.trapDps * b.trapSec, n],
       // «Включатели» (бронебойность, самая прочная цель, цепной взрыв) числами не видны — «нет → да»
       ['chgPierce', Number(a.armorPierce), Number(b.armorPierce), yesNo],
       ['chgToughest', Number(a.toughest), Number(b.toughest), yesNo],
       ['chgChain', Number(a.chain), Number(b.chain), yesNo],
     ];
     const parts = rows.filter(([, x, y, f]) => f(x) !== f(y)).map(([key, x, y, f]) => t(key, { a: f(x), b: f(y) }));
-    const caps = CONFIG.mutationCaps;
-    const capText: Record<MutationCap, string> = {
-      dps: t('capDps', { n: num(caps.dpsMul) }),
-      targets: t('capTargets', { n: 1 + caps.extraTargetsMax }),
-      pulses: t('capPulses', { n: caps.pulsesMax }),
-      cone: t('capCone', { n: caps.coneDeg }),
-      freeze: t('capFreeze', { n: num(caps.freezeShareOfCooldown) }),
-      aura: t('capAura', { n: num(CONFIG.meta.minAuraMul) }),
-      slow: t('capSlow', { n: num(CONFIG.meta.minSlowFactor) }),
-      copy: t('capCopy'),
-    };
-    const line = parts.length > 0 ? parts.join(', ') : t('chgNone');
-    return b.caps.length > 0 ? `${line} · ${t('capLine', { list: b.caps.map((c) => capText[c]).join(', ') })}` : line;
+    // потолка в строке нет (решение владельца 25 октября 2026, сообщение 5, п. 3.1: знак «потолок» убран)
+    return parts.length > 0 ? parts.join(', ') : t('chgNone');
   }
 
   /**
@@ -1814,29 +1758,35 @@ export class GameScene extends Phaser.Scene {
     return t('statCooldownBoost', { n: n(base * mul), m: num(Math.round(mul * 100) / 100), why: why.join(', ') });
   }
 
-  /** Числа для карточки: у каждой башни свои три строки. */
+  /**
+   * Числа для карточки: у каждой башни свои строки. «Урон N» — урон одного выстрела (у Шприца — урон удара и число ударов, у Лампы — за один тик конуса),
+   * у яда и ловушки — урон за одно применение (решение владельца 25 октября 2026, сообщение 5, п. 3.2).
+   */
   private cardStats(tower: Tower): string[] {
     const st = tower.stats;
     const n = (x: number): string => num(Math.round(x * 10) / 10);
     const pause = this.pauseLine(tower);
+    const hit = t('statHit', { n: hitNum(st.damage) });
     if (st.targeting === 'puddle') return [t('statPuddle', { r: Math.round(st.puddleRadius), s: n(st.puddleSec) }), t('statSlow', { n: n(st.slowFactor) }), pause];
-    if (st.targeting === 'beam') return [t('statDps', { n: n(this.dps(tower)) }), t(st.secondBeam ? 'statBeams' : 'statBeam', { n: st.secondBeam ? 2 : st.beamPulses }), pause];
-    if (st.targeting === 'area') return [t('statDps', { n: n(this.dps(tower)) }), t('statBlast', { r: Math.round(st.blastRadius) }), pause];
-    if (st.targeting === 'cone') return [t('statDps', { n: n(this.dps(tower)) }), t('statCone', { a: Math.round(st.coneDeg), r: Math.round(st.range) }), pause];
+    if (st.targeting === 'beam') {
+      const pulses = t('statBeamHit', { n: hitNum(st.damage), k: Math.max(1, st.beamPulses) });
+      return st.secondBeam ? [pulses, t('statBeams', { n: 2 }), pause] : [pulses, pause];
+    }
+    if (st.targeting === 'area') return [hit, t('statBlast', { r: Math.round(st.blastRadius) }), pause];
+    if (st.targeting === 'cone') return [hit, t('statCone', { a: Math.round(st.coneDeg), r: Math.round(st.range) }), pause];
     if (st.targeting === 'aura') {
       const aura = tower.latchMul > 1 ? 1 - (1 - st.auraMul) / tower.latchMul : st.auraMul;
       return [t(tower.latchMul > 1 ? 'statAuraLatched' : 'statAura', { n: num(Math.round(aura * 100) / 100) }), t('statRange', { n: Math.round(st.range) })];
     }
     if (st.targeting === 'freeze') return [t('statFreeze', { n: n(st.freezeSec) }), pause, t('statRange', { n: Math.round(st.range) })];
-    if (st.targeting === 'trap') return [t('statTrap', { s: n(st.trapSec), n: n(st.trapDps) }), pause, t('statRange', { n: Math.round(st.range) })];
-    if (st.targeting === 'poison') return [t('statPoison', { n: n(st.dotPerSec), s: n(st.dotSec) }), pause, t('statRange', { n: Math.round(st.range) })];
-    return [t('statDps', { n: n(this.dps(tower)) }), pause, t('statRange', { n: Math.round(st.range) })];
+    if (st.targeting === 'trap') return [t('statTrap', { s: n(st.trapSec), n: n(st.trapDps * st.trapSec) }), pause, t('statRange', { n: Math.round(st.range) })];
+    if (st.targeting === 'poison') return [t('statPoison', { n: n(st.dotPerSec * st.dotSec), s: n(st.dotSec) }), pause, t('statRange', { n: Math.round(st.range) })];
+    return [hit, pause, t('statRange', { n: Math.round(st.range) })];
   }
 
   /** Перерисовать карточку выбранной башни (или скрыть, если башня не выбрана). */
   private refreshCard(): void {
     const tower = this.selectedTower;
-    this.updateMergeRing();
     if (!tower) {
       this.panel.hideCard();
       return;
@@ -1873,7 +1823,7 @@ export class GameScene extends Phaser.Scene {
       beam: tower.isBeam,
       merge,
       sell: this.sellValue(tower),
-      mergeHint: this.mergeMode ? t('hintMerge') : null,
+      mergeHint: null,
     });
   }
 
@@ -2220,10 +2170,10 @@ export class GameScene extends Phaser.Scene {
     this.bossBarText.setText(t(`boss${id.charAt(0).toUpperCase()}${id.slice(1)}` as TextKey)).setVisible(true);
   }
 
-  /** Перед волной с номером `index` (с нуля): если в ней выходит тип бактерий, о котором игрок ещё не узнал, пауза перед ней длиннее; уведомление о типе показывается при его выходе (`spawnBacterium`). */
+  /** Перед волной с номером `index` (с нуля): если в ней выходит тип бактерий, который игрок ещё не встречал, пауза перед ней длиннее (уведомления о типе нет). */
   private extendPauseForNewKinds(index: number): void {
     if (index >= this.waveTotal()) return;
-    const fresh = this.waveKinds(index).some((kind) => !seenNews.has(`b:${kind}`));
+    const fresh = this.waveKinds(index).some((kind) => !wasMet(`b:${kind}`));
     if (fresh) this.phaseTimer += CONFIG.waves.newTypePauseSec;
   }
 

@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { CONFIG } from './config';
-import { ART_SHEET, QA_MODE, QA_NORENDER } from './debug';
+import { ART_SHEET, QA_MODE, QA_NORENDER, TREE_MOCK } from './debug';
 import { t } from './i18n';
 import { getLang, setLang } from './lang';
 import { startInMenu } from './progress';
@@ -10,6 +10,7 @@ import { AlmanacScene } from './scenes/AlmanacScene';
 import { GameScene } from './scenes/GameScene';
 import { LevelsScene } from './scenes/LevelsScene';
 import { ArtSheetScene } from './qaArtSheet';
+import { TreeMockScene } from './qaTreeMock';
 import { MenuScene } from './scenes/MenuScene';
 import { UpgradesScene } from './scenes/UpgradesScene';
 import { COLORS } from './theme';
@@ -49,11 +50,13 @@ async function boot(): Promise<void> {
     ...(QA_NORENDER ? { fps: { target: 120, forceSetTimeOut: true } } : {}),
     banner: false,
     // Первая сцена в списке запускается сама: меню или, при адресе с `?level=N` (и в режиме проверки без `&menu`), сразу партия
-    scene: ART_SHEET ? [] : startInMenu() ? [MenuScene, LevelsScene, GameScene, UpgradesScene, AlmanacScene] : [GameScene, MenuScene, LevelsScene, UpgradesScene, AlmanacScene],
+    scene: ART_SHEET || TREE_MOCK ? [] : startInMenu() ? [MenuScene, LevelsScene, GameScene, UpgradesScene, AlmanacScene] : [GameScene, MenuScene, LevelsScene, UpgradesScene, AlmanacScene],
   });
 
   // Лист образцов пилота этапа 8 (только `?qa&artsheet`): в игровой сборке ART_SHEET всегда false, и сцена вместе с файлом qaArtSheet.ts в неё не попадает
   if (ART_SHEET) game.scene.add('ArtSheet', ArtSheetScene, true);
+  // Макет радиального древа (только `?qa&treemock`): в игровой сборке TREE_MOCK всегда false
+  if (TREE_MOCK) game.scene.add('TreeMock', TreeMockScene, true);
 
   // Площадка: `LoadingAPI.ready()` после второго шага цикла (меню нарисовано и принимает ввод); пауза и возобновление (требование 1.3) глушат и возвращают звук, пауза ставит партию на паузу
   let steps = 0;
