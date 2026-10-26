@@ -9275,18 +9275,32 @@ function readBossIds() {
 }
 const BOSS_IDS = readBossIds();
 
+/** Части описания вида, называющие башню (AlmanacScene.ts, KIND_TOWER_PARTS): вид → [[башня, ключ]]. */
+function readKindTowerParts() {
+  const src = fs.readFileSync(path.join(ROOT, 'src/scenes/AlmanacScene.ts'), 'utf8');
+  const block = src.slice(src.indexOf('const KIND_TOWER_PARTS'), src.indexOf('};', src.indexOf('const KIND_TOWER_PARTS')));
+  return Object.fromEntries([...block.matchAll(/^\s*(\w+): \[(.*)\],?$/gm)].map((m) => [m[1], [...m[2].matchAll(/\['(\w+)', '(\w+)'\]/g)].map((x) => [x[1], x[2]])]));
+}
+const KIND_TOWER_PARTS = readKindTowerParts();
+/** Строки жёстких свойств (AlmanacScene.ts, WARD_LINES): вид, ключ, башня, без которой строка не выводится (null — строка башню не называет); все свойства включены на уровне 1. */
+const WARD_NOTES = [['runner', 'almWardRunner', 'syrup'], ['armored', 'almWardArmored', null], ['slick', 'almWardSlick', 'syringe']];
+
 /**
- * Строки альманаха, которые должна показать игра (решение владельца 25 октября 2026, сообщение 5, п. 2): открытая башня и бактерия — «Название: короткое описание»,
- * открытый босс — только имя, закрытая запись — только «Ещё не встречалось». `open(id)` — открыта ли запись.
+ * Строки альманаха, которые должна показать игра (решения владельца 25 октября 2026, сообщение 5, п. 2, и 26 октября 2026, сообщение 1, п. 2): открытая башня — «Название: описание»,
+ * открытая бактерия — «Название: особенность. части о купленных башнях» (у кокка — только название) и « | строка свойства», если её башня куплена; босс — «Имя: особенности»;
+ * закрытая запись — только «Ещё не встречалось». `open(id)` — открыта ли запись, `owned(tower)` — куплена ли башня.
  */
-function almanacRows(tab, li, open = () => true) {
+function almanacRows(tab, li, open = () => true, owned = () => true) {
   const ids = tab === 'towers' ? TOWER_ORDER : tab === 'bacteria' ? KINDS : BOSS_IDS;
   const closed = readI18n('almBacClosed')[li];
   return ids.map((id) => {
     if (!open(id)) return closed;
-    if (tab === 'bosses') return readI18n(`boss${capId(id)}`)[li];
-    const name = readI18n(tab === 'towers' ? `tower${capId(id)}` : `bacName${capId(id)}`)[li];
-    return `${name}: ${readI18n(tab === 'towers' ? `almTower${capId(id)}` : `almBac${capId(id)}`)[li]}`;
+    if (tab === 'bosses') return `${readI18n(`boss${capId(id)}`)[li]}: ${readI18n(`almBoss${capId(id)}`)[li]}`;
+    if (tab === 'towers') return `${readI18n(`tower${capId(id)}`)[li]}: ${readI18n(`almTower${capId(id)}`)[li]}`;
+    const name = readI18n(`bacName${capId(id)}`)[li];
+    const parts = [readI18n(`almBac${capId(id)}`)[li], ...(KIND_TOWER_PARTS[id] ?? []).filter(([tw]) => owned(tw)).map(([, key]) => readI18n(key)[li])].filter((x) => x.length > 0);
+    const notes = WARD_NOTES.filter(([kind, , tw]) => kind === id && (tw === null || owned(tw))).map(([, key]) => readI18n(key)[li]);
+    return `${parts.length ? `${name}: ${parts.join('. ')}` : name}${notes.map((n) => ` | ${n}`).join('')}`;
   });
 }
 const rowsMatch = (texts, rows) => texts.length === rows.length && rows.every((r, i) => texts[i] === r);
@@ -9583,31 +9597,19 @@ async function runAlmanac(browser, baseUrl) {
     const slick = /\n\s*slick: \{[^}]*\}/.exec(cfgSrc)?.[0] ?? '';
     const slickFlags = ['slowImmune', 'freezeImmune', 'trapImmune'].map((k) => new RegExp(`${k}: 1\\b`).test(slick));
     check(`${p} в config.ts Слизень не берут Сироп, Холод и Пластырь (slowImmune, freezeImmune, trapImmune = 1)`, slickFlags.every(Boolean), JSON.stringify(slickFlags));
-    const slickText = readI18n('almBacSlick');
-    for (const [li, lang] of [[0, 'ru'], [1, 'en']]) {
-      const names = ['towerSyrup', 'towerFrost', 'towerPatch'].map((k) => readI18n(k)[li]);
-      check(`${p} текст о Слизне (${lang}) называет Сироп, Холод и Пластырь: «${slickText[li]}»`, names.every((n) => slickText[li].includes(n)), names.join(', '));
-    }
-    // (решение владельца 18 октября 2026, ответ 10: остальные расхождения Альманаха — да) тексты о Прыгуне, Гиганте и Холоде называют башни, которые не действуют, по флагам config.ts
+    // (решение владельца 26 октября 2026, сообщение 1, п. 2.1) «на него не действует» — частями, каждая называет свою башню и выводится, только если башня куплена:
+    // в AlmanacScene.ts (KIND_TOWER_PARTS) у Слизня, Прыгуна и Гиганта есть часть на каждую башню, которой не даёт действовать флаг config.ts
     const flagsOf = (kind) => {
       const row = new RegExp(`\\n\\s*${kind}: \\{[^}]*\\}`).exec(cfgSrc)?.[0] ?? '';
       return Object.fromEntries(['slowImmune', 'freezeImmune', 'trapImmune'].map((k) => [k, new RegExp(`${k}: 1\\b`).test(row)]));
     };
-    const towerOfFlag = { slowImmune: 'towerSyrup', freezeImmune: 'towerFrost', trapImmune: 'towerPatch' };
-    for (const [kind, key] of [['leaper', 'almBacLeaper'], ['giant', 'almBacGiant']]) {
-      const flags = flagsOf(kind);
-      const text = readI18n(key);
-      for (const [li, lang] of [[0, 'ru'], [1, 'en']]) {
-        const need = Object.entries(flags).filter(([, on]) => on).map(([k]) => readI18n(towerOfFlag[k])[li]);
-        check(`${p} текст о ${kind} (${lang}) называет все башни, которые на него не действуют (${need.join(', ')}): «${text[li]}»`, need.length > 0 && need.every((n) => text[li].includes(n)), JSON.stringify(flags));
-      }
-    }
-    const frostText = readI18n('almTowerFrost');
-    const frozenNot = ['slick', 'giant', 'leaper', 'coccus'].filter((k) => flagsOf(k).freezeImmune);
-    for (const [li, lang] of [[0, 'ru'], [1, 'en']]) {
-      // в тексте падежи («Слизня», «Гиганта»): сверяются первые четыре буквы названия («Слиз», «Гига»)
-      const stems = frozenNot.map((k) => readI18n(`bacName${k.charAt(0).toUpperCase()}${k.slice(1)}`)[li].slice(0, 4));
-      check(`${p} текст Холода (${lang}) называет исключения — не замерзают ${frozenNot.join(', ')}: «${frostText[li]}»`, stems.every((s) => frostText[li].includes(s)), stems.join(', '));
+    const almSrc2 = fs.readFileSync(path.join(ROOT, 'src/scenes/AlmanacScene.ts'), 'utf8');
+    const towerOfFlag = { slowImmune: 'syrup', freezeImmune: 'frost', trapImmune: 'patch' };
+    for (const kind of ['slick', 'leaper', 'giant']) {
+      const parts = new RegExp(`^\\s*${kind}: \\[(.*)\\],?$`, 'm').exec(almSrc2.slice(almSrc2.indexOf('KIND_TOWER_PARTS')))?.[1] ?? '';
+      const towers = [...parts.matchAll(/\['(\w+)', '\w+'\]/g)].map((m) => m[1]);
+      const need = Object.entries(flagsOf(kind)).filter(([, on]) => on).map(([k]) => towerOfFlag[k]);
+      check(`${p} у ${kind} есть часть описания на каждую башню, которая на него не действует (${need.join(', ')}): ${towers.join(', ')}`, need.length > 0 && need.every((tw) => towers.includes(tw)), parts);
     }
     // записи в обе стороны: если бактерия есть в «сильна против» башни, башня есть в «бьют» бактерии (по 2.3 предложений — для Гиганта и Выводка)
     for (const [tower, kind] of [['syrup', 'giant'], ['antibiotic', 'giant'], ['patch', 'brood']]) {
@@ -9629,11 +9631,11 @@ async function runAlmanac(browser, baseUrl) {
       return waitUiWhere(page, (x) => x && x.scene === 'almanac' && x.texts.length === count && (tab !== 'towers' || x.texts.some((r) => r.startsWith(readI18n('towerPill')[li]))), 5000, `вкладка «${tab}»`).catch(async () => (await uiOf(page)) ?? { scene: 'нет экрана', texts: [], buttons: u.buttons });
     };
     /** Три вкладки: строки по `open` и снимки `almanac-<имя>-<вкладка>-…`. */
-    const checkTabs = async (page, g, label, shotName, open) => {
+    const checkTabs = async (page, g, label, shotName, open, owned = () => true, tabs = ['towers', 'bacteria', 'bosses']) => {
       let u = await waitUiWhere(page, (x) => x && x.scene === 'almanac', 10000, 'экран «Альманах»');
-      for (const tab of ['towers', 'bacteria', 'bosses']) {
+      for (const tab of tabs) {
         if (tab !== 'towers') u = await openTab(page, g, u, tab);
-        const want = almanacRows(tab, li, (id) => open(tab, id));
+        const want = almanacRows(tab, li, (id) => open(tab, id), owned);
         check(`${p} ${label}, вкладка «${tab}»: ${want.filter((r) => r !== readI18n('almBacClosed')[li]).length} открытых записей из ${want.length}, закрытые — только «${readI18n('almBacClosed')[li]}», чисел нет`,
           u.scene === 'almanac' && rowsMatch(u.texts, want) && !u.texts.some((r) => /\d/.test(r)), `экран ${u.scene}: ${JSON.stringify(u.texts).slice(0, 400)}`);
         await frames(page, 3);
@@ -9646,7 +9648,7 @@ async function runAlmanac(browser, baseUrl) {
     let u = await app.ui();
     check(`${p} в главном меню есть кнопка «Альманах» (внутри экрана, не налезает на «Играть» и «Улучшения»)`, Boolean(u.buttons.almanac) && insideScreen(u.buttons.almanac) && !overlaps(u.buttons.almanac, u.buttons.play) && !overlaps(u.buttons.almanac, u.buttons.upgrades), JSON.stringify(u.buttons));
     await app.tapRect(u.buttons.almanac);
-    u = await checkTabs(app.page, app.tapRect, 'новый игрок', 'reset', (tab, id) => tab === 'towers' && id === 'pill');
+    u = await checkTabs(app.page, app.tapRect, 'новый игрок', 'reset', (tab, id) => tab === 'towers' && id === 'pill', (tw) => tw === 'pill');
     check(`${p} кнопки «Назад», «Башни», «Бактерии» и «Боссы» внутри экрана и не налезают друг на друга`, [u.buttons.back, u.buttons.towers, u.buttons.bacteria, u.buttons.bosses].every(insideScreen) && !overlaps(u.buttons.back, u.buttons.towers) && !overlaps(u.buttons.towers, u.buttons.bacteria) && !overlaps(u.buttons.bacteria, u.buttons.bosses), JSON.stringify(u.buttons));
     await app.tapRect(u.buttons.back);
     u = await app.waitUi('menu', 'меню после «Назад» из альманаха');
@@ -9665,13 +9667,25 @@ async function runAlmanac(browser, baseUrl) {
       await settle();
     };
     check(`${p} за первую попытку на поле вышли виды: ${[...met].join(', ')}`, met.size > 0, JSON.stringify(s.introduced));
-    await checkTabs(game.page, gameTap, `после первой попытки (встречены ${[...met].join(', ')})`, 'attempt1', (tab, id) => (tab === 'towers' ? id === 'pill' : tab === 'bacteria' ? met.has(id) : false));
+    await checkTabs(game.page, gameTap, `после первой попытки (встречены ${[...met].join(', ')})`, 'attempt1', (tab, id) => (tab === 'towers' ? id === 'pill' : tab === 'bacteria' ? met.has(id) : false), (tw) => tw === 'pill');
     await game.page.close();
     // 3) всё встречено и все башни куплены: строки «Название: описание», у боссов — только имя
     const all = await openMenu(context, baseUrl, `${p} всё открыто`, { query: '&met=all&towers=all', isTouch: device.hasTouch });
     u = await all.ui();
     await all.tapRect(u.buttons.almanac);
     await checkTabs(all.page, all.tapRect, 'всё встречено', 'all', () => true);
+    await all.page.close();
+    // 4) встречены кокк и бегун, Сироп не куплен: у бегуна нет строки свойства (она называет Сироп — решение владельца 26 октября 2026, сообщение 1, п. 2.1); 5) Сироп куплен — строка есть
+    for (const [label, shotName, meta, owned] of [['бегун без Сиропа', 'runner-nosyrup', '', (tw) => tw === 'pill'], ['бегун после покупки Сиропа', 'runner-syrup', '&meta=towerSyrup:1', (tw) => tw === 'pill' || tw === 'syrup']]) {
+      const m = await openMenu(context, baseUrl, `${p} ${label}`, { query: `&met=coccus,runner${meta}`, isTouch: device.hasTouch });
+      u = await m.ui();
+      await m.tapRect(u.buttons.almanac);
+      await checkTabs(m.page, m.tapRect, label, shotName, (tab, id) => (tab === 'towers' ? owned(id) : tab === 'bacteria' ? id === 'coccus' || id === 'runner' : false), owned, ['towers', 'bacteria']);
+      const runnerRow = (await uiOf(m.page)).texts.find((r) => r.startsWith(readI18n('bacNameRunner')[li])) ?? '';
+      const syrupName = readI18n('towerSyrup')[li];
+      check(`${p} ${label}: строка бегуна «${runnerRow}» ${owned('syrup') ? 'называет' : 'не называет'} Сироп`, owned('syrup') ? runnerRow.includes(syrupName) : !runnerRow.includes(syrupName), runnerRow);
+      await m.page.close();
+    }
     await context.close();
   }
 }

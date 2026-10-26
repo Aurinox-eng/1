@@ -39,12 +39,29 @@ function isOpenEntry(tab: Tab, id: string): boolean {
   return wasMet(tab === 'bosses' ? `boss:${id}` : `b:${id}`);
 }
 
-/** Жёсткое свойство вида (`plan.hardWalls`) и ключ его строки в Альманахе (свойство последней фазы босса — в записи босса, `bossInfo`). */
-const WARD_LINES: [keyof HardWalls, BacteriumKind, TextKey][] = [
-  ['runnerSlow', 'runner', 'almWardRunner'],
-  ['armoredPierce', 'armored', 'almWardArmored'],
-  ['slickBeam', 'slick', 'almWardSlick'],
+/**
+ * Жёсткое свойство вида (`plan.hardWalls`), ключ его строки в Альманахе и башня, которую строка называет: строка выводится, только если эта башня куплена
+ * (решение владельца 26 октября 2026, сообщение 1, п. 2.1: нельзя знать, что делает неоткрытая башня); null — строка башню не называет.
+ */
+const WARD_LINES: [keyof HardWalls, BacteriumKind, TextKey, TowerId | null][] = [
+  ['runnerSlow', 'runner', 'almWardRunner', 'syrup'],
+  ['armoredPierce', 'armored', 'almWardArmored', null],
+  ['slickBeam', 'slick', 'almWardSlick', 'syringe'],
 ];
+
+/** Части описания вида, которые называют башню: выводятся, только если башня куплена (там же, п. 2.1). Порядок — порядок в строке. */
+const KIND_TOWER_PARTS: Partial<Record<BacteriumKind, [TowerId, TextKey][]>> = {
+  slick: [['syrup', 'almSlickSyrup'], ['frost', 'almImmFrost'], ['patch', 'almImmPatch']],
+  giant: [['frost', 'almImmFrost']],
+  leaper: [['syrup', 'almImmSyrup'], ['patch', 'almImmPatch']],
+  stealth: [['lamp', 'almStealthLamp']],
+};
+
+/** Краткое описание вида (решение владельца 26 октября 2026, сообщение 1, «Далее»): особенность вида и части о купленных башнях через точку; у кокка — ничего. */
+function kindLine(kind: BacteriumKind): string {
+  const parts = [t(`almBac${cap(kind)}` as TextKey), ...(KIND_TOWER_PARTS[kind] ?? []).filter(([tower]) => isTowerOpen(tower)).map(([, key]) => t(key))];
+  return parts.filter((part) => part.length > 0).join('. ');
+}
 
 /**
  * Башня, которую жёсткое свойство вида делает бесполезной против него (решение владельца 22 октября 2026, сообщение 4, п. 2.1): луч Шприца проходит слизня насквозь.
@@ -77,9 +94,9 @@ const met = (kind: BacteriumKind): boolean => wasMet(`b:${kind}`);
 /** Включено ли жёсткое свойство `ward` хотя бы на одном уровне. */
 const wardUsed = (ward: keyof HardWalls): boolean => CONFIG.levels.specs.some((spec) => Boolean(spec.plan?.hardWalls?.[ward]));
 
-/** Строка о жёстком свойстве вида — одна, без чисел (решение владельца 25 октября 2026, сообщение 5, п. 2.6); свойства нет ни на одном уровне — пусто. */
+/** Строка о жёстком свойстве вида — одна, без чисел (решение владельца 25 октября 2026, сообщение 5, п. 2.6); свойства нет ни на одном уровне или его башня не куплена — пусто. */
 function wardNote(kind: BacteriumKind): string {
-  return WARD_LINES.filter(([ward, wardKind]) => wardKind === kind && wardUsed(ward))
+  return WARD_LINES.filter(([ward, wardKind, , tower]) => wardKind === kind && wardUsed(ward) && (tower === null || isTowerOpen(tower)))
     .map(([, , key]) => t(key))
     .join('\n');
 }
@@ -210,12 +227,15 @@ export class AlmanacScene extends Phaser.Scene {
       line = t(`almTower${key}` as TextKey);
     } else if (tab === 'bacteria') {
       name = t(`bacName${key}` as TextKey);
-      line = t(`almBac${key}` as TextKey);
+      line = kindLine(id as BacteriumKind);
       note = wardNote(id as BacteriumKind);
     } else {
+      // Босс: имя и короткая строка особенностей без чисел (решение владельца 26 октября 2026, сообщение 1, «Далее»)
       name = t(`boss${key}` as TextKey);
+      line = t(`almBoss${key}` as TextKey);
     }
-    this.rowTexts.push(line ? `${name}: ${line}` : name);
+    // для проверок: «Название: строка», примечание — после « | »
+    this.rowTexts.push(`${line ? `${name}: ${line}` : name}${note ? ` | ${note.replace(/\n/g, ' | ')}` : ''}`);
     // Строка и примечание мелко под ней, вместе — по центру ряда
     const lineText = line ? this.add.text(LINE_X, 0, line, { ...textStyle(22, TEXT_COLORS.main, false), fontStyle: 'normal', wordWrap: { width: LINE_W } }) : null;
     if (lineText) this.list.add(lineText);

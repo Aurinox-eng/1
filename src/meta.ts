@@ -351,12 +351,14 @@ export function metaSeen(): string[] {
 
 /** Встреченное на этой странице (с хранилищем и без): Альманах открывает запись и в режиме проверки без `&persistseen`. */
 const seenHere = new Set<string>();
-/** `?qa&met=all` — Альманах: все бактерии и боссы считаются встреченными (снимки и проверки записей); в сохранение ничего не пишется. */
-const MET_ALL = QA_MODE && new URLSearchParams(window.location.search).get('met') === 'all';
+/** `?qa&met=all` — Альманах: все бактерии и боссы считаются встреченными; `?qa&met=coccus,runner` — встречены названные виды (снимки и проверки записей); в сохранение ничего не пишется. */
+const MET_PARAM = QA_MODE ? new URLSearchParams(window.location.search).get('met') : null;
+const MET_ALL = MET_PARAM === 'all';
+const MET_LIST = new Set(MET_PARAM && MET_PARAM !== 'all' ? MET_PARAM.split(',').map((kind) => `b:${kind}`) : []);
 
-/** Встречалось ли (`b:вид` — бактерия, `boss:id` — босс): в сохранении, на этой странице или подменой `&met=all`. */
+/** Встречалось ли (`b:вид` — бактерия, `boss:id` — босс): в сохранении, на этой странице или подменой `&met=`. */
 export function wasMet(key: string): boolean {
-  return MET_ALL || seenHere.has(key) || state.seen.includes(key);
+  return MET_ALL || MET_LIST.has(key) || seenHere.has(key) || state.seen.includes(key);
 }
 
 export function markSeen(key: string): void {
