@@ -162,7 +162,7 @@ if (['stage-1', 'stage-1b', 'stage-1b-qa', 'td-1-mockup', 'tmp'].includes(tag)) 
   process.exit(2);
 }
 
-const SCENARIOS = ['desktop-ru', 'phone-ru', 'desktop-en', 'phone-en', 'rules', 'graph', 'combat', 'dash', 'split', 'spore', 'armored', 'intro', 'lose-ru', 'lose-en', 'win-ru', 'win-en', 'towers', 'card', 'merge', 'mutations', 'sell', 'special', 'danger', 'rotate', 'production', 'fullgame', 'locked', 'strip', 'almanac', 'almanac-pause', 'damage-numbers', 'sell-gap', 'restart-button', 'deflation', 'camera-fit', 'colors', 'meta-save', 'meta-dna', 'meta-shop', 'meta-effects', 'tree-effects', 'tree-shop', 'level-waves', 'progress-save', 'stars', 'menu-flow', 'menu-reset', 'levels-lock', 'step-dps', 'sound', 'sdk', 'lose-line', 'attempt-line', 'toast-queue', 'shake', 'bosses', 'level2', 'wards', 'spiral-cap', 'marks', 'menu-exit', 'resume-tap', 'two-tabs', 'treemock']
+const SCENARIOS = ['desktop-ru', 'phone-ru', 'desktop-en', 'phone-en', 'rules', 'graph', 'combat', 'dash', 'split', 'spore', 'armored', 'intro', 'lose-ru', 'lose-en', 'win-ru', 'win-en', 'towers', 'card', 'merge', 'mutations', 'sell', 'special', 'danger', 'rotate', 'production', 'fullgame', 'locked', 'strip', 'almanac', 'almanac-pause', 'damage-numbers', 'sell-gap', 'restart-button', 'deflation', 'camera-fit', 'colors', 'meta-save', 'meta-dna', 'meta-shop', 'meta-effects', 'tree-effects', 'tree-shop', 'level-waves', 'progress-save', 'stars', 'menu-flow', 'menu-reset', 'levels-lock', 'step-dps', 'sound', 'sdk', 'lose-line', 'attempt-line', 'toast-queue', 'shake', 'bosses', 'level2', 'wards', 'spiral-cap', 'marks', 'menu-exit', 'resume-tap', 'two-tabs', 'treemock', 'faces']
 const only = args.only === undefined ? null : String(args.only);
 if (only !== null && !SCENARIOS.includes(only)) {
   console.error(`Неизвестный сценарий --only=${only}. Есть: ${SCENARIOS.join(', ')}`);
@@ -9768,6 +9768,43 @@ async function runTreeMock(browser, baseUrl) {
   }
 }
 
+/**
+ * Лист «без лиц» (сообщение владельца 4 от 26 октября 2026, п. 2.3): страницы листа образцов `f1` (19 видов «было / стало») и `f2` (10 боссов) и плотная поздняя сцена
+ * (стресс-сценарий, ≈ 200 бактерий всех видов) с лицами и без (`&faces=signs`), 1280×720 и 844×390. Это съёмка: проверяется только, что всё нарисовано без ошибок в консоли.
+ */
+async function runFaces(browser, baseUrl) {
+  for (const deviceKey of ['desktop', 'phone']) {
+    const device = VIEWPORTS[deviceKey];
+    for (const page of ['f1', 'f2']) {
+      const p = `[лист без лиц ${page}, ${device.label}]`;
+      const context = await newDeviceContext(browser, device, 'ru');
+      const tab = await context.newPage();
+      watchConsole(tab, p);
+      await tab.goto(`${baseUrl}?qa&artsheet=${page}`, { waitUntil: 'load', timeout: 90000 });
+      await tab.waitForFunction(() => document.querySelector('canvas') !== null, null, { timeout: 30000 });
+      await sleep(1500);
+      await frames(tab, 3);
+      await shot(tab, `faces-${page}-${deviceKey}`);
+      check(`${p} лист нарисован (холст есть)`, await tab.evaluate(() => document.querySelector('canvas') !== null), '');
+      await context.close();
+    }
+    for (const [tag, query] of [['before', ''], ['after', '&faces=signs']]) {
+      const p = `[поздняя сцена ${tag === 'before' ? 'с лицами' : 'без лиц'}, ${device.label}]`;
+      const context = await newDeviceContext(browser, device, 'ru');
+      const tab = await context.newPage();
+      watchConsole(tab, p);
+      await tab.goto(`${baseUrl}?qa&stress&noplaque${query}`, { waitUntil: 'load', timeout: 90000 });
+      await tab.waitForFunction(() => (window.__pvb?.getPerf?.(false)?.bacteria ?? 0) >= 150, null, { timeout: 90000 }).catch(() => {});
+      await sleep(1000);
+      await frames(tab, 3);
+      const perf = await tab.evaluate(() => window.__pvb?.getPerf?.(false) ?? null);
+      await shot(tab, `faces-scene-${tag}-${deviceKey}`);
+      check(`${p} на поле не меньше 100 бактерий (${perf?.bacteria ?? '—'})`, (perf?.bacteria ?? 0) >= 100, JSON.stringify(perf ? { bacteria: perf.bacteria, towers: perf.towers } : null));
+      await context.close();
+    }
+  }
+}
+
 /** «Альманах» с паузы партии: кнопки на паузе, альманах поверх приостановленной партии, «Назад» возвращает на паузу, тап по экрану продолжает игру. */
 async function runAlmanacPause(browser, baseUrl) {
   for (const [deviceKey, lang] of [['desktop', 'ru'], ['phone', 'en']]) {
@@ -10130,6 +10167,7 @@ try {
   if (wants('almanac')) await safe('[альманах]', () => runAlmanac(browser, qaServer.url));
   if (wants('almanac-pause')) await safe('[альманах с паузы]', () => runAlmanacPause(browser, qaServer.url));
   if (wants('treemock')) await safe('[макет древа]', () => runTreeMock(browser, qaServer.url));
+  if (wants('faces')) await safe('[лист без лиц]', () => runFaces(browser, qaServer.url));
   if (wants('damage-numbers')) await safe('[числа урона]', () => runDamageNumbers(browser, qaServer.url));
   if (wants('sell-gap')) await safe('[зазор Слить и Продать]', () => runSellGap(browser, qaServer.url));
   if (wants('menu-reset')) await safe('[сброс прогресса]', () => runMenuReset(browser, qaServer.url));
