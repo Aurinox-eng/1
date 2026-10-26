@@ -165,7 +165,7 @@ export class ArtSheetScene extends Phaser.Scene {
       this.add.text(cx, cy - cellH / 2 + 16, t(`boss${id.charAt(0).toUpperCase()}${id.slice(1)}` as TextKey), { fontFamily: 'Arial', fontSize: '14px', color: '#cfe0ff' }).setOrigin(0.5, 0.5);
       const scale = CONFIG.bossRules.scale;
       const r = CONFIG.types[kind].radius;
-      const fit = Math.min(1, 64 / (r * scale + 10));
+      const fit = Math.min(1, 64 / (Math.max(r, extentOf(kind)) * scale + 10));
       (['open', 'signs'] as const).forEach((face, j) => {
         const holder = this.add.container(cx, cy + (j === 0 ? -60 : 88));
         holder.add(bacteriumSample(this, kind, CONFIG.types[kind].hp, CONFIG.types[kind].hp, false, false, face).setScale(scale));
