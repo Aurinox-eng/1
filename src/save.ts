@@ -151,9 +151,24 @@ export function tryLoadMeta(): MetaSave | null {
   }
 }
 
+/** Ключ копии нечитаемой записи: прежний текст не теряется при первой записи (находка аудита MASTER-0003, решение владельца 28 октября 2026, сообщение 1, п. 7.1). */
+export const BROKEN_KEY = `${KEY}.broken`;
+
+/** Перед записью: если прежняя запись не читается и копии ещё нет — прежний текст кладётся под `BROKEN_KEY`. */
+function keepUnreadable(): void {
+  const old = window.localStorage.getItem(KEY);
+  if (!old || window.localStorage.getItem(BROKEN_KEY) !== null) return;
+  try {
+    JSON.parse(old);
+  } catch {
+    window.localStorage.setItem(BROKEN_KEY, old);
+  }
+}
+
 /** Записывает сохранение; false — хранилище недоступно (прогресс живёт до закрытия страницы). */
 export function saveMeta(meta: MetaSave): boolean {
   try {
+    keepUnreadable();
     window.localStorage.setItem(KEY, JSON.stringify(meta));
     return true;
   } catch {

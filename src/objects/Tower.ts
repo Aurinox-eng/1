@@ -34,6 +34,8 @@ const A = TOWER_ART;
 
 /** Виды стрельбы, у которых выбор цели учитывает жёсткие свойства (решение владельца 24 октября 2026, сообщение 2, п. 2.3). */
 const WARD_AWARE = new Set<string>(['radius', 'snipe', 'area']);
+/** Способы стрельбы, у которых цель, которую удар не ранит, идёт последней: выбирается, только если других нет (яд, конус Лампы). */
+const WARD_LAST = new Set<string>(['poison', 'cone']);
 
 /** Ограничение уровня рисунка: у башни 4 вида рисунков (уровни слияния 1–4). */
 function artLevel(level: number): 1 | 2 | 3 | 4 {
@@ -1559,6 +1561,11 @@ export class Tower {
     // ближайшая к организму первой; «Охотник» — сначала самая прочная (по полному HP); «снайпер» (Ампула) — самая прочная по текущему HP
     if (targeting === 'snipe') found.sort((a, b) => b.hp - a.hp || a.remaining - b.remaining);
     else found.sort((a, b) => (toughest ? b.maxHp - a.maxHp || a.remaining - b.remaining : a.remaining - b.remaining));
+    // яд Антибиотика и направление Лампы: цель, которую удар не ранит, — только если других нет (решение владельца 28 октября 2026, сообщение 1, п. 7.1, находки аудита MASTER-0039, 0040)
+    if (affectable && WARD_LAST.has(targeting)) {
+      const open = found.filter((b) => !wardBlocks(b, this.stats));
+      if (open.length > 0 && open.length < found.length) return [...open, ...found.filter((b) => wardBlocks(b, this.stats))];
+    }
     return found;
   }
 
@@ -1567,8 +1574,15 @@ export class Tower {
     if (this.cfg.targeting === 'freeze') return b.freezable;
     if (this.cfg.targeting === 'trap') return !b.trapped && CONFIG.types[b.kind].trapImmune === 0;
     // «по радиусу», «снайпер» и «по площади» не выбирают цель, которую удар не ранит (жёсткое свойство уровня), вовсе — и когда других целей в зоне нет, выстрела нет; лужа Сиропа ложится и под бегуна, которого ещё не замедлили
-    if (WARD_AWARE.has(this.cfg.targeting)) return !wardBlocks(b, this.stats);
+    if (WARD_AWARE.has(this.cfg.targeting)) return !wardBlocks(b, this.stats) && !(this.cfg.targeting === 'snipe' && this.capsuleOnArrival(b));
     return true;
+  }
+
+  /** Ампула: капсула Матки роя ещё будет держаться, когда снаряд долетит (время полёта — расстояние ÷ скорость снаряда) — цель неуязвима (решение владельца 28 октября 2026, сообщение 1, п. 7.1, находка аудита MASTER-0041). */
+  private capsuleOnArrival(b: Bacterium): boolean {
+    if (b.capsuleSec <= 0) return false;
+    const speed = this.stats.projectileSpeed;
+    return speed <= 0 || b.capsuleSec > Math.hypot(b.x - this.x, b.y - this.y) / speed;
   }
 
   /** Бактерии, до которых можно достать, по приоритету; не больше 1 + extraTargets. */

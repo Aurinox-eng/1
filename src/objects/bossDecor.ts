@@ -1,10 +1,11 @@
 import Phaser from 'phaser';
 import type { BossId } from '../config';
+import { artImage, bakeArt, squareBox } from '../art';
 
 /**
  * Свой вид боссов, у которых одно тело с другим боссом (решение владельца 26 октября 2026, сообщение 6, п. 4): Матка роя и Мать спор (тело Матки), Споровик и Глушитель (тело споры).
- * Тело окрашивается своим цветом (`BOSS_TINT`, умножение цвета картинки тела), поверх — свой отличительный элемент (`drawBossDecor`). Пока только лист образцов (`?qa&artsheet=f3`);
- * в бой — после «да» владельца по листу. Размеры — в долях радиуса вида-основы `r` (босс крупнее в `bossRules.scale` раз: рисунок масштабируется вместе с телом).
+ * Тело окрашивается своим цветом (`BOSS_TINT`, умножение цвета картинки тела), поверх — свой отличительный элемент (`drawBossDecor`): лист образцов `?qa&artsheet=f3` и бой
+ * («да» владельца 28 октября 2026, сообщение 1, п. 2; в бою — готовая картинка `bossDecorImage`). Размеры — в долях радиуса вида-основы `r` (босс крупнее в `bossRules.scale` раз: рисунок масштабируется вместе с телом).
  */
 export const BOSS_TINT: Partial<Record<BossId, number>> = {
   swarmQueen: 0xb8f4ec,
@@ -67,4 +68,11 @@ export function drawBossDecor(g: Phaser.GameObjects.Graphics, id: BossId, r: num
     default:
       return;
   }
+}
+
+/** Отличительный элемент босса готовой картинкой (рисуется один раз на вид и радиус); null — у босса своего элемента нет. */
+export function bossDecorImage(scene: Phaser.Scene, id: BossId, r: number): Phaser.GameObjects.Image | null {
+  if (BOSS_TINT[id] === undefined) return null;
+  const box = squareBox(r * 2.2);
+  return artImage(scene, bakeArt(scene, `bossDecor-${id}-${r}`, box, (g) => drawBossDecor(g, id, r)), box);
 }

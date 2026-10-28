@@ -928,16 +928,7 @@ export class GameScene extends Phaser.Scene {
 
   /** Ключ «Рикошет» Таблетки: снаряд отскакивает в ближайшую другую бактерию (не дальше `keyNodes.pill.rangePx`) с долей урона. */
   private ricochet(from: Bacterium, st: TowerStats): void {
-    let best: Bacterium | null = null;
-    let bestD: number = CONFIG.keyNodes.pill.rangePx;
-    for (const b of this.bacteria) {
-      if (b === from || b.hp <= 0) continue;
-      const d = Math.hypot(b.x - from.x, b.y - from.y);
-      if (d <= bestD) {
-        bestD = d;
-        best = b;
-      }
-    }
+    const best = this.nearestPreferHurt(from.x, from.y, CONFIG.keyNodes.pill.rangePx, st, from);
     if (!best) return;
     this.effects.flash(best.x, best.y, best.radius * 0.6, COLORS.hit);
     this.damageBacterium(best, st, true, st.damage * st.ricochet);
@@ -1298,16 +1289,31 @@ export class GameScene extends Phaser.Scene {
   }
 
   /** Вторые взрывы «Цепной» Шипучки. */
+  /**
+   * Ближайшая к точке бактерия не дальше `reach`; цель, которую удар не ранит (`wardBlocks`), — только если других нет (рикошет Таблетки, центр цепного взрыва:
+   * решение владельца 28 октября 2026, сообщение 1, п. 7.1, находки аудита MASTER-0042, 0045).
+   */
+  private nearestPreferHurt(x: number, y: number, reach: number, st: TowerStats, skip?: Bacterium): Bacterium | null {
+    let best: Bacterium | null = null;
+    let bestD = Infinity;
+    let blocked: Bacterium | null = null;
+    let blockedD = Infinity;
+    for (const b of this.bacteria) {
+      if (b === skip || b.hp <= 0) continue;
+      const d = Math.hypot(b.x - x, b.y - y);
+      if (d > reach) continue;
+      if (wardBlocks(b, st)) {
+        if (d < blockedD) [blocked, blockedD] = [b, d];
+      } else if (d < bestD) [best, bestD] = [b, d];
+    }
+    return best ?? blocked;
+  }
+
   private updateChains(dt: number): void {
     this.chains = this.chains.filter((chain) => {
       chain.left -= dt;
       if (chain.left > 0) return true;
-      let best: Bacterium | null = null;
-      for (const b of this.bacteria) {
-        if (b.hp <= 0) continue;
-        const d = Math.hypot(b.x - chain.x, b.y - chain.y);
-        if (d <= CHAIN_REACH_PX && (!best || d < Math.hypot(best.x - chain.x, best.y - chain.y))) best = b;
-      }
+      const best = this.nearestPreferHurt(chain.x, chain.y, CHAIN_REACH_PX, chain.stats);
       if (best) this.explode(best.x, best.y, chain.stats, 0.7, 0.6, false);
       return false;
     });
@@ -1716,10 +1722,13 @@ export class GameScene extends Phaser.Scene {
     const n = (x: number): string => num(Math.round(x * 10) / 10);
     const n2 = (x: number): string => num(Math.round(x * 100) / 100);
     const yesNo = (x: number): string => t(x > 0 ? 'chgYes' : 'chgNo');
+    const spiralMul = CONFIG.towerLevels[Math.min(Math.max(1, tower.level), MAX_TOWER_LEVEL) - 1].damageMul;
     const rows: [TextKey, number, number, (x: number) => string][] = [
       ['chgHit', a.damage, b.damage, hitNum],
       ['chgTargets', 1 + a.extraTargets, 1 + b.extraTargets, String],
       ['chgPulses', a.beamPulses, b.beamPulses, String],
+      // прибавка «Спирали»: каждый следующий удар очереди сильнее на столько (растёт с уровнем башни; находка аудита MASTER-0005, сообщение 1 от 28 октября 2026, п. 7.1)
+      ['chgSpiral', a.spiral * spiralMul, b.spiral * spiralMul, hitNum],
       ['chgBeams', a.secondBeam ? 2 : 1, b.secondBeam ? 2 : 1, String],
       ['chgPause', a.cooldownMs / 1000, b.cooldownMs / 1000, n2],
       ['chgBlast', a.blastRadius, b.blastRadius, (x) => String(Math.round(x))],
@@ -1971,7 +1980,8 @@ export class GameScene extends Phaser.Scene {
    */
   private leaveToMenu(): void {
     if (this.state !== 'paused' || performance.now() < this.resumeAllowedAt) return;
-    const cleared = Math.max(0, this.waveIdx - 1);
+    // волна засчитана, если она вся вышла и поле пустое — пауза между волнами (находка аудита MASTER-0001, решение владельца 28 октября 2026, сообщение 1, п. 7.1)
+    const cleared = Math.max(0, this.phase === 'pause' && this.bacteria.length === 0 ? this.waveIdx : this.waveIdx - 1);
     if (!this.dnaAwarded && cleared >= 1) {
       this.dnaAwarded = true;
       this.dnaReplay = isLevelBeaten(currentLevel());
@@ -2029,21 +2039,25 @@ export class GameScene extends Phaser.Scene {
     };
   }
 
-  /** Пауза по событию площадки `game_api_pause` (реклама, смена вкладки): ставит идущую партию на паузу и запоминает, что паузу поставила площадка. Паузу игрока кнопкой площадка не меняет. */
+  /**
+   * Пауза по событию площадки `game_api_pause` (реклама, смена вкладки): ставит идущую партию на паузу и запоминает, что паузу поставила площадка. Паузу игрока кнопкой площадка не меняет.
+   * Ставится и в портретной ориентации: телефон повернули во время рекламы — партия стоит до `game_api_resume` (находка аудита MASTER-0002, сообщение 1 от 28 октября 2026, п. 7.1).
+   */
   pauseByPlatform(): void {
     if (this.state !== 'playing') return;
-    this.togglePause();
+    this.togglePause(true);
     this.pausedByPlatform = (this.state as State) === 'paused';
   }
 
   /** Событие площадки `game_api_resume` (п. 1.3 требований): снимает паузу, которую поставила площадка; пауза, поставленная игроком кнопкой, остаётся. */
   resumeByPlatform(): void {
-    if (this.pausedByPlatform && this.state === 'paused') this.togglePause();
+    if (this.pausedByPlatform && this.state === 'paused') this.togglePause(true);
     this.pausedByPlatform = false;
   }
 
-  private togglePause(): void {
-    if (isPortraitPhone()) return;
+  /** `platform` — пауза и снятие по событию площадки: работают и в портретной ориентации (кнопки игрока в портрете не действуют). */
+  private togglePause(platform = false): void {
+    if (!platform && isPortraitPhone()) return;
     if (this.state === 'playing') {
       gameplay(false);
       this.state = 'paused';

@@ -70,6 +70,8 @@ const PAD = 12;
 /** Сторона кнопок поворота луча (Шприц), пикселей. */
 const ROT = 40;
 const CLOSE = 44;
+/** Невидимая зона касания маленьких кнопок («✕», поворот луча) — не меньше 80×80 px игры (≈ 44 px на экране 844×390; решение владельца 28 октября 2026, сообщение 1, п. 7.1, находка аудита MASTER-0087). */
+const HIT = 80;
 /** Высота узкой полосы карточки в режиме слияния, пикселей: полная карточка (104 px) и подсказка над ней закрывали бы кандидатов в нижней части карты. */
 export const CARD_COMPACT_H = 60;
 const COMPACT_BTN_H = 46;
@@ -152,15 +154,15 @@ export class TowerCard {
       return z;
     };
     this.zones = {
-      close: zone(CLOSE, CLOSE, callbacks.onClose),
+      close: zone(HIT, HIT, callbacks.onClose),
       merge: zone(BTN_W, BTN_H, () => {
         if (this.mergeEnabled) callbacks.onMerge();
       }),
       sell: zone(BTN_W, BTN_H, callbacks.onSell),
       pick0: zone(PICK_W, PICK_BTN_H, () => callbacks.onPick(0)),
       pick1: zone(PICK_W, PICK_BTN_H, () => callbacks.onPick(1)),
-      rotL: zone(ROT, ROT, () => callbacks.onRotate(-1)),
-      rotR: zone(ROT, ROT, () => callbacks.onRotate(1)),
+      rotL: zone(HIT, HIT, () => callbacks.onRotate(-1)),
+      rotR: zone(HIT, HIT, () => callbacks.onRotate(1)),
     };
     this.setShown(false);
   }
@@ -213,7 +215,7 @@ export class TowerCard {
     this.zones.close.setPosition(closeX, cy);
     this.btns.fillStyle(0x1d3760, 1).fillCircle(closeX, cy, CLOSE / 2);
     this.btns.lineStyle(2, 0x33578f, 1).strokeCircle(closeX, cy, CLOSE / 2);
-    this.rects.close = { x: closeX, y: cy, w: CLOSE, h: CLOSE };
+    this.rects.close = { x: closeX, y: cy, w: HIT, h: HIT };
     if (this.iconId !== m.id) {
       this.icon.removeAll(true);
       createTowerArt(this.scene, this.icon, m.id);
@@ -232,18 +234,19 @@ export class TowerCard {
     this.rotVisible = m.beam;
     let midRight = rightEdge; // правее этой черты в середине карточки места нет
     if (m.beam) {
+      // кнопки видимым размером ROT, зоны касания HIT × HIT не перекрываются и не заходят на «Слить»
       const half = ROT / 2;
-      const xr = rightEdge - half;
-      const xl = xr - ROT - 6;
+      const xr = rightEdge - HIT / 2;
+      const xl = xr - HIT;
       for (const [dir, zone, cx] of [[-1, this.zones.rotL, xl], [1, this.zones.rotR, xr]] as const) {
         zone.setPosition(cx, cy);
         this.btns.fillStyle(0x1d366a, 1).fillRoundedRect(cx - half, cy - half, ROT, ROT, 10);
         this.btns.lineStyle(2, COLORS.needle, 1).strokeRoundedRect(cx - half, cy - half, ROT, ROT, 10);
         this.btns.fillStyle(COLORS.needle, 1).fillTriangle(cx + dir * 10, cy, cx - dir * 7, cy - 10, cx - dir * 7, cy + 10);
       }
-      this.rects.rotL = { x: xl, y: cy, w: ROT, h: ROT };
-      this.rects.rotR = { x: xr, y: cy, w: ROT, h: ROT };
-      midRight = xl - half - 10;
+      this.rects.rotL = { x: xl, y: cy, w: HIT, h: HIT };
+      this.rects.rotR = { x: xr, y: cy, w: HIT, h: HIT };
+      midRight = xl - HIT / 2;
     }
 
     // Середина: выбор мутации (две кнопки) или числа башни и выбранные мутации
@@ -347,10 +350,12 @@ export class TowerCard {
     this.btns.clear();
     const closeX = x + PAD + CLOSE / 2;
     this.closeText.setPosition(closeX, cy);
-    this.zones.close.setPosition(closeX, cy);
+    // узкая полоса ниже зоны касания: зона поднята, чтобы не заходить на нижнюю панель
+    const closeY = y + h - HIT / 2;
+    this.zones.close.setPosition(closeX, closeY);
     this.btns.fillStyle(0x1d3760, 1).fillCircle(closeX, cy, CLOSE / 2);
     this.btns.lineStyle(2, 0x33578f, 1).strokeCircle(closeX, cy, CLOSE / 2);
-    this.rects.close = { x: closeX, y: cy, w: CLOSE, h: CLOSE };
+    this.rects.close = { x: closeX, y: closeY, w: HIT, h: HIT };
     this.icon.setVisible(false);
     const nameX = closeX + CLOSE / 2 + 14;
     this.nameText.setText(m.name).setPosition(nameX, cy - 14);

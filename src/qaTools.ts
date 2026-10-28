@@ -178,6 +178,7 @@ export function qaSnapshot(s: GameSceneInternals): DebugSnapshot {
       kind: b.kind,
       hp: b.hp,
       maxHp: b.maxHp,
+      decor: b.decorated,
       edge: b.edge.id,
       s: b.s,
       dashing: b.dashing,

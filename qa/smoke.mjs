@@ -2351,6 +2351,8 @@ async function runLevel2(browser, baseUrl) {
   s = await waitForGame(game.page, (x) => x.bacteria.some((b) => b.boss) || x.state !== 'playing', `выход мини-босса волны ${miniWave}`, { gameSec: 120 });
   const mini = s.bacteria.find((b) => b.boss);
   check(`${p} волна ${s.wave}: вышел мини-босс «${mini?.boss}» (ждали «${miniId}» на волне ${miniWave})`, s.wave === miniWave && mini?.boss === miniId, `волна ${s.wave}, босс ${mini?.boss}, состояние ${s.state}`);
+  // боссы-двойники (Матка роя, Мать спор, Споровик, Глушитель) — свой цвет и свой элемент (решение владельца 28 октября 2026, сообщение 1, п. 2); у остальных — нет
+  check(`${p} мини-босс «${mini?.boss}»: свой цвет и элемент ${mini?.decor ? 'есть' : 'нет'} (ждали ${BOSS_TWINS.has(mini?.boss) ? 'есть' : 'нет'})`, Boolean(mini) && mini.decor === BOSS_TWINS.has(mini.boss), JSON.stringify(mini ? { boss: mini.boss, decor: mini.decor } : null));
   await game.page.close();
   // финальный босс дошёл до организма — поражение сразу
   game = await openGame(context, baseUrl, p, { speed: 4, cfg: 'lives.start:5000', query: `&levelwaves&level=2&wave=${PLAN2.length}` });
@@ -7690,6 +7692,9 @@ async function runLocked(browser, baseUrl) {
 
 /** Прямоугольник кнопки (центр и размер) → края. */
 const edges = (r) => ({ l: r.x - r.w / 2, r: r.x + r.w / 2, t: r.y - r.h / 2, b: r.y + r.h / 2 });
+/** Боссы с одним телом на двоих: у них в бою свой цвет и свой отличительный элемент (`src/objects/bossDecor.ts`). */
+const BOSS_TWINS = new Set(['swarmQueen', 'sporeMother', 'sporeling', 'silencer']);
+
 const overlaps = (a, b) => {
   const A = edges(a);
   const B = edges(b);
@@ -7964,6 +7969,30 @@ async function runMetaSave(browser, baseUrl) {
   }
   await context.close();
 
+  // нечитаемая запись не теряется при первой записи: прежний текст — под ключом pvb.meta5.broken (решение владельца 28 октября 2026, сообщение 1, п. 7.1, находка аудита MASTER-0003);
+  // первая запись — показанный вид бактерии (&persistseen): первая волна через 1 с
+  {
+    const raw = 'это не JSON {';
+    const ctx = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
+    await ctx.addInitScript((text) => {
+      if (window.sessionStorage.getItem('qaBrokenSet')) return;
+      window.sessionStorage.setItem('qaBrokenSet', '1');
+      window.localStorage.setItem('pvb.meta5', text);
+    }, raw);
+    const g = await openGame(ctx, baseUrl, `${p} нечитаемая запись`, { speed: 4, cfg: 'waves.firstDelaySec:1', query: '&persistseen' });
+    await waitForGame(g.page, (x) => x.spawned > 0, 'первая бактерия', { gameSec: 30 });
+    await sleep(500);
+    const keys = await g.page.evaluate(() => ({ main: window.localStorage.getItem('pvb.meta5'), broken: window.localStorage.getItem('pvb.meta5.broken') }));
+    let mainOk = false;
+    try {
+      mainOk = JSON.parse(keys.main ?? 'null') !== null;
+    } catch {
+      mainOk = false;
+    }
+    check(`${p} нечитаемая запись: после первой записи новое сохранение читается, прежний текст — под ключом pvb.meta5.broken`, mainOk && keys.broken === raw, JSON.stringify(keys).slice(0, 200));
+    await ctx.close();
+  }
+
   // хранилище недоступно: обращение к localStorage бросает ошибку
   const blocked = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
   await blocked.addInitScript(() => {
@@ -8057,6 +8086,8 @@ async function runBosses(browser, baseUrl) {
   s = await waitForGame(game.page, (x) => x.bacteria.some((b) => b.boss) || x.state !== 'playing', `выход мини-босса волны ${miniWave}`, { gameSec: 120 });
   const mini = s.bacteria.find((b) => b.boss);
   check(`${p} волна ${s.wave}: вышел мини-босс «${mini?.boss}» (ждали «${miniId}» на волне ${miniWave})`, s.wave === miniWave && mini?.boss === miniId, `волна ${s.wave}, босс ${mini?.boss}, состояние ${s.state}`);
+  // боссы-двойники (Матка роя, Мать спор, Споровик, Глушитель) — свой цвет и свой элемент (решение владельца 28 октября 2026, сообщение 1, п. 2); у остальных — нет
+  check(`${p} мини-босс «${mini?.boss}»: свой цвет и элемент ${mini?.decor ? 'есть' : 'нет'} (ждали ${BOSS_TWINS.has(mini?.boss) ? 'есть' : 'нет'})`, Boolean(mini) && mini.decor === BOSS_TWINS.has(mini.boss), JSON.stringify(mini ? { boss: mini.boss, decor: mini.decor } : null));
   await game.page.close();
 
   // 2) «Лихорадка» после покупки узла: кнопка есть, тап включает (действует и перезаряжается)
@@ -8851,6 +8882,9 @@ async function runTreeShop(browser, baseUrl) {
     const v = m.screen.view;
     const detail = m.screen.detail;
     check(`${p} окно сети, кнопка покупки, «Играть» и кнопка сброса внутри экрана, не налезают; карточка справа от окна`, v.x >= 0 && v.y >= 0 && v.x + v.w <= W && v.y + v.h <= H && insideScreen(detail.buy) && insideScreen(m.screen.play) && !overlaps(detail.buy, m.screen.play) && detail.buy.x - detail.buy.w / 2 >= v.x + v.w && m.screen.respec && insideScreen(m.screen.respec), JSON.stringify([v, detail.buy, m.screen.respec]));
+    // кнопка сброса — вне окна сети (решение владельца 28 октября 2026, сообщение 1, п. 5): узел под ней должен нажиматься
+    const rs = m.screen.respec;
+    check(`${p} кнопка «Сбросить» вне окна сети`, Boolean(rs) && (rs.x + rs.w / 2 <= v.x || rs.x - rs.w / 2 >= v.x + v.w || rs.y + rs.h / 2 <= v.y || rs.y - rs.h / 2 >= v.y + v.h), JSON.stringify([v, rs]));
     // подписи цепочек видны при начальном масштабе и не налезают друг на друга и на узлы (п. 6.2 сообщения 1 от 26 октября 2026)
     const labels = m.screen.labels ?? [];
     let clash = '';
@@ -9360,7 +9394,7 @@ async function runMenuExit(browser, baseUrl) {
   }
   // ---- (б) и (в): волны идут быстро (пауза между волнами 1 с, ×4), жизней хватает; ждём 3-ю волну — пройдено 2
   {
-    const cfg = 'waves.firstDelaySec:1,waves.pauseSec:1,waves.newTypePauseSec:0,waves.intervalStartSec:0.3,waves.intervalEndSec:0.3,lives.start:999';
+    const cfg = 'waves.firstDelaySec:1,waves.pauseSec:4,waves.newTypePauseSec:0,waves.intervalStartSec:0.3,waves.intervalEndSec:0.3,lives.start:999';
     const game = await openGame(context, baseUrl, `${p} N волн`, { realMeta: true, speed: 4, cfg });
     const save0 = await readSave5(game.page);
     const dna0 = (await metaOf(game.page)).dna;
@@ -9380,9 +9414,12 @@ async function runMenuExit(browser, baseUrl) {
     const dnaR = (await metaOf(game.page)).dna;
     check(`${p} «Заново» на паузе после ${Math.max(0, paused.wave - 1)} пройденных волн ничего не начисляет и попытку не засчитывает: очки ДНК ${dna0} → ${dnaR}, попыток ${attemptsOf(save0)} → ${attemptsOf(saveR)}`,
       paused.wave >= 3 && dnaR === dna0 && attemptsOf(saveR) === attemptsOf(save0) && logOf(saveR).length === logOf(save0).length, JSON.stringify({ wave: paused.wave, dna0, dnaR, saveR }));
-    await waitForGame(game.page, (x) => x.wave >= 3, '3-я волна (до «В меню»)', { gameSec: 120 });
+    // пауза между волнами, поле пустое: текущая волна засчитана (решение владельца 28 октября 2026, сообщение 1, п. 7.1, находка аудита MASTER-0001)
+    await waitForGame(game.page, (x) => x.wave >= 3 && x.wavePhase === 'pause' && x.bacteria.length === 0, 'пауза после 3-й волны, поле пустое (до «В меню»)', { gameSec: 180 });
     paused = await pauseGame(game, 'перед «В меню»');
-    const cleared = Math.max(0, paused.wave - 1);
+    const between = paused.wavePhase === 'pause' && paused.bacteria.length === 0;
+    if (!between) console.log(`⚠ ${p}: пауза поставлена уже после начала волны ${paused.wave} — проверяется прежний случай (пройдено ${paused.wave - 1})`);
+    const cleared = between ? paused.wave : Math.max(0, paused.wave - 1);
     const want = dnaWavesReward(D, cleared, paused.level);
     await tapToMenu(game, paused, `${p} N волн`);
     await sleep(300);
