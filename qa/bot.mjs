@@ -294,6 +294,11 @@ const REVIEW_STEPS = [
   ['fizzA', 4], ['pillA', 4], ['fizzA', 8], ['syringeB', 8], ['syrupB', 4], ['fizzB', 8],
   ['pillA', 8], ['syrupB', 8], ['pillB', 8], ['fizzC', 8], ['syrupC', 8], ['fizzD', 2], ['fizzE', 1],
 ];
+/**
+ * fx:v — после всей обороны образца группы достраиваются до V (16 обычных башен), по очереди: два Шприца, Шипучка, Сироп у входа (перекалибровка уровня 1 со слиянием до V,
+ * решение владельца 28 октября 2026, сообщение 3, п. 3.1: образец собирает группы ровно до IV, и V без этого правила в замере не появляется).
+ */
+const REVIEW_V_STEPS = [['syringeA', 16], ['syringeB', 16], ['fizzA', 16], ['syrupA', 16]];
 /** Покупки очков ДНК по отчёту (с. 71): узел и уровень, до которого он покупается, в порядке покупок за попытки 1–5. */
 const REVIEW_BUYS = [['towerSyrup', 1], ['towerFizz', 1], ['towerSyringe', 1], ['damage', 1], ['coins', 3], ['syringePower', 1], ['syrupPower', 1]];
 const listArg = (name) => (args[name] === undefined || args[name] === true ? null : String(args[name]).split(',').map((x) => x.trim()).filter(Boolean));
@@ -432,8 +437,9 @@ const NO_ALT = new Set();
  *  iv     — Шприцы кучкой в радиусе слияния от первого и строятся до IV раньше остального (круг до волны LATE_WAVE: Сироп, четыре Шприца, Сироп, четыре Шприца);
  *  puddle — лужи Сиропа ложатся на пересечения лучей Шприцев с дорожкой;
  *  coins  — «Стартовые монеты» в начале порядка очков ДНК: после башен Сироп, Шипучка, Шприц — три уровня.
+ *  v      — только образец (review): после всей обороны группы достраиваются до V (`REVIEW_V_STEPS`).
  */
-const FX_KNOWN = ['beam', 'beamlen', 'iv', 'puddle', 'coins'];
+const FX_KNOWN = ['beam', 'beamlen', 'iv', 'puddle', 'coins', 'v'];
 const FX = new Set();
 /** Предел уровня слияния у бота (по умолчанию — без предела; `--mut mergelimit:4`). */
 let MERGE_LIMIT = 99;
@@ -1095,7 +1101,7 @@ function makePlayer({ world, rng, buttons }) {
   const reviewDecide = (view) => {
     const fighting = view.towers.filter((tw) => tw.id !== 'syrup').reduce((sum, tw) => sum + 2 ** ((tw.level ?? 1) - 1), 0);
     const syrups = view.towers.filter((tw) => tw.id === 'syrup').reduce((sum, tw) => sum + 2 ** ((tw.level ?? 1) - 1), 0);
-    for (const [key, target] of REVIEW_STEPS) {
+    for (const [key, target] of FX.has('v') ? [...REVIEW_STEPS, ...REVIEW_V_STEPS] : REVIEW_STEPS) {
       const g = REVIEW_GROUPS[key];
       if (!available(g.type) || reviewGaveUp.has(key) || reviewUnits(view, key) >= target) continue;
       if (g.type === 'syrup' && syrups + 1 > fighting) continue;
