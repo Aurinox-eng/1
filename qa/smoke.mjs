@@ -9976,7 +9976,8 @@ async function runTreeMock(browser, baseUrl) {
 async function runFaces(browser, baseUrl) {
   for (const deviceKey of ['desktop', 'phone']) {
     const device = VIEWPORTS[deviceKey];
-    for (const page of ['f1', 'f2', 'f3', 'l', 'l2']) {
+    // l3–l5 — свои стволы V–VIII остальных семи башен (сообщение 3 от 28 октября 2026, п. 3)
+    for (const page of ['f1', 'f2', 'f3', 'l', 'l2', 'l3', 'l4', 'l5']) {
       const p = `[лист без лиц ${page}, ${device.label}]`;
       const context = await newDeviceContext(browser, device, 'ru');
       const tab = await context.newPage();
@@ -9991,8 +9992,9 @@ async function runFaces(browser, baseUrl) {
     }
     // с 26 октября 2026 (сообщение 6, п. 1) лиц в игре нет: поздняя сцена — одна, «стало»
     // `high` — лист V–VIII в плотной поздней сцене: Таблетки, Сиропы и Шприцы с рисунками I–VIII (сообщение 1 от 28 октября 2026, п. 6.1)
-    for (const [tag, query] of [['after', ''], ['high', '=high']]) {
-      const p = `[поздняя сцена без лиц${tag === 'high' ? ', уровни I–VIII' : ''}, ${device.label}]`;
+    // `own` — то же со своими стволами V–VIII у остальных семи башен (`&ownhigh`)
+    for (const [tag, query] of [['after', ''], ['high', '=high'], ['own', '=high&ownhigh']]) {
+      const p = `[поздняя сцена без лиц${tag === 'high' ? ', уровни I–VIII' : tag === 'own' ? ', свои стволы V–VIII' : ''}, ${device.label}]`;
       const context = await newDeviceContext(browser, device, 'ru');
       const tab = await context.newPage();
       watchConsole(tab, p);
