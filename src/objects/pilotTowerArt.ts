@@ -17,22 +17,22 @@ export function isPilotTower(id: string, level: number): boolean {
 
 // ---------------------------------------------------------------- цвет и фигуры
 
-const channels = (c: number): [number, number, number] => [(c >> 16) & 255, (c >> 8) & 255, c & 255];
-const mix = (c: number, to: number, k: number): number => {
+export const channels = (c: number): [number, number, number] => [(c >> 16) & 255, (c >> 8) & 255, c & 255];
+export const mix = (c: number, to: number, k: number): number => {
   const [r, g, b] = channels(c);
   const [r2, g2, b2] = channels(to);
   const f = (a: number, z: number): number => Math.round(a + (z - a) * k);
   return (f(r, r2) << 16) | (f(g, g2) << 8) | f(b, b2);
 };
-const lighten = (c: number, k: number): number => mix(c, 0xffffff, k);
-const darken = (c: number, k: number): number => mix(c, 0x000000, k);
-const css = (c: number, a = 1): string => {
+export const lighten = (c: number, k: number): number => mix(c, 0xffffff, k);
+export const darken = (c: number, k: number): number => mix(c, 0x000000, k);
+export const css = (c: number, a = 1): string => {
   const [r, g, b] = channels(c);
   return a >= 1 ? `rgb(${r},${g},${b})` : `rgba(${r},${g},${b},${a})`;
 };
 
 /** Путь скруглённого прямоугольника. */
-function rrPath(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number): void {
+export function rrPath(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number): void {
   const rad = Math.max(0, Math.min(r, Math.abs(w) / 2, Math.abs(h) / 2));
   ctx.beginPath();
   ctx.moveTo(x + rad, y);
@@ -48,7 +48,7 @@ function rrPath(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, 
 }
 
 /** Тень под фигурой: рисует заливку path с мягкой тенью (размеры тени — в пикселях текстуры, поэтому умножаются на плотность d). */
-function softShadow(ctx: CanvasRenderingContext2D, d: number, blur: number, offY: number, alpha: number, fill: () => void): void {
+export function softShadow(ctx: CanvasRenderingContext2D, d: number, blur: number, offY: number, alpha: number, fill: () => void): void {
   ctx.save();
   ctx.shadowColor = `rgba(3,8,22,${alpha})`;
   ctx.shadowBlur = blur * d;
@@ -59,7 +59,7 @@ function softShadow(ctx: CanvasRenderingContext2D, d: number, blur: number, offY
 }
 
 /** Вертикальный градиент от y0 до y1. */
-function vGrad(ctx: CanvasRenderingContext2D, y0: number, y1: number, stops: readonly (readonly [number, number])[]): CanvasGradient {
+export function vGrad(ctx: CanvasRenderingContext2D, y0: number, y1: number, stops: readonly (readonly [number, number])[]): CanvasGradient {
   const g = ctx.createLinearGradient(0, y0, 0, y1);
   for (const [at, color] of stops) g.addColorStop(at, css(color));
   return g;
@@ -68,7 +68,7 @@ function vGrad(ctx: CanvasRenderingContext2D, y0: number, y1: number, stops: rea
 // ---------------------------------------------------------------- основание
 
 /** Круглая площадка башни: объём (свет сверху слева), мягкая тень, ободок и фаска; у Таблетки 4 уровня — кольцо бронепластин. */
-function drawBasePilot(ctx: CanvasRenderingContext2D, d: number, id: string, lv: number): void {
+export function drawBasePilot(ctx: CanvasRenderingContext2D, d: number, id: string, lv: number): void {
   const R = 36;
   softShadow(ctx, d, 9, 4, 0.55, () => {
     ctx.beginPath();
@@ -135,7 +135,7 @@ export function pilotBaseKey(scene: Phaser.Scene, id: string, lv: number, box: A
 // ---------------------------------------------------------------- ствол
 
 /** Капсула таблетки с объёмом: белая и цветная половины, шов, продольный блик и мягкая тень. */
-function capsule(ctx: CanvasRenderingContext2D, d: number, x: number, y: number, w: number, h: number, split: number, blue: number, edge: number, shadow = true): void {
+export function capsule(ctx: CanvasRenderingContext2D, d: number, x: number, y: number, w: number, h: number, split: number, blue: number, edge: number, shadow = true): void {
   const r = h / 2;
   if (shadow) {
     softShadow(ctx, d, 6, 1.5, 0.5, () => {
@@ -236,7 +236,7 @@ function drawPillBarrel(ctx: CanvasRenderingContext2D, d: number, lv: number): v
 }
 
 /** Золотой бандаж поперёк ствола: узкая полоса с переходом цвета и тёмной кромкой. */
-function goldBand(ctx: CanvasRenderingContext2D, d: number, x: number, y: number, w: number, h: number): void {
+export function goldBand(ctx: CanvasRenderingContext2D, d: number, x: number, y: number, w: number, h: number): void {
   ctx.fillStyle = vGrad(ctx, y, y + h, [[0, lighten(COLORS.gold, 0.5)], [0.5, COLORS.gold], [1, darken(COLORS.gold, 0.3)]]);
   rrPath(ctx, x, y, w, h, 1.4);
   ctx.fill();
@@ -331,7 +331,7 @@ export function pilotBarrelKey(scene: Phaser.Scene, id: string, lv: number, box:
  * Верх Таблетки 4 уровня: жемчужный купол радиуса 20 (чистый светлый фон под глазами при любом повороте ствола; между глазами ничего нет), золотой ободок, восемь золотых зубцов вокруг, кольцо уровня и четыре точки.
  * Рисуется вместо прежней «золотой короны вокруг втулки» (она лежала прямо под глазами и они терялись в узоре).
  */
-function drawTopPill4(ctx: CanvasRenderingContext2D, d: number): void {
+export function drawTopPill4(ctx: CanvasRenderingContext2D, d: number): void {
   const ring = 0xc78bff;
   ctx.save();
   ctx.shadowColor = css(ring, 0.6);

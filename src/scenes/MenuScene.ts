@@ -53,8 +53,11 @@ export class MenuScene extends Phaser.Scene {
       fontSize: 28,
       fill: 0x2a3550,
       line: 0x4a5c82,
+      // звук нажатия — только после включения: выключение не звучит, включение подтверждается (находка аудита MASTER-0098)
+      silent: true,
       onTap: () => {
         sfx.setMuted(!sfx.muted);
+        if (!sfx.muted) sfx.place();
         this.scene.restart();
       },
     });

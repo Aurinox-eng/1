@@ -73,6 +73,8 @@ export interface TowerStats extends TowerRow {
 
 /** Урон в секунду по одной цели без ауры, паразита и «Лихорадки»: удар (у луча — вся очередь с прибавкой «Спирали» за удар) на паузу; level — уровень башни (прибавка «Спирали» растёт с ним). */
 export function statDps(st: TowerStats, level: number): number {
+  // яд, ловушка и аура прямого урона не дают (пауза 0 у ауры): 0 (находка аудита MASTER-0012)
+  if (st.cooldownMs <= 0) return 0;
   let perShot = st.damage;
   if (st.targeting === 'beam') {
     const pulses = Math.max(1, st.beamPulses);
@@ -188,6 +190,8 @@ export function computeStats(id: TowerKey, level: number, picks: readonly string
   // k-й экземпляр одной и той же мутации даёт долю `mutationStack.copyShares[k]` своего эффекта (100 % / 50 % / 25 % / 0). Особые мутации (бронебойность, второй луч и т. п.) работают один раз.
   const shares = CONFIG.mutationStack.copyShares;
   const seen = new Map<string, number>();
+  // множители угла конуса копятся и ограничиваются один раз после всех мутаций: порядок мутаций не меняет угол (находка аудита MASTER-0007)
+  let coneMul = 1;
   for (const pickId of picks) {
     const spec = mutationById(id, pickId);
     if (!spec) continue;
@@ -227,15 +231,16 @@ export function computeStats(id: TowerKey, level: number, picks: readonly string
       s.dotPerSec *= scaled(spec.dotDpsMul);
       mutDot *= scaled(spec.dotDpsMul);
     }
-    if (spec.coneMul) {
-      if (s.coneDeg * scaled(spec.coneMul) >= caps.coneDeg) hit.add('cone');
-      s.coneDeg = Math.min(caps.coneDeg, s.coneDeg * scaled(spec.coneMul));
-    }
+    if (spec.coneMul) coneMul *= scaled(spec.coneMul);
     if (spec.rangeMul) s.range *= scaled(spec.rangeMul);
     if (spec.auraBonusMul) auraBonus *= scaled(spec.auraBonusMul);
     if (spec.freezeMul) s.freezeSec *= scaled(spec.freezeMul);
     if (spec.trapSecMul) s.trapSec *= scaled(spec.trapSecMul);
     if (spec.trapDpsMul) s.trapDps *= scaled(spec.trapDpsMul);
+  }
+  if (coneMul !== 1) {
+    if (s.coneDeg * coneMul >= caps.coneDeg) hit.add('cone');
+    s.coneDeg = Math.min(caps.coneDeg, s.coneDeg * coneMul);
   }
   // Потолки мутаций (документ дизайна docs/redesign-2026-10-19.md, п. 4.2): лишних целей и ударов очереди не больше заданного; урон в секунду от всех мутаций — не выше dpsMul к башне без мутаций
   const basePulses = base.beamPulses > 0 ? base.beamPulses + lv.pulsesAdd : 0;

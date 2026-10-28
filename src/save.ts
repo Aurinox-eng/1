@@ -45,6 +45,8 @@ const MAX_BEST_WAVE = 1000;
 const MAX_SEEN = 200;
 const MAX_SEEN_LEN = 40;
 const MAX_ATTEMPTS = 100000;
+/** Наибольшее число очков ДНК в сохранении (больше в игре не набрать: защита от испорченной записи; находка аудита MASTER-0023). */
+const MAX_DNA = 1e9;
 /** Сколько строк итога хранится и копируется из меню. */
 export const MAX_LOG = 20;
 /** Наибольшая длина одной сохранённой строки итога, знаков. Строка законного вида: все узлы древа в «вход» и «куплено» (≈ 1 900), 10 видов башен по 8 уровней (≈ 650), поля попытки и
@@ -89,7 +91,7 @@ export function sanitizeMeta(raw: unknown): MetaSave {
   const out = emptyMeta();
   if (typeof raw !== 'object' || raw === null) return out;
   const r = raw as { dna?: unknown; levels?: unknown; nodes?: unknown; progress?: unknown; seen?: unknown; attempts?: unknown; log?: unknown; bought?: unknown; bossWins?: unknown; flawless?: unknown };
-  if (typeof r.dna === 'number' && Number.isFinite(r.dna) && r.dna > 0) out.dna = Math.floor(r.dna);
+  if (typeof r.dna === 'number' && Number.isFinite(r.dna) && r.dna > 0) out.dna = Math.min(MAX_DNA, Math.floor(r.dna));
   if (typeof r.levels === 'object' && r.levels !== null) {
     const lv = r.levels as Record<string, unknown>;
     for (const id of UPGRADE_IDS) {
@@ -151,9 +153,24 @@ export function tryLoadMeta(): MetaSave | null {
   }
 }
 
+/** Ключ копии нечитаемой записи: прежний текст не теряется при первой записи (находка аудита MASTER-0003, решение владельца 28 октября 2026, сообщение 1, п. 7.1). */
+export const BROKEN_KEY = `${KEY}.broken`;
+
+/** Перед записью: если прежняя запись не читается и копии ещё нет — прежний текст кладётся под `BROKEN_KEY`. */
+function keepUnreadable(): void {
+  const old = window.localStorage.getItem(KEY);
+  if (!old || window.localStorage.getItem(BROKEN_KEY) !== null) return;
+  try {
+    JSON.parse(old);
+  } catch {
+    window.localStorage.setItem(BROKEN_KEY, old);
+  }
+}
+
 /** Записывает сохранение; false — хранилище недоступно (прогресс живёт до закрытия страницы). */
 export function saveMeta(meta: MetaSave): boolean {
   try {
+    keepUnreadable();
     window.localStorage.setItem(KEY, JSON.stringify(meta));
     return true;
   } catch {

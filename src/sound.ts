@@ -33,6 +33,10 @@ class Sfx {
   private ctx: AudioContext | null = null;
   /** Общий усилитель и компрессор перед выходом: десятки одновременных тонов поздних волн не складываются в треск. */
   private master: AudioNode | null = null;
+  /** Общая громкость перед компрессором: при выключении звука плавно 0 — и уже запланированные тоны замолкают (находка аудита MASTER-0097). */
+  private out: GainNode | null = null;
+  /** Тоны, запрошенные до разрешения звука (первое касание на iPhone): играются сразу после него, если не старше 300 мс (находка аудита MASTER-0099). */
+  private pending: { at: number; opts: ToneOptions }[] = [];
   /** Сколько звуков сыграно (для проверок). */
   played = 0;
   /** Выключен ли звук игроком. */
@@ -58,6 +62,7 @@ class Sfx {
   /** Включить или выключить звук (запоминается между запусками). */
   setMuted(on: boolean): void {
     this.muted = on;
+    if (this.out && this.ctx) this.out.gain.setTargetAtTime(on ? 0 : 1, this.ctx.currentTime, 0.01);
     try {
       window.localStorage.setItem(MUTE_KEY, on ? '0' : '1');
     } catch {
@@ -69,14 +74,15 @@ class Sfx {
    * Пропуск частого звука: не чаще одного звука одного вида за `feedback.soundMinGapMs` и не больше `feedback.soundMaxVoices` тонов одновременно
    * (выстрелов, попаданий и гибелей на поздних волнах — сотни в секунду). Редкие звуки (постановка, слияние, волна, победа) через пропуск не идут.
    */
-  private gate(key: string): boolean {
+  private gate(key: string, voices = 1): boolean {
     const ctx = this.ctx;
     if (this.muted || !ctx || ctx.state !== 'running') return false;
     const now = ctx.currentTime;
     const last = this.lastAt.get(key);
     if (last !== undefined && now - last < CONFIG.feedback.soundMinGapMs / 1000) return false;
     this.ends = this.ends.filter((end) => end > now);
-    if (this.ends.length >= CONFIG.feedback.soundMaxVoices) return false;
+    // `voices` — сколько тонов у звука (двухтоновые занимают два голоса; находка аудита MASTER-0100)
+    if (this.ends.length + voices > CONFIG.feedback.soundMaxVoices) return false;
     this.lastAt.set(key, now);
     return true;
   }
@@ -103,9 +109,19 @@ class Sfx {
         this.ctx = new Ctor();
         const compressor = this.ctx.createDynamicsCompressor();
         compressor.connect(this.ctx.destination);
-        this.master = compressor;
+        this.out = this.ctx.createGain();
+        this.out.gain.value = this.muted ? 0 : 1;
+        this.out.connect(compressor);
+        this.master = this.out;
       }
-      if (this.ctx.state === 'suspended') void this.ctx.resume();
+      const flush = (): void => {
+        const now = performance.now();
+        const queued = this.pending.filter((p) => now - p.at <= 300);
+        this.pending = [];
+        for (const p of queued) this.tone(p.opts);
+      };
+      if (this.ctx.state === 'suspended') void this.ctx.resume().then(flush, () => undefined);
+      else flush();
     } catch {
       /* звук не критичен: если браузер не дал, играем без него */
     }
@@ -114,6 +130,10 @@ class Sfx {
   private tone({ from, to, ms, type = 'sine', gain = 1, delayMs = 0 }: ToneOptions): void {
     const ctx = this.ctx;
     const volume = CONFIG.feedback.soundVolume * gain;
+    if (!this.muted && volume > 0 && !this.suspended && (!ctx || ctx.state !== 'running')) {
+      if (this.pending.length < 4) this.pending.push({ at: performance.now(), opts: { from, to, ms, type, gain, delayMs } });
+      return;
+    }
     if (this.muted || !ctx || ctx.state !== 'running' || volume <= 0) return;
 
     const start = ctx.currentTime + delayMs / 1000;
@@ -129,6 +149,8 @@ class Sfx {
     osc.connect(amp).connect(this.master ?? ctx.destination);
     osc.start(start);
     osc.stop(end + 0.02);
+    // отметки прошедших тонов чистятся и между пропусками (находка аудита MASTER-0077)
+    if (this.ends.length >= 32) this.ends = this.ends.filter((e) => e > ctx.currentTime);
     this.ends.push(end + 0.02);
     this.played++;
   }
@@ -149,7 +171,7 @@ class Sfx {
 
   /** Лужа сиропа шлёпнулась на дорожку: короткое «плюх». */
   splash(): void {
-    if (!this.gate('splash')) return;
+    if (!this.gate('splash', 2)) return;
     this.tone({ from: 260, to: 120, ms: 140, type: 'sine', gain: 0.5 });
     this.tone({ from: 480, to: 200, ms: 90, type: 'triangle', gain: 0.25, delayMs: 30 });
   }
@@ -191,7 +213,7 @@ class Sfx {
 
   /** Взрыв шипучки: низкий «бум» с шипением. */
   blast(): void {
-    if (!this.gate('blast')) return;
+    if (!this.gate('blast', 2)) return;
     this.tone({ from: 140, to: 50, ms: 220, type: 'sawtooth', gain: 0.6 });
     this.tone({ from: 900, to: 300, ms: 150, type: 'square', gain: 0.15, delayMs: 20 });
   }
@@ -210,7 +232,7 @@ class Sfx {
 
   /** Бактерия уничтожена: яркий «дзинь». */
   destroy(): void {
-    if (!this.gate('destroy')) return;
+    if (!this.gate('destroy', 2)) return;
     this.tone({ from: 700, to: 1400, ms: 110, type: 'triangle' });
     this.tone({ from: 1400, to: 2100, ms: 90, gain: 0.6, delayMs: 60 });
   }
@@ -234,7 +256,7 @@ class Sfx {
 
   /** Делящаяся распалась на кокков: «поп-поп». */
   split(): void {
-    if (!this.gate('split')) return;
+    if (!this.gate('split', 2)) return;
     this.tone({ from: 330, to: 130, ms: 130, type: 'triangle' });
     this.tone({ from: 520, to: 220, ms: 90, gain: 0.7, delayMs: 45 });
   }

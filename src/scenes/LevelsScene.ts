@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import { CONFIG, type KindId } from '../config';
 import { t, type TextKey } from '../i18n';
 import { isLevelOpen, isLevelReady, levelBest, levelStars } from '../meta';
+import { META_KEY } from '../save';
 import { levelNewKinds } from '../progress';
 import { addButton, drawLock, drawStar, setScreenInfo, textStyle, type LevelCardInfo, type Rect } from '../screens';
 import { sfx } from '../sound';
@@ -32,6 +33,12 @@ export class LevelsScene extends Phaser.Scene {
     for (let level = 1; level <= CONFIG.levels.count; level++) this.addCard(level);
     this.back = addButton(this, { x: 150, y: 668, w: 240, h: 60, label: t('back'), fontSize: 30, fill: 0x2a3550, line: 0x4a5c82, onTap: () => this.scene.start('Menu') });
     setScreenInfo(() => (this.scene.isActive() ? { scene: 'levels', buttons: { back: this.back }, texts: [title.text], levels: this.cards } : null));
+    // сохранение изменили в другой вкладке — карточки перерисовываются (находка аудита MASTER-0064)
+    const onStorage = (event: StorageEvent): void => {
+      if (event.key === META_KEY || event.key === null) this.scene.restart();
+    };
+    window.addEventListener('storage', onStorage);
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => window.removeEventListener('storage', onStorage));
   }
 
   private addCard(level: number): void {

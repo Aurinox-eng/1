@@ -8,6 +8,7 @@ import { artDensity, artImage, bakeArt, discImage, ringImage, setArt, squareBox,
 import type { Tower } from './Tower';
 import { bodyHalfSize, crackCount, drawCracks, drawShape, hasRadialCracks, shellWidth, SPLITTER_LOBE_OFFSET } from './bacteriumArt';
 import { BLINK_EVERY_SEC, BLINK_SEC, BREATH_AMP, EYES_DRAWN, BREATH_SEC, BREATH_STEP, type Eyes, styleBodyBox, styleBodyKey } from './styleArt';
+import { BOSS_TINT, bossDecorImage } from './bossDecor';
 
 export type BacteriumKind = keyof typeof CONFIG.types;
 
@@ -161,6 +162,8 @@ export class Bacterium {
   /** Босс (строка таблицы `bosses`) и его id; у обычной бактерии — null. */
   readonly boss: BossSpec | null;
   readonly bossId: BossId | null;
+  /** Босс-двойник: тело своего цвета и свой отличительный элемент (режим проверки читает в снимке). */
+  decorated = false;
   /** Монет за уничтожение. */
   readonly reward: number;
   /** Во сколько раз чаще идут рывки (палочка рядом с Вожаком палочек); сцена выставляет каждый кадр. */
@@ -279,6 +282,15 @@ export class Bacterium {
     this.breathSec = BREATH_SEC[kind][0] + Math.random() * (BREATH_SEC[kind][1] - BREATH_SEC[kind][0]);
     this.blinkIn = BLINK_EVERY_SEC[0] + Math.random() * (BLINK_EVERY_SEC[1] - BLINK_EVERY_SEC[0]);
     this.shape = scene.add.container(0, 0, [this.body, this.cracks]).setScale(this.visual);
+    // Боссы-двойники (одно тело с другим боссом): свой цвет тела и свой отличительный элемент (решение владельца 28 октября 2026, сообщение 1, п. 2)
+    const tint = this.bossId ? BOSS_TINT[this.bossId] : undefined;
+    if (this.bossId && tint !== undefined) {
+      this.body.setTint(tint);
+      this.cracks.setTint(tint);
+      const decor = bossDecorImage(scene, this.bossId, cfg.radius);
+      if (decor) this.shape.add(decor);
+      this.decorated = true;
+    }
     this.container = scene.add.container(0, 0, [this.shape]);
     // Босс: кольцо своего цвета вокруг тела
     if (this.boss) this.container.add(ringImage(scene, 0, 0, this.radius + 10, 6, this.boss.color, 0.95));
@@ -525,6 +537,11 @@ export class Bacterium {
     return this.capsuleLeft > 0;
   }
 
+  /** Сколько секунд ещё держится капсула Матки роя (0 — капсулы нет). */
+  get capsuleSec(): number {
+    return this.capsuleLeft;
+  }
+
   /** Как часто идут рывки, секунд (у босса — своё число, у вида — из таблицы). */
   private get dashEvery(): number {
     return this.boss?.dashEverySec ?? CONFIG.types[this.kind].dashEverySec;
@@ -616,13 +633,14 @@ export class Bacterium {
       this.wardRing?.setVisible(on);
     }
     if (this.slowLeft > 0) {
+      // замедление действует на ту долю шага, что от него осталась (большой шаг не теряет его конец; находка аудита MASTER-0059)
+      const p = dt > 0 ? Math.min(dt, this.slowLeft) / dt : 0;
+      factor *= 1 - p + p * this.slowBy;
       this.slowLeft -= dt;
       if (this.slowLeft <= 0) {
         this.slowLeft = 0;
         this.slowBy = 1;
         this.slowRing?.setVisible(false);
-      } else {
-        factor *= this.slowBy;
       }
     }
     const dashEvery = this.dashEvery;

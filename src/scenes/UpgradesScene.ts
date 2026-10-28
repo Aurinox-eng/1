@@ -21,15 +21,15 @@ const BUY_CENTER = { x: DETAIL.x + DETAIL.w / 2, y: DETAIL.y + DETAIL.h - 16 - B
 const PLAY = { x: W / 2 + 190, y: 650, w: 340, h: 76 };
 const MENU = { x: W / 2 - 190, y: 650, w: 340, h: 76 };
 /** Касание, сдвинувшееся не дальше этого, — тап (выбор узла), иначе — перетаскивание сети, пикселей экрана. */
-const TAP_MAX_MOVE = 12;
+const TAP_MAX_MOVE = CONFIG.camera.tapMaxMovePx; // как у карты: порог в пикселях игры, на маленьком экране не сжимается до 6 px (находка аудита MASTER-0088)
 /** Масштаб сети: пределы и подписи цепочек — не мельче этого (решение владельца 26 октября 2026, сообщение 1, п. 6.2–6.3). */
 const ZOOM_MIN = 0.3;
 const ZOOM_MAX = 2.2;
 const LABEL_MIN_ZOOM = 0.62;
 /** Размер подписи цепочки, пикселей мира. */
 const LABEL_PX = 20;
-/** Кнопка сброса сети (бесплатный сброс между попытками; решение владельца 26 октября 2026, сообщение 3, п. 4.2; с надписью — сообщение 6, п. 3): в правом верхнем углу окна сети. */
-const RESPEC = { x: VIEW.x + VIEW.w - 92, y: VIEW.y + 34, w: 168, h: 48 };
+/** Кнопка сброса сети (бесплатный сброс между попытками; решение владельца 26 октября 2026, сообщение 3, п. 4.2; с надписью — сообщение 6, п. 3): над карточкой справа, вне окна сети — узлы под ней не закрываются (сообщение 1 от 28 октября 2026, п. 5). */
+const RESPEC = { x: DETAIL.x + DETAIL.w - 84, y: 88, w: 168, h: 48 };
 const LAYOUT = layoutNet();
 
 /** Ключ названия улучшения: `upg` + id с заглавной буквы (`lives` → `upgLives`). */
@@ -578,10 +578,8 @@ export class UpgradesScene extends Phaser.Scene {
           price: nextPrice(nid),
           canBuy: canBuy(nid),
           open: isNodeOpen(nid),
-          // в окне сети и не под кнопкой сброса (касание там попадает в кнопку)
-          onScreen:
-            c.x - r >= VIEW.x && c.x + r <= VIEW.x + VIEW.w && c.y - r >= VIEW.y && c.y + r <= VIEW.y + VIEW.h &&
-            !(Math.abs(c.x - RESPEC.x) <= RESPEC.w / 2 + r && Math.abs(c.y - RESPEC.y) <= RESPEC.h / 2 + r),
+          // в окне сети
+          onScreen: c.x - r >= VIEW.x && c.x + r <= VIEW.x + VIEW.w && c.y - r >= VIEW.y && c.y + r <= VIEW.y + VIEW.h,
           rect: { x: c.x, y: c.y, w: r * 2, h: r * 2 },
           label: { x: c.x, y: c.y, w: 0, h: 0 },
           recommended: recommendedIds().includes(nid),

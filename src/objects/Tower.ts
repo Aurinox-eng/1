@@ -7,6 +7,7 @@ import {
 } from '../art';
 import { COLORS, PILL_EYES, TOWER_ART } from '../theme';
 import { bakeStyled } from './styleGfx';
+import { hasHighArt, highBarrelKey, highBaseKey, highHaloKey, highTopKey, HALO_BOX } from './highTowerArt';
 import { isPilotTower, pilotBarrelKey, pilotBaseKey, pilotEyesKey, pilotPupilKey, pilotTopKey, PILL_EYE_POS, EYES_BOX, PUPIL_BOX, RECOIL_PX, RECOIL_SEC } from './pilotTowerArt';
 import { computeStats, mutationOptions, unlockedTiers, type TowerKey, type TowerStats } from '../towerStats';
 import { wardBlocks } from '../ward';
@@ -34,6 +35,25 @@ const A = TOWER_ART;
 
 /** Виды стрельбы, у которых выбор цели учитывает жёсткие свойства (решение владельца 24 октября 2026, сообщение 2, п. 2.3). */
 const WARD_AWARE = new Set<string>(['radius', 'snipe', 'area']);
+/** Способы стрельбы, у которых цель, которую удар не ранит, идёт последней: выбирается, только если других нет (яд, конус Лампы). */
+const WARD_LAST = new Set<string>(['poison', 'cone']);
+
+/**
+ * Уровни V–VIII со своими рисунками (Таблетка, Сироп, Шприц; решение владельца 25 октября 2026, сообщение 2, п. 3; `highTowerArt.ts`); остальные башни на V–VIII рисуются как IV.
+ * В игре слияние пока до IV (строки `towerLevels`): эти рисунки видны только на листе `?qa&artsheet=l` и в стресс-сцене `?qa&stress=high`.
+ */
+function isHighArt(id: TowerId, level: number, legacy: boolean): boolean {
+  return !legacy && level >= 5 && hasHighArt(id);
+}
+function highLevel(level: number): number {
+  return Math.max(5, Math.min(8, Math.round(level)));
+}
+
+/**
+ * Светлая заклёпка вместо тёмной втулки с бликом в центре башен не в стиле пилота (на значке читалась как глаз; решение владельца 28 октября 2026, сообщение 1, п. 6.2).
+ * В игре — после «да» владельца по листу `?qa&artsheet=l`; до того заклёпку рисует только лист.
+ */
+const HUB_RIVET = false;
 
 /** Ограничение уровня рисунка: у башни 4 вида рисунков (уровни слияния 1–4). */
 function artLevel(level: number): 1 | 2 | 3 | 4 {
@@ -49,6 +69,7 @@ function barrelImage(scene: Phaser.Scene, id: TowerId, level: number, legacy = f
  * Пилот этапа 8: Таблетка 1 и 4 уровня и Сироп 1 уровня рисуются заново (pilotTowerArt.ts, Canvas 2D); legacy — прежний рисунок тех же башен (до утверждения стиля, лист образцов `?qa&artsheet`).
  */
 function barrelTexture(scene: Phaser.Scene, id: TowerId, level: number, legacy = false): string {
+  if (isHighArt(id, level, legacy)) return highBarrelKey(scene, id, highLevel(level), BARREL_BOX);
   const lv = artLevel(level);
   if (!legacy && isPilotTower(id, lv)) return pilotBarrelKey(scene, id, lv, BARREL_BOX);
   // Остальные башни и уровни: прежние команды рисования выполняются в новом стиле (styleGfx.ts): объём, переход цвета, мягкие тени
@@ -971,15 +992,17 @@ function drawTurnArrows(g: Phaser.GameObjects.Graphics): void {
 const LEVEL_COLORS = [COLORS.towerEdge, 0xdfe6f5, 0xffd84d, 0xc78bff];
 
 /** Верхняя неподвижная часть башни id уровня level — одна картинка: втулка над стволом, ядро 4-го уровня, кольцо и точки уровня под башней. */
-function topTexture(scene: Phaser.Scene, id: TowerId, level: number, legacy = false): string {
+function topTexture(scene: Phaser.Scene, id: TowerId, level: number, legacy = false, rivet = HUB_RIVET): string {
+  if (isHighArt(id, level, legacy)) return highTopKey(scene, id, highLevel(level), TOP_BOX);
   const lv = artLevel(level);
   const pilot = !legacy && isPilotTower(id, lv);
   if (pilot && id === 'pill' && lv === 4) return pilotTopKey(scene, TOP_BOX); // Таблетка 4 уровня: купол под глазами, кольцо и точки уровня — Canvas 2D
   const suffix = legacy && isPilotTower(id, lv) ? '-old' : '';
   const baker = (key: string, draw: (g: Phaser.GameObjects.Graphics) => void): string => (legacy ? bakeArt(scene, key, TOP_BOX, draw) : bakeStyled(scene, key, TOP_BOX, draw));
-  return baker(`tower-top-${legacy ? '' : 'styled-'}${id}-${lv}${suffix}`, (g) => {
-    // Пилот: тёмной втулки нет — вместо неё маленькая светлая заклёпка (у таблеток между глазами)
-    if (pilot || id === 'pill') {
+  const riv = rivet && !legacy;
+  return baker(`tower-top-${legacy ? '' : 'styled-'}${id}-${lv}${suffix}${riv ? '-rivet' : ''}`, (g) => {
+    // Пилот: тёмной втулки нет — вместо неё маленькая светлая заклёпка (у таблеток между глазами); с заклёпкой (HUB_RIVET, лист) — у всех башен
+    if (pilot || id === 'pill' || riv) {
       shCirc(g, 0, 0, 2.6, lv >= 2 && lv < 4 ? LEVEL_COLORS[lv - 1] : 0xe9f1ff, COLORS.towerEdge, 1.2);
     } else {
       shCirc(g, 0, 0, 9, COLORS.background, COLORS.towerEdge, 2);
@@ -992,7 +1015,7 @@ function topTexture(scene: Phaser.Scene, id: TowerId, level: number, legacy = fa
       }
       glowCircle(g, 0, 0, 5, core, 10, 0.5);
       shCirc(g, 0, 0, 5, core, 0xffffff, 1.5);
-    } else if (lv >= 2 && id !== 'pill') {
+    } else if (lv >= 2 && id !== 'pill' && !riv) {
       shCirc(g, 0, 0, 4, LEVEL_COLORS[lv - 1]);
     }
     if (lv <= 1) return;
@@ -1008,6 +1031,7 @@ function topTexture(scene: Phaser.Scene, id: TowerId, level: number, legacy = fa
 }
 
 function baseTexture(scene: Phaser.Scene, id: TowerId, level: number, legacy = false): string {
+  if (isHighArt(id, level, legacy)) return highBaseKey(scene, id, highLevel(level), BASE_BOX);
   const lv = artLevel(level);
   if (!legacy && isPilotTower(id, lv)) return pilotBaseKey(scene, id, lv, BASE_BOX);
   if (!legacy) return bakeStyled(scene, `tower-base-styled-${id}-${lv}`, BASE_BOX, (g) => drawBase(g, id, lv));
@@ -1026,16 +1050,21 @@ interface TowerArt {
   /** Глаза Таблетки (пилот): белки и два зрачка, зрачки смотрят на цель; null у остальных башен и при выключенных глазах (theme.PILL_EYES). */
   eyes: Phaser.GameObjects.Image | null;
   pupils: Phaser.GameObjects.Image[];
+  /** Светлая заклёпка вместо тёмной втулки (`HUB_RIVET`; лист образцов — всегда). */
+  rivet: boolean;
+  /** Ореол уровней VII–VIII: готовая картинка под основанием, вращается целиком (без перерисовки); null — у остальных уровней и башен. */
+  halo: Phaser.GameObjects.Image | null;
 }
 
 /** Основание, ствол и верхняя часть башни в контейнере. */
-function buildTowerArt(scene: Phaser.Scene, parent: Phaser.GameObjects.Container, id: TowerId, level = 1, legacy = false, eyes: boolean = PILL_EYES): TowerArt {
+function buildTowerArt(scene: Phaser.Scene, parent: Phaser.GameObjects.Container, id: TowerId, level = 1, legacy = false, eyes: boolean = PILL_EYES, rivet = HUB_RIVET): TowerArt {
   const base = artImage(scene, baseTexture(scene, id, level, legacy), BASE_BOX);
   const barrelImg = barrelImage(scene, id, level, legacy);
   const barrel = scene.add.container(0, 0, [barrelImg]);
-  const top = artImage(scene, topTexture(scene, id, level, legacy), TOP_BOX);
+  const top = artImage(scene, topTexture(scene, id, level, legacy, rivet), TOP_BOX);
   parent.add([base, barrel, top]);
-  const art: TowerArt = { base, barrel, barrelImg, top, legacy, eyes: null, pupils: [] };
+  const art: TowerArt = { base, barrel, barrelImg, top, legacy, eyes: null, pupils: [], rivet, halo: null };
+  setHalo(scene, parent, art, id, level);
   // Глаза Таблетки: два белка на верхнем слое (не вращаются) и два зрачка, которые смотрят на цель; видны на уровнях пилота
   if (id === 'pill' && eyes && !legacy) {
     art.eyes = artImage(scene, pilotEyesKey(scene, 1), EYES_BOX);
@@ -1044,6 +1073,22 @@ function buildTowerArt(scene: Phaser.Scene, parent: Phaser.GameObjects.Container
     setEyesLevel(scene, art, artLevel(level));
   }
   return art;
+}
+
+/** Ставит или убирает ореол башни уровня VII–VIII (картинка под основанием). */
+function setHalo(scene: Phaser.Scene, parent: Phaser.GameObjects.Container, art: TowerArt, id: TowerId, level: number): void {
+  if (!isHighArt(id, level, art.legacy) || level < 7) {
+    art.halo?.setVisible(false);
+    return;
+  }
+  const key = highHaloKey(scene, highLevel(level));
+  if (!art.halo) {
+    art.halo = artImage(scene, key, HALO_BOX);
+    parent.addAt(art.halo, 0);
+  } else {
+    setArt(art.halo, key, HALO_BOX);
+  }
+  art.halo.setVisible(true);
 }
 
 /** Показывает глаза Таблетки на всех уровнях и ставит их размер по уровню. */
@@ -1071,7 +1116,8 @@ function lookPupils(art: TowerArt, lv: number, angle: number): void {
 function setTowerArtLevel(scene: Phaser.Scene, art: TowerArt, id: TowerId, level: number): void {
   setArt(art.base, baseTexture(scene, id, level, art.legacy), BASE_BOX);
   setArt(art.barrelImg, barrelTexture(scene, id, level, art.legacy), BARREL_BOX);
-  setArt(art.top, topTexture(scene, id, level, art.legacy), TOP_BOX);
+  setArt(art.top, topTexture(scene, id, level, art.legacy, art.rivet), TOP_BOX);
+  if (art.base.parentContainer) setHalo(scene, art.base.parentContainer, art, id, level);
   setEyesLevel(scene, art, artLevel(level));
 }
 
@@ -1084,8 +1130,8 @@ export function createTowerArt(scene: Phaser.Scene, parent: Phaser.GameObjects.C
  * Башня для листа образцов режима проверки (`?qa&artsheet`): legacy — прежний рисунок пилотных башен (до утверждения стиля), eyes — глаза у Таблетки независимо от theme.PILL_EYES.
  * В игре не используется.
  */
-export function createTowerArtSample(scene: Phaser.Scene, parent: Phaser.GameObjects.Container, id: TowerId, level: number, legacy: boolean, eyes: boolean): Phaser.GameObjects.Container {
-  return buildTowerArt(scene, parent, id, level, legacy, eyes).barrel;
+export function createTowerArtSample(scene: Phaser.Scene, parent: Phaser.GameObjects.Container, id: TowerId, level: number, legacy: boolean, eyes: boolean, rivet = HUB_RIVET): Phaser.GameObjects.Container {
+  return buildTowerArt(scene, parent, id, level, legacy, eyes, rivet).barrel;
 }
 
 /** Конус света Лампы: готовая картинка (одна на длину и угол); вершина — в центре башни, смотрит вправо. */
@@ -1261,6 +1307,11 @@ export class Tower {
   /** Какой порог мутации ждёт выбора (0 — первый, 1 — второй) или null, если выбирать нечего. */
   get pendingTier(): number | null {
     return this.tiersDone < unlockedTiers(this.level) ? this.tiersDone : null;
+  }
+
+  /** Режим проверки (стресс-сцена `?qa&stress=high`): показать рисунок уровня `level` (1–8) без изменения уровня и чисел башни. */
+  qaShowArtLevel(level: number): void {
+    setTowerArtLevel(this.scene, this.art, this.id, level);
   }
 
   /** Слияние: башня становится уровнем выше и получает мутации сливаемой башни `extraPicks` (свои остаются; решение владельца 8 октября 2026), пауза до выстрела не сбрасывается. */
@@ -1454,6 +1505,8 @@ export class Tower {
   }
 
   update(dt: number, bacteria: readonly Bacterium[], fire: (target: Bacterium, muzzleX: number, muzzleY: number) => boolean): void {
+    // Ореол уровней VII–VIII: готовая картинка вращается (медленно по часовой стрелке), без перерисовки
+    if (this.art.halo?.visible) this.art.halo.rotation += dt * 0.4;
     // Отдача: ствол отъезжает назад по своей оси на RECOIL_PX и возвращается за RECOIL_SEC (ручной таймер, без анимаций Phaser)
     if (this.recoilLeft > 0) {
       this.recoilLeft = Math.max(0, this.recoilLeft - dt);
@@ -1485,7 +1538,7 @@ export class Tower {
       return;
     }
     if (this.isAura) return;
-    const muzzle = MUZZLE[this.id] + (this.level - 1) * MUZZLE_PER_LEVEL[this.id];
+    const muzzle = MUZZLE[this.id] + (Math.min(this.level, 4) - 1) * MUZZLE_PER_LEVEL[this.id]; // у V–VIII дуло там же, где у IV
     if (this.isCone) {
       this.updateCone(dt, bacteria, fire, muzzle);
       return;
@@ -1559,6 +1612,11 @@ export class Tower {
     // ближайшая к организму первой; «Охотник» — сначала самая прочная (по полному HP); «снайпер» (Ампула) — самая прочная по текущему HP
     if (targeting === 'snipe') found.sort((a, b) => b.hp - a.hp || a.remaining - b.remaining);
     else found.sort((a, b) => (toughest ? b.maxHp - a.maxHp || a.remaining - b.remaining : a.remaining - b.remaining));
+    // яд Антибиотика и направление Лампы: цель, которую удар не ранит, — только если других нет (решение владельца 28 октября 2026, сообщение 1, п. 7.1, находки аудита MASTER-0039, 0040)
+    if (affectable && WARD_LAST.has(targeting)) {
+      const open = found.filter((b) => !wardBlocks(b, this.stats));
+      if (open.length > 0 && open.length < found.length) return [...open, ...found.filter((b) => wardBlocks(b, this.stats))];
+    }
     return found;
   }
 
@@ -1567,8 +1625,15 @@ export class Tower {
     if (this.cfg.targeting === 'freeze') return b.freezable;
     if (this.cfg.targeting === 'trap') return !b.trapped && CONFIG.types[b.kind].trapImmune === 0;
     // «по радиусу», «снайпер» и «по площади» не выбирают цель, которую удар не ранит (жёсткое свойство уровня), вовсе — и когда других целей в зоне нет, выстрела нет; лужа Сиропа ложится и под бегуна, которого ещё не замедлили
-    if (WARD_AWARE.has(this.cfg.targeting)) return !wardBlocks(b, this.stats);
+    if (WARD_AWARE.has(this.cfg.targeting)) return !wardBlocks(b, this.stats) && !(this.cfg.targeting === 'snipe' && this.capsuleOnArrival(b));
     return true;
+  }
+
+  /** Ампула: капсула Матки роя ещё будет держаться, когда снаряд долетит (время полёта — расстояние ÷ скорость снаряда) — цель неуязвима (решение владельца 28 октября 2026, сообщение 1, п. 7.1, находка аудита MASTER-0041). */
+  private capsuleOnArrival(b: Bacterium): boolean {
+    if (b.capsuleSec <= 0) return false;
+    const speed = this.stats.projectileSpeed;
+    return speed <= 0 || b.capsuleSec > Math.hypot(b.x - this.x, b.y - this.y) / speed;
   }
 
   /** Бактерии, до которых можно достать, по приоритету; не больше 1 + extraTargets. */

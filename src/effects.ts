@@ -359,8 +359,14 @@ export class Effects {
     if (this.damagePool.some((p) => p.busy && (p.target === target || (p.value === 0 && p.ms < damageNumMergeMs && Math.hypot(p.label.x - x, p.fromY - y) < damageNumNearPx)))) return;
     let a = this.damagePool.find((p) => !p.busy);
     if (!a) {
-      if (this.damagePool.length >= damageNumMax) return;
-      a = this.newDamageLabel(target, y);
+      if (this.damagePool.length < damageNumMax) a = this.newDamageLabel(target, y);
+      else {
+        // запас полон: пометка занимает самое слабое число урона (как новое число в damageNumber; находка аудита MASTER-0094)
+        let weakest: DamageAnim | undefined;
+        for (const p of this.damagePool) if (p.value > 0 && (!weakest || p.share < weakest.share)) weakest = p;
+        if (!weakest) return;
+        a = weakest;
+      }
     }
     a.target = target;
     a.value = 0;

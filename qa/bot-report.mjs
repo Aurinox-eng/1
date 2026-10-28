@@ -99,6 +99,17 @@ function median(values) {
   return a.length % 2 ? a[mid] : (a[mid - 1] + a[mid]) / 2;
 }
 
+/** 95 % доверительный интервал доли побед (Уилсон): при малом числе партий доля — не точное число (находка аудита MASTER-0112). */
+function wilson(won, n) {
+  if (!n) return [0, 0];
+  const z = 1.96;
+  const p = won / n;
+  const d = 1 + (z * z) / n;
+  const c = (p + (z * z) / (2 * n)) / d;
+  const h = (z * Math.sqrt((p * (1 - p)) / n + (z * z) / (4 * n * n))) / d;
+  return [Math.max(0, c - h), Math.min(1, c + h)];
+}
+
 function summarize(games) {
   const own = games.filter((g) => g.result !== 'error');
   if (!own.length) return null;
@@ -172,7 +183,7 @@ if (!orderedGroups.length && !campaignResults.length && !ladderResults.length) {
       continue;
     }
     lines.push(
-      `| ${esc(variant(g))} | ${titleOf(g.profile)} | ${s.games}${s.timeout ? ` (timeout ${s.timeout})` : ''} | ${s.won}/${s.games} (${pct(s.winRate)}) | ${f1(s.avgLivesLost)} | ${s.avgStealthLives === null ? '—' : f1(s.avgStealthLives)} | ${s.lost ? f1(s.avgLossWave) : '—'} | ${f1(s.medianWave)} | ${KNOWN_TOWERS.map((id) => f1(s.avgTowers[id])).join(' / ')} | ${f1(s.avgCoinsEnd)} | ${f1(s.avgRealSec)} с (игра ${f1(s.avgGameSec)} с) |`,
+      `| ${esc(variant(g))} | ${titleOf(g.profile)} | ${s.games}${s.timeout ? ` (timeout ${s.timeout})` : ''} | ${s.won}/${s.games} (${pct(s.winRate)}; 95 %: ${wilson(s.won, s.games).map(pct).join('–')}) | ${f1(s.avgLivesLost)} | ${s.avgStealthLives === null ? '—' : f1(s.avgStealthLives)} | ${s.lost ? f1(s.avgLossWave) : '—'} | ${f1(s.medianWave)} | ${KNOWN_TOWERS.map((id) => f1(s.avgTowers[id])).join(' / ')} | ${f1(s.avgCoinsEnd)} | ${f1(s.avgRealSec)} с (игра ${f1(s.avgGameSec)} с) |`,
     );
   }
   lines.push('');
