@@ -48,9 +48,9 @@
     "towers_only": ""
   },
   {
-    "group": "Очки ДНК, улучшения, уровни, выход в меню, две вкладки (meta-save, meta-dna, meta-shop, meta-effects, tree-effects, tree-shop, level-waves, progress-save, stars, menu-flow, menu-reset, levels-lock, menu-exit, two-tabs)",
+    "group": "Очки ДНК, улучшения, уровни, выход в меню, две вкладки (meta-save, meta-dna, meta-shop, meta-effects, tree-effects, tree-shop, level-waves, progress-save, stars, menu-flow, menu-reset, levels-lock, menu-exit, two-tabs, dna-cap)",
     "key": "meta",
-    "scenarios": "meta-save meta-dna meta-shop meta-effects tree-effects tree-shop level-waves progress-save stars menu-flow menu-reset levels-lock menu-exit two-tabs",
+    "scenarios": "meta-save meta-dna meta-shop meta-effects tree-effects tree-shop level-waves progress-save stars menu-flow menu-reset levels-lock menu-exit two-tabs dna-cap",
     "towers_only": ""
   },
   {

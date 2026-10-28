@@ -112,7 +112,8 @@ export interface BossPhase {
  * сколько жизней отнимает дошедший (−1 — поражение сразу), цвет кольца. Необязательные — поведение (нет — свойства нет):
  *  burstAt, burstKind, burstCount, burstOnDeath — на доле прочности burstAt и (если burstOnDeath) при гибели выпускает burstCount бактерий вида burstKind;
  *  dashEverySec, dashSec, dashFactor — рывки; rallyRadius, rallyDashMul — палочки ближе rallyRadius делают рывки в rallyDashMul раз чаще; slowFloor — замедление не сильнее этого множителя;
- *  spawnKind, spawnEverySec, spawnCount — раз в spawnEverySec выпускает spawnCount бактерий; capsuleEverySec, capsuleSec — раз в capsuleEverySec становится неуязвимым на capsuleSec;
+ *  spawnKind, spawnEverySec, spawnCount — раз в spawnEverySec выпускает spawnCount бактерий; capsuleEverySec, capsuleSec — через capsuleEverySec секунд без капсулы становится неуязвимым на capsuleSec
+ *  (часы стоят, пока капсула держится: цикл capsuleEverySec + capsuleSec; находка аудита MASTER-0051, поведение оставлено решением владельца 28 октября 2026, сообщение 2, п. 5);
  *  regenShare — самолечение (доля прочности в секунду); phases — фазы по доле прочности (`BossPhase`).
  */
 export interface BossSpec {
@@ -937,8 +938,9 @@ export const CONFIG = {
    *  coneDeg — самый широкий конус Лампы, градусов; freezeShareOfCooldown — заморозка Холода не дольше этой доли его паузы; refreezeSec — ту же бактерию снова заморозить не раньше чем через столько секунд
    *  после оттаивания; extraTargetsMax — дополнительных целей не больше; pulsesMax — ударов в очереди Шприца не больше; dpsMul — урон в секунду одной башни от всех её мутаций не больше этого множителя
    *  к той же башне без мутаций; auraExcluded — на эти башни аура Витамина не действует; spiralInCap — 1: прибавка «Спирали» входит в потолок dpsMul (при превышении масштабируются урон и прибавка), 0 — не входит,
-   *  как прежде (ключ для замера варианта А, решение владельца 25 октября 2026; по умолчанию 0, игра не меняется). Нижние границы замедления в луже и паузы от ауры — `meta.minSlowFactor`, `meta.minAuraMul`. */
-  mutationCaps: { coneDeg: 75, freezeShareOfCooldown: 0.5, refreezeSec: 3, extraTargetsMax: 2, pulsesMax: 5, dpsMul: 2.5, spiralInCap: 0, auraExcluded: ['lamp', 'vitamin', 'syrup', 'frost', 'patch'] as string[] },
+   *  как прежде (ключ для замера варианта А, решение владельца 25 октября 2026; по умолчанию 0, игра не меняется); beamInCap — 1: второй луч Шприца (вторая линия ударов) входит в потолок dpsMul
+   *  как лишние цели (решение владельца 28 октября 2026, сообщение 2, п. 5.2: сначала лестница уровня 1 с ключом через `--cfg`, итог — владельцу), 0 — не входит, как прежде. Нижние границы замедления в луже и паузы от ауры — `meta.minSlowFactor`, `meta.minAuraMul`. */
+  mutationCaps: { coneDeg: 75, freezeShareOfCooldown: 0.5, refreezeSec: 3, extraTargetsMax: 2, pulsesMax: 5, dpsMul: 2.5, spiralInCap: 0, beamInCap: 0, auraExcluded: ['lamp', 'vitamin', 'syrup', 'frost', 'patch'] as string[] },
   /** Мутации по башням: для каждой башни — список порогов (по порядку mutationLevels), в каждом два варианта на выбор. */
   mutations: {
     pill: [

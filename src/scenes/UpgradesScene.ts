@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import { CONFIG, type UpgradeEffect } from '../config';
 import { QA_MODE } from '../debug';
-import { exposeMetaDebug, buyNode, canBuy, isBranchOpen, isLevelBeaten, isLevelOpen, isNodeOpen, isRingOpen, metaDna, metaLevel, networkRefund, nextNodeOf, nextPrice, nodeAvailable, nodeBought, requirementMet, requirementOf, resetNetwork, towerNodeId, type MetaScreenInfo } from '../meta';
+import { exposeMetaDebug, buyNode, canBuy, dnaAtCap, isBranchOpen, isLevelBeaten, isLevelOpen, isNodeOpen, isRingOpen, metaDna, metaLevel, networkRefund, nextNodeOf, nextPrice, nodeAvailable, nodeBought, requirementMet, requirementOf, resetNetwork, towerNodeId, type MetaScreenInfo } from '../meta';
 import { createTowerArt, type TowerId } from '../objects/Tower';
 import { CORE, isKeyNode, layoutNet, NET, NET_LAYOUT, nodeKey, ringInner, type Placed } from '../treeNet';
 import { num, t, type TextKey } from '../i18n';
@@ -9,7 +9,7 @@ import { maxLevel, UPGRADE_IDS, type UpgradeId } from '../save';
 import { sfx } from '../sound';
 import { currentLevel, favoriteBranch } from '../progress';
 import { setScreenInfo } from '../screens';
-import { COLORS, FONT, TEXT_COLORS } from '../theme';
+import { COLORS, FONT, TEXT_COLORS, fs } from '../theme';
 
 const { width: W } = CONFIG.screen;
 
@@ -68,8 +68,14 @@ function effectText(id: UpgradeId, level: number): string {
     default:
       value = total;
   }
+  // нестреляющие башни: «действует дальше» (Витамин, Холод, Пластырь) и «срабатывает чаще» (Холод, Пластырь) — находки аудита MASTER-0104, 0105, решение владельца 28 октября 2026, сообщение 2, п. 5
+  if (spec.effect === 'range' && NON_SHOOTING.has(spec.branch)) return t('upgDescRangeReach', { n: num(value) });
+  if (spec.effect === 'cooldown' && (spec.branch === 'frost' || spec.branch === 'patch')) return t('upgDescCooldownActs', { n: num(value) });
   return t(descKey(spec.effect), { n: num(value) });
 }
+
+/** Ветки башен, которые не стреляют. */
+const NON_SHOOTING: ReadonlySet<string> = new Set(['vitamin', 'frost', 'patch']);
 
 /** Описание улучшения на уровне level, разобранное на подпись («урон всех башен») и значение («+80 %»): все описания записаны как «подпись: значение», делим по первому «: ». */
 function effectParts(id: UpgradeId, level: number): { label: string; value: string } {
@@ -293,7 +299,7 @@ export class UpgradesScene extends Phaser.Scene {
     g.fillStyle(COLORS.gold, 1).fillCircle(0, 0, NET_LAYOUT.coreR);
     g.lineStyle(6, COLORS.goldEdge, 1).strokeCircle(0, 0, NET_LAYOUT.coreR);
     g.lineStyle(12, 0xffe9a8, 0.18).strokeCircle(0, 0, NET_LAYOUT.coreR + 14);
-    const text = this.add.text(0, 0, t('upgDamage'), { ...this.style(17, '#3a2a00', false), align: 'center', wordWrap: { width: NET_LAYOUT.coreR * 1.8 } }).setOrigin(0.5);
+    const text = this.add.text(0, 0, t('upgDamage'), { ...this.style(fs(17, 22), '#3a2a00', false), align: 'center', wordWrap: { width: NET_LAYOUT.coreR * 1.8 } }).setOrigin(0.5);
     this.world.add([g, text]);
   }
 
@@ -343,7 +349,7 @@ export class UpgradesScene extends Phaser.Scene {
     this.detailName = this.add.text(x, DETAIL.y + 18, '', { ...this.style(30, TEXT_COLORS.accent), wordWrap: { width: ww } }).setOrigin(0, 0);
     this.detailLevel = this.add.text(x, DETAIL.y + 100, '', this.style(22, TEXT_COLORS.soft, false)).setOrigin(0, 0);
     this.detailEffect = this.add.text(x, DETAIL.y + 136, '', { ...this.style(22, TEXT_COLORS.main, false), wordWrap: { width: ww } }).setOrigin(0, 0);
-    this.detailNeed = this.add.text(x, DETAIL.y + 240, '', { ...this.style(21, TEXT_COLORS.bad, false), wordWrap: { width: ww } }).setOrigin(0, 0);
+    this.detailNeed = this.add.text(x, DETAIL.y + 240, '', { ...this.style(fs(21, 22), TEXT_COLORS.bad, false), wordWrap: { width: ww } }).setOrigin(0, 0);
     this.detailHint = this.add.text(x, BUY_CENTER.y - BUY.h / 2 - 34, '', this.style(22, TEXT_COLORS.accent, false)).setOrigin(0, 0);
     this.buyBg = this.add.graphics();
     this.buyLabel = this.add.text(BUY_CENTER.x, BUY_CENTER.y, '', this.style(26)).setOrigin(0.5);
@@ -395,7 +401,7 @@ export class UpgradesScene extends Phaser.Scene {
     // не хватает очков, узел закрыт или куплен наибольший уровень: красная вспышка числа очков
     sfx.denied();
     this.balance.setColor(TEXT_COLORS.bad);
-    this.time.delayedCall(350, () => this.balance.setColor(TEXT_COLORS.main));
+    this.time.delayedCall(350, () => this.balance.setColor(dnaAtCap() ? TEXT_COLORS.dim : TEXT_COLORS.main));
   }
 
   /** Сброс сети: все малые и ключевые узлы возвращают ДНК (узлы башен остаются). */
@@ -482,7 +488,8 @@ export class UpgradesScene extends Phaser.Scene {
 
   /** Перерисовывает очки, связи, узлы, подписи, кнопку сброса и карточку выбранного узла. */
   private refresh(): void {
-    this.balance.setText(t('dnaBalance', { n: metaDna() }));
+    // на пределе счёта (вариант Г, сообщение 2 от 28 октября 2026, п. 3) — серый, без текста
+    this.balance.setText(t('dnaBalance', { n: metaDna() })).setColor(dnaAtCap() ? TEXT_COLORS.dim : TEXT_COLORS.main);
     this.drawEdges();
     this.drawDots();
     for (const l of this.labels) l.text.setColor(isRingOpen(l.ring) ? TEXT_COLORS.main : TEXT_COLORS.dim);

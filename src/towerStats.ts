@@ -175,6 +175,8 @@ export function computeStats(id: TowerKey, level: number, picks: readonly string
   let mutDamage = 1;
   let mutRate = 1;
   let mutDot = 1;
+  // ловушка Пластыря: прибавка мутаций к урону ловушки — тоже под потолком dpsMul (находка аудита MASTER-0027, решение владельца 28 октября 2026, сообщение 2, п. 5)
+  let mutTrap = 1;
   s.damage = base.damage * lv.damageMul;
   s.dotPerSec = base.dotPerSec * lv.damageMul;
   s.trapDps = base.trapDps * lv.damageMul;
@@ -236,7 +238,10 @@ export function computeStats(id: TowerKey, level: number, picks: readonly string
     if (spec.auraBonusMul) auraBonus *= scaled(spec.auraBonusMul);
     if (spec.freezeMul) s.freezeSec *= scaled(spec.freezeMul);
     if (spec.trapSecMul) s.trapSec *= scaled(spec.trapSecMul);
-    if (spec.trapDpsMul) s.trapDps *= scaled(spec.trapDpsMul);
+    if (spec.trapDpsMul) {
+      s.trapDps *= scaled(spec.trapDpsMul);
+      mutTrap *= scaled(spec.trapDpsMul);
+    }
   }
   if (coneMul !== 1) {
     if (s.coneDeg * coneMul >= caps.coneDeg) hit.add('cone');
@@ -251,7 +256,9 @@ export function computeStats(id: TowerKey, level: number, picks: readonly string
   // «Спираль» (удар i очереди сильнее на i × spiral × damageMul уровня): при ключе `spiralInCap` её прибавка входит в потолок — относительный прирост очереди 1 + spiral × damageMul × (ударов − 1) / (2 × урон);
   // при превышении потолка масштабируются и урон, и прибавка (вариант А, решение владельца 25 октября 2026, сообщение 1, п. 2.3; по умолчанию ключ выключен — числа прежние)
   const spiralGain = caps.spiralInCap > 0 && s.spiral > 0 && s.beamPulses > 1 && s.damage > 0 ? 1 + (s.spiral * lv.damageMul * (s.beamPulses - 1)) / (2 * s.damage) : 1;
-  const mutDps = mutDamage * mutRate * (1 + s.extraTargets) * (basePulses > 0 ? s.beamPulses / basePulses : 1) * spiralGain;
+  // второй луч Шприца — вторая линия ударов, как лишние цели: при ключе `beamInCap` входит в потолок (решение владельца 28 октября 2026, сообщение 2, п. 5.2: сначала лестница с ключом)
+  const beamGain = caps.beamInCap > 0 && s.secondBeam ? 2 : 1;
+  const mutDps = mutDamage * mutRate * (1 + s.extraTargets) * (basePulses > 0 ? s.beamPulses / basePulses : 1) * spiralGain * beamGain;
   if (mutDps > caps.dpsMul + 1e-9 && s.damage > 0) hit.add('dps');
   if (mutDps > caps.dpsMul) {
     s.damage *= caps.dpsMul / mutDps;
@@ -260,6 +267,9 @@ export function computeStats(id: TowerKey, level: number, picks: readonly string
   const mutDotDps = mutDot * mutRate * (1 + s.extraTargets);
   if (mutDotDps > caps.dpsMul + 1e-9 && s.dotPerSec > 0) hit.add('dps');
   if (mutDotDps > caps.dpsMul) s.dotPerSec *= caps.dpsMul / mutDotDps;
+  const mutTrapDps = mutTrap * mutRate * (1 + s.extraTargets);
+  if (mutTrapDps > caps.dpsMul + 1e-9 && s.trapDps > 0) hit.add('dps');
+  if (mutTrapDps > caps.dpsMul) s.trapDps *= caps.dpsMul / mutTrapDps;
   // Улучшения вне партии ветки этой башни (docs/upgrades.md, раздел 12): пауза, радиусы, лужа, замедление, луч
   const bonus = (effect: UpgradeEffect): number => upgradeBonus(effect, id as UpgradeBranch);
   s.damage *= 1 + bonus('towerDamage');
@@ -285,10 +295,14 @@ export function computeStats(id: TowerKey, level: number, picks: readonly string
   s.damage *= damageMul();
   s.dotPerSec *= (1 + bonus('towerDamage')) * damageMul();
   s.trapDps *= (1 + bonus('towerDamage')) * damageMul();
+  // яд лужи Сиропа — тоже «урон всех башен» (находка аудита MASTER-0028, решение владельца 28 октября 2026, сообщение 2, п. 5)
+  s.poisonPerSec *= damageMul();
   s.freezeSec *= 1 + bonus('freezeTime');
-  // Заморозка Холода — не дольше доли его паузы (иначе бактерия в радиусе не оттаивала бы)
-  if (s.freezeSec > (s.cooldownMs / 1000) * caps.freezeShareOfCooldown + 1e-9) hit.add('freeze');
-  if (s.freezeSec > 0) s.freezeSec = Math.min(s.freezeSec, (s.cooldownMs / 1000) * caps.freezeShareOfCooldown);
+  // Заморозка Холода — не дольше доли паузы уровня без мутаций (иначе бактерия в радиусе не оттаивала бы); от паузы без мутаций — слияние не укорачивает заморозку
+  // (находка аудита MASTER-0009, решение владельца 28 октября 2026, сообщение 2, п. 5)
+  const freezeCap = ((base.cooldownMs * lv.cooldownMul * (1 + bonus('cooldown'))) / 1000) * caps.freezeShareOfCooldown;
+  if (s.freezeSec > freezeCap + 1e-9) hit.add('freeze');
+  if (s.freezeSec > 0) s.freezeSec = Math.min(s.freezeSec, freezeCap);
   // Ключевой узел ветки этой башни (документ дизайна, раздел 5.2)
   if (keyOwned(id)) {
     const k = CONFIG.keyNodes;

@@ -1,12 +1,13 @@
 import Phaser from 'phaser';
 import { bakeCanvasArt, type ArtBox } from '../art';
-import { COLORS, TOWER_ART } from '../theme';
+import { COLORS, TOWER_ART, TOWER_MARK } from '../theme';
 import { capsule, css, darken, drawBasePilot, lighten, rrPath, softShadow, vGrad } from './pilotTowerArt';
 
 /**
  * Рисунки уровней V–VIII (решение владельца 25 октября 2026, сообщение 2, п. 3): у Таблетки, Сиропа и Шприца свои основание, ствол и верх каждого уровня.
  * Рисуется Canvas 2D один раз в картинку (как pilotTowerArt.ts); глаз нет (поручение владельца 25 октября 2026), тёмной втулки в центре нет — светлая заклёпка (28 октября 2026, сообщение 1, п. 6.2).
- * Пока только лист образцов (`?qa&artsheet=l`) и стресс-сцена `?qa&stress=high`: в игре слияние — до IV (строки `towerLevels`).
+ * Пока только лист образцов (`?qa&artsheet=l`, `l2` — остальные семь башен) и стресс-сцена `?qa&stress=high`: в игре слияние — до IV (строки `towerLevels`).
+ * У остальных семи башен свой ствол V–VIII не рисуется: ствол IV и свечение цвета уровня за ним (`Tower.ts`), основание, верх и ореол — общие.
  * Цвет уровня: V — бирюзовый, VI — салатовый, VII — алый, VIII — радужный; IV — фиолетовый, дальше серебро, золото. Знаки уровня нарастают:
  *   V — второе кольцо и второй ряд точек, VI — лучи по контуру, VII — ореол (отдельная картинка, вращается целиком), VIII — эмблема вида в центре.
  * Геометрия — как у уровня IV: дуло там же, где у IV (точка вылета снаряда считается по IV), размеры картинок прежние.
@@ -105,7 +106,9 @@ function drawHighBase(ctx: CanvasRenderingContext2D, d: number, id: string, lv: 
     }
     return;
   }
-  // Таблетка: пластины вокруг центра, число растёт с уровнем; цвет пластин — цвет уровня
+  // Таблетка: пластины вокруг центра, число растёт с уровнем; цвет пластин — цвет уровня; у остальных башен — пластины цвета башни
+  // (рисунки V–VIII семи башен, решение владельца 28 октября 2026, сообщение 2, п. 2)
+  const plate = id === 'pill' ? A.plate : darken(TOWER_MARK[id] ?? A.plate, 0.25);
   for (let i = 0; i < n; i++) {
     const a0 = (i * Math.PI * 2) / n + 0.05;
     const a1 = a0 + (Math.PI * 2 / n) * 0.66;
@@ -116,7 +119,7 @@ function drawHighBase(ctx: CanvasRenderingContext2D, d: number, id: string, lv: 
     ctx.arc(0, 0, 27, a0, a1);
     ctx.stroke();
     ctx.lineWidth = 8;
-    ctx.strokeStyle = css(A.plate);
+    ctx.strokeStyle = css(plate);
     ctx.beginPath();
     ctx.arc(0, 0, 27, a0, a1);
     ctx.stroke();
@@ -683,6 +686,28 @@ function drawEmblem(ctx: CanvasRenderingContext2D, d: number, id: string): void 
     ctx.fillStyle = 'rgba(255,255,255,0.85)';
     ctx.beginPath();
     ctx.ellipse(-2.4, -1.5, 1.4, 2.6, 0.4, 0, Math.PI * 2);
+    ctx.fill();
+    return;
+  }
+  if (id !== 'syringe') {
+    // остальные башни: светлый золотой диск и ромб-самоцвет цвета башни (ромб, не круг: не читается как глаз)
+    const c = TOWER_MARK[id] ?? COLORS.gold;
+    ctx.fillStyle = vGrad(ctx, -12, 12, [[0, lighten(COLORS.gold, 0.45)], [1, darken(COLORS.gold, 0.2)]]);
+    ctx.beginPath();
+    ctx.arc(0, 0, 12, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = css(COLORS.goldEdge);
+    ctx.stroke();
+    ctx.restore();
+    ctx.fillStyle = vGrad(ctx, -9, 9, [[0, lighten(c, 0.35)], [1, darken(c, 0.2)]]);
+    poly(ctx, [[0, -9], [7, 0], [0, 9], [-7, 0]]);
+    ctx.fill();
+    ctx.lineWidth = 1.4;
+    ctx.strokeStyle = css(darken(c, 0.5));
+    ctx.stroke();
+    ctx.fillStyle = 'rgba(255,255,255,0.75)';
+    poly(ctx, [[0, -9], [7, 0], [0, -1.5], [-7, 0]]);
     ctx.fill();
     return;
   }

@@ -89,7 +89,8 @@ export function metaDna(): number {
 
 /** Есть ли что сбрасывать: очки ДНК, купленные узлы или звёзды (от этого зависит, показывается ли в меню «Сбросить прогресс»). */
 export function hasProgress(): boolean {
-  return state.dna > 0 || Object.values(state.levels).some((n) => n > 0) || state.progress.stars.some((n) => n > 0);
+  // и попытки с журналом: после первого проигрыша без ДНК их тоже можно сбросить (находка аудита MASTER-0022, решение владельца 28 октября 2026, сообщение 2, п. 5)
+  return state.dna > 0 || Object.values(state.levels).some((n) => n > 0) || state.progress.stars.some((n) => n > 0) || state.attempts.some((n) => n > 0) || state.log.length > 0;
 }
 
 export function metaLevel(id: UpgradeId): number {
@@ -111,12 +112,33 @@ const RINGS_OVERRIDE: number | null = (() => {
 })();
 
 /** Открыто ли кольцо k: 1 — сразу, остальные — победой на уровне `ringOpenAfter[k − 1]`; 0 — узлы башен (вне колец). */
-export function isRingOpen(ring: number): boolean {
+export function isRingOpen(ring: number, beaten = 0): boolean {
   if (ring <= 0) return true;
   if (RINGS_OVERRIDE !== null) return ring <= RINGS_OVERRIDE;
   const after = CONFIG.meta.network.ringOpenAfter[ring - 1];
   if (after === undefined) return false;
-  return after <= 0 || isLevelBeaten(after);
+  return after <= 0 || after === beaten || isLevelBeaten(after);
+}
+
+/**
+ * Предел счёта ДНК (решение владельца 28 октября 2026, сообщение 2, п. 3; находка аудита MASTER-0052, вариант Г): стоимость всех ещё не купленных узлов, которые сейчас можно купить, —
+ * узлов открытых колец и узлов башен. Сверх него ДНК не начисляется: гибелью на последних волнах нельзя накопить на ещё закрытые кольца. `beaten` — уровень, победа на котором
+ * засчитывается в этом же начислении (кольцо, которое она открывает, уже входит в предел).
+ */
+export function dnaCap(beaten = 0): number {
+  let sum = 0;
+  for (const node of NET.nodes.values()) if (!nodeBought(node.key) && isRingOpen(node.ring, beaten)) sum += node.price;
+  return sum;
+}
+
+/** Счёт ДНК на пределе (на экранах — серым, без текста). */
+export function dnaAtCap(): boolean {
+  return state.dna >= dnaCap();
+}
+
+/** Сколько из `gain` очков ДНК можно начислить сверх нынешнего счёта, не выходя за предел. */
+function underCap(gain: number, beaten = 0): number {
+  return Math.max(0, Math.min(gain, dnaCap(beaten) - state.dna));
 }
 
 /** Куплен ли узел сети (`id#L`); ядро — всегда. */
@@ -348,7 +370,8 @@ export function dnaForGame(input: DnaInput): number {
 export function awardDna(input: DnaInput): number {
   refresh();
   const parts = dnaParts(input);
-  const gained = parts.waves + parts.win + parts.coins + parts.bosses + parts.flawless + parts.floor;
+  // победа этой партии открывает кольцо раньше, чем `recordResult` запишет звёзды: её кольцо уже в пределе
+  const gained = underCap(parts.waves + parts.win + parts.coins + parts.bosses + parts.flawless + parts.floor, input.won ? input.level : 0);
   const i = input.level - 1;
   const bossWins = [...state.bossWins];
   const flawless = [...state.flawless];
@@ -421,8 +444,9 @@ export function recordResult(level: number, wavesCleared: number, stars: number)
   const before = starList[i];
   starList[i] = Math.max(before, Math.max(0, Math.min(3, Math.floor(stars))));
   const newStars = starList[i] - before;
-  const starDna = newStars * CONFIG.levels.starDna;
-  state = { ...state, dna: state.dna + starDna, progress: { stars: starList, best } };
+  state = { ...state, progress: { stars: starList, best } };
+  const starDna = underCap(newStars * CONFIG.levels.starDna);
+  state = { ...state, dna: state.dna + starDna };
   persist();
   return { stars: starList[i], newStars, starDna };
 }
@@ -540,7 +564,7 @@ declare global {
 
 /** Делает состояние очков и улучшений доступным проверкам (`window.__pvbMeta`); `screen` отдаёт описание экрана «Улучшения» (или «не показан»). */
 export function exposeMetaDebug(screen: () => MetaScreenInfo): void {
-  if (QA_MODE) window.__pvbMeta = { getMeta: () => ({ log: [...state.log], logMax: MAX_LOG_LEN, dna: state.dna, levels: metaLevels(), progress: { stars: [...state.progress.stars], best: [...state.progress.best] }, seen: [...state.seen], bossWins: [...state.bossWins], flawless: [...state.flawless], screen: screen(), nodes: [...state.nodes], available: [...NET.nodes.keys()].filter(nodeAvailable), rings: [1, 2, 3, 4, 5, 6].filter(isRingOpen), orbit: NET.orbit.map(([a, b]) => [a, b] as [string, string]) }), dnaFor: dnaParts, starsFor: starsForLoss };
+  if (QA_MODE) window.__pvbMeta = { getMeta: () => ({ log: [...state.log], logMax: MAX_LOG_LEN, dna: state.dna, levels: metaLevels(), progress: { stars: [...state.progress.stars], best: [...state.progress.best] }, seen: [...state.seen], bossWins: [...state.bossWins], flawless: [...state.flawless], screen: screen(), nodes: [...state.nodes], dnaCap: dnaCap(), atCap: dnaAtCap(), available: [...NET.nodes.keys()].filter(nodeAvailable), rings: [1, 2, 3, 4, 5, 6].filter(isRingOpen), orbit: NET.orbit.map(([a, b]) => [a, b] as [string, string]) }), dnaFor: dnaParts, starsFor: starsForLoss };
 }
 
 export const HIDDEN_SCREEN: MetaScreenInfo = { visible: false, balance: '', selected: '', scroll: 0, view: { x: 0, y: 0, w: 0, h: 0 }, nodes: [], detail: null, play: null };

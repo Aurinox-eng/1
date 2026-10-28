@@ -86,6 +86,8 @@
  *   step-dps              шаг игры и скорость (15 октября 2026): слитая Таблетка стреляет одинаково часто на ×1 и ×5 (расхождение не больше 1 %), скорострельность близка к 1000 / пауза
  *   menu-flow              главное меню и выбор уровня (этап 5, шаг 3; компьютер ru, телефон en): игра открывается на меню (`?qa&menu`), «Играть» → 10 карточек (уровень 1 открыт, остальные закрыты), тап по закрытой ничего не делает, по открытой — партия, пауза → «В меню», «Улучшения» из меню и возврат
  *   levels-lock            открытие уровней по звёздам (`&stars=`), экран конца уровня: «Следующий уровень» после победы (не на последнем уровне), «В меню», тап по «Следующий уровень» открывает уровень 2
+ *   dna-cap                предел счёта ДНК (решение владельца 28 октября 2026, сообщение 2, п. 3, вариант Г): счёт не больше стоимости ещё не купленных узлов открытых колец и узлов башен;
+ *                          начисление до предела и стоп, на пределе счёт серый; после сброса сети и после открытия кольца (победа на уровне 2) предел растёт
  *   real-game              настоящая игра без подмен конфигурации (`cfg` нет; решение владельца 28 октября 2026, сообщение 1, п. 7.4, находка аудита MASTER-0079): `&levelwaves&level=1` — первые волны с числами из config.ts
  *                          (жизни, прочность бактерий), выход в меню с паузы — ДНК по настоящей формуле, покупка узла на экране «Улучшения»; босс 10-й волны выходит на своей волне
  *   level2                 уровень 2 «Нос» (план docs/level2-plan-2026-10-23.md): карта (9 рёбер, 2 входа, 1 выход), 5 боссов в плане на 10/20/30/40/50-й волнах, мини-босс 10-й волны выходит на своей волне, финальный босс — поражение сразу
@@ -164,7 +166,7 @@ if (['stage-1', 'stage-1b', 'stage-1b-qa', 'td-1-mockup', 'tmp'].includes(tag)) 
   process.exit(2);
 }
 
-const SCENARIOS = ['desktop-ru', 'phone-ru', 'desktop-en', 'phone-en', 'rules', 'graph', 'combat', 'dash', 'split', 'spore', 'armored', 'intro', 'lose-ru', 'lose-en', 'win-ru', 'win-en', 'towers', 'card', 'merge', 'mutations', 'sell', 'special', 'danger', 'rotate', 'production', 'fullgame', 'locked', 'strip', 'almanac', 'almanac-pause', 'damage-numbers', 'sell-gap', 'restart-button', 'deflation', 'camera-fit', 'colors', 'meta-save', 'meta-dna', 'meta-shop', 'meta-effects', 'tree-effects', 'tree-shop', 'level-waves', 'progress-save', 'stars', 'menu-flow', 'menu-reset', 'levels-lock', 'step-dps', 'sound', 'sdk', 'lose-line', 'attempt-line', 'toast-queue', 'shake', 'bosses', 'level2', 'wards', 'spiral-cap', 'marks', 'menu-exit', 'resume-tap', 'two-tabs', 'treemock', 'faces', 'real-game']
+const SCENARIOS = ['desktop-ru', 'phone-ru', 'desktop-en', 'phone-en', 'rules', 'graph', 'combat', 'dash', 'split', 'spore', 'armored', 'intro', 'lose-ru', 'lose-en', 'win-ru', 'win-en', 'towers', 'card', 'merge', 'mutations', 'sell', 'special', 'danger', 'rotate', 'production', 'fullgame', 'locked', 'strip', 'almanac', 'almanac-pause', 'damage-numbers', 'sell-gap', 'restart-button', 'deflation', 'camera-fit', 'colors', 'meta-save', 'meta-dna', 'meta-shop', 'meta-effects', 'tree-effects', 'tree-shop', 'level-waves', 'progress-save', 'stars', 'menu-flow', 'menu-reset', 'levels-lock', 'step-dps', 'sound', 'sdk', 'lose-line', 'attempt-line', 'toast-queue', 'shake', 'bosses', 'level2', 'wards', 'spiral-cap', 'marks', 'menu-exit', 'resume-tap', 'two-tabs', 'treemock', 'faces', 'real-game', 'dna-cap']
 const only = args.only === undefined ? null : String(args.only);
 if (only !== null && !SCENARIOS.includes(only)) {
   console.error(`Неизвестный сценарий --only=${only}. Есть: ${SCENARIOS.join(', ')}`);
@@ -1689,7 +1691,7 @@ async function runLose(browser, baseUrl, lang, deviceKey, full) {
         flashGap >= 334 && s.effects.lifeFlashes >= 1 && s.effects.lifeFlashes <= s.effects.lifeLosses && s.effects.lifeFlashes <= flashCap, `вспышек ${s.effects.lifeFlashes}, потерь ${s.effects.lifeLosses}, промежуток ${flashGap}`);
       // Строка проигрыша: «Больше всего жизней отнял вид: <порода> (<число>)» — без советов, чем бить (решение владельца 16 октября 2026)
       const leakTemplate = readI18n('loseLeakOnly')[lang === 'ru' ? 0 : 1];
-      const leakRe = new RegExp(`^${leakTemplate.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\\\{kind\\\}/, '(.+)').replace(/\\\{n\\\}/, '(\\d+)')}$`);
+      const leakRe = new RegExp(`^${leakTemplate.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\\\{kind\\\}/, '(.+)').replace(/\\\{n\\\}/, '([\\d.,]+)')}$`);
       const leakLine = (s.endDnaLines || []).find((line) => leakRe.test(line));
       check(`${p} на экране проигрыша есть строка «${leakTemplate}»: порода и число жизней`, Boolean(leakLine), `строки: ${JSON.stringify(s.endDnaLines)}`);
     }
@@ -2079,7 +2081,7 @@ async function runLoseLine(browser, baseUrl) {
     const kindName = readI18n(`bacName${capital(c.kind)}`)[c.li];
     const escape = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const lineTemplate = readI18n('loseLeakOnly')[c.li];
-    const re = new RegExp(`^${escape(lineTemplate).replace(/\\\{kind\\\}/, '(.+?)').replace(/\\\{n\\\}/, '(\\d+)')}$`);
+    const re = new RegExp(`^${escape(lineTemplate).replace(/\\\{kind\\\}/, '(.+?)').replace(/\\\{n\\\}/, '([\\d.,]+)')}$`);
     const found = (lost.endDnaLines || []).map((line) => ({ line, m: re.exec(line) })).find((x) => x.m);
     const gotKind = found ? found.m[1] : null;
     const advice = (lost.endDnaLines || []).some((line) => /Бьют|Countered by/.test(line));
@@ -6528,6 +6530,7 @@ function expectedStats(id, level, picks) {
   let mutDamage = 1;
   let mutRate = 1;
   let mutDot = 1;
+  let mutTrap = 1; // ловушка Пластыря — под потолком (MASTER-0027)
   let extraTargets = 0;
   const shares = S4.copyShares;
   const seen = new Map();
@@ -6564,7 +6567,10 @@ function expectedStats(id, level, picks) {
     if (spec.auraBonusMul) auraBonus *= scaled(spec.auraBonusMul);
     if (spec.freezeMul) s.freezeSec *= scaled(spec.freezeMul);
     if (spec.trapSecMul) s.trapSec *= scaled(spec.trapSecMul);
-    if (spec.trapDpsMul) s.trapDps *= scaled(spec.trapDpsMul);
+    if (spec.trapDpsMul) {
+      s.trapDps *= scaled(spec.trapDpsMul);
+      mutTrap *= scaled(spec.trapDpsMul);
+    }
   }
   if (coneMul !== 1) s.coneDeg = Math.min(CAPS.coneDeg, s.coneDeg * coneMul);
   const basePulses = (base.beamPulses ?? 0) > 0 ? base.beamPulses + lv.pulsesAdd : 0;
@@ -6574,8 +6580,11 @@ function expectedStats(id, level, picks) {
   if (mutDps > CAPS.dpsMul) s.damage *= CAPS.dpsMul / mutDps;
   const mutDotDps = mutDot * mutRate * (1 + extraTargets);
   if (mutDotDps > CAPS.dpsMul) s.dotPerSec *= CAPS.dpsMul / mutDotDps;
+  const mutTrapDps = mutTrap * mutRate * (1 + extraTargets);
+  if (mutTrapDps > CAPS.dpsMul) s.trapDps *= CAPS.dpsMul / mutTrapDps;
   if (s.slowFactor < 1) s.slowFactor = Math.max(MIN_SLOW_FACTOR, s.slowFactor);
-  if (s.freezeSec > 0) s.freezeSec = Math.min(s.freezeSec, (s.cooldownMs / 1000) * CAPS.freezeShareOfCooldown);
+  // предел заморозки — от паузы уровня без мутаций (MASTER-0009)
+  if (s.freezeSec > 0) s.freezeSec = Math.min(s.freezeSec, ((b.cooldownMs * lv.cooldownMul) / 1000) * CAPS.freezeShareOfCooldown);
   if ((base.auraMul ?? 1) < 1) {
     const raw = base.auraMul - base.auraStep * (level - 1); // 1-й уровень — auraMul, дальше на auraStep меньше (улучшений вне партии в этих проверках нет)
     s.auraMul = Math.min(1, Math.max(MIN_AURA_MUL, 1 - (1 - raw) * auraBonus));
@@ -8059,6 +8068,57 @@ async function runLevelWaves(browser, baseUrl) {
 }
 
 
+/** Предел счёта ДНК (вариант Г, сообщение 2 от 28 октября 2026, п. 3): начисление до предела и стоп; предел растёт после сброса сети и после открытия кольца. */
+async function runDnaCap(browser, baseUrl) {
+  const p = '[предел счёта ДНК]';
+  const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
+  // ---- предел: стоимость не купленных узлов открытых колец и узлов башен
+  const probe = await openGame(context, baseUrl, `${p} предел`, { realMeta: true, cfg: 'waves.firstDelaySec:9999', query: '&meta=dna:0' });
+  const cap0 = (await metaOf(probe.page)).dnaCap;
+  await probe.page.close();
+  check(`${p} предел нового игрока — ${cap0} ДНК (больше 0)`, cap0 > 0, String(cap0));
+  // ---- начисление до предела и стоп: счёт на 3 ниже предела, за 2+ пройденные волны начислилось бы больше 3
+  {
+    const cfg = 'waves.firstDelaySec:1,waves.pauseSec:1,waves.newTypePauseSec:0,waves.intervalStartSec:0.3,waves.intervalEndSec:0.3,lives.start:999';
+    const game = await openGame(context, baseUrl, `${p} стоп`, { realMeta: true, speed: 4, cfg, query: `&meta=dna:${cap0 - 3}` });
+    const m0 = await metaOf(game.page);
+    await waitForGame(game.page, (x) => x.wave >= 4, '4-я волна', { gameSec: 240 });
+    const paused = await pauseGame(game, 'перед «В меню»');
+    const cleared = Math.max(0, paused.wave - 1);
+    const full = dnaWavesReward(readMetaTable().dna, cleared, paused.level);
+    await tapToMenu(game, paused, `${p} стоп`);
+    await sleep(300);
+    const m1 = await metaOf(game.page);
+    check(`${p} за ${cleared} волн полагалось бы ${full} ДНК, начислено до предела: ${m0.dna} → ${m1.dna} (предел ${m1.dnaCap}), счёт на пределе — серый`, full > 3 && m1.dna === m1.dnaCap && m1.dna === cap0 && m1.atCap === true && m0.atCap === false, JSON.stringify({ dna0: m0.dna, dna1: m1.dna, cap: m1.dnaCap, full, atCap: [m0.atCap, m1.atCap] }));
+    await game.page.close();
+  }
+  // ---- сброс сети: возврат ДНК и рост предела на ту же сумму
+  {
+    const app = await openMenu(context, baseUrl, `${p} сброс`, { query: '&meta=dna:0,damage:2' });
+    const u = await app.ui();
+    await app.tapRect(u.buttons.upgrades);
+    await app.waitUi('upgrades', 'экран «Улучшения»');
+    const before = await waitMeta(app.page, (x) => x.screen.visible, 5000);
+    await app.input.tap(app.g(before.screen.respec.x, before.screen.respec.y));
+    const after = await waitMeta(app.page, (x) => x.dna !== before.dna, 2000);
+    check(`${p} сброс сети: счёт ${before.dna} → ${after.dna}, предел ${before.dnaCap} → ${after.dnaCap} (растёт на возврат)`, after.dna > before.dna && after.dnaCap - before.dnaCap === after.dna - before.dna, JSON.stringify({ dna: [before.dna, after.dna], cap: [before.dnaCap, after.dnaCap] }));
+    await app.page.close();
+  }
+  // ---- открытие кольца 2 (победа на уровне 2): предел растёт
+  {
+    const capAt = async (stars) => {
+      const g = await openGame(context, baseUrl, `${p} кольца ${stars}`, { cfg: 'waves.firstDelaySec:9999', query: `&meta=dna:0&stars=${stars}` });
+      const m = await metaOf(g.page);
+      await g.page.close();
+      return m;
+    };
+    const one = await capAt('1,0');
+    const two = await capAt('1,1');
+    check(`${p} победа на уровне 2 открывает кольцо 2: предел ${one.dnaCap} → ${two.dnaCap} (кольца ${one.rings.join(',')} → ${two.rings.join(',')})`, two.dnaCap > one.dnaCap && two.rings.includes(2) && !one.rings.includes(2), JSON.stringify({ one: [one.dnaCap, one.rings], two: [two.dnaCap, two.rings] }));
+  }
+  await context.close();
+}
+
 /**
  * Настоящая игра без подмен конфигурации (решение владельца 28 октября 2026, сообщение 1, п. 7.4; находка аудита MASTER-0079: остальные сценарии идут с `cfg` — жизни 3, прочность ×1, без нижней границы ДНК).
  * Здесь `cfg` нет: уровень 1 с `&levelwaves`, жизни и прочность — из config.ts. Шесть Таблеток II у дорожек (`placeTower`: постановка без оплаты, числа башен — настоящие);
@@ -9367,6 +9427,12 @@ function almanacRows(tab, li, open = () => true, owned = () => true) {
   return ids.map((id) => {
     if (!open(id)) return closed;
     if (tab === 'bosses') return `${readI18n(`boss${capId(id)}`)[li]}: ${readI18n(`almBoss${capId(id)}`)[li]}`;
+    if (tab === 'towers' && id === 'vitamin') {
+      // башни-исключения ауры — только купленные (решение владельца 28 октября 2026, сообщение 2, п. 5.3)
+      const names = ['lamp', 'syrup', 'frost', 'patch'].filter((tw) => owned(tw)).map((tw) => readI18n(`almExcept${capId(tw)}`)[li]);
+      const list = names.length <= 1 ? names.join('') : `${names.slice(0, -1).join(', ')} ${readI18n('listAnd')[li]} ${names.at(-1)}`;
+      return `${readI18n('towerVitamin')[li]}: ${names.length ? readI18n('almTowerVitaminExcept')[li].replace('{list}', list) : readI18n('almTowerVitamin')[li]}`;
+    }
     if (tab === 'towers') return `${readI18n(`tower${capId(id)}`)[li]}: ${readI18n(`almTower${capId(id)}`)[li]}`;
     const name = readI18n(`bacName${capId(id)}`)[li];
     const parts = [readI18n(`almBac${capId(id)}`)[li], ...(KIND_TOWER_PARTS[id] ?? []).filter(([tw]) => owned(tw)).map(([, key]) => readI18n(key)[li])].filter((x) => x.length > 0);
@@ -9793,7 +9859,7 @@ async function runTreeMock(browser, baseUrl) {
 async function runFaces(browser, baseUrl) {
   for (const deviceKey of ['desktop', 'phone']) {
     const device = VIEWPORTS[deviceKey];
-    for (const page of ['f1', 'f2', 'f3', 'l']) {
+    for (const page of ['f1', 'f2', 'f3', 'l', 'l2']) {
       const p = `[лист без лиц ${page}, ${device.label}]`;
       const context = await newDeviceContext(browser, device, 'ru');
       const tab = await context.newPage();
@@ -9940,13 +10006,15 @@ async function runMenuReset(browser, baseUrl) {
     const context = await newDeviceContext(browser, device, lang);
     let app = await openMenu(context, baseUrl, p, { isTouch: device.hasTouch });
     const { page } = app;
-    // без прогресса кнопки нет; с любым из трёх видов прогресса (очки ДНК, купленный узел, звезда) она есть
+    // без прогресса кнопки нет; с любым видом прогресса (очки ДНК, купленный узел, звезда, попытка с журналом) она есть
     const bare = await app.ui();
     check(`${p} без прогресса в меню нет кнопки «${readI18n('resetBtn')[li]}»`, !bare.buttons.reset, JSON.stringify(Object.keys(bare.buttons)));
     for (const [what, save] of [
       ['очки ДНК', { v: 3, dna: 5, levels: {}, progress: { stars: [0], best: [0] }, seen: [] }],
       ['купленный узел', { v: 3, dna: 0, levels: { damage: 1 }, progress: { stars: [0], best: [0] }, seen: [] }],
       ['звезда', { v: 3, dna: 0, levels: {}, progress: { stars: [1], best: [30] }, seen: [] }],
+      // попытки и журнал (решение владельца 28 октября 2026, сообщение 2, п. 5; находка аудита MASTER-0022)
+      ['попытка', { v: 5, dna: 0, levels: {}, progress: { stars: [0], best: [3] }, seen: [], attempts: [1], log: ['ТПБ | У1 | п.1'] }],
     ]) {
       await page.evaluate((value) => window.localStorage.setItem('pvb.meta5', JSON.stringify(value)), save);
       await page.reload({ waitUntil: 'load' });
@@ -10178,6 +10246,7 @@ try {
   if (wants('level-waves')) await safe('[состав волн уровней]', () => runLevelWaves(browser, qaServer.url));
   if (wants('bosses')) await safe('[боссы и «Лихорадка»]', () => runBosses(browser, qaServer.url));
   if (wants('real-game')) await safe('[настоящая игра]', () => runRealGame(browser, qaServer.url));
+  if (wants('dna-cap')) await safe('[предел счёта ДНК]', () => runDnaCap(browser, qaServer.url));
   if (wants('level2')) await safe('[уровень 2 «Нос»]', () => runLevel2(browser, qaServer.url));
   if (wants('wards')) await safe('[жёсткие свойства: бегун]', () => runWards(browser, qaServer.url));
   if (wants('spiral-cap')) await safe('[«Спираль» и потолок мутаций]', () => runSpiralCap(browser, qaServer.url));

@@ -83,6 +83,7 @@ import {
   sleep,
   startServer,
   openRingsAt,
+  dnaCapOf,
   nextRing,
 } from './lib.mjs';
 
@@ -1961,7 +1962,9 @@ async function ladderLane(profile, run) {
       const stars = starsOf(game);
       const newStars = Math.max(0, stars - lane.stars[level - 1]);
       if (stars > lane.stars[level - 1]) lane.stars[level - 1] = stars;
-      const gained = dnaForGame(game, false, lane.progress, level) + newStars * STARS_RULE.dna;
+      // предел счёта ДНК (вариант Г): после победы на уровне `level` открыты кольца для уровня `level + 1`
+      const capNow = dnaCapOf(META, lane.levels, openRingsAt(META, game.result === 'won' ? level + 1 : level));
+      const gained = Math.max(0, Math.min(dnaForGame(game, false, lane.progress, level) + newStars * STARS_RULE.dna, capNow - lane.dna));
       lane.dna += gained;
       // лучшая волна уровня — число пройденных волн (как `progress.best` в игре): победа — все волны, проигрыш — без текущей
       lane.best[level - 1] = Math.max(lane.best[level - 1] ?? 0, game.result === 'won' ? game.waveTotal : Math.max(0, game.wave - 1));
@@ -2065,7 +2068,8 @@ try {
             break;
           }
           entry.waves.push(game.result === 'won' ? game.waveTotal : game.wave);
-          const gained = dnaForGame(game, false, progress, LEVEL);
+          // предел счёта ДНК (вариант Г): кольца — как в игре на уровне LEVEL (после победы — следующего)
+          const gained = Math.max(0, Math.min(dnaForGame(game, false, progress, LEVEL), dnaCapOf(META, levels, openRingsAt(META, game.result === 'won' ? LEVEL + 1 : LEVEL)) - dna));
           dna += gained;
           const buy = buyUpgrades(levels, dna, Math.max(0, ...entry.waves.map((w) => w - 1)), game.towers);
           levels = buy.levels;

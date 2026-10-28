@@ -1,12 +1,12 @@
 import Phaser from 'phaser';
 import { CONFIG } from '../config';
 import { t } from '../i18n';
-import { attemptLog, hasProgress, metaDna, resetProgress } from '../meta';
+import { attemptLog, dnaAtCap, hasProgress, metaDna, resetProgress } from '../meta';
 import { copyText } from '../attempt';
 import { setCurrentLevel } from '../progress';
 import { sfx } from '../sound';
 import { addButton, setScreenInfo, textStyle, type Rect } from '../screens';
-import { COLORS, TEXT_COLORS } from '../theme';
+import { COLORS, TEXT_COLORS, fs } from '../theme';
 
 const { width: W, height: H } = CONFIG.screen;
 
@@ -19,7 +19,8 @@ export class MenuScene extends Phaser.Scene {
   create(): void {
     this.cameras.main.setBackgroundColor(COLORS.background);
     const title = this.add.text(W / 2, 150, t('gameTitle'), textStyle(72, TEXT_COLORS.accent)).setOrigin(0.5);
-    const balance = this.add.text(W / 2, 260, t('dnaBalance', { n: metaDna() }), textStyle(34)).setOrigin(0.5);
+    // на пределе счёта ДНК — серый, без текста (сообщение 2 от 28 октября 2026, п. 3)
+    const balance = this.add.text(W / 2, 260, t('dnaBalance', { n: metaDna() }), textStyle(34, dnaAtCap() ? TEXT_COLORS.dim : TEXT_COLORS.main)).setOrigin(0.5);
     const play = addButton(this, { x: W / 2, y: 380, w: 460, h: 96, label: t('menuPlay'), fontSize: 44, onTap: () => this.scene.start('Levels') });
     const upgrades = addButton(this, {
       x: W / 2,
@@ -85,7 +86,7 @@ export class MenuScene extends Phaser.Scene {
     let copyAll: Rect | null = null;
     if (log.length > 0) {
       // под кнопкой — получилось ли скопировать (сама кнопка надпись не меняет)
-      const status = this.add.text(190, 700, '', textStyle(20, TEXT_COLORS.soft, false)).setOrigin(0.5);
+      const status = this.add.text(190, 700, '', textStyle(fs(20, 22), TEXT_COLORS.soft, false)).setOrigin(0.5);
       copyAll = addButton(this, {
         x: 190,
         y: 650,

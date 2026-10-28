@@ -472,11 +472,12 @@ export class Bacterium {
   private phase(): NonNullable<BossSpec['phases']>[number] | null {
     const phases = this.boss?.phases;
     if (!phases) return null;
-    const share = this.hp / this.maxHp;
-    let found: NonNullable<BossSpec['phases']>[number] | null = null;
-    for (const p of phases) if (share <= p.below) found = p;
-    return found;
+    const i = this.phaseIndex;
+    return i > 0 ? phases[i - 1] : null;
   }
+
+  /** Достигнутая фаза босса: самолечение её не откатывает (находка аудита MASTER-0018, решение владельца 28 октября 2026, сообщение 2, п. 5). */
+  private phaseReached = 0;
 
   /** Босс в последней фазе (у босса без фаз — нет). */
   get inFinalPhase(): boolean {
@@ -500,7 +501,8 @@ export class Bacterium {
     const phases = this.boss?.phases;
     if (!phases) return 0;
     const share = this.hp / this.maxHp;
-    return phases.filter((p) => share <= p.below).length;
+    this.phaseReached = Math.max(this.phaseReached, phases.filter((p) => share <= p.below).length);
+    return this.phaseReached;
   }
 
   /** Броня сейчас: у босса — из таблицы или фазы; у вида — из таблицы, с ростом по волне или уровню; под «Сквозным разрядом» — 0. */
@@ -658,7 +660,11 @@ export class Bacterium {
     const phase = this.phase();
     if (phase?.speedMul) factor *= phase.speedMul;
     const regen = this.boss ? (phase?.regenShare ?? this.boss.regenShare ?? 0) : cfg.regenShare;
-    if (regen > 0) this.heal(regen * this.maxHp * dt);
+    if (regen > 0) {
+      // босс лечится не выше порога достигнутой фазы: фаза не мигает туда-обратно (MASTER-0018)
+      const reached = phase ? phase.below * this.maxHp : this.maxHp;
+      this.heal(Math.max(0, Math.min(regen * this.maxHp * dt, reached - this.hp)));
+    }
     if (!held) this.advance(this.baseSpeed * factor * this.haste * dt);
     this.idle(dt, held);
   }
