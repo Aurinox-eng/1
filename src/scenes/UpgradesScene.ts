@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import { CONFIG, type UpgradeEffect } from '../config';
 import { QA_MODE } from '../debug';
-import { exposeMetaDebug, buyNode, canBuy, isBranchOpen, isLevelBeaten, isLevelOpen, isNodeOpen, isRingOpen, metaDna, metaLevel, networkRefund, nextNodeOf, nextPrice, nodeAvailable, nodeBought, requirementMet, requirementOf, resetNetwork, towerNodeId, type MetaScreenInfo } from '../meta';
+import { exposeMetaDebug, buyNode, canBuy, dnaAtCap, isBranchOpen, isLevelBeaten, isLevelOpen, isNodeOpen, isRingOpen, metaDna, metaLevel, networkRefund, nextNodeOf, nextPrice, nodeAvailable, nodeBought, requirementMet, requirementOf, resetNetwork, towerNodeId, type MetaScreenInfo } from '../meta';
 import { createTowerArt, type TowerId } from '../objects/Tower';
 import { CORE, isKeyNode, layoutNet, NET, NET_LAYOUT, nodeKey, ringInner, type Placed } from '../treeNet';
 import { num, t, type TextKey } from '../i18n';
@@ -395,7 +395,7 @@ export class UpgradesScene extends Phaser.Scene {
     // не хватает очков, узел закрыт или куплен наибольший уровень: красная вспышка числа очков
     sfx.denied();
     this.balance.setColor(TEXT_COLORS.bad);
-    this.time.delayedCall(350, () => this.balance.setColor(TEXT_COLORS.main));
+    this.time.delayedCall(350, () => this.balance.setColor(dnaAtCap() ? TEXT_COLORS.dim : TEXT_COLORS.main));
   }
 
   /** Сброс сети: все малые и ключевые узлы возвращают ДНК (узлы башен остаются). */
@@ -482,7 +482,8 @@ export class UpgradesScene extends Phaser.Scene {
 
   /** Перерисовывает очки, связи, узлы, подписи, кнопку сброса и карточку выбранного узла. */
   private refresh(): void {
-    this.balance.setText(t('dnaBalance', { n: metaDna() }));
+    // на пределе счёта (вариант Г, сообщение 2 от 28 октября 2026, п. 3) — серый, без текста
+    this.balance.setText(t('dnaBalance', { n: metaDna() })).setColor(dnaAtCap() ? TEXT_COLORS.dim : TEXT_COLORS.main);
     this.drawEdges();
     this.drawDots();
     for (const l of this.labels) l.text.setColor(isRingOpen(l.ring) ? TEXT_COLORS.main : TEXT_COLORS.dim);

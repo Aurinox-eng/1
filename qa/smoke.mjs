@@ -86,6 +86,8 @@
  *   step-dps              шаг игры и скорость (15 октября 2026): слитая Таблетка стреляет одинаково часто на ×1 и ×5 (расхождение не больше 1 %), скорострельность близка к 1000 / пауза
  *   menu-flow              главное меню и выбор уровня (этап 5, шаг 3; компьютер ru, телефон en): игра открывается на меню (`?qa&menu`), «Играть» → 10 карточек (уровень 1 открыт, остальные закрыты), тап по закрытой ничего не делает, по открытой — партия, пауза → «В меню», «Улучшения» из меню и возврат
  *   levels-lock            открытие уровней по звёздам (`&stars=`), экран конца уровня: «Следующий уровень» после победы (не на последнем уровне), «В меню», тап по «Следующий уровень» открывает уровень 2
+ *   dna-cap                предел счёта ДНК (решение владельца 28 октября 2026, сообщение 2, п. 3, вариант Г): счёт не больше стоимости ещё не купленных узлов открытых колец и узлов башен;
+ *                          начисление до предела и стоп, на пределе счёт серый; после сброса сети и после открытия кольца (победа на уровне 2) предел растёт
  *   real-game              настоящая игра без подмен конфигурации (`cfg` нет; решение владельца 28 октября 2026, сообщение 1, п. 7.4, находка аудита MASTER-0079): `&levelwaves&level=1` — первые волны с числами из config.ts
  *                          (жизни, прочность бактерий), выход в меню с паузы — ДНК по настоящей формуле, покупка узла на экране «Улучшения»; босс 10-й волны выходит на своей волне
  *   level2                 уровень 2 «Нос» (план docs/level2-plan-2026-10-23.md): карта (9 рёбер, 2 входа, 1 выход), 5 боссов в плане на 10/20/30/40/50-й волнах, мини-босс 10-й волны выходит на своей волне, финальный босс — поражение сразу
@@ -164,7 +166,7 @@ if (['stage-1', 'stage-1b', 'stage-1b-qa', 'td-1-mockup', 'tmp'].includes(tag)) 
   process.exit(2);
 }
 
-const SCENARIOS = ['desktop-ru', 'phone-ru', 'desktop-en', 'phone-en', 'rules', 'graph', 'combat', 'dash', 'split', 'spore', 'armored', 'intro', 'lose-ru', 'lose-en', 'win-ru', 'win-en', 'towers', 'card', 'merge', 'mutations', 'sell', 'special', 'danger', 'rotate', 'production', 'fullgame', 'locked', 'strip', 'almanac', 'almanac-pause', 'damage-numbers', 'sell-gap', 'restart-button', 'deflation', 'camera-fit', 'colors', 'meta-save', 'meta-dna', 'meta-shop', 'meta-effects', 'tree-effects', 'tree-shop', 'level-waves', 'progress-save', 'stars', 'menu-flow', 'menu-reset', 'levels-lock', 'step-dps', 'sound', 'sdk', 'lose-line', 'attempt-line', 'toast-queue', 'shake', 'bosses', 'level2', 'wards', 'spiral-cap', 'marks', 'menu-exit', 'resume-tap', 'two-tabs', 'treemock', 'faces', 'real-game']
+const SCENARIOS = ['desktop-ru', 'phone-ru', 'desktop-en', 'phone-en', 'rules', 'graph', 'combat', 'dash', 'split', 'spore', 'armored', 'intro', 'lose-ru', 'lose-en', 'win-ru', 'win-en', 'towers', 'card', 'merge', 'mutations', 'sell', 'special', 'danger', 'rotate', 'production', 'fullgame', 'locked', 'strip', 'almanac', 'almanac-pause', 'damage-numbers', 'sell-gap', 'restart-button', 'deflation', 'camera-fit', 'colors', 'meta-save', 'meta-dna', 'meta-shop', 'meta-effects', 'tree-effects', 'tree-shop', 'level-waves', 'progress-save', 'stars', 'menu-flow', 'menu-reset', 'levels-lock', 'step-dps', 'sound', 'sdk', 'lose-line', 'attempt-line', 'toast-queue', 'shake', 'bosses', 'level2', 'wards', 'spiral-cap', 'marks', 'menu-exit', 'resume-tap', 'two-tabs', 'treemock', 'faces', 'real-game', 'dna-cap']
 const only = args.only === undefined ? null : String(args.only);
 if (only !== null && !SCENARIOS.includes(only)) {
   console.error(`Неизвестный сценарий --only=${only}. Есть: ${SCENARIOS.join(', ')}`);
@@ -8059,6 +8061,57 @@ async function runLevelWaves(browser, baseUrl) {
 }
 
 
+/** Предел счёта ДНК (вариант Г, сообщение 2 от 28 октября 2026, п. 3): начисление до предела и стоп; предел растёт после сброса сети и после открытия кольца. */
+async function runDnaCap(browser, baseUrl) {
+  const p = '[предел счёта ДНК]';
+  const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
+  // ---- предел: стоимость не купленных узлов открытых колец и узлов башен
+  const probe = await openGame(context, baseUrl, `${p} предел`, { realMeta: true, cfg: 'waves.firstDelaySec:9999', query: '&meta=dna:0' });
+  const cap0 = (await metaOf(probe.page)).dnaCap;
+  await probe.page.close();
+  check(`${p} предел нового игрока — ${cap0} ДНК (больше 0)`, cap0 > 0, String(cap0));
+  // ---- начисление до предела и стоп: счёт на 3 ниже предела, за 2+ пройденные волны начислилось бы больше 3
+  {
+    const cfg = 'waves.firstDelaySec:1,waves.pauseSec:1,waves.newTypePauseSec:0,waves.intervalStartSec:0.3,waves.intervalEndSec:0.3,lives.start:999';
+    const game = await openGame(context, baseUrl, `${p} стоп`, { realMeta: true, speed: 4, cfg, query: `&meta=dna:${cap0 - 3}` });
+    const m0 = await metaOf(game.page);
+    await waitForGame(game.page, (x) => x.wave >= 4, '4-я волна', { gameSec: 240 });
+    const paused = await pauseGame(game, 'перед «В меню»');
+    const cleared = Math.max(0, paused.wave - 1);
+    const full = dnaWavesReward(readMetaTable().dna, cleared, paused.level);
+    await tapToMenu(game, paused, `${p} стоп`);
+    await sleep(300);
+    const m1 = await metaOf(game.page);
+    check(`${p} за ${cleared} волн полагалось бы ${full} ДНК, начислено до предела: ${m0.dna} → ${m1.dna} (предел ${m1.dnaCap}), счёт на пределе — серый`, full > 3 && m1.dna === m1.dnaCap && m1.dna === cap0 && m1.atCap === true && m0.atCap === false, JSON.stringify({ dna0: m0.dna, dna1: m1.dna, cap: m1.dnaCap, full, atCap: [m0.atCap, m1.atCap] }));
+    await game.page.close();
+  }
+  // ---- сброс сети: возврат ДНК и рост предела на ту же сумму
+  {
+    const app = await openMenu(context, baseUrl, `${p} сброс`, { query: '&meta=dna:0,damage:2' });
+    const u = await app.ui();
+    await app.tapRect(u.buttons.upgrades);
+    await app.waitUi('upgrades', 'экран «Улучшения»');
+    const before = await waitMeta(app.page, (x) => x.screen.visible, 5000);
+    await app.input.tap(app.g(before.screen.respec.x, before.screen.respec.y));
+    const after = await waitMeta(app.page, (x) => x.dna !== before.dna, 2000);
+    check(`${p} сброс сети: счёт ${before.dna} → ${after.dna}, предел ${before.dnaCap} → ${after.dnaCap} (растёт на возврат)`, after.dna > before.dna && after.dnaCap - before.dnaCap === after.dna - before.dna, JSON.stringify({ dna: [before.dna, after.dna], cap: [before.dnaCap, after.dnaCap] }));
+    await app.page.close();
+  }
+  // ---- открытие кольца 2 (победа на уровне 2): предел растёт
+  {
+    const capAt = async (stars) => {
+      const g = await openGame(context, baseUrl, `${p} кольца ${stars}`, { cfg: 'waves.firstDelaySec:9999', query: `&meta=dna:0&stars=${stars}` });
+      const m = await metaOf(g.page);
+      await g.page.close();
+      return m;
+    };
+    const one = await capAt('1,0');
+    const two = await capAt('1,1');
+    check(`${p} победа на уровне 2 открывает кольцо 2: предел ${one.dnaCap} → ${two.dnaCap} (кольца ${one.rings.join(',')} → ${two.rings.join(',')})`, two.dnaCap > one.dnaCap && two.rings.includes(2) && !one.rings.includes(2), JSON.stringify({ one: [one.dnaCap, one.rings], two: [two.dnaCap, two.rings] }));
+  }
+  await context.close();
+}
+
 /**
  * Настоящая игра без подмен конфигурации (решение владельца 28 октября 2026, сообщение 1, п. 7.4; находка аудита MASTER-0079: остальные сценарии идут с `cfg` — жизни 3, прочность ×1, без нижней границы ДНК).
  * Здесь `cfg` нет: уровень 1 с `&levelwaves`, жизни и прочность — из config.ts. Шесть Таблеток II у дорожек (`placeTower`: постановка без оплаты, числа башен — настоящие);
@@ -10178,6 +10231,7 @@ try {
   if (wants('level-waves')) await safe('[состав волн уровней]', () => runLevelWaves(browser, qaServer.url));
   if (wants('bosses')) await safe('[боссы и «Лихорадка»]', () => runBosses(browser, qaServer.url));
   if (wants('real-game')) await safe('[настоящая игра]', () => runRealGame(browser, qaServer.url));
+  if (wants('dna-cap')) await safe('[предел счёта ДНК]', () => runDnaCap(browser, qaServer.url));
   if (wants('level2')) await safe('[уровень 2 «Нос»]', () => runLevel2(browser, qaServer.url));
   if (wants('wards')) await safe('[жёсткие свойства: бегун]', () => runWards(browser, qaServer.url));
   if (wants('spiral-cap')) await safe('[«Спираль» и потолок мутаций]', () => runSpiralCap(browser, qaServer.url));

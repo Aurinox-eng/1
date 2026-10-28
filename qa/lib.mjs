@@ -577,6 +577,21 @@ export function openRingsAt(meta, playLevel) {
   return k;
 }
 
+/**
+ * Предел счёта ДНК — как `dnaCap` в src/meta.ts (решение владельца 28 октября 2026, сообщение 2, п. 3, вариант Г): цена всех не купленных уровней узлов, кольцо которых открыто
+ * (`openRings` — число открытых колец), и узлов башен. `levels` — купленные уровни {id: число}.
+ */
+export function dnaCapOf(meta, levels, openRings) {
+  let sum = 0;
+  for (const [id, u] of Object.entries(meta.upgrades)) {
+    for (let k = levels[id] ?? 0; k < u.prices.length; k++) {
+      const ring = u.branch === 'towers' ? 0 : (u.rings?.[k] ?? 1);
+      if (ring <= openRings) sum += u.prices[k];
+    }
+  }
+  return sum;
+}
+
 /** Кольцо следующего уровня узла (уровень `have + 1`); узлы башен — 0 (вне колец). */
 export const nextRing = (u, have) => u.rings?.[have] ?? 0;
 
