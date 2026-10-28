@@ -72,6 +72,8 @@ export interface ButtonSpec {
   fill?: number;
   line?: number;
   fontSize?: number;
+  /** Без звука нажатия (кнопка сама решает, звучать ли: кнопка «Звук»). */
+  silent?: boolean;
   onTap: () => void;
 }
 
@@ -86,7 +88,7 @@ export function addButton(scene: Phaser.Scene, spec: ButtonSpec): Rect {
     .zone(x, y, w, h)
     .setInteractive({ useHandCursor: true })
     .on('pointerdown', () => {
-      sfx.place();
+      if (!spec.silent) sfx.place();
       spec.onTap();
     });
   return { x, y, w, h };

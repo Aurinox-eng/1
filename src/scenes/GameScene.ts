@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import { CameraRig } from '../cameraRig';
 import { CONFIG, type BossId, type Ward } from '../config';
-import { exposeDebug, QA_ENTRANCE, QA_MODE, QA_NORENDER, QA_START_WAVE, STRESS, STRESS_FIZZ, STRESS_HIGH, TIME_SCALE, type QaEvent } from '../debug';
+import { exposeDebug, QA_ENABLED, QA_ENTRANCE, QA_MODE, QA_NORENDER, QA_START_WAVE, STRESS, STRESS_FIZZ, STRESS_HIGH, TIME_SCALE, type QaEvent } from '../debug';
 import { placeTowerQa, qaLog, qaSnapshot, setupStress, stressFrame } from '../qaTools';
 import { Effects } from '../effects';
 import { drawStar, setScreenInfo } from '../screens';
@@ -268,7 +268,8 @@ export class GameScene extends Phaser.Scene {
 
   /** Уровень приходит от экрана выбора (`scene.start('Game', { level })`); без него остаётся прежний (из адреса `?level=N` или последний сыгранный). */
   init(data?: { level?: number }): void {
-    if (data?.level) setCurrentLevel(data.level);
+    // закрытый уровень не запускается (в режиме проверки — любой; находка аудита MASTER-0065)
+    if (data?.level && (QA_ENABLED || isLevelOpen(data.level))) setCurrentLevel(data.level);
     this.params = levelParams(currentLevel());
     useLevelMap(currentLevel());
   }
@@ -544,6 +545,8 @@ export class GameScene extends Phaser.Scene {
     this.applyPoison(dt);
     this.applyTraps(dt);
     this.updateBrood(dt);
+    // защита от глушения спорами — по Витаминам, стоящим сейчас (а не по прошлому шагу): находки аудита MASTER-0061, 0062
+    this.refreshImmunity();
     this.applySpores();
     this.updateClouds(dt);
     this.updateParasites();
@@ -986,6 +989,12 @@ export class GameScene extends Phaser.Scene {
   }
 
   /** Аура Витамина: каждая башня получает самый сильный (наименьший) множитель паузы среди работающих Витаминов, в радиусе которых стоит её центр; Витамины не складываются. */
+  /** Защита Витамина с «Иммунитетом» (`stats.immunity`) по башням в радиусе работающих Витаминов; `applyAuras` ставит её ещё раз вместе с аурой. */
+  private refreshImmunity(): void {
+    const vitamins = this.towers.filter((tower) => tower.isAura && tower.isWorking && tower.stats.immunity);
+    for (const tower of this.towers) tower.immune = vitamins.some((v) => v !== tower && Math.hypot(v.x - tower.x, v.y - tower.y) <= v.stats.range);
+  }
+
   private applyAuras(): void {
     const vitamins = this.towers.filter((tower) => tower.isAura && tower.isWorking);
     const excluded = CONFIG.mutationCaps.auraExcluded;
@@ -1193,6 +1202,7 @@ export class GameScene extends Phaser.Scene {
     if (bacterium.hp <= 0) return false;
     // Жёсткое свойство уровня: удар не ранит (серая пометка «неуязвим»); «память вида» запоминает башню и после отражённого удара
     if (wardBlocks(bacterium, st)) {
+      bacterium.lastDealt = 0; // журнал взрыва режима проверки не берёт урон прошлого удара (находка аудита MASTER-0038)
       if (!light) this.effects.immune(bacterium.id, bacterium.x, bacterium.y - bacterium.radius * 0.7, t('wardImmune'), RESIST_COLOR);
       return false;
     }
@@ -2306,7 +2316,10 @@ export class GameScene extends Phaser.Scene {
     const hasNext = won && currentLevel() < CONFIG.levels.count && isLevelOpen(currentLevel() + 1);
     if (hasNext) {
       this.nextButton = this.addEndButton(W / 2 - 180, y2, w, h, t('nextLevel'), 0x2a8a4a, COLORS.merge, () => {
-        if (performance.now() >= this.restartAllowedAt) this.scene.start('Game', { level: currentLevel() + 1 });
+        if (performance.now() < this.restartAllowedAt) return;
+        // прогресс мог измениться в другой вкладке: уровень закрыт — экран выбора уровней (находка аудита MASTER-0063)
+        if (isLevelOpen(currentLevel() + 1)) this.scene.start('Game', { level: currentLevel() + 1 });
+        else this.scene.start('Levels');
       }, 28);
     }
     this.menuButton = this.addEndButton(hasNext ? W / 2 + 180 : W / 2, y2, w, h, t('toMenu'), 0x2a3550, 0x4a5c82, () => {

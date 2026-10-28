@@ -94,6 +94,9 @@ export interface PerfReport {
   fpsLow1: number;
   /** Промежуток между кадрами: средний, 95-й и 99-й процентили, мс. */
   frameMs: number;
+  /** Медиана промежутка и работы кадра, мс (находка аудита MASTER-0073). */
+  frameP50: number;
+  workP50: number;
   frameP95: number;
   frameP99: number;
   /** Работа кадра (расчёт + рисование — то, что игра считала и рисовала сама, без ожидания следующего кадра): средняя, 95-й процентиль и самый медленный кадр, мс.
@@ -119,6 +122,8 @@ export function frameReport(reset = false): PerfReport {
     fps: intervals.length ? round1((intervals.length * 1000) / sum) : 0,
     fpsLow1: intervals.length ? round1(1000 / percentile(intervals, 0.99)) : 0,
     frameMs: intervals.length ? round1(sum / intervals.length) : 0,
+    frameP50: round1(percentile(intervals, 0.5)),
+    workP50: round1(percentile(works, 0.5)),
     frameP95: round1(percentile(intervals, 0.95)),
     frameP99: round1(percentile(intervals, 0.99)),
     workMs: works.length ? round1(workSum / works.length) : 0,

@@ -6531,6 +6531,7 @@ function expectedStats(id, level, picks) {
   let extraTargets = 0;
   const shares = S4.copyShares;
   const seen = new Map();
+  let coneMul = 1; // угол конуса — один раз после всех мутаций, как в towerStats.ts (MASTER-0007)
   for (const pickId of picks) {
     const spec = S4.mutations[id].flat().find((m) => m.id === pickId);
     if (!spec) continue;
@@ -6558,13 +6559,14 @@ function expectedStats(id, level, picks) {
       s.dotPerSec *= scaled(spec.dotDpsMul);
       mutDot *= scaled(spec.dotDpsMul);
     }
-    if (spec.coneMul) s.coneDeg = Math.min(CAPS.coneDeg, s.coneDeg * scaled(spec.coneMul));
+    if (spec.coneMul) coneMul *= scaled(spec.coneMul);
     if (spec.rangeMul) s.range *= scaled(spec.rangeMul);
     if (spec.auraBonusMul) auraBonus *= scaled(spec.auraBonusMul);
     if (spec.freezeMul) s.freezeSec *= scaled(spec.freezeMul);
     if (spec.trapSecMul) s.trapSec *= scaled(spec.trapSecMul);
     if (spec.trapDpsMul) s.trapDps *= scaled(spec.trapDpsMul);
   }
+  if (coneMul !== 1) s.coneDeg = Math.min(CAPS.coneDeg, s.coneDeg * coneMul);
   const basePulses = (base.beamPulses ?? 0) > 0 ? base.beamPulses + lv.pulsesAdd : 0;
   extraTargets = Math.min(CAPS.extraTargetsMax, extraTargets);
   if (s.beamPulses > 0) s.beamPulses = Math.min(CAPS.pulsesMax, s.beamPulses);

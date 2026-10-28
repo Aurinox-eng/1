@@ -633,13 +633,14 @@ export class Bacterium {
       this.wardRing?.setVisible(on);
     }
     if (this.slowLeft > 0) {
+      // замедление действует на ту долю шага, что от него осталась (большой шаг не теряет его конец; находка аудита MASTER-0059)
+      const p = dt > 0 ? Math.min(dt, this.slowLeft) / dt : 0;
+      factor *= 1 - p + p * this.slowBy;
       this.slowLeft -= dt;
       if (this.slowLeft <= 0) {
         this.slowLeft = 0;
         this.slowBy = 1;
         this.slowRing?.setVisible(false);
-      } else {
-        factor *= this.slowBy;
       }
     }
     const dashEvery = this.dashEvery;

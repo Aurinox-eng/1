@@ -267,7 +267,8 @@ export function finishAttempt(level: number, line: string): void {
   refresh();
   const attempts = [...state.attempts];
   attempts[level - 1] = (attempts[level - 1] ?? 0) + 1;
-  state = { ...state, attempts, log: [...state.log, line].slice(-MAX_LOG), bought: [] };
+  // строка длиннее предела при чтении отбросилась бы целиком — обрезается при записи (находка аудита MASTER-0068)
+  state = { ...state, attempts, log: [...state.log, line.slice(0, MAX_LOG_LEN)].slice(-MAX_LOG), bought: [] };
   persist();
 }
 
@@ -384,6 +385,8 @@ export function isLevelReady(level: number): boolean {
 
 /** Открыт ли уровень: готов к игре, и (первый — всегда, остальные — когда предыдущий пройден, хотя бы одна звезда). */
 export function isLevelOpen(level: number): boolean {
+  // номер — целое от 1 до числа уровней (находка аудита MASTER-0066)
+  if (!Number.isInteger(level) || level < 1 || level > CONFIG.levels.count) return false;
   return isLevelReady(level) && (level <= 1 || levelStars(level - 1) >= 1);
 }
 
