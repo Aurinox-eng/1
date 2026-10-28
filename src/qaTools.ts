@@ -247,7 +247,7 @@ export function placeTowerQa(s: GameSceneInternals, id: TowerId, col: number, ro
 export function setupStress(s: GameSceneInternals): void {
   s.userSpeed = STRESS_SPEED;
   s.panel.setSpeed(s.userSpeed);
-  const ids = STRESS_HIGH ? (['pill', 'syrup', 'syringe'] as TowerId[]) : (Object.keys(CONFIG.towers) as TowerId[]);
+  const ids = Object.keys(CONFIG.towers) as TowerId[]; // `stress=high` — все башни с рисунками I–VIII
   const free: [number, number][] = [];
   for (let row = 0; row < LEVEL.rows; row++) {
     for (let col = 0; col < LEVEL.cols; col++) {

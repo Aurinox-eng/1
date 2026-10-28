@@ -7,7 +7,7 @@ import {
 } from '../art';
 import { COLORS, PILL_EYES, TOWER_ART } from '../theme';
 import { bakeStyled } from './styleGfx';
-import { hasHighArt, highBarrelKey, highBaseKey, highHaloKey, highTopKey, HALO_BOX } from './highTowerArt';
+import { hasHighArt, HIGH_ACCENT, highBarrelKey, highBaseKey, highHaloKey, highTopKey, HALO_BOX } from './highTowerArt';
 import { isPilotTower, pilotBarrelKey, pilotBaseKey, pilotEyesKey, pilotPupilKey, pilotTopKey, PILL_EYE_POS, EYES_BOX, PUPIL_BOX, RECOIL_PX, RECOIL_SEC } from './pilotTowerArt';
 import { computeStats, mutationOptions, unlockedTiers, type TowerKey, type TowerStats } from '../towerStats';
 import { wardBlocks } from '../ward';
@@ -44,6 +44,10 @@ const WARD_LAST = new Set<string>(['poison', 'cone']);
  */
 function isHighArt(id: TowerId, level: number, legacy: boolean): boolean {
   return !legacy && level >= 5 && hasHighArt(id);
+}
+/** Основание, верх и ореол V–VIII — у всех башен (остальные семь: решение владельца 28 октября 2026, сообщение 2, п. 2; ствол у них — IV со свечением цвета уровня). */
+function isHighFrame(level: number, legacy: boolean): boolean {
+  return !legacy && level >= 5;
 }
 function highLevel(level: number): number {
   return Math.max(5, Math.min(8, Math.round(level)));
@@ -993,7 +997,7 @@ const LEVEL_COLORS = [COLORS.towerEdge, 0xdfe6f5, 0xffd84d, 0xc78bff];
 
 /** Верхняя неподвижная часть башни id уровня level — одна картинка: втулка над стволом, ядро 4-го уровня, кольцо и точки уровня под башней. */
 function topTexture(scene: Phaser.Scene, id: TowerId, level: number, legacy = false, rivet = HUB_RIVET): string {
-  if (isHighArt(id, level, legacy)) return highTopKey(scene, id, highLevel(level), TOP_BOX);
+  if (isHighFrame(level, legacy)) return highTopKey(scene, id, highLevel(level), TOP_BOX);
   const lv = artLevel(level);
   const pilot = !legacy && isPilotTower(id, lv);
   if (pilot && id === 'pill' && lv === 4) return pilotTopKey(scene, TOP_BOX); // Таблетка 4 уровня: купол под глазами, кольцо и точки уровня — Canvas 2D
@@ -1031,7 +1035,7 @@ function topTexture(scene: Phaser.Scene, id: TowerId, level: number, legacy = fa
 }
 
 function baseTexture(scene: Phaser.Scene, id: TowerId, level: number, legacy = false): string {
-  if (isHighArt(id, level, legacy)) return highBaseKey(scene, id, highLevel(level), BASE_BOX);
+  if (isHighFrame(level, legacy)) return highBaseKey(scene, id, highLevel(level), BASE_BOX);
   const lv = artLevel(level);
   if (!legacy && isPilotTower(id, lv)) return pilotBaseKey(scene, id, lv, BASE_BOX);
   if (!legacy) return bakeStyled(scene, `tower-base-styled-${id}-${lv}`, BASE_BOX, (g) => drawBase(g, id, lv));
@@ -1052,6 +1056,8 @@ interface TowerArt {
   pupils: Phaser.GameObjects.Image[];
   /** Светлая заклёпка вместо тёмной втулки (`HUB_RIVET`; лист образцов — всегда). */
   rivet: boolean;
+  /** Свечение за стволом у V–VIII башен без своего ствола V–VIII (картинка ствола, залитая цветом уровня). */
+  barrelGlow: Phaser.GameObjects.Image;
   /** Ореол уровней VII–VIII: готовая картинка под основанием, вращается целиком (без перерисовки); null — у остальных уровней и башен. */
   halo: Phaser.GameObjects.Image | null;
 }
@@ -1060,11 +1066,14 @@ interface TowerArt {
 function buildTowerArt(scene: Phaser.Scene, parent: Phaser.GameObjects.Container, id: TowerId, level = 1, legacy = false, eyes: boolean = PILL_EYES, rivet = HUB_RIVET): TowerArt {
   const base = artImage(scene, baseTexture(scene, id, level, legacy), BASE_BOX);
   const barrelImg = barrelImage(scene, id, level, legacy);
-  const barrel = scene.add.container(0, 0, [barrelImg]);
+  // свечение цвета уровня за стволом IV (V–VIII башен без своего ствола): та же картинка, залитая цветом и чуть крупнее
+  const barrelGlow = barrelImage(scene, id, level, legacy).setVisible(false);
+  const barrel = scene.add.container(0, 0, [barrelGlow, barrelImg]);
   const top = artImage(scene, topTexture(scene, id, level, legacy, rivet), TOP_BOX);
   parent.add([base, barrel, top]);
-  const art: TowerArt = { base, barrel, barrelImg, top, legacy, eyes: null, pupils: [], rivet, halo: null };
-  setHalo(scene, parent, art, id, level);
+  const art: TowerArt = { base, barrel, barrelImg, barrelGlow, top, legacy, eyes: null, pupils: [], rivet, halo: null };
+  setBarrelGlow(scene, art, id, level);
+  setHalo(scene, parent, art, level);
   // Глаза Таблетки: два белка на верхнем слое (не вращаются) и два зрачка, которые смотрят на цель; видны на уровнях пилота
   if (id === 'pill' && eyes && !legacy) {
     art.eyes = artImage(scene, pilotEyesKey(scene, 1), EYES_BOX);
@@ -1075,9 +1084,18 @@ function buildTowerArt(scene: Phaser.Scene, parent: Phaser.GameObjects.Container
   return art;
 }
 
+/** Свечение цвета уровня за стволом IV (V–VIII у башен без своего ствола V–VIII). */
+function setBarrelGlow(scene: Phaser.Scene, art: TowerArt, id: TowerId, level: number): void {
+  const on = isHighFrame(level, art.legacy) && !hasHighArt(id);
+  art.barrelGlow.setVisible(on);
+  if (!on) return;
+  setArt(art.barrelGlow, barrelTexture(scene, id, level, art.legacy), BARREL_BOX);
+  art.barrelGlow.setScale(art.barrelGlow.scaleX * 1.12).setTintFill(HIGH_ACCENT[highLevel(level)]).setAlpha(0.55);
+}
+
 /** Ставит или убирает ореол башни уровня VII–VIII (картинка под основанием). */
-function setHalo(scene: Phaser.Scene, parent: Phaser.GameObjects.Container, art: TowerArt, id: TowerId, level: number): void {
-  if (!isHighArt(id, level, art.legacy) || level < 7) {
+function setHalo(scene: Phaser.Scene, parent: Phaser.GameObjects.Container, art: TowerArt, level: number): void {
+  if (!isHighFrame(level, art.legacy) || level < 7) {
     art.halo?.setVisible(false);
     return;
   }
@@ -1117,7 +1135,8 @@ function setTowerArtLevel(scene: Phaser.Scene, art: TowerArt, id: TowerId, level
   setArt(art.base, baseTexture(scene, id, level, art.legacy), BASE_BOX);
   setArt(art.barrelImg, barrelTexture(scene, id, level, art.legacy), BARREL_BOX);
   setArt(art.top, topTexture(scene, id, level, art.legacy, art.rivet), TOP_BOX);
-  if (art.base.parentContainer) setHalo(scene, art.base.parentContainer, art, id, level);
+  if (art.base.parentContainer) setHalo(scene, art.base.parentContainer, art, level);
+  setBarrelGlow(scene, art, id, level);
   setEyesLevel(scene, art, artLevel(level));
 }
 

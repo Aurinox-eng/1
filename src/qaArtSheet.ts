@@ -46,6 +46,10 @@ export class ArtSheetScene extends Phaser.Scene {
       this.levelsPage();
       return;
     }
+    if (ART_SHEET_PAGE === 'l2') {
+      this.levelsPage2();
+      return;
+    }
     if (ART_SHEET_PAGE === 't1' || ART_SHEET_PAGE === 't2') {
       this.towersPage(ART_SHEET_PAGE === 't1' ? TOWERS.slice(0, 5) : TOWERS.slice(5));
       return;
@@ -266,6 +270,27 @@ export class ArtSheetScene extends Phaser.Scene {
       this.add.image(x0 + (r - 1) * dx - 22, 664, rankMarkKey(this, r)).setDisplaySize(RANK_BOX.w * 1.6, RANK_BOX.h * 1.6);
       this.add.image(x0 + (r - 1) * dx + 24, 664, rankMarkKey(this, r)).setDisplaySize(RANK_BOX.w * 0.75, RANK_BOX.h * 0.75);
     }
+  }
+
+  /**
+   * Лист V–VIII остальных семи башен (`?qa&artsheet=l2`; решение владельца 28 октября 2026, сообщение 2, п. 2): уровни IV–VIII в ряд — основание, верх и ореол по общей схеме,
+   * ствол IV со свечением цвета уровня, эмблема VIII — своя у башни.
+   */
+  private levelsPage2(): void {
+    const W = CONFIG.screen.width;
+    const label = (x: number, y: number, text: string, size = 14, align = 0.5): void => {
+      this.add.text(x, y, text, { fontFamily: 'Arial', fontSize: `${size}px`, color: '#cfe0ff' }).setOrigin(align, 0.5);
+    };
+    label(W / 2, 14, 'Уровни IV–VIII остальных башен: знаки уровня, свечение ствола, эмблема VIII', 16);
+    const ids: TowerId[] = ['fizz', 'ampule', 'antibiotic', 'lamp', 'vitamin', 'frost', 'patch'];
+    const x0 = 270;
+    const dx = 190;
+    ['IV', 'V', 'VI', 'VII', 'VIII'].forEach((r, i) => label(x0 + i * dx, 36, r, 15));
+    ids.forEach((id, row) => {
+      const y = 98 + row * 94;
+      label(20, y, t(`tower${id.charAt(0).toUpperCase()}${id.slice(1)}` as TextKey), 15, 0);
+      for (let lv = 4; lv <= 8; lv++) createTowerArtSample(this, this.add.container(x0 + (lv - 4) * dx, y).setScale(0.8), id, lv, false, false, true);
+    });
   }
 
   /** Страница башен: пять видов, уровни 1–4 в ряд. */
