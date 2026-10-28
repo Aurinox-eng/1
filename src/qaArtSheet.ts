@@ -50,8 +50,9 @@ export class ArtSheetScene extends Phaser.Scene {
       this.levelsPage2();
       return;
     }
-    if (ART_SHEET_PAGE === 'l3' || ART_SHEET_PAGE === 'l4' || ART_SHEET_PAGE === 'l5') {
-      this.ownBarrelPage(ART_SHEET_PAGE === 'l3' ? ['fizz', 'ampule', 'antibiotic'] : ART_SHEET_PAGE === 'l4' ? ['lamp', 'vitamin'] : ['frost', 'patch']);
+    if (['l3', 'l4', 'l5', 'l6'].includes(ART_SHEET_PAGE)) {
+      // l6 — Шипучка и Пластырь после поправок (сообщение 4 от 28 октября 2026, п. 2)
+      this.ownBarrelPage(ART_SHEET_PAGE === 'l3' ? ['fizz', 'ampule', 'antibiotic'] : ART_SHEET_PAGE === 'l4' ? ['lamp', 'vitamin'] : ART_SHEET_PAGE === 'l5' ? ['frost', 'patch'] : ['fizz', 'patch']);
       return;
     }
     if (ART_SHEET_PAGE === 't1' || ART_SHEET_PAGE === 't2') {

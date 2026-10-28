@@ -52,7 +52,7 @@ export const ART_SHEET_PAGE: string = params.get('artsheet') ?? '';
  * Только режим проверки: свои стволы V–VIII у остальных семи башен (вариант Б, решение владельца 28 октября 2026, сообщение 3, п. 3) — до «да» по листам видны только на листах
  * `?qa&artsheet=l3`, `l4`, `l5` и с `&ownhigh` (например `?qa&stress=high&ownhigh` — плотная сцена). В игре у этих башен пока ствол IV со свечением цвета уровня.
  */
-export const OWN_HIGH_PREVIEW: boolean = QA_MODE && (params.has('ownhigh') || ['l3', 'l4', 'l5'].includes(ART_SHEET_PAGE));
+export const OWN_HIGH_PREVIEW: boolean = QA_MODE && (params.has('ownhigh') || ['l3', 'l4', 'l5', 'l6'].includes(ART_SHEET_PAGE));
 /** Только режим проверки: `?qa&treemock` — вместо игры макет радиального древа (п. 5 сообщения владельца 5 от 25 октября 2026), `&zoom=1.8` — начальный масштаб. */
 export const TREE_MOCK: boolean = QA_MODE && params.has('treemock');
 

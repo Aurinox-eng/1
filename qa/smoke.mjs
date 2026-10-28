@@ -9982,7 +9982,7 @@ async function runFaces(browser, baseUrl) {
   for (const deviceKey of ['desktop', 'phone']) {
     const device = VIEWPORTS[deviceKey];
     // l3–l5 — свои стволы V–VIII остальных семи башен (сообщение 3 от 28 октября 2026, п. 3)
-    for (const page of ['f1', 'f2', 'f3', 'l', 'l2', 'l3', 'l4', 'l5']) {
+    for (const page of ['f1', 'f2', 'f3', 'l', 'l2', 'l3', 'l4', 'l5', 'l6']) {
       const p = `[лист без лиц ${page}, ${device.label}]`;
       const context = await newDeviceContext(browser, device, 'ru');
       const tab = await context.newPage();

@@ -50,9 +50,13 @@ function isHighArt(id: TowerId, level: number, legacy: boolean): boolean {
 function isHighFrame(level: number, legacy: boolean): boolean {
   return !legacy && level >= 5;
 }
-/** Свой ствол V–VIII у остальных семи башен (вариант Б, сообщение 3 от 28 октября 2026, п. 3; `drawBarrelHigh`): пока только листы `?qa&artsheet=l3`–`l5` и `&ownhigh`. */
+/**
+ * Свой ствол V–VIII у остальных семи башен (вариант Б, сообщение 3 от 28 октября 2026, п. 3; `drawBarrelHigh`). В игре — у пяти башен («да» по листам l3–l5, сообщение 4 от 28 октября 2026, п. 2);
+ * Шипучка и Пластырь после поправок пп. 2.1–2.2 — до «да» по листу `?qa&artsheet=l6` только на листах и с `&ownhigh`.
+ */
+const OWN_HIGH_IN_GAME: ReadonlySet<TowerId> = new Set<TowerId>(['ampule', 'antibiotic', 'lamp', 'vitamin', 'frost']);
 function hasOwnHighBarrel(id: TowerId, level: number, legacy: boolean): boolean {
-  return OWN_HIGH_PREVIEW && !legacy && level >= 5 && !hasHighArt(id);
+  return (OWN_HIGH_PREVIEW || OWN_HIGH_IN_GAME.has(id)) && !legacy && level >= 5 && !hasHighArt(id);
 }
 function highLevel(level: number): number {
   return Math.max(5, Math.min(8, Math.round(level)));
@@ -63,6 +67,8 @@ function highLevel(level: number): number {
  * В игре — с 28 октября 2026 («да» владельца по листу `?qa&artsheet=l`, сообщение 2, п. 2); `false` — тёмная втулка (лист «было»).
  */
 const HUB_RIVET = true;
+/** Цвет светлой заклёпки; им же — сопло Шипучки IV–VIII (решение владельца 28 октября 2026, сообщение 4, п. 2.2). */
+const NOZZLE_LIGHT = 0xe9f1ff;
 
 /** Ограничение уровня рисунка: у башни 4 вида рисунков (уровни слияния 1–4). */
 function artLevel(level: number): 1 | 2 | 3 | 4 {
@@ -315,8 +321,8 @@ function drawFizz(g: Gfx, lv: number): void {
   shCirc(g, 36, 0, 22, COLORS.acid, null, 0, 0.1);
   shCirc(g, 36, 0, 17, COLORS.acid, null, 0, 0.2);
   shCirc(g, 36, 0, 12, COLORS.acid, null, 0, 0.3);
-  shCirc(g, 36, 0, 7, A.acidLight, null, 0, 0.7);
-  shCirc(g, 33, 0, 8, A.acidDark, COLORS.acid, 2);
+  // сопло светлое, как заклёпка: тёмное сопло с бликом читалось как глаз (решение владельца 28 октября 2026, сообщение 4, п. 2.2)
+  shCirc(g, 33, 0, 8, NOZZLE_LIGHT, COLORS.acid, 2);
   for (const [x, y, r] of [[46, -10, 5.5], [52, 4, 4.5], [47, 12, 3.4], [56, -4, 3]]) {
     shCirc(g, x, y, r, 0xffffff, COLORS.acid, 1.5, 0.9);
   }
@@ -788,7 +794,7 @@ function drawPatch(g: Gfx, lv: number): void {
 
 /**
  * Свои стволы V–VIII у Шипучки, Ампулы, Антибиотика, Лампы, Витамина, Холода и Пластыря (вариант Б, решение владельца 28 октября 2026, сообщение 3, п. 3): как у Таблетки,
- * Сиропа и Шприца, ствол меняется на каждом уровне. Основа — ствол IV; знаки нарастают: V — второй заряд (вторая бомба, второй патронник, второй пакет, второй рулон…),
+ * Сиропа и Шприца, ствол меняется на каждом уровне. Основа — ствол IV; знаки нарастают: V — второй заряд (вторая бомба, второй патронник, капельницы, лента на рулоне…),
  * VI — крылья, рёбра или лишние лучи, VII — светящиеся кольца цвета уровня, VIII — золото и радужные акценты. Дуло там же, где у IV. Лиц нет.
  */
 function drawBarrelHigh(g: Gfx, id: TowerId, lv: number): void {
@@ -844,8 +850,7 @@ function drawBarrelHigh(g: Gfx, id: TowerId, lv: number): void {
     // жерло и пена
     shCirc(g, 36, 0, 22, COLORS.acid, null, 0, 0.1);
     shCirc(g, 36, 0, 17, COLORS.acid, null, 0, 0.2);
-    shCirc(g, 36, 0, 7, A.acidLight, null, 0, 0.7);
-    shCirc(g, 33, 0, 8, A.acidDark, COLORS.acid, 2);
+    shCirc(g, 33, 0, 8, NOZZLE_LIGHT, COLORS.acid, 2); // сопло светлое, как у IV
     // VII: светящиеся кольца у жерла
     if (lv >= 7) {
       coil(42, 0, 3.6, 15);
@@ -1058,12 +1063,11 @@ function drawBarrelHigh(g: Gfx, id: TowerId, lv: number): void {
   }
   // Пластырь
   glowCircle(g, 18, 0, 34, lv >= 7 ? c : A.patchRed, 14, 0.25);
-  // V: два рулона сзади, центр рулона светлый, кромка цвета уровня
-  for (const y of [-16, 16]) {
-    shCirc(g, -30, y, 14, COLORS.gold, COLORS.goldEdge, 2.5);
-    shCirc(g, -30, y, 9, COLORS.patchPad, c, 1.8);
-    shCirc(g, -30, y, 4, COLORS.patchPad, COLORS.goldEdge, 1.2);
-  }
+  // рулон один, как у IV (два рулона один над другим читались как пара глаз — решение владельца 28 октября 2026, сообщение 4, п. 2.1); V: лента цвета уровня на рулоне
+  shCirc(g, -28, 0, 17, COLORS.gold, COLORS.goldEdge, 2.5);
+  shArc(g, -28, 0, 14, Math.PI * 0.55, Math.PI * 1.45, c, 4);
+  shCirc(g, -28, 0, 11, COLORS.patchPad, c, 1.8);
+  shCirc(g, -28, 0, 5, COLORS.patchPad, COLORS.goldEdge, 1.2);
   // VI: шесть полос веером вместо четырёх
   const fan = lv >= 6 ? [-0.95, 0.95, -0.62, 0.62, -0.3, 0.3] : [-0.78, 0.78, -0.3, 0.3];
   fan.forEach((ang, i) => plasterStrip(g, 22, 0, 74, 22, ang, A.patchStrip, lv === 8 ? acc(i) : c));
@@ -1073,7 +1077,7 @@ function drawBarrelHigh(g: Gfx, id: TowerId, lv: number): void {
   gauzePad(g, 22, 0, 28, 0, COLORS.gold, lv >= 7 ? c : A.patchRed);
   glowCircle(g, 22, 0, 8, lv >= 7 ? c : A.patchRed, 8, 0.45);
   // VIII: золотая корона на рулонах
-  if (lv === 8) for (const y of [-16, 16]) for (let i = 0; i < 3; i++) crown(-30 + Math.cos(Math.PI * 0.75 + i * 0.25) * 14, y + Math.sin(Math.PI * 0.75 + i * 0.25) * 14, Math.PI * 0.75 + i * 0.25, 5);
+  if (lv === 8) for (let i = 0; i < 5; i++) crown(-28 + Math.cos(Math.PI * 0.6 + i * 0.2) * 17, Math.sin(Math.PI * 0.6 + i * 0.2) * 17, Math.PI * 0.6 + i * 0.2, 5);
   for (const [x, y, r] of [[58, -22, 7], [60, 20, 5], [-6, -38, 5]]) shStar(g, x, y, r, 0xffffff);
 }
 
