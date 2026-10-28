@@ -582,7 +582,12 @@ export class GameScene extends Phaser.Scene {
     if (this.phase === 'countdown' || this.phase === 'pause') {
       this.phaseTimer -= dt;
       // «Автостарт волны» (узел древа): поле пусто — следующая волна выходит сразу, не дожидаясь конца паузы
-      if (this.phase === 'pause' && this.bacteria.length === 0 && autoWaveOwned()) this.phaseTimer = 0;
+      // премия за пропущенные секунды — как у кнопки «Начать волну» (находка аудита MASTER-0054, решение владельца 28 октября 2026, сообщение 2, п. 5)
+      if (this.phase === 'pause' && this.bacteria.length === 0 && autoWaveOwned() && this.phaseTimer > 0) {
+        this.coins += this.skipBonus();
+        this.panel.setCoins(this.coins);
+        this.phaseTimer = 0;
+      }
       if (this.phaseTimer <= 0) this.startWave();
       return;
     }
@@ -1206,6 +1211,12 @@ export class GameScene extends Phaser.Scene {
       if (!light) this.effects.immune(bacterium.id, bacterium.x, bacterium.y - bacterium.radius * 0.7, t('wardImmune'), RESIST_COLOR);
       return false;
     }
+    // Капсула Матки роя: удар не проходит — без вспышки, числа и кислоты, звук брони, как поглощение у Поглотителя (находки аудита MASTER-0036, 0092; сообщение 2 от 28 октября 2026, п. 5)
+    if (bacterium.shielded) {
+      bacterium.lastDealt = 0;
+      if (!quiet) sfx.hit('armored');
+      return false;
+    }
     if (bacterium.ward === 'memory') bacterium.remember(st.towerId);
     // Мутант помнит вид башни, ударившей последней: удар башни того же вида слабее; удар другого вида штрафа не получает и запоминается
     const memoryMul = CONFIG.types[bacterium.kind].memoryMul;
@@ -1263,7 +1274,9 @@ export class GameScene extends Phaser.Scene {
       if (dist - bacterium.radius > radius) continue;
       inCircle.push({ bacterium, dist });
     }
-    inCircle.sort((a, b) => a.dist - b.dist || a.bacterium.id - b.bacterium.id);
+    // цели, которых удар не ранит, слоты полного урона не занимают — идут последними (находка аудита MASTER-0016, решение владельца 28 октября 2026, сообщение 2, п. 5)
+    const blocked = (b: Bacterium): number => (wardBlocks(b, st) || b.shielded ? 1 : 0);
+    inCircle.sort((a, b) => blocked(a.bacterium) - blocked(b.bacterium) || a.dist - b.dist || a.bacterium.id - b.bacterium.id);
     const fullLimit = st.blastFullTargets > 0 ? st.blastFullTargets : inCircle.length;
     let full = 0;
     let rest = 0;
@@ -1361,6 +1374,12 @@ export class GameScene extends Phaser.Scene {
     const plan = this.params.plan;
     const index = plan ? plan.waves.findIndex((w) => w.boss === boss.bossId) : -1;
     if (index >= 0) this.bossBits |= index === plan!.waves.length - 1 ? 1 << BOSS_BIT : 1 << Math.min(BOSS_BIT - 1, Math.floor((index + 1) / 10) - 1);
+    // выпуск на доле прочности `burstAt`, пропущенный из-за гибели одним ударом, — при гибели (находка аудита MASTER-0050, решение владельца 28 октября 2026, сообщение 2, п. 5)
+    const spec = boss.boss;
+    if (spec?.burstAt && !boss.burstDone) {
+      boss.burstDone = true;
+      this.releaseFrom(boss, spec.burstKind ?? 'coccus', spec.burstCount ?? 0);
+    }
     if (boss.boss?.burstOnDeath) this.releaseFrom(boss, boss.boss.burstKind ?? 'coccus', boss.boss.burstCount ?? 0);
     if (QA_MODE) qaLog(this, 'boss', { id: boss.id, boss: boss.bossId, bits: this.bossBits });
   }
@@ -2294,8 +2313,8 @@ export class GameScene extends Phaser.Scene {
     if (top === null) return null;
     const cap = (id: string): string => id.charAt(0).toUpperCase() + id.slice(1);
     const kind = t(`bacName${cap(top)}` as TextKey);
-    const n = Math.max(1, Math.round(most));
-    return t('loseLeakOnly', { kind, n });
+    // дробные потери (рой отнимает по 0,25) — точно, до двух знаков (находка аудита MASTER-0103, решение владельца 28 октября 2026, сообщение 2, п. 5)
+    return t('loseLeakOnly', { kind, n: num(Math.round(most * 100) / 100) });
   }
 
   /**

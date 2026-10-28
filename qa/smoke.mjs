@@ -1691,7 +1691,7 @@ async function runLose(browser, baseUrl, lang, deviceKey, full) {
         flashGap >= 334 && s.effects.lifeFlashes >= 1 && s.effects.lifeFlashes <= s.effects.lifeLosses && s.effects.lifeFlashes <= flashCap, `вспышек ${s.effects.lifeFlashes}, потерь ${s.effects.lifeLosses}, промежуток ${flashGap}`);
       // Строка проигрыша: «Больше всего жизней отнял вид: <порода> (<число>)» — без советов, чем бить (решение владельца 16 октября 2026)
       const leakTemplate = readI18n('loseLeakOnly')[lang === 'ru' ? 0 : 1];
-      const leakRe = new RegExp(`^${leakTemplate.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\\\{kind\\\}/, '(.+)').replace(/\\\{n\\\}/, '(\\d+)')}$`);
+      const leakRe = new RegExp(`^${leakTemplate.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\\\{kind\\\}/, '(.+)').replace(/\\\{n\\\}/, '([\\d.,]+)')}$`);
       const leakLine = (s.endDnaLines || []).find((line) => leakRe.test(line));
       check(`${p} на экране проигрыша есть строка «${leakTemplate}»: порода и число жизней`, Boolean(leakLine), `строки: ${JSON.stringify(s.endDnaLines)}`);
     }
@@ -2081,7 +2081,7 @@ async function runLoseLine(browser, baseUrl) {
     const kindName = readI18n(`bacName${capital(c.kind)}`)[c.li];
     const escape = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const lineTemplate = readI18n('loseLeakOnly')[c.li];
-    const re = new RegExp(`^${escape(lineTemplate).replace(/\\\{kind\\\}/, '(.+?)').replace(/\\\{n\\\}/, '(\\d+)')}$`);
+    const re = new RegExp(`^${escape(lineTemplate).replace(/\\\{kind\\\}/, '(.+?)').replace(/\\\{n\\\}/, '([\\d.,]+)')}$`);
     const found = (lost.endDnaLines || []).map((line) => ({ line, m: re.exec(line) })).find((x) => x.m);
     const gotKind = found ? found.m[1] : null;
     const advice = (lost.endDnaLines || []).some((line) => /Бьют|Countered by/.test(line));
@@ -6530,6 +6530,7 @@ function expectedStats(id, level, picks) {
   let mutDamage = 1;
   let mutRate = 1;
   let mutDot = 1;
+  let mutTrap = 1; // ловушка Пластыря — под потолком (MASTER-0027)
   let extraTargets = 0;
   const shares = S4.copyShares;
   const seen = new Map();
@@ -6566,7 +6567,10 @@ function expectedStats(id, level, picks) {
     if (spec.auraBonusMul) auraBonus *= scaled(spec.auraBonusMul);
     if (spec.freezeMul) s.freezeSec *= scaled(spec.freezeMul);
     if (spec.trapSecMul) s.trapSec *= scaled(spec.trapSecMul);
-    if (spec.trapDpsMul) s.trapDps *= scaled(spec.trapDpsMul);
+    if (spec.trapDpsMul) {
+      s.trapDps *= scaled(spec.trapDpsMul);
+      mutTrap *= scaled(spec.trapDpsMul);
+    }
   }
   if (coneMul !== 1) s.coneDeg = Math.min(CAPS.coneDeg, s.coneDeg * coneMul);
   const basePulses = (base.beamPulses ?? 0) > 0 ? base.beamPulses + lv.pulsesAdd : 0;
@@ -6576,8 +6580,11 @@ function expectedStats(id, level, picks) {
   if (mutDps > CAPS.dpsMul) s.damage *= CAPS.dpsMul / mutDps;
   const mutDotDps = mutDot * mutRate * (1 + extraTargets);
   if (mutDotDps > CAPS.dpsMul) s.dotPerSec *= CAPS.dpsMul / mutDotDps;
+  const mutTrapDps = mutTrap * mutRate * (1 + extraTargets);
+  if (mutTrapDps > CAPS.dpsMul) s.trapDps *= CAPS.dpsMul / mutTrapDps;
   if (s.slowFactor < 1) s.slowFactor = Math.max(MIN_SLOW_FACTOR, s.slowFactor);
-  if (s.freezeSec > 0) s.freezeSec = Math.min(s.freezeSec, (s.cooldownMs / 1000) * CAPS.freezeShareOfCooldown);
+  // предел заморозки — от паузы уровня без мутаций (MASTER-0009)
+  if (s.freezeSec > 0) s.freezeSec = Math.min(s.freezeSec, ((b.cooldownMs * lv.cooldownMul) / 1000) * CAPS.freezeShareOfCooldown);
   if ((base.auraMul ?? 1) < 1) {
     const raw = base.auraMul - base.auraStep * (level - 1); // 1-й уровень — auraMul, дальше на auraStep меньше (улучшений вне партии в этих проверках нет)
     s.auraMul = Math.min(1, Math.max(MIN_AURA_MUL, 1 - (1 - raw) * auraBonus));
@@ -9420,6 +9427,12 @@ function almanacRows(tab, li, open = () => true, owned = () => true) {
   return ids.map((id) => {
     if (!open(id)) return closed;
     if (tab === 'bosses') return `${readI18n(`boss${capId(id)}`)[li]}: ${readI18n(`almBoss${capId(id)}`)[li]}`;
+    if (tab === 'towers' && id === 'vitamin') {
+      // башни-исключения ауры — только купленные (решение владельца 28 октября 2026, сообщение 2, п. 5.3)
+      const names = ['lamp', 'syrup', 'frost', 'patch'].filter((tw) => owned(tw)).map((tw) => readI18n(`almExcept${capId(tw)}`)[li]);
+      const list = names.length <= 1 ? names.join('') : `${names.slice(0, -1).join(', ')} ${readI18n('listAnd')[li]} ${names.at(-1)}`;
+      return `${readI18n('towerVitamin')[li]}: ${names.length ? readI18n('almTowerVitaminExcept')[li].replace('{list}', list) : readI18n('almTowerVitamin')[li]}`;
+    }
     if (tab === 'towers') return `${readI18n(`tower${capId(id)}`)[li]}: ${readI18n(`almTower${capId(id)}`)[li]}`;
     const name = readI18n(`bacName${capId(id)}`)[li];
     const parts = [readI18n(`almBac${capId(id)}`)[li], ...(KIND_TOWER_PARTS[id] ?? []).filter(([tw]) => owned(tw)).map(([, key]) => readI18n(key)[li])].filter((x) => x.length > 0);
@@ -9993,13 +10006,15 @@ async function runMenuReset(browser, baseUrl) {
     const context = await newDeviceContext(browser, device, lang);
     let app = await openMenu(context, baseUrl, p, { isTouch: device.hasTouch });
     const { page } = app;
-    // без прогресса кнопки нет; с любым из трёх видов прогресса (очки ДНК, купленный узел, звезда) она есть
+    // без прогресса кнопки нет; с любым видом прогресса (очки ДНК, купленный узел, звезда, попытка с журналом) она есть
     const bare = await app.ui();
     check(`${p} без прогресса в меню нет кнопки «${readI18n('resetBtn')[li]}»`, !bare.buttons.reset, JSON.stringify(Object.keys(bare.buttons)));
     for (const [what, save] of [
       ['очки ДНК', { v: 3, dna: 5, levels: {}, progress: { stars: [0], best: [0] }, seen: [] }],
       ['купленный узел', { v: 3, dna: 0, levels: { damage: 1 }, progress: { stars: [0], best: [0] }, seen: [] }],
       ['звезда', { v: 3, dna: 0, levels: {}, progress: { stars: [1], best: [30] }, seen: [] }],
+      // попытки и журнал (решение владельца 28 октября 2026, сообщение 2, п. 5; находка аудита MASTER-0022)
+      ['попытка', { v: 5, dna: 0, levels: {}, progress: { stars: [0], best: [3] }, seen: [], attempts: [1], log: ['ТПБ | У1 | п.1'] }],
     ]) {
       await page.evaluate((value) => window.localStorage.setItem('pvb.meta5', JSON.stringify(value)), save);
       await page.reload({ waitUntil: 'load' });

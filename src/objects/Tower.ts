@@ -1614,8 +1614,10 @@ export class Tower {
     else found.sort((a, b) => (toughest ? b.maxHp - a.maxHp || a.remaining - b.remaining : a.remaining - b.remaining));
     // яд Антибиотика и направление Лампы: цель, которую удар не ранит, — только если других нет (решение владельца 28 октября 2026, сообщение 1, п. 7.1, находки аудита MASTER-0039, 0040)
     if (affectable && WARD_LAST.has(targeting)) {
-      const open = found.filter((b) => !wardBlocks(b, this.stats));
-      if (open.length > 0 && open.length < found.length) return [...open, ...found.filter((b) => wardBlocks(b, this.stats))];
+      // яд — сначала цели без яда или с ядом, который кончится раньше следующего укола (находка аудита MASTER-0043, решение владельца 28 октября 2026, сообщение 2, п. 5)
+      const pause = this.stats.cooldownMs / 1000;
+      const rank = (b: Bacterium): number => (wardBlocks(b, this.stats) ? 2 : 0) + (targeting === 'poison' && b.poisonLeft >= pause ? 1 : 0);
+      if (found.some((b) => rank(b) > 0)) return found.map((b, i) => ({ b, i, r: rank(b) })).sort((x, y) => x.r - y.r || x.i - y.i).map((x) => x.b);
     }
     return found;
   }

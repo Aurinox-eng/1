@@ -1,9 +1,8 @@
 import Phaser from 'phaser';
-import { CONFIG, type KindId } from '../config';
+import { CONFIG } from '../config';
 import { t, type TextKey } from '../i18n';
 import { isLevelOpen, isLevelReady, levelBest, levelStars } from '../meta';
 import { META_KEY } from '../save';
-import { levelNewKinds } from '../progress';
 import { addButton, drawLock, drawStar, setScreenInfo, textStyle, type LevelCardInfo, type Rect } from '../screens';
 import { sfx } from '../sound';
 import { COLORS, TEXT_COLORS } from '../theme';
@@ -13,9 +12,7 @@ const { width: W } = CONFIG.screen;
 /** Раскладка: пять карточек в ряд, два ряда; сверху заголовок, снизу «Назад». Координаты — экран игры 1280×720. */
 const CARD = { w: 220, h: 256, gap: 30, cols: 5, left: 30, top: 104, rowGap: 16 };
 
-const cap = (word: string): string => word.charAt(0).toUpperCase() + word.slice(1);
 const levelName = (level: number): string => t(`levelName${level}` as TextKey);
-const kindName = (kind: KindId): string => t(`bacName${cap(kind)}` as TextKey);
 
 /** Выбор уровня: 10 карточек (номер, название, что нового, звёзды или замок), тап по открытой начинает партию, по закрытой — «нельзя». */
 export class LevelsScene extends Phaser.Scene {
@@ -76,9 +73,8 @@ export class LevelsScene extends Phaser.Scene {
       const showBest = stars === 0 && best > 0;
       const lowerTop = showBest ? y0 + CARD.h - 84 : y0 + CARD.h - 62;
       const limit = lowerTop - 6;
-      const kinds = levelNewKinds(level);
+      // строки «Новая: …» нет: она называла бактерий до встречи, а Альманах и игра показывают только встреченное (находка аудита MASTER-0108, решение владельца 28 октября 2026, сообщение 2, п. 5.4)
       const parts: string[] = [];
-      if (kinds.length > 0) parts.push(t('levelNewBac', { names: kinds.map(kindName).join(', ') }));
       const objs = parts.map((text) => add(0, text, 20, TEXT_COLORS.soft, true));
       let size = 20;
       const place = (): number => {

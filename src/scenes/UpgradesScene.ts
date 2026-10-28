@@ -68,8 +68,14 @@ function effectText(id: UpgradeId, level: number): string {
     default:
       value = total;
   }
+  // нестреляющие башни: «действует дальше» (Витамин, Холод, Пластырь) и «срабатывает чаще» (Холод, Пластырь) — находки аудита MASTER-0104, 0105, решение владельца 28 октября 2026, сообщение 2, п. 5
+  if (spec.effect === 'range' && NON_SHOOTING.has(spec.branch)) return t('upgDescRangeReach', { n: num(value) });
+  if (spec.effect === 'cooldown' && (spec.branch === 'frost' || spec.branch === 'patch')) return t('upgDescCooldownActs', { n: num(value) });
   return t(descKey(spec.effect), { n: num(value) });
 }
+
+/** Ветки башен, которые не стреляют. */
+const NON_SHOOTING: ReadonlySet<string> = new Set(['vitamin', 'frost', 'patch']);
 
 /** Описание улучшения на уровне level, разобранное на подпись («урон всех башен») и значение («+80 %»): все описания записаны как «подпись: значение», делим по первому «: ». */
 function effectParts(id: UpgradeId, level: number): { label: string; value: string } {

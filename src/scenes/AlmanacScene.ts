@@ -67,7 +67,8 @@ function kindLine(kind: BacteriumKind): string {
  * Башня, которую жёсткое свойство вида делает бесполезной против него (решение владельца 22 октября 2026, сообщение 4, п. 2.1): луч Шприца проходит слизня насквозь.
  * Пока на открытых уровнях этот вид выходит только со свойством, башни нет в «Бьют» у вида, а вид стоит у башни в «Слаба против»; открыт уровень, где вид выходит без свойства, — как в `almanac.ts`.
  */
-const WARD_TOWERS: [keyof HardWalls, BacteriumKind, TowerId][] = [['slickBeam', 'slick', 'syringe']];
+// Пластырь при «броне» Бронированной не ранит, только держит (находка аудита MASTER-0037, решение владельца 28 октября 2026, сообщение 2, п. 5)
+const WARD_TOWERS: [keyof HardWalls, BacteriumKind, TowerId][] = [['slickBeam', 'slick', 'syringe'], ['armoredPierce', 'armored', 'patch']];
 
 /** Выходит ли вид `kind` на открытых уровнях только с жёстким свойством `ward` (на открытых уровнях без вида — тоже да). */
 function wardedOnOpenLevels(ward: keyof HardWalls, kind: BacteriumKind): boolean {
@@ -88,6 +89,10 @@ const weakAgainst = (tower: TowerId): BacteriumKind[] => {
   return [...ALMANAC_TOWERS[tower].weak, ...extra.filter((kind) => !ALMANAC_TOWERS[tower].weak.includes(kind))].filter(met);
 };
 
+/** «Сильна против» башни: таблица `almanac.ts` без видов, которых она на открытых уровнях не ранит из-за жёсткого свойства. */
+const strongAgainst = (tower: TowerId): BacteriumKind[] =>
+  ALMANAC_TOWERS[tower].strong.filter((kind) => !WARD_TOWERS.some(([ward, k, tw]) => k === kind && tw === tower && wardedOnOpenLevels(ward, kind))).filter(met);
+
 /** Значки «Бьют», «Сильна против», «Слаба против» — только купленные башни и встреченные бактерии (решение владельца 25 октября 2026, сообщение 5, п. 2.3). */
 const met = (kind: BacteriumKind): boolean => wasMet(`b:${kind}`);
 
@@ -106,6 +111,17 @@ function wardNote(kind: BacteriumKind): string {
  * Запись: рисунок, название, одна короткая строка и значки (против кого башня сильна и слаба; какие башни бьют бактерию). Без заголовков и подписей-абзацев.
  * Открывается из главного меню и с паузы партии (тогда партия стоит под экраном и после «Назад» продолжается с паузы).
  */
+/**
+ * Строка Витамина: башни, на которые аура не действует, называются, только если куплены (решение владельца 28 октября 2026, сообщение 2, п. 5.3; находка аудита MASTER-0106;
+ * правило 26 октября 2026, сообщение 1, п. 2.1: о некупленной башне ничего не известно). Ни одной не куплено — строка без «кроме».
+ */
+function vitaminLine(): string {
+  const names = CONFIG.mutationCaps.auraExcluded.filter((id) => id !== 'vitamin' && isTowerOpen(id)).map((id) => t(`almExcept${id.charAt(0).toUpperCase()}${id.slice(1)}` as TextKey));
+  if (names.length === 0) return t('almTowerVitamin');
+  const list = names.length === 1 ? names[0] : `${names.slice(0, -1).join(', ')} ${t('listAnd')} ${names[names.length - 1]}`;
+  return t('almTowerVitaminExcept', { list });
+}
+
 export class AlmanacScene extends Phaser.Scene {
   private from: 'menu' | 'game' = 'menu';
   private tab: Tab = 'towers';
@@ -224,7 +240,7 @@ export class AlmanacScene extends Phaser.Scene {
     let note = '';
     if (tab === 'towers') {
       name = t(`tower${key}` as TextKey);
-      line = t(`almTower${key}` as TextKey);
+      line = id === 'vitamin' ? vitaminLine() : t(`almTower${key}` as TextKey);
     } else if (tab === 'bacteria') {
       name = t(`bacName${key}` as TextKey);
       line = kindLine(id as BacteriumKind);
@@ -266,8 +282,7 @@ export class AlmanacScene extends Phaser.Scene {
     }
     if (tab === 'towers') {
       this.list.add(this.towerIcon(ICON_X, cy, id as TowerId, 0.78));
-      const entry = ALMANAC_TOWERS[id as TowerId];
-      this.addMarks(MARKS_X, cy - 20, t('almStrong'), entry.strong.filter(met).map((k) => this.bacteriumIcon(k)), COLORS.merge);
+      this.addMarks(MARKS_X, cy - 20, t('almStrong'), strongAgainst(id as TowerId).map((k) => this.bacteriumIcon(k)), COLORS.merge);
       this.addMarks(MARKS_X, cy + 20, t('almWeak'), weakAgainst(id as TowerId).map((k) => this.bacteriumIcon(k)), COLORS.loseLine);
     } else {
       this.list.add(this.bacteriumIcon(id as BacteriumKind, ICON_X, cy, 30));
