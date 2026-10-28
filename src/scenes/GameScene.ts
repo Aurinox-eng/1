@@ -26,7 +26,7 @@ import { gameplay } from '../sdk';
 import { sfx } from '../sound';
 import { wardBlocks } from '../ward';
 import { computeStats, MAX_TOWER_LEVEL, mergeCap, mutationById, mutationOptions, mutationStacks, towerPrice, type TowerStats } from '../towerStats';
-import { COLORS, FONT, TEXT_COLORS } from '../theme';
+import { COLORS, FONT, TEXT_COLORS, fs } from '../theme';
 import { FPS_ENABLED, FpsMeter, frameReport, installFrameStats } from '../perf';
 import { Panel, TOP_H, VIEW } from '../ui/Panel';
 
@@ -408,7 +408,7 @@ export class GameScene extends Phaser.Scene {
     this.projectileLayer.add(this.threads);
     this.effects = new Effects(this, this.fxLayer, (ms, intensity) => this.rig.shake(ms, intensity));
     this.bossBarGfx = this.add.graphics().setDepth(99).setVisible(false);
-    this.bossBarText = this.add.text(BOSS_BAR.x, BOSS_BAR.y - BOSS_BAR.h / 2 - 2, '', this.textStyle(18)).setOrigin(0.5, 1).setDepth(99).setVisible(false);
+    this.bossBarText = this.add.text(BOSS_BAR.x, BOSS_BAR.y - BOSS_BAR.h / 2 - 2, '', this.textStyle(fs(18, 22))).setOrigin(0.5, 1).setDepth(99).setVisible(false);
     if (feverOwned()) this.buildFeverButton();
     this.buildGhost();
     this.userSpeed = this.loadSpeed();
@@ -2144,7 +2144,7 @@ export class GameScene extends Phaser.Scene {
   /** Кнопка «Лихорадки» (узел древа куплен): круг в правом верхнем углу окна карты; тап включает умение, если оно готово. */
   private buildFeverButton(): void {
     this.feverGfx = this.add.graphics().setDepth(98);
-    this.feverText = this.add.text(FEVER_BTN.x, FEVER_BTN.y + 1, '', this.textStyle(20)).setOrigin(0.5).setDepth(98.5);
+    this.feverText = this.add.text(FEVER_BTN.x, FEVER_BTN.y + 1, '', this.textStyle(fs(20, 24))).setOrigin(0.5).setDepth(98.5);
     this.add
       .zone(FEVER_BTN.x, FEVER_BTN.y, FEVER_BTN.r * 2 + 8, FEVER_BTN.r * 2 + 8)
       .setDepth(98.6)
@@ -2387,7 +2387,7 @@ export class GameScene extends Phaser.Scene {
       { y: 46, size: 30, color: TEXT_COLORS.accent },
       { y: 80, size: 24, color: TEXT_COLORS.main },
       { y: 108, size: 24, color: TEXT_COLORS.main },
-      { y: 134, size: 20, color: TEXT_COLORS.soft },
+      { y: 134, size: fs(20, 22), color: TEXT_COLORS.soft },
     ];
     for (const { row, text } of extra) {
       const r = rows[row];

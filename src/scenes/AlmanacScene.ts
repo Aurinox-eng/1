@@ -8,7 +8,7 @@ import { createTowerArt, type TowerId } from '../objects/Tower';
 import { isLevelOpen, wasMet } from '../meta';
 import { isTowerOpen, levelKinds } from '../progress';
 import { addButton, setScreenInfo, textStyle, type Rect } from '../screens';
-import { COLORS, TEXT_COLORS } from '../theme';
+import { COLORS, TEXT_COLORS, fs } from '../theme';
 
 const { width: W, height: H } = CONFIG.screen;
 
@@ -255,7 +255,7 @@ export class AlmanacScene extends Phaser.Scene {
     // Строка и примечание мелко под ней, вместе — по центру ряда
     const lineText = line ? this.add.text(LINE_X, 0, line, { ...textStyle(22, TEXT_COLORS.main, false), fontStyle: 'normal', wordWrap: { width: LINE_W } }) : null;
     if (lineText) this.list.add(lineText);
-    const noteText = note ? this.add.text(LINE_X, 0, note, { ...textStyle(17, TEXT_COLORS.soft, false), fontStyle: 'normal', wordWrap: { width: LINE_W } }) : null;
+    const noteText = note ? this.add.text(LINE_X, 0, note, { ...textStyle(fs(17, 20), TEXT_COLORS.soft, false), fontStyle: 'normal', wordWrap: { width: LINE_W } }) : null;
     if (noteText) this.list.add(noteText);
     const content = (lineText?.height ?? 0) + (noteText ? 4 + noteText.height : 0);
     const rowH = Math.max(ROW_H, Math.ceil(content) + 24);
@@ -295,7 +295,7 @@ export class AlmanacScene extends Phaser.Scene {
   private addMarks(x: number, cy: number, label: string, icons: Phaser.GameObjects.Container[], color: number): void {
     // Пустой список (у Витамина) — без подписи
     if (icons.length === 0) return;
-    const text = this.add.text(x, cy, label, { ...textStyle(18, '#' + color.toString(16).padStart(6, '0'), false) }).setOrigin(0, 0.5);
+    const text = this.add.text(x, cy, label, { ...textStyle(fs(18, 22), '#' + color.toString(16).padStart(6, '0'), false) }).setOrigin(0, 0.5);
     this.list.add(text);
     let ix = x + text.width + 14 + MARK / 2;
     for (const icon of icons) {

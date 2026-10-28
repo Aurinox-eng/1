@@ -6,7 +6,7 @@ import { copyText } from '../attempt';
 import { setCurrentLevel } from '../progress';
 import { sfx } from '../sound';
 import { addButton, setScreenInfo, textStyle, type Rect } from '../screens';
-import { COLORS, TEXT_COLORS } from '../theme';
+import { COLORS, TEXT_COLORS, fs } from '../theme';
 
 const { width: W, height: H } = CONFIG.screen;
 
@@ -86,7 +86,7 @@ export class MenuScene extends Phaser.Scene {
     let copyAll: Rect | null = null;
     if (log.length > 0) {
       // под кнопкой — получилось ли скопировать (сама кнопка надпись не меняет)
-      const status = this.add.text(190, 700, '', textStyle(20, TEXT_COLORS.soft, false)).setOrigin(0.5);
+      const status = this.add.text(190, 700, '', textStyle(fs(20, 22), TEXT_COLORS.soft, false)).setOrigin(0.5);
       copyAll = addButton(this, {
         x: 190,
         y: 650,

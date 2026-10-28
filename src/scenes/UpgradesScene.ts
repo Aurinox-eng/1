@@ -9,7 +9,7 @@ import { maxLevel, UPGRADE_IDS, type UpgradeId } from '../save';
 import { sfx } from '../sound';
 import { currentLevel, favoriteBranch } from '../progress';
 import { setScreenInfo } from '../screens';
-import { COLORS, FONT, TEXT_COLORS } from '../theme';
+import { COLORS, FONT, TEXT_COLORS, fs } from '../theme';
 
 const { width: W } = CONFIG.screen;
 
@@ -299,7 +299,7 @@ export class UpgradesScene extends Phaser.Scene {
     g.fillStyle(COLORS.gold, 1).fillCircle(0, 0, NET_LAYOUT.coreR);
     g.lineStyle(6, COLORS.goldEdge, 1).strokeCircle(0, 0, NET_LAYOUT.coreR);
     g.lineStyle(12, 0xffe9a8, 0.18).strokeCircle(0, 0, NET_LAYOUT.coreR + 14);
-    const text = this.add.text(0, 0, t('upgDamage'), { ...this.style(17, '#3a2a00', false), align: 'center', wordWrap: { width: NET_LAYOUT.coreR * 1.8 } }).setOrigin(0.5);
+    const text = this.add.text(0, 0, t('upgDamage'), { ...this.style(fs(17, 22), '#3a2a00', false), align: 'center', wordWrap: { width: NET_LAYOUT.coreR * 1.8 } }).setOrigin(0.5);
     this.world.add([g, text]);
   }
 
@@ -349,7 +349,7 @@ export class UpgradesScene extends Phaser.Scene {
     this.detailName = this.add.text(x, DETAIL.y + 18, '', { ...this.style(30, TEXT_COLORS.accent), wordWrap: { width: ww } }).setOrigin(0, 0);
     this.detailLevel = this.add.text(x, DETAIL.y + 100, '', this.style(22, TEXT_COLORS.soft, false)).setOrigin(0, 0);
     this.detailEffect = this.add.text(x, DETAIL.y + 136, '', { ...this.style(22, TEXT_COLORS.main, false), wordWrap: { width: ww } }).setOrigin(0, 0);
-    this.detailNeed = this.add.text(x, DETAIL.y + 240, '', { ...this.style(21, TEXT_COLORS.bad, false), wordWrap: { width: ww } }).setOrigin(0, 0);
+    this.detailNeed = this.add.text(x, DETAIL.y + 240, '', { ...this.style(fs(21, 22), TEXT_COLORS.bad, false), wordWrap: { width: ww } }).setOrigin(0, 0);
     this.detailHint = this.add.text(x, BUY_CENTER.y - BUY.h / 2 - 34, '', this.style(22, TEXT_COLORS.accent, false)).setOrigin(0, 0);
     this.buyBg = this.add.graphics();
     this.buyLabel = this.add.text(BUY_CENTER.x, BUY_CENTER.y, '', this.style(26)).setOrigin(0.5);

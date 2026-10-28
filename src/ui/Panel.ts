@@ -4,7 +4,7 @@ import { t, type TextKey } from '../i18n';
 import { createTowerArt, type TowerId } from '../objects/Tower';
 import { isTowerOpen } from '../progress';
 import { towerPrice } from '../towerStats';
-import { COLORS, FONT, TEXT_COLORS } from '../theme';
+import { COLORS, FONT, TEXT_COLORS, BIG_TEXT, fs } from '../theme';
 import { drawPlate, roundButton, waveButton as waveButtonTexture } from './panelArt';
 import { TowerCard, type CardGeometry, type CardModel } from './TowerCard';
 
@@ -27,14 +27,14 @@ const LIST = { x: 10, y: BOTTOM_Y, w: 896, h: BOTTOM_H };
 /** Окошко жизней в верхней полосе: левый край и ширина (сердце и число «18 / 20»). */
 const LIVES_X = 636;
 const LIVES_W = 150;
-const CARD = { w: 108, h: 92, gap: 8, top: BOTTOM_Y + 8 };
+const CARD = { w: BIG_TEXT ? 120 : 108, h: 92, gap: 8, top: BOTTOM_Y + 8 };
 /** Правая часть: «Начать волну» (всегда на месте), скорость и пауза — круглые по 80 px, чтобы попадать большим пальцем. */
 const WAVE_BTN = { x: 916, w: 170, h: 98 };
 const CTRL_Y = BOTTOM_Y + 56;
 const SPEED_BTN = { x: 1134, r: 40 };
 const PAUSE_BTN = { x: 1222, r: 40 };
 /** Карточка выбранной башни лежит над нижней панелью, на карте; список башен остаётся доступным. */
-const CARD_AREA = { x: 10, y: BOTTOM_Y - 108, w: W - 20, h: 104 };
+const CARD_AREA = BIG_TEXT ? { x: 10, y: BOTTOM_Y - 128, w: W - 20, h: 124 } : { x: 10, y: BOTTOM_Y - 108, w: W - 20, h: 104 };
 /** Сколько пикселей нужно сдвинуть палец, чтобы касание списка стало прокруткой, а не нажатием на башню. */
 const DRAG_PX = CONFIG.camera.tapMaxMovePx; // как у карты (находка аудита MASTER-0088)
 /** Цвет подложки полос (как у нижней панели в макете). */
@@ -150,13 +150,13 @@ export class Panel {
     this.topGfx = scene.add.graphics().setDepth(D.panel + 0.5);
     this.chipPlate(12, 470);
     this.chipPlate(494, 130);
-    this.waveText = this.text(28, TOP_H / 2, '', 20, TEXT_COLORS.main, 0);
+    this.waveText = this.text(28, TOP_H / 2, '', fs(20, 24), TEXT_COLORS.main, 0);
     this.bar = scene.add.graphics().setDepth(D.item);
-    this.nextWaveText = this.text(344, TOP_H / 2, '', 14, TEXT_COLORS.soft, 0).setFontStyle('normal');
+    this.nextWaveText = this.text(BIG_TEXT ? 300 : 344, TOP_H / 2, '', fs(14, 22), TEXT_COLORS.soft, 0).setFontStyle('normal');
     this.coin(512, TOP_H / 2, 9);
-    this.coinsText = this.text(530, TOP_H / 2, '0', 20, TEXT_COLORS.accent, 0, 0.5);
+    this.coinsText = this.text(530, TOP_H / 2, '0', fs(20, 24), TEXT_COLORS.accent, 0, 0.5);
     this.hearts = scene.add.graphics().setDepth(D.item);
-    this.livesText = this.text(LIVES_X + 46, TOP_H / 2, '', 20, TEXT_COLORS.main, 0, 0.5);
+    this.livesText = this.text(LIVES_X + 46, TOP_H / 2, '', fs(20, 24), TEXT_COLORS.main, 0, 0.5);
 
     // ---- нижняя панель: подложка
     const bottom = scene.add.graphics().setDepth(D.panel);
@@ -188,9 +188,9 @@ export class Panel {
     // ---- «Начать волну» (видна, пока идёт отсчёт до волны), скорость и пауза — правая часть панели, на месте всегда
     const wy = CTRL_Y;
     this.waveBtnItems.push(scene.add.image(WAVE_BTN.x + WAVE_BTN.w / 2, wy, waveButtonTexture(scene, WAVE_BTN.w, WAVE_BTN.h, 20)).setDepth(D.item + 1));
-    this.waveBtnLabel = this.text(WAVE_BTN.x + WAVE_BTN.w / 2, wy - 12, t('startWave'), 19, '#06220f');
+    this.waveBtnLabel = this.text(WAVE_BTN.x + WAVE_BTN.w / 2, wy - 12, t('startWave'), fs(19, 22), '#06220f');
     this.waveBtnLabel.setStroke('#000000', 0);
-    this.waveBtnBonus = this.text(WAVE_BTN.x + WAVE_BTN.w / 2, wy + 16, '', 17, '#06220f');
+    this.waveBtnBonus = this.text(WAVE_BTN.x + WAVE_BTN.w / 2, wy + 16, '', fs(17, 20), '#06220f');
     this.waveBtnBonus.setStroke('#000000', 0);
     this.waveBtnItems.push(this.waveBtnLabel, this.waveBtnBonus);
     this.waveBtnItems.push(
@@ -222,7 +222,7 @@ export class Panel {
     // ---- подсказка «◀ Организм» у левого края окна карты
     this.chipBg = scene.add.graphics();
     const chipText = scene.add
-      .text(14, 17, `◀ ${t('organism')}`, { fontFamily: FONT, fontSize: '17px', fontStyle: 'bold', color: TEXT_COLORS.main, resolution: 2 })
+      .text(14, 17, `◀ ${t('organism')}`, { fontFamily: FONT, fontSize: `${fs(17, 22)}px`, fontStyle: 'bold', color: TEXT_COLORS.main, resolution: 2 })
       .setOrigin(0, 0.5);
     this.chip = scene.add.container(0, VIEW.y + VIEW.h / 2 - 17, [this.chipBg, chipText]).setDepth(D.chip).setVisible(false);
     this.drawChip(false);
@@ -242,8 +242,8 @@ export class Panel {
     this.nextWaveText.setText(nextInSec === null ? '' : t('nextWave', { n: Math.ceil(nextInSec) }));
     this.waveWarn = bossNext && nextInSec !== null;
     this.nextWaveText.setColor(this.waveWarn ? '#ff5a5a' : TEXT_COLORS.soft).setFontStyle(this.waveWarn ? 'bold' : 'normal');
-    const bx = 200;
-    const bw = 130;
+    const bx = BIG_TEXT ? 222 : 200;
+    const bw = BIG_TEXT ? 68 : 130;
     const by = TOP_H / 2 - 4;
     this.bar.clear();
     this.bar.fillStyle(0x0a1530, 1).fillRoundedRect(bx, by, bw, 8, 4);
@@ -512,7 +512,7 @@ export class Panel {
     const need = scene.add.graphics();
     box.add(bg);
     // Название башни сверху (русское или английское, по языку игры), ниже значок, у открытой — цена
-    const name = this.text(CARD.w / 2, 11, t(`tower${id.charAt(0).toUpperCase()}${id.slice(1)}` as TextKey), 14, TEXT_COLORS.main).setDepth(0);
+    const name = this.text(CARD.w / 2, 11, t(`tower${id.charAt(0).toUpperCase()}${id.slice(1)}` as TextKey), fs(14, 20), TEXT_COLORS.main).setDepth(0);
     if (name.width > CARD.w - 8) name.setScale((CARD.w - 8) / name.width);
     box.add(name);
     const icon = scene.add.container(CARD.w / 2, 39).setScale(0.44);
@@ -529,7 +529,7 @@ export class Panel {
       veil.fillStyle(0x070d1c, 0.7).fillRoundedRect(0, 0, CARD.w, CARD.h, 12);
       box.add(veil);
       box.add(this.lockIcon(CARD.w / 2, 36));
-      const lock = this.text(CARD.w / 2, 74, t('lockedTree'), 17, TEXT_COLORS.soft).setDepth(0);
+      const lock = this.text(CARD.w / 2, 74, t('lockedTree'), fs(17, 20), TEXT_COLORS.soft).setDepth(0);
       if (lock.width > CARD.w - 10) lock.setScale((CARD.w - 10) / lock.width);
       box.add(lock);
     }

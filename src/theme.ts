@@ -1,5 +1,12 @@
 import type { CONFIG } from './config';
-import { PILL_EYES_OFF } from './debug';
+import { FONT_PLAN, PILL_EYES_OFF } from './debug';
+
+/**
+ * Размеры надписей по плану MASTER-0025 (решение владельца 28 октября 2026, сообщение 2, п. 4): пока — только с `?qa&fontplan` (снимки владельцу), после «да» — в игре.
+ * `fs(сейчас, по плану)` — размер шрифта, пикселей игры.
+ */
+export const BIG_TEXT: boolean = FONT_PLAN;
+export const fs = (now: number, plan: number): number => (BIG_TEXT ? plan : now);
 
 type Kind = keyof typeof CONFIG.types;
 

@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import { createTowerArt, type TowerId } from '../objects/Tower';
 import { t } from '../i18n';
-import { COLORS, FONT, TEXT_COLORS } from '../theme';
+import { BIG_TEXT, COLORS, FONT, fs, TEXT_COLORS } from '../theme';
 
 /** Что показывает карточка выбранной башни (тексты уже на нужном языке; считает сцена). */
 export interface CardModel {
@@ -62,10 +62,12 @@ const BTN_W = 180;
 const SELL_GAP = 40;
 const PICK_W = 300;
 /** Размер шрифта описания мутации и строки «было → станет» с потолком (одинаковый: строка не мельче описания), пикселей. */
-const PICK_FONT = 14;
+const PICK_FONT = fs(14, 20);
 /** Карточка с выбором мутации выше обычной (104 px): описание и «было → станет» с потолком идут в несколько строк без сжатия; кнопки выбора — на всю высоту карточки за вычетом отступов. */
-const PICK_CARD_H = 156;
-const PICK_BTN_H = 136;
+const PICK_CARD_H = BIG_TEXT ? 200 : 156;
+const PICK_BTN_H = BIG_TEXT ? 180 : 136;
+/** Шаг строк чисел башни, пикселей. */
+const STAT_STEP = BIG_TEXT ? 24 : 18;
 const PAD = 12;
 /** Сторона кнопок поворота луча (Шприц), пикселей. */
 const ROT = 40;
@@ -131,17 +133,17 @@ export class TowerCard {
     this.icon = scene.add.container(0, 0).setDepth(d + 2).setScale(0.6);
     this.all.push(this.bg, this.btns, this.icon);
     this.nameText = this.text(0, 0, '', 22, TEXT_COLORS.main, 0);
-    this.levelText = this.text(0, 0, '', 17, TEXT_COLORS.accent, 0);
-    this.statTexts = [0, 1, 2].map(() => this.text(0, 0, '', 15, TEXT_COLORS.soft, 0).setFontStyle('normal'));
-    this.pickNames = [0, 1].map(() => this.text(0, 0, '', 17, TEXT_COLORS.main, 0));
+    this.levelText = this.text(0, 0, '', fs(17, 22), TEXT_COLORS.accent, 0);
+    this.statTexts = [0, 1, 2].map(() => this.text(0, 0, '', fs(15, 20), TEXT_COLORS.soft, 0).setFontStyle('normal'));
+    this.pickNames = [0, 1].map(() => this.text(0, 0, '', fs(17, 22), TEXT_COLORS.main, 0));
     this.pickDescs = [0, 1].map(() => this.text(0, 0, '', PICK_FONT, TEXT_COLORS.soft, 0).setFontStyle('normal').setWordWrapWidth(PICK_W - 20));
     this.pickChanges = [0, 1].map(() => this.text(0, 0, '', PICK_FONT, TEXT_COLORS.accent, 0).setFontStyle('normal').setWordWrapWidth(PICK_W - 20));
-    this.listText = this.text(0, 0, '', 13, TEXT_COLORS.main, 0).setFontStyle('normal').setWordWrapWidth(330);
-    this.hintText = this.text(0, 0, '', 18, TEXT_COLORS.accent, 0).setFontStyle('normal').setVisible(false);
+    this.listText = this.text(0, 0, '', fs(13, 20), TEXT_COLORS.main, 0).setFontStyle('normal').setWordWrapWidth(330);
+    this.hintText = this.text(0, 0, '', fs(18, 22), TEXT_COLORS.accent, 0).setFontStyle('normal').setVisible(false);
     this.mergeText = this.text(0, 0, '', 24, TEXT_COLORS.main);
-    this.mergeSub = this.text(0, 0, '', 14, TEXT_COLORS.main).setFontStyle('normal');
+    this.mergeSub = this.text(0, 0, '', fs(14, 18), TEXT_COLORS.main).setFontStyle('normal');
     this.sellText = this.text(0, 0, '', 24, TEXT_COLORS.main);
-    this.sellSub = this.text(0, 0, '', 14, TEXT_COLORS.main).setFontStyle('normal');
+    this.sellSub = this.text(0, 0, '', fs(14, 18), TEXT_COLORS.main).setFontStyle('normal');
     this.closeText = this.text(0, 0, '✕', 22, TEXT_COLORS.soft);
     // Карточка лежит на карте: нажатия мимо её кнопок проходят к карте под ней (иначе клетки в нижней полосе окна нельзя было бы тапнуть, например при выборе пары для слияния)
     const zone = (w: number, h: number, handler: () => void): Phaser.GameObjects.Zone => {
@@ -225,15 +227,16 @@ export class TowerCard {
     this.icon.setPosition(iconX, cy);
     const nameX = iconX + 40;
     this.nameText.setText(m.name).setPosition(nameX, cy - 26);
-    this.levelText.setText(t('cardLevel', { n: m.level, max: m.maxLevel })).setPosition(nameX, cy + 2);
+    this.levelText.setText(t('cardLevel', { n: m.level, max: m.maxLevel })).setPosition(nameX, cy + (BIG_TEXT ? 4 : 2));
 
     // Справа: «Продать» и левее неё «Слить» с зазором; левее — поворот луча (Шприц)
     const sellX = x + w - PAD - BTN_W / 2;
     const mergeX = sellX - BTN_W - SELL_GAP;
     const rightEdge = mergeX - BTN_W / 2 - 14;
-    this.rotVisible = m.beam;
+    // крупный шрифт (план MASTER-0025): на время выбора мутации кнопок поворота луча нет — варианты шире
+    this.rotVisible = m.beam && !(BIG_TEXT && m.pending);
     let midRight = rightEdge; // правее этой черты в середине карточки места нет
-    if (m.beam) {
+    if (this.rotVisible) {
       // кнопки видимым размером ROT, зоны касания HIT × HIT не перекрываются и не заходят на «Слить»
       const half = ROT / 2;
       const xr = rightEdge - HIT / 2;
@@ -276,10 +279,10 @@ export class TowerCard {
         this.pickDescs[i].setWordWrapWidth(pickW - 20);
         this.pickChanges[i].setWordWrapWidth(pickW - 20);
         this.pickNames[i].setVisible(true).setText(opt.name).setPosition(bx + 10, top + 6);
-        this.pickDescs[i].setVisible(true).setText(opt.desc).setPosition(bx + 10, top + 30);
+        this.pickDescs[i].setVisible(true).setText(opt.desc).setPosition(bx + 10, top + (BIG_TEXT ? 34 : 30));
         // «было → станет» и потолок — под описанием, тем же шрифтом и без сжатия: длинная строка переносится
         const change = this.pickChanges[i].setVisible(true).setText(opt.change).setScale(1);
-        change.setPosition(bx + 10, top + 30 + this.pickDescs[i].height + 6);
+        change.setPosition(bx + 10, top + (BIG_TEXT ? 34 : 30) + this.pickDescs[i].height + 6);
         this.pickFits[i] = change.y + change.height <= top + PICK_BTN_H - 4;
         const zone = i === 0 ? this.zones.pick0 : this.zones.pick1;
         zone.setSize(pickW, PICK_BTN_H).setPosition(bx + pickW / 2, cy);
@@ -288,12 +291,12 @@ export class TowerCard {
       });
     } else {
       this.statTexts.forEach((text, i) => {
-        text.setVisible(i < m.stats.length).setText(m.stats[i] ?? '').setPosition(midX, y + 9 + i * 18).setScale(1);
+        text.setVisible(i < m.stats.length).setText(m.stats[i] ?? '').setPosition(midX, y + 9 + i * STAT_STEP).setScale(1);
         // длинная строка (пауза с пометкой «×0,4, Витамин, Лихорадка») сжимается до места перед кнопками, а не налезает на них
         const room = midRight - midX;
         if (room > 0 && text.width > room) text.setScale(room / text.width);
       });
-      const ty = y + 9 + Math.max(1, m.stats.length) * 18 + 2;
+      const ty = y + 9 + Math.max(1, m.stats.length) * STAT_STEP + 2;
       this.shownStats = m.stats.slice();
       if (m.picked.length > 0) {
         this.listText.setVisible(true).setText(`${t('cardMutations')} ${m.picked.map((p) => p.name).join(', ')}`).setPosition(midX, ty);
