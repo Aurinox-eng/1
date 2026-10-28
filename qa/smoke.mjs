@@ -8069,7 +8069,6 @@ async function runRealGame(browser, baseUrl) {
   const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
   const D = readMetaTable().dna;
   const livesStart = readConfigNumber('lives', 'start');
-  const hpScale = readConfigNumber('waves', 'hpScale');
   // ---- первые волны и выход в меню
   {
     const game = await openGame(context, baseUrl, `${p} волны`, { speed: 4, raw: true, query: '&levelwaves&level=1' });
@@ -8096,12 +8095,9 @@ async function runRealGame(browser, baseUrl) {
       return count;
     });
     check(`${p} у дорожек поставлено 6 Таблеток II`, placed === 6, String(placed));
-    s = await waitForGame(game.page, (x) => x.spawned > 0 || x.state !== 'playing', 'первая бактерия', { gameSec: 60 });
-    const first = s.bacteria[0];
-    const hpMatch = first ? new RegExp(`^\\s{4}${first.kind}:\\s*\\{\\s*hp:\\s*([\\d.]+)`, 'm').exec(fs.readFileSync(path.join(ROOT, 'src', 'config.ts'), 'utf8')) : null;
-    const tableHp = hpMatch ? Number(hpMatch[1]) : undefined;
-    // прочность в игре — HP таблицы × waves.hpScale и множители уровня; в остальных сценариях подмена hpScale:1 оставляет HP таблицы
-    check(`${p} прочность бактерий настоящая: ${first?.kind} ${first?.maxHp} HP при ${tableHp} HP по таблице и waves.hpScale ${hpScale}`, Boolean(first) && tableHp !== undefined && Math.abs(first.maxHp - tableHp) > 0.01, JSON.stringify(first ? { kind: first.kind, maxHp: first.maxHp, tableHp } : null));
+    // адрес без `cfg`: числа config.ts как есть (прочность на уровне 1 по ней не отличить: waves.hpScale × waves.level1HpFactor = 1, как и в подмене остальных сценариев)
+    const url = game.page.url();
+    check(`${p} в адресе игры нет подмены конфигурации (cfg)`, !/[?&]cfg=/.test(url), url);
     s = await waitForGame(game.page, (x) => x.wave >= 6 || x.state !== 'playing', '6-я волна', { gameSec: 600 });
     check(`${p} первые 5 волн пройдены, партия идёт (жизней ${s.lives})`, s.state === 'playing' && s.wave >= 6 && s.lives > 0, JSON.stringify({ state: s.state, wave: s.wave, lives: s.lives }));
     const dna0 = (await metaOf(game.page)).dna;
