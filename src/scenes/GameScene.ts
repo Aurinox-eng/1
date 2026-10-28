@@ -455,6 +455,10 @@ export class GameScene extends Phaser.Scene {
           const [col, row] = key.split(',').map(Number);
           return [col, row];
         }),
+        pathCells: [...PATH_TILES].map((key): [number, number] => {
+          const [col, row] = key.split(',').map(Number);
+          return [col, row];
+        }),
       }),
       gameToClient: (gx, gy) => this.gameToClient(gx, gy),
       placeTower: (id, col, row, level) => placeTowerQa(this, id as TowerId, col, row, level),

@@ -336,6 +336,8 @@ export interface DebugGraph {
   exits: string[];
   /** Закрытые для башен клетки (не на дорожке, но слишком далеко от неё): [колонка, ряд]. */
   blockedCells: [number, number][];
+  /** Клетки дорожек (строить нельзя). */
+  pathCells: [number, number][];
 }
 
 /** Что игра отдаёт проверкам через window.__pvb. */
