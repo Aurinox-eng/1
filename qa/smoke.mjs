@@ -9705,7 +9705,7 @@ async function runTreeMock(browser, baseUrl) {
 async function runFaces(browser, baseUrl) {
   for (const deviceKey of ['desktop', 'phone']) {
     const device = VIEWPORTS[deviceKey];
-    for (const page of ['f1', 'f2', 'f3']) {
+    for (const page of ['f1', 'f2', 'f3', 'l']) {
       const p = `[лист без лиц ${page}, ${device.label}]`;
       const context = await newDeviceContext(browser, device, 'ru');
       const tab = await context.newPage();
@@ -9719,12 +9719,13 @@ async function runFaces(browser, baseUrl) {
       await context.close();
     }
     // с 26 октября 2026 (сообщение 6, п. 1) лиц в игре нет: поздняя сцена — одна, «стало»
-    for (const [tag, query] of [['after', '']]) {
-      const p = `[поздняя сцена без лиц, ${device.label}]`;
+    // `high` — лист V–VIII в плотной поздней сцене: Таблетки, Сиропы и Шприцы с рисунками I–VIII (сообщение 1 от 28 октября 2026, п. 6.1)
+    for (const [tag, query] of [['after', ''], ['high', '=high']]) {
+      const p = `[поздняя сцена без лиц${tag === 'high' ? ', уровни I–VIII' : ''}, ${device.label}]`;
       const context = await newDeviceContext(browser, device, 'ru');
       const tab = await context.newPage();
       watchConsole(tab, p);
-      await tab.goto(`${baseUrl}?qa&stress&noplaque${query}`, { waitUntil: 'load', timeout: 90000 });
+      await tab.goto(`${baseUrl}?qa&stress${query}&noplaque`, { waitUntil: 'load', timeout: 90000 });
       await tab.waitForFunction(() => (window.__pvb?.getPerf?.(false)?.bacteria ?? 0) >= 150, null, { timeout: 90000 }).catch(() => {});
       await sleep(1000);
       await frames(tab, 3);

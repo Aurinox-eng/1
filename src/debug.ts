@@ -23,7 +23,7 @@
  *   http://localhost:5173/?lang=en       — принудительно выбирает язык (проверка переводов)
  *   http://localhost:5173/?qa&best=30,19 — лучшие волны уровней 1, 2, … (в сохранение ничего не пишется)
  *   http://localhost:5173/?qa&pilleyes=0 — Таблетки без глаз (снимки пилота этапа 8, qa/art-shots.mjs); по умолчанию глаза есть (theme.PILL_EYES)
- *   http://localhost:5173/?qa&artsheet   — лист образцов: новые и прежние рисунки рядом; &artsheet=b1|b2 — все бактерии, =t1|t2 — все башни (только режим проверки; в игровую сборку не попадает)
+ *   http://localhost:5173/?qa&artsheet   — лист образцов: новые и прежние рисунки рядом; &artsheet=b1|b2 — все бактерии, =t1|t2 — все башни, =l — уровни I–VIII (Таблетка, Сироп, Шприц), заклёпки и знаки рангов; &stress=high — плотная сцена с рисунками I–VIII (только режим проверки; в игровую сборку не попадает)
  */
 import type { PerfReport } from './perf';
 
@@ -64,6 +64,8 @@ export const STRESS: boolean = QA_MODE && params.has('stress');
 
 /** Второй стресс-сценарий (`?qa&stress=fizz`): 12 Шипучек 4-го уровня с мутациями «Цепная» и «Кислота» и ≈200 бактерий — нагрузка на взрывы (круг и кольцо на каждый взрыв). Включает и `STRESS`. */
 export const STRESS_FIZZ: boolean = STRESS && params.get('stress') === 'fizz';
+/** Третий стресс-сценарий (`?qa&stress=high`): Таблетки, Сиропы и Шприцы с рисунками уровней I–VIII — лист V–VIII в плотной сцене (решение владельца 28 октября 2026, сообщение 1, п. 6.1); числа башен — до IV. */
+export const STRESS_HIGH: boolean = STRESS && params.get('stress') === 'high';
 /** Вход (номер ребра), по которому выходят ВСЕ бактерии волн (только вместе с ?qa&entrance=N); null — вход случайный, как в игре. */
 export const QA_ENTRANCE: number | null = QA_MODE && params.has('entrance') && Number.isFinite(Number(params.get('entrance'))) ? Number(params.get('entrance')) : null;
 
@@ -357,7 +359,7 @@ export interface DebugApi {
   /** Замер скорости с последнего сброса (reset — начать заново) и сколько объектов сейчас рисуется. */
   /** Журнал событий игры (с номера `from`): см. QaEvent. Сбрасывается при перезапуске уровня. */
   getEvents: (from?: number) => QaEvent[];
-  getPerf: (reset?: boolean) => PerfReport & { objects: number; bacteria: number; towers: number; renderer: 'webgl' | 'canvas'; scenario?: 'stress' | 'fizz' };
+  getPerf: (reset?: boolean) => PerfReport & { objects: number; bacteria: number; towers: number; renderer: 'webgl' | 'canvas'; scenario?: 'stress' | 'fizz' | 'high' };
 }
 
 declare global {

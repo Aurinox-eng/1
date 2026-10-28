@@ -5,6 +5,7 @@ import { t, type TextKey } from './i18n';
 import { bacteriumSample, extentOf, type BacteriumKind } from './objects/Bacterium';
 import { ringImage } from './art';
 import { BOSS_TINT, drawBossDecor } from './objects/bossDecor';
+import { rankMarkKey, RANK_BOX } from './objects/highTowerArt';
 import { createTowerArtSample, type TowerId } from './objects/Tower';
 import { COLORS } from './theme';
 
@@ -39,6 +40,10 @@ export class ArtSheetScene extends Phaser.Scene {
     }
     if (ART_SHEET_PAGE === 'f3') {
       this.bossTwinsPage();
+      return;
+    }
+    if (ART_SHEET_PAGE === 'l') {
+      this.levelsPage();
       return;
     }
     if (ART_SHEET_PAGE === 't1' || ART_SHEET_PAGE === 't2') {
@@ -216,6 +221,51 @@ export class ArtSheetScene extends Phaser.Scene {
         this.add.text(cx, y + 150, after ? 'стало' : 'было', { fontFamily: 'Arial', fontSize: '14px', color: '#9fb4d8' }).setOrigin(0.5, 0.5);
       });
     });
+  }
+
+  /**
+   * Лист V–VIII в нынешнем стиле (`?qa&artsheet=l`; решение владельца 28 октября 2026, сообщение 1, п. 6): Таблетка, Сироп и Шприц, уровни I–VIII в ряд, без лиц, со светлой заклёпкой в центре;
+   * ниже — тёмная втулка «было» и светлая заклёпка «стало» у остальных башен (уровень III) и знаки рангов ★1–★8. Размер телефона — снимок листа на экране 844×390.
+   */
+  private levelsPage(): void {
+    const W = CONFIG.screen.width;
+    const label = (x: number, y: number, text: string, size = 14, align = 0.5): void => {
+      this.add.text(x, y, text, { fontFamily: 'Arial', fontSize: `${size}px`, color: '#cfe0ff' }).setOrigin(align, 0.5);
+    };
+    label(W / 2, 14, 'Уровни I–VIII без лиц, светлая заклёпка вместо тёмной втулки, знаки рангов', 16);
+    const x0 = 190;
+    const dx = 136;
+    const rows: { id: TowerId; y: number; name: string }[] = [
+      { id: 'pill', y: 100, name: 'Таблетка' },
+      { id: 'syrup', y: 212, name: 'Сироп' },
+      { id: 'syringe', y: 324, name: 'Шприц' },
+    ];
+    const ROMAN = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII'];
+    ROMAN.forEach((r, i) => label(x0 + i * dx, 38, r, 15));
+    for (const row of rows) {
+      label(16, row.y, row.name, 15, 0);
+      for (let lv = 1; lv <= 8; lv++) createTowerArtSample(this, this.add.container(x0 + (lv - 1) * dx, row.y), row.id, lv, false, false, true);
+    }
+    // втулка «было» → заклёпка «стало» у башен не в стиле пилота, уровень III: два ряда пар
+    label(16, 404, 'Центр башни, уровень III: было → стало', 13, 0);
+    const others = TOWERS.filter((id) => id !== 'pill');
+    const perRow = 5;
+    const pairW = (W - 40) / perRow;
+    others.forEach((id, i) => {
+      const cx = 20 + pairW * ((i % perRow) + 0.5) + (i >= perRow ? pairW / 2 : 0);
+      const cy = i < perRow ? 462 : 566;
+      ([false, true] as const).forEach((rivet, j) => {
+        const holder = this.add.container(cx + (j === 0 ? -42 : 42), cy).setScale(0.82);
+        createTowerArtSample(this, holder, id, 3, false, false, rivet);
+      });
+      label(cx, cy + 46, `${id}: было → стало`, 11);
+    });
+    // знаки рангов ★1–★8: крупно и в размере на башне
+    label(16, 664, 'Знаки рангов', 13, 0);
+    for (let r = 1; r <= 8; r++) {
+      this.add.image(x0 + (r - 1) * dx - 22, 664, rankMarkKey(this, r)).setDisplaySize(RANK_BOX.w * 1.6, RANK_BOX.h * 1.6);
+      this.add.image(x0 + (r - 1) * dx + 24, 664, rankMarkKey(this, r)).setDisplaySize(RANK_BOX.w * 0.75, RANK_BOX.h * 0.75);
+    }
   }
 
   /** Страница башен: пять видов, уровни 1–4 в ряд. */

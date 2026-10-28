@@ -7,7 +7,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import Phaser from 'phaser';
 import { CONFIG } from './config';
-import { QA_EVENTS_MAX, QA_MODE, STRESS_FIZZ, type DebugSnapshot, type QaEvent } from './debug';
+import { QA_EVENTS_MAX, QA_MODE, STRESS_FIZZ, STRESS_HIGH, type DebugSnapshot, type QaEvent } from './debug';
 import { refundBonus } from './meta';
 import { BLOCKED_TILES, EDGES, LEVEL, MAP_ID, PATH_TILES, WORLD, cellKey } from './level';
 import { Bacterium, type BacteriumKind } from './objects/Bacterium';
@@ -247,7 +247,7 @@ export function placeTowerQa(s: GameSceneInternals, id: TowerId, col: number, ro
 export function setupStress(s: GameSceneInternals): void {
   s.userSpeed = STRESS_SPEED;
   s.panel.setSpeed(s.userSpeed);
-  const ids = Object.keys(CONFIG.towers) as TowerId[];
+  const ids = STRESS_HIGH ? (['pill', 'syrup', 'syringe'] as TowerId[]) : (Object.keys(CONFIG.towers) as TowerId[]);
   const free: [number, number][] = [];
   for (let row = 0; row < LEVEL.rows; row++) {
     for (let col = 0; col < LEVEL.cols; col++) {
@@ -267,6 +267,8 @@ export function setupStress(s: GameSceneInternals): void {
     const tower = new Tower(s, s.towerLayer, ids[i % ids.length], col, row, center.x, center.y);
     for (let level = 1; level < 1 + (Math.floor(i / ids.length) % MAX_TOWER_LEVEL); level++) tower.upgrade();
     while (tower.pendingTier !== null) tower.pickMutation(i % 2);
+    // `stress=high`: рисунки уровней I–VIII по кругу (числа башни — до IV)
+    if (STRESS_HIGH) tower.qaShowArtLevel(1 + (Math.floor(i / ids.length) % 8));
     s.occupied.add(cellKey(col, row));
     s.towers.push(tower);
   }
