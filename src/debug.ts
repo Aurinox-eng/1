@@ -36,8 +36,6 @@ export const QA_MODE: boolean = QA_ENABLED && params.has('qa');
 
 /** Только режим проверки: `?qa&pilleyes=0` — Таблетки без глаз (для снимков пилота); в игровой сборке всегда false. */
 export const PILL_EYES_OFF: boolean = QA_MODE && params.get('pilleyes') === '0';
-/** `?qa&fontplan` — крупные надписи по плану MASTER-0025 (решение владельца 28 октября 2026, сообщение 2, п. 4: основной текст не меньше 22 px игры, второстепенный — не меньше 20; сначала снимки). */
-export const FONT_PLAN: boolean = QA_MODE && params.has('fontplan');
 
 /**
  * Только режим проверки (разбор удорожания отрисовки ветки стиля, замер `perf`): `?qa&noface` — бактерии без картинки лица, `?qa&nobreath` — без «дыхания» (пульсации масштаба).
