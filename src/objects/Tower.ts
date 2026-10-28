@@ -51,9 +51,9 @@ function highLevel(level: number): number {
 
 /**
  * Светлая заклёпка вместо тёмной втулки с бликом в центре башен не в стиле пилота (на значке читалась как глаз; решение владельца 28 октября 2026, сообщение 1, п. 6.2).
- * В игре — после «да» владельца по листу `?qa&artsheet=l`; до того заклёпку рисует только лист.
+ * В игре — с 28 октября 2026 («да» владельца по листу `?qa&artsheet=l`, сообщение 2, п. 2); `false` — тёмная втулка (лист «было»).
  */
-const HUB_RIVET = false;
+const HUB_RIVET = true;
 
 /** Ограничение уровня рисунка: у башни 4 вида рисунков (уровни слияния 1–4). */
 function artLevel(level: number): 1 | 2 | 3 | 4 {
@@ -755,7 +755,7 @@ function drawPatch(g: Gfx, lv: number): void {
     // три полосы веером и рулон бинта сзади
     shCirc(g, -26, 0, 15, COLORS.patchPad, E, 2.5);
     shCirc(g, -26, 0, 9, null, E, 1.6);
-    shCirc(g, -26, 0, 4, E);
+    shCirc(g, -26, 0, 4, COLORS.patchPad, E, 1.2); // центр рулона светлый: тёмная точка читалась как глаз (решение владельца 28 октября 2026, сообщение 2, п. 2)
     plasterStrip(g, 20, 0, 66, 22, -0.62);
     plasterStrip(g, 20, 0, 66, 22, 0.62);
     plasterStrip(g, 20, 0, 70, 24, 0);
@@ -766,7 +766,7 @@ function drawPatch(g: Gfx, lv: number): void {
   glowCircle(g, 18, 0, 34, A.patchRed, 14, 0.25);
   shCirc(g, -28, 0, 17, COLORS.gold, COLORS.goldEdge, 2.5);
   shCirc(g, -28, 0, 11, COLORS.patchPad, COLORS.goldEdge, 1.8);
-  shCirc(g, -28, 0, 5, COLORS.goldEdge);
+  shCirc(g, -28, 0, 5, COLORS.patchPad, COLORS.goldEdge, 1.2); // центр рулона светлый (сообщение 2 от 28 октября 2026, п. 2)
   for (const ang of [-0.78, 0.78, -0.3, 0.3]) plasterStrip(g, 22, 0, 74, 22, ang, A.patchStrip, COLORS.goldEdge);
   plasterStrip(g, 22, 0, 80, 26, 0, COLORS.patch, COLORS.gold);
   gauzePad(g, 22, 0, 28, 0, COLORS.gold);
