@@ -1,0 +1,4 @@
+commit: 545df1f617d17c80ad7dc2ea7850b942c0e2fdde
+branch: claude/pvb-fix-hasnext-log
+built:  2026-10-24 23:07:45 UTC
+run:    22
