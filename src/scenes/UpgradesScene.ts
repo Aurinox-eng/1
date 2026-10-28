@@ -28,8 +28,8 @@ const ZOOM_MAX = 2.2;
 const LABEL_MIN_ZOOM = 0.62;
 /** Размер подписи цепочки, пикселей мира. */
 const LABEL_PX = 20;
-/** Кнопка сброса сети (бесплатный сброс между попытками; решение владельца 26 октября 2026, сообщение 3, п. 4.2): круглая, в правом верхнем углу окна сети. */
-const RESPEC = { x: VIEW.x + VIEW.w - 36, y: VIEW.y + 36, r: 26 };
+/** Кнопка сброса сети (бесплатный сброс между попытками; решение владельца 26 октября 2026, сообщение 3, п. 4.2; с надписью — сообщение 6, п. 3): в правом верхнем углу окна сети. */
+const RESPEC = { x: VIEW.x + VIEW.w - 92, y: VIEW.y + 34, w: 168, h: 48 };
 const LAYOUT = layoutNet();
 
 /** Ключ названия улучшения: `upg` + id с заглавной буквы (`lives` → `upgLives`). */
@@ -126,6 +126,7 @@ export class UpgradesScene extends Phaser.Scene {
   private buyBg!: Phaser.GameObjects.Graphics;
   private buyLabel!: Phaser.GameObjects.Text;
   private respecGfx!: Phaser.GameObjects.Graphics;
+  private respecLabel!: Phaser.GameObjects.Text;
   /** Откуда пришли: 'menu' — из главного меню («Играть» ведёт на выбор уровня); иначе с экрана конца уровня («Играть» начинает новую партию того же уровня). */
   private from: 'menu' | 'game' = 'game';
   private dragFrom: { x: number; y: number; pan: { x: number; y: number }; moved: boolean } | null = null;
@@ -203,7 +204,8 @@ export class UpgradesScene extends Phaser.Scene {
     this.input.on('wheel', (_p: Phaser.Input.Pointer, _o: unknown, _dx: number, dy: number) => this.setView(this.zoom * (dy > 0 ? 0.9 : 1.1), this.pan));
 
     this.respecGfx = this.add.graphics();
-    this.add.zone(RESPEC.x, RESPEC.y, RESPEC.r * 2 + 8, RESPEC.r * 2 + 8).setInteractive({ useHandCursor: true }).on('pointerdown', () => this.onRespec());
+    this.respecLabel = this.add.text(RESPEC.x + 14, RESPEC.y, t('upgReset'), this.style(22)).setOrigin(0.5);
+    this.add.zone(RESPEC.x, RESPEC.y, RESPEC.w, RESPEC.h).setInteractive({ useHandCursor: true }).on('pointerdown', () => this.onRespec());
 
     this.buildDetail();
     this.addBottomButton(PLAY, t('upgPlay'), 0x2a8a4a, COLORS.merge, () => (this.from === 'menu' ? this.scene.start('Levels') : this.scene.start('Game', { level: this.nextLevelToPlay() })));
@@ -213,7 +215,7 @@ export class UpgradesScene extends Phaser.Scene {
 
     exposeMetaDebug(() => this.describe());
     if (QA_MODE) window.__pvbUpgrades = { focus: (id: string) => this.focus(id) };
-    setScreenInfo(() => (this.scene.isActive() ? { scene: 'upgrades', buttons: { play: PLAY, menu: MENU, respec: { x: RESPEC.x, y: RESPEC.y, w: RESPEC.r * 2, h: RESPEC.r * 2 } }, texts: [this.balance.text] } : null));
+    setScreenInfo(() => (this.scene.isActive() ? { scene: 'upgrades', buttons: { play: PLAY, menu: MENU, respec: { ...RESPEC } }, texts: [this.balance.text, this.respecLabel.text] } : null));
   }
 
   /** Число открытых колец (подряд от первого). */
@@ -494,14 +496,19 @@ export class UpgradesScene extends Phaser.Scene {
     });
     const refund = networkRefund();
     this.respecGfx.clear();
-    this.respecGfx.fillStyle(refund > 0 ? 0x2a3f6e : 0x1e2638, 1).fillCircle(RESPEC.x, RESPEC.y, RESPEC.r);
-    this.respecGfx.lineStyle(3, refund > 0 ? 0x8fb8ff : 0x3a4560, 1).strokeCircle(RESPEC.x, RESPEC.y, RESPEC.r);
-    // стрелка-кольцо «вернуть»
-    this.respecGfx.lineStyle(4, refund > 0 ? 0xe8f0ff : 0x5a6680, 1).beginPath().arc(RESPEC.x, RESPEC.y, RESPEC.r * 0.5, -0.3, Math.PI * 1.45).strokePath();
-    const tipA = -0.3;
-    const tx = RESPEC.x + Math.cos(tipA) * RESPEC.r * 0.5;
-    const ty = RESPEC.y + Math.sin(tipA) * RESPEC.r * 0.5;
-    this.respecGfx.fillStyle(refund > 0 ? 0xe8f0ff : 0x5a6680, 1).fillTriangle(tx - 7, ty - 4, tx + 7, ty - 4, tx, ty + 7);
+    const on = refund > 0;
+    this.respecGfx.fillStyle(on ? 0x2a3f6e : 0x1e2638, 1).fillRoundedRect(RESPEC.x - RESPEC.w / 2, RESPEC.y - RESPEC.h / 2, RESPEC.w, RESPEC.h, 12);
+    this.respecGfx.lineStyle(3, on ? 0x8fb8ff : 0x3a4560, 1).strokeRoundedRect(RESPEC.x - RESPEC.w / 2, RESPEC.y - RESPEC.h / 2, RESPEC.w, RESPEC.h, 12);
+    // стрелка-кольцо «вернуть» слева от надписи
+    const ax = RESPEC.x - RESPEC.w / 2 + 24;
+    const ar = 10;
+    this.respecGfx.lineStyle(4, on ? 0xe8f0ff : 0x5a6680, 1).beginPath().arc(ax, RESPEC.y, ar, -0.3, Math.PI * 1.45).strokePath();
+    const tx = ax + Math.cos(-0.3) * ar;
+    const ty = RESPEC.y + Math.sin(-0.3) * ar;
+    this.respecGfx.fillStyle(on ? 0xe8f0ff : 0x5a6680, 1).fillTriangle(tx - 6, ty - 3, tx + 6, ty - 3, tx, ty + 6);
+    this.respecLabel.setColor(on ? TEXT_COLORS.main : TEXT_COLORS.dim);
+    // надпись не шире кнопки
+    this.respecLabel.setScale(Math.min(1, (RESPEC.w - 56) / Math.max(1, this.respecLabel.width)));
     this.refreshDetail();
   }
 
@@ -524,7 +531,9 @@ export class UpgradesScene extends Phaser.Scene {
     // условие: ветка башни — купленным узлом башни; путь по сети — родителем (кольцо закрыто — без текста, как и само кольцо)
     const lines: string[] = [];
     const towerNode = towerNodeId(spec.branch);
-    const ringClosed = buyKey === null && node !== undefined && !nodeBought(this.selectedKey) && !isRingOpen(node.ring);
+    // узел, который купит кнопка (выбранный, если не куплен, иначе следующий): его кольцо закрыто — ни условия, ни подписи кнопки
+    const target = buyKey ? NET.nodes.get(buyKey) : node && !nodeBought(this.selectedKey) ? node : undefined;
+    const ringClosed = !maxed && target !== undefined && !isRingOpen(target.ring);
     if (!isBranchOpen(spec.branch) && requirementOf(id)?.id !== towerNode) lines.push(t('upgLockedTower', { name: t(nameKey(towerNode)) }));
     const req = requirementOf(id);
     if (!ringClosed && req && !requirementMet(id)) lines.push(t('upgRequires', { name: t(nameKey(req.id)), n: req.level }));
@@ -556,7 +565,7 @@ export class UpgradesScene extends Phaser.Scene {
         const c = this.toScreen(l.text.x + l.text.width / 2, l.text.y + l.text.height / 2);
         return { x: c.x, y: c.y, w: l.text.width * this.zoom, h: l.text.height * this.zoom };
       }),
-      respec: { x: RESPEC.x, y: RESPEC.y, w: RESPEC.r * 2, h: RESPEC.r * 2 },
+      respec: { ...RESPEC },
       refund: networkRefund(),
       nodes: UPGRADE_IDS.map((nid) => {
         const placed = LAYOUT.nodes.get(representative(nid))!;
@@ -569,7 +578,10 @@ export class UpgradesScene extends Phaser.Scene {
           price: nextPrice(nid),
           canBuy: canBuy(nid),
           open: isNodeOpen(nid),
-          onScreen: c.x - r >= VIEW.x && c.x + r <= VIEW.x + VIEW.w && c.y - r >= VIEW.y && c.y + r <= VIEW.y + VIEW.h,
+          // в окне сети и не под кнопкой сброса (касание там попадает в кнопку)
+          onScreen:
+            c.x - r >= VIEW.x && c.x + r <= VIEW.x + VIEW.w && c.y - r >= VIEW.y && c.y + r <= VIEW.y + VIEW.h &&
+            !(Math.abs(c.x - RESPEC.x) <= RESPEC.w / 2 + r && Math.abs(c.y - RESPEC.y) <= RESPEC.h / 2 + r),
           rect: { x: c.x, y: c.y, w: r * 2, h: r * 2 },
           label: { x: c.x, y: c.y, w: 0, h: 0 },
           recommended: recommendedIds().includes(nid),

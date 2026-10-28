@@ -8901,6 +8901,8 @@ async function runTreeShop(browser, baseUrl) {
     // ---- сброс сети: малые узлы возвращают ДНК, узел башни остаётся
     md = await metaOf(app.page);
     check(`${p} кнопка сброса вернёт ${md.screen.refund} ДНК = цены купленных малых узлов (${spentNet})`, md.screen.refund === spentNet, `${md.screen.refund}`);
+    const uiReset = await app.ui();
+    check(`${p} на кнопке сброса надпись «${i18nText('upgReset', li)}» (решение владельца 26 октября 2026, сообщение 6, п. 3)`, uiReset.texts.includes(i18nText('upgReset', li)), JSON.stringify(uiReset.texts));
     const dnaBeforeReset = md.dna;
     await app.input.tap(app.g(md.screen.respec.x, md.screen.respec.y));
     const mr = await waitMeta(app.page, (x) => x.dna !== dnaBeforeReset, 2000);
@@ -9135,7 +9137,7 @@ async function runCameraFit(browser, baseUrl) {
 /**
  * Оболочка здоровья считается от настоящего максимума HP (по рецензии 18 октября 2026): у бактерии, усиленной в 3 раза (прочность волны), после попадания примерно на половину оболочка тоньше, чем у целой.
  * Прежний расчёт брал прочность вида из таблицы типов: оболочка оставалась полной, пока HP не падало ниже неё (на 30-й волне уровня 6 — до потери 99 %).
- * Палочка 5 HP × 3 = 15; Таблетка бьёт один раз на 7: осталось 8 из 15. Толщина — число в ключе картинки тела (`style-body-rod-<толщина>`, с лицом — `-o` или `-b` в конце; толщина округлена до сетки с шагом 2 px от самой тонкой оболочки, у палочки наибольшая — 9,9).
+ * Палочка 5 HP × 3 = 15; Таблетка бьёт один раз на 7: осталось 8 из 15. Толщина — число в ключе картинки тела (`style-body-rod-<толщина>`, со знаками вида — `-k` в конце (лица нет с 26 октября 2026), прежнее лицо — `-o` или `-b`; толщина округлена до сетки с шагом 2 px от самой тонкой оболочки, у палочки наибольшая — 9,9).
  */
 async function runShell(browser, baseUrl) {
   const p = '[оболочка здоровья]';
@@ -9143,7 +9145,7 @@ async function runShell(browser, baseUrl) {
   const cfg = `${wavesOnlyCfg({ rod: 1 })},waves.firstDelaySec:1,waves.hpScale:3,waves.level1HpFactor:1,types.rod.hp:5,types.rod.speedFactor:0.3,towers.pill.damage:7,towers.pill.cooldownMs:60000,economy.startCoins:500,${NO_LIFE_LOSS}`;
   const game = await openGame(ctx, baseUrl, p, { speed: 2, cfg });
   await placeSure(game, 'pill', FREE.a);
-  const width = (key) => Number(/style-body-rod-(\d+(?:\.\d+)?)(?:-[ob])?$/.exec(key ?? '')?.[1] ?? NaN);
+  const width = (key) => Number(/style-body-rod-(\d+(?:\.\d+)?)(?:-[obk])?$/.exec(key ?? '')?.[1] ?? NaN);
   let full = null;
   let hit = null;
   await pollUntil(game, (st) => {
@@ -9656,38 +9658,17 @@ async function runTreeMock(browser, baseUrl) {
       await context.close();
     }
   }
-  // Сеть «Атом» на настоящих узлах (п. 4.5 сообщения 3 от 26 октября 2026; план docs/levels30-enemies-plan-2026-10-26.md, пп. 2–3): размер древа, ДНК колец, связность купленного
-  const RING_DNA = [2485, 4069, 5011, 7581, 6724, 7392];
-  for (const [deviceKey, zoom] of [['desktop', ''], ['phone', ''], ['desktop', '0.4'], ['phone', '1.6']]) {
-    const device = VIEWPORTS[deviceKey];
-    const p = `[макет сети «Атом», ${device.label}, масштаб ${zoom || 'начальный'}]`;
-    const context = await newDeviceContext(browser, device, 'ru');
-    const page = await context.newPage();
-    watchConsole(page, p);
-    await page.goto(`${baseUrl}?qa&treemock=net${zoom ? `&zoom=${zoom}` : ''}`, { waitUntil: 'load', timeout: 90000 });
-    await page.waitForFunction(() => window.__treeNet !== undefined, null, { timeout: 30000 });
-    await sleep(1500);
-    await frames(page, 3);
-    await shot(page, `treemock-net-${deviceKey}-${zoom ? `zoom${zoom.replace('.', '_')}` : 'start'}`);
-    const net = await page.evaluate(() => window.__treeNet);
-    if (deviceKey === 'desktop' && !zoom) {
-      check(`${p} узлов 307 (229 нынешних уровней + 48 продолжения + 21 перемычка + 9 башен): ${net.nodes}`, net.nodes === 307 && net.newNodes === 69 && net.bridges === 21, JSON.stringify(net));
-      check(`${p} ДНК древа 36 912 (план, п. 2): ${net.treeDna}`, net.treeDna === 36912, JSON.stringify(net));
-      check(`${p} ДНК колец как в плане (п. 3): ${net.ringDna.join(', ')}`, RING_DNA.every((v, i) => net.ringDna[i] === v), JSON.stringify(net.ringDna));
-      check(`${p} купленное связано с ядром или купленной башней, есть узлы «можно взять» (${net.available}), куплено ${net.boughtDna} ДНК — не больше ДНК к победе на уровне 2 (2 785)`, net.boughtConnected && net.available > 0 && net.boughtDna <= 2785, JSON.stringify(net));
-    }
-    await context.close();
-  }
+  // макет сети `treemock=net` убран 26 октября 2026: сеть — настоящий экран «Улучшения» (сценарий tree-shop)
 }
 
 /**
  * Лист «без лиц» (сообщение владельца 4 от 26 октября 2026, п. 2.3): страницы листа образцов `f1` (19 видов «было / стало») и `f2` (10 боссов) и плотная поздняя сцена
- * (стресс-сценарий, ≈ 200 бактерий всех видов) с лицами и без (`&faces=signs`), 1280×720 и 844×390. Это съёмка: проверяется только, что всё нарисовано без ошибок в консоли.
+ * (стресс-сценарий, ≈ 200 бактерий всех видов; лиц в игре нет с 26 октября 2026), 1280×720 и 844×390. Это съёмка: проверяется только, что всё нарисовано без ошибок в консоли.
  */
 async function runFaces(browser, baseUrl) {
   for (const deviceKey of ['desktop', 'phone']) {
     const device = VIEWPORTS[deviceKey];
-    for (const page of ['f1', 'f2']) {
+    for (const page of ['f1', 'f2', 'f3']) {
       const p = `[лист без лиц ${page}, ${device.label}]`;
       const context = await newDeviceContext(browser, device, 'ru');
       const tab = await context.newPage();
@@ -9700,8 +9681,9 @@ async function runFaces(browser, baseUrl) {
       check(`${p} лист нарисован (холст есть)`, await tab.evaluate(() => document.querySelector('canvas') !== null), '');
       await context.close();
     }
-    for (const [tag, query] of [['before', ''], ['after', '&faces=signs']]) {
-      const p = `[поздняя сцена ${tag === 'before' ? 'с лицами' : 'без лиц'}, ${device.label}]`;
+    // с 26 октября 2026 (сообщение 6, п. 1) лиц в игре нет: поздняя сцена — одна, «стало»
+    for (const [tag, query] of [['after', '']]) {
+      const p = `[поздняя сцена без лиц, ${device.label}]`;
       const context = await newDeviceContext(browser, device, 'ru');
       const tab = await context.newPage();
       watchConsole(tab, p);

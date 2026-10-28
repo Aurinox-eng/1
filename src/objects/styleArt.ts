@@ -516,7 +516,7 @@ function ellipsePath(ctx: CanvasRenderingContext2D, x: number, y: number, rx: nu
   ctx.ellipse(x, y, rx, ry, rot, 0, Math.PI * 2);
 }
 
-/** Глаза рисуются на лицах бактерий: false — глаз нет ни у кого (решение владельца 25 октября 2026; рот, румянец, брови и знаки на лице остаются). Таблетки — `PILL_EYES` в `src/theme.ts`. */
+/** Глаза рисуются на лицах бактерий: false — глаз нет ни у кого (решение владельца 25 октября 2026). С 26 октября 2026 (сообщения 4 и 6) в игре лица нет совсем — только знаки вида (`drawKindSigns`); прежнее лицо рисуется лишь на листе образцов «было». Таблетки — `PILL_EYES` в `src/theme.ts`. */
 export const EYES_DRAWN = false;
 
 /** Глаз: белок с лёгким переходом, зрачок со смещением, блик в зрачке. */
@@ -1095,10 +1095,10 @@ export const BLINK_SEC = 0.12;
 
 // ---------------------------------------------------------------- значок альманаха
 
-/** Значок вида для альманаха: картинка нового тела (полное HP) с лицом (глаза открыты, первый кадр), вписанная в круг радиуса `radius`. */
+/** Значок вида для альманаха: картинка нового тела (полное HP) со знаками вида, без лица (решение владельца 26 октября 2026, сообщение 6, п. 1), вписанная в круг радиуса `radius`. */
 export function styleIcon(scene: Phaser.Scene, kind: StyleKind, radius: number): Phaser.GameObjects.Container {
   const sw = shellWidth(kind, CONFIG.types[kind].hp);
-  const body = artImage(scene, styleBodyKey(scene, kind, sw), styleBodyBox(kind));
+  const body = artImage(scene, styleBodyKey(scene, kind, sw, 'signs'), styleBodyBox(kind));
   const holder = scene.add.container(0, 0, [body]);
   const { radius: r, length: l } = CONFIG.types[kind];
   const extent = kind === 'rod' || kind === 'runner' ? l / 2 : kind === 'splitter' ? r * (1 + SPLITTER_LOBE_OFFSET) : r;
