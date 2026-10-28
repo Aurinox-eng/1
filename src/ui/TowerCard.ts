@@ -253,7 +253,8 @@ export class TowerCard {
     }
 
     // Середина: выбор мутации (две кнопки) или числа башни и выбранные мутации
-    const midX = nameX + 190;
+    // варианты и числа начинаются сразу за именем и уровнем (не дальше прежних 190 px): крупному шрифту нужна ширина вариантов мутации
+    const midX = nameX + Math.min(190, Math.ceil(Math.max(this.nameText.width, this.levelText.width)) + 20);
     this.pickVisible = [false, false];
     this.listText.setVisible(false);
     for (let i = 0; i < 2; i++) {

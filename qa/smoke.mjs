@@ -2571,9 +2571,14 @@ async function runXp(browser, baseUrl) {
       for (const [k, v] of Object.entries(tw.stats)) if (!Number.isFinite(v) || v < 0) problems.push(`${id} ур.${level}: ${k} = ${v}`);
       if (level > 1) {
         const prev = byLevel[level - 1][id].stats;
+        // не порча уровня: заморозка, упёршаяся в потолок «не дольше доли паузы» (пауза с уровнем короче — заморозка тоже; VI–VIII — отдельная проверка ниже),
+        // и меньший конус Лампы на уровне, где выбрана мутация (placeTower берёт первый вариант: «Узкий луч» — обмен ширины на урон)
+        const capped = (st) => st.freezeSec > 0 && Math.abs(st.freezeSec - (st.cooldownMs / 1000) * CAPS.freezeShareOfCooldown) < 1e-6;
+        const newPick = (tw.picks ?? []).length > (byLevel[level - 1][id].picks ?? []).length;
+        const tradeOff = (k) => (k === 'freezeSec' && capped(tw.stats) && capped(prev)) || (k === 'coneDeg' && newPick);
         let better = 0;
         for (const k of higher) {
-          if (tw.stats[k] < prev[k] - 1e-9) problems.push(`${id} ур.${level}: ${k} ${prev[k]} → ${tw.stats[k]} (хуже)`);
+          if (tw.stats[k] < prev[k] - 1e-9 && !tradeOff(k)) problems.push(`${id} ур.${level}: ${k} ${prev[k]} → ${tw.stats[k]} (хуже)`);
           if (tw.stats[k] > prev[k] + 1e-9) better++;
         }
         for (const k of lower) {
