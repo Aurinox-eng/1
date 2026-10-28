@@ -860,7 +860,7 @@ export class GameScene extends Phaser.Scene {
    * Числа берутся из `tower.stats` (уровень и мутации уже учтены).
    */
   private fire(tower: Tower, target: Bacterium, muzzleX: number, muzzleY: number): boolean {
-    const st = tower.stats;
+    const st = tower.fireStats;
     if (st.targeting === 'cone') {
       // Лампа: башня отдаёт тики конуса; каждый тик — урон (броня вычитается из каждого) всем, кто сейчас в конусе, без вспышек и звуков попаданий
       const ticks = tower.coneTicks;
@@ -877,7 +877,7 @@ export class GameScene extends Phaser.Scene {
       // Холод: замерзают все в радиусе, кто может (вид замерзает, не заморожен, окно после оттаивания прошло); с ключом «Хрупкость» по замёрзшим удары сильнее
       const frozen = tower.inRange(this.bacteria).filter((b) => b.freezable);
       if (frozen.length === 0) return false;
-      for (const bacterium of frozen) bacterium.freeze(st.freezeSec, st.brittle);
+      for (const bacterium of frozen) bacterium.freeze(st.freezeSec, st.brittle, st.thawSlowSec, st.thawSlowFactor);
       this.freezes++;
       this.effects.frost(tower.x, tower.y, st.range);
     } else if (st.targeting === 'trap') {
@@ -971,7 +971,7 @@ export class GameScene extends Phaser.Scene {
         }
         if (CONFIG.types[bacterium.kind].slowImmune > 0) continue;
         if (!bacterium.slowed) this.slows++;
-        bacterium.slow(puddle.slowFactor, puddle.slowSec);
+        bacterium.slow(puddle.slowFactor, puddle.slowSec, true);
       }
     }
     this.puddles = this.puddles.filter((puddle) => {
@@ -1008,17 +1008,21 @@ export class GameScene extends Phaser.Scene {
     for (const tower of this.towers) {
       let mul = 1;
       let immune = false;
+      let dmg = 1;
       for (const vitamin of vitamins) {
         if (vitamin === tower || Math.hypot(vitamin.x - tower.x, vitamin.y - tower.y) > vitamin.stats.range) continue;
         if (vitamin.stats.immunity) immune = true;
         // Аура не действует на Лампу, Витамин, Сироп, Холод и Пластырь (документ дизайна, п. 4.2)
         if (excluded.includes(tower.id)) continue;
+        // «Сильное усиление»: урон сильнее, между Витаминами не складывается — наибольшее (сообщение 3 от 28 октября 2026, п. 5)
+        dmg = Math.max(dmg, vitamin.stats.auraDamageMul);
         // Присосавшийся к Витамину паразит ослабляет его прибавку в latchMul раз (пауза соседей ближе к 1)
         const aura = vitamin.latchMul > 1 ? 1 - (1 - vitamin.stats.auraMul) / vitamin.latchMul : vitamin.stats.auraMul;
         mul = Math.min(mul, aura);
       }
       tower.auraMul = mul * fever;
       tower.immune = immune;
+      tower.auraDamageMul = dmg;
     }
     // Карточка выбранной башни показывает урон в секунду с учётом ауры: перерисовать, когда она изменилась
     if (this.selectedTower && this.selectedTower.auraMul !== this.cardAura) this.refreshCard();
@@ -1179,7 +1183,7 @@ export class GameScene extends Phaser.Scene {
 
   /** Один удар луча (номер в очереди — index): линия (две, если «Второй луч») вспыхивает, каждая бактерия на ней получает урон башни («Спираль» — сильнее с каждым ударом). */
   private beamPulse(tower: Tower, index: number): void {
-    const st = tower.stats;
+    const st = tower.fireStats;
     for (const dir of tower.beamDirections()) {
       const angle = aimAngle(dir);
       const reach = beamReach(tower.x, tower.y, angle, st.beamLengthPx);
@@ -1777,6 +1781,8 @@ export class GameScene extends Phaser.Scene {
       ['chgRange', a.range, b.range, (x) => String(Math.round(x))],
       ['chgAura', a.auraMul, b.auraMul, n2],
       ['chgFreeze', a.freezeSec, b.freezeSec, n],
+      ['chgThawSlow', a.thawSlowSec, b.thawSlowSec, n],
+      ['chgAuraDamage', a.auraDamageMul, b.auraDamageMul, n2],
       ['chgTrap', a.trapSec, b.trapSec, n],
       ['chgTrapHp', a.trapDps * a.trapSec, b.trapDps * b.trapSec, n],
       // «Включатели» (бронебойность, самая прочная цель, цепной взрыв) числами не видны — «нет → да»

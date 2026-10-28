@@ -2388,10 +2388,11 @@ async function runWards(browser, baseUrl) {
   try {
     const mixCfg = (mix) => [...new Set([...Object.keys(PLAN[0].mix), ...Object.keys(mix)])].map((k) => `levels.specs.0.plan.waves.0.mix.${k}:${mix[k] ?? 0}`).join(',');
     /** Одна партия: башни по списку, первая волна `mix`; идёт, пока не выйдет бегун и не уйдёт с карты (убит или дошёл). Возвращает все опросы состояния. */
-    const run = async (label, mix, towers, { upgrade = null } = {}) => {
+    const run = async (label, mix, towers, { upgrade = null, upgrades = [] } = {}) => {
       const game = await openGame(context, baseUrl, `${p} ${label}`, { speed: 4, cfg: `${mixCfg(mix)},levels.specs.0.plan.startCoins:1500,lives.start:500`, query: '&levelwaves&level=1&towers=all' });
       for (const [id, cell] of towers) await placeSure(game, id, cell);
       if (upgrade) await game.page.evaluate(([c, r, picks]) => window.__pvb.upgradeTower(c, r, picks), [upgrade.cell[0], upgrade.cell[1], upgrade.picks]);
+      for (const u of upgrades) await game.page.evaluate(([c, r, picks]) => window.__pvb.upgradeTower(c, r, picks), [u.cell[0], u.cell[1], u.picks]);
       const samples = [];
       let seen = false;
       const started = Date.now();
@@ -2421,6 +2422,10 @@ async function runWards(browser, baseUrl) {
     // 2.3: Таблетка не стреляет по бегуну без замедления; при других целях в зоне бьёт их
     const pillOnly = await run('Таблетка и бегун', { runner: 1 }, [['pill', FREE.a]]);
     check(`${p} Таблетка не тратит выстрелы на незамедленного бегуна: выстрелов ${pillOnly.last.shots}, HP бегуна не ниже полного`, pillOnly.seen && pillOnly.last.shots === 0 && fullHp(pillOnly), `выстрелов ${pillOnly.last.shots}, мин. доля ${minHp(pillOnly).toFixed(2)}`);
+    // «Долгий мороз»: замедление после льда жёсткое свойство бегуна не снимает (решение владельца 28 октября 2026, сообщение 3, п. 4) — Таблетка его не ранит
+    const thaw = await run('лёд «Долгий мороз» и Таблетка', { runner: 1 }, [['frost', FREE.a], ['pill', FREE.b]], { upgrades: [{ cell: FREE.a, picks: [] }, { cell: FREE.a, picks: [] }, { cell: FREE.a, picks: ['frostDeep', 'frostLong'] }] });
+    const thawSlowed = runnersOf(thaw).some((b) => b.slowed);
+    check(`${p} «Долгий мороз»: бегун после льда замедлен (${thawSlowed}), но не ранен — Таблетка по нему не бьёт (мин. доля HP ${minHp(thaw).toFixed(2)})`, thaw.seen && thawSlowed && fullHp(thaw), `замедлен ${thawSlowed}, мин. доля ${minHp(thaw).toFixed(2)}`);
     const pillMix = await run('Таблетка, кокки и бегун', { coccus: 3, runner: 1 }, [['pill', FREE.a]]);
     check(`${p} при других целях в зоне Таблетка бьёт их: выстрелов ${pillMix.last.shots}, убито ${pillMix.last.kills}; бегун не ранен`, pillMix.seen && pillMix.last.shots > 0 && pillMix.last.kills >= 1 && fullHp(pillMix), `выстрелов ${pillMix.last.shots}, убито ${pillMix.last.kills}, мин. доля ${minHp(pillMix).toFixed(2)}`);
     // Сироп и Таблетка: лужа ложится и под незамедленного бегуна (Сироп не трогаем), в луже Таблетка его бьёт
@@ -6795,12 +6800,12 @@ function cardTexts() {
     ['lampFar', 'rangeMul', (v) => ru(v)],
     ['vitaminBoost', 'auraBonusMul', (v) => ru(v)],
     ['vitaminFar', 'rangeMul', (v) => ru(v)],
-    ['vitaminStrong', 'auraBonusMul', (v) => ru(v)],
+    ['vitaminStrong', 'auraDamageMul', (v) => ru(Math.round((v - 1) * 100))],
     ['vitaminDouble', 'rangeMul', (v) => ru(v)],
     // Холод (время заморозки, частота, радиус) и Пластырь (время приклеивания, частота, урон ловушки: ×2 — «вдвое» / «twice»)
     ['frostDeep', 'freezeMul', (v) => ru(v)],
     ['frostFrequent', 'cooldownMul', rate],
-    ['frostLong', 'freezeMul', (v) => ru(v)],
+    ['frostLong', 'thawSlowSec', (v) => ru(v)],
     ['frostWide', 'rangeMul', (v) => ru(v)],
     ['patchSticky', 'trapSecMul', (v) => ru(v)],
     ['patchQuick', 'cooldownMul', rate],

@@ -1217,6 +1217,20 @@ export class Tower {
   aim = 0;
   /** Множитель паузы от ауры Витамина рядом (1 — нет; меньше — быстрее): сцена выставляет его каждый кадр. */
   auraMul = 1;
+  /** Множитель урона от «Сильного усиления» Витамина рядом (1 — нет): сцена выставляет его каждый кадр (решение владельца 28 октября 2026, сообщение 3, п. 5). */
+  auraDamageMul = 1;
+  private boosted: { mul: number; from: TowerStats; stats: TowerStats } | null = null;
+
+  /** Числа выстрела: с «Сильным усилением» рядом — урон, яд и ловушка сильнее (копия чисел пересчитывается, только когда меняется множитель или числа башни). */
+  get fireStats(): TowerStats {
+    const mul = this.auraDamageMul;
+    if (mul === 1) return this.stats;
+    if (!this.boosted || this.boosted.mul !== mul || this.boosted.from !== this.stats) {
+      const s = this.stats;
+      this.boosted = { mul, from: s, stats: { ...s, damage: s.damage * mul, dotPerSec: s.dotPerSec * mul, trapDps: s.trapDps * mul, poisonPerSec: s.poisonPerSec * mul } };
+    }
+    return this.boosted.stats;
+  }
   /** Множитель паузы от паразита, присосавшегося к башне (1 — нет; 1,5 — пауза в полтора раза длиннее): сцена выставляет его каждый кадр. */
   latchMul = 1;
   /** Куда смотрит башня на цель, радианы (по нему считается попадание в конус Лампы). */

@@ -153,7 +153,9 @@ export interface BossSpec {
  *  dotSecMul, dotDpsMul — множители времени и силы (HP/с) яда башни с ядом ('poison');
  *  coneMul — множитель угла конуса башни с конусом ('cone'); rangeMul — множитель радиуса стрельбы (у Лампы — длины конуса, у Витамина — радиуса ауры);
  *  auraBonusMul — множитель прибавки ауры Витамина ('aura'): прибавка = 1 − множитель паузы (0,8 → 0,2; ×1,5 → 0,3, то есть пауза ×0,7);
- *  freezeMul — множитель времени заморозки башни с заморозкой ('freeze'); trapSecMul, trapDpsMul — множители времени приклеивания и урона в секунду ловушки башни с ловушкой ('trap').
+ *  freezeMul — множитель времени заморозки башни с заморозкой ('freeze'); trapSecMul, trapDpsMul — множители времени приклеивания и урона в секунду ловушки башни с ловушкой ('trap');
+ *  thawSlowSec, thawSlowFactor — после оттаивания бактерия ещё thawSlowSec секунд идёт в thawSlowFactor раз медленнее (жёсткое свойство бегуна это замедление не снимает: только лужа Сиропа);
+ *  auraDamageMul — башни в ауре Витамина бьют сильнее во столько раз (между Витаминами не складывается: берётся наибольшее; исключения — как у ауры).
  */
 export interface MutationSpec {
   id: string;
@@ -182,6 +184,9 @@ export interface MutationSpec {
   freezeMul?: number;
   trapSecMul?: number;
   trapDpsMul?: number;
+  thawSlowSec?: number;
+  thawSlowFactor?: number;
+  auraDamageMul?: number;
 }
 /**
  * Что делает улучшение вне партии (колонка `effect` таблицы `meta.upgrades`, docs/upgrades.md):
@@ -974,11 +979,13 @@ export const CONFIG = {
     ],
     vitamin: [
       [{ id: 'vitaminBoost', auraBonusMul: 1.5 }, { id: 'vitaminFar', rangeMul: 1.3 }],
-      [{ id: 'vitaminStrong', auraBonusMul: 1.5 }, { id: 'vitaminDouble', rangeMul: 1.3 }],
+      // «Сильное усиление»: башни рядом бьют на 10 % сильнее (решение владельца 28 октября 2026, сообщение 3, п. 5; было auraBonusMul 1,5 — на IV упиралось в предел ×0,6, MASTER-0010)
+      [{ id: 'vitaminStrong', auraDamageMul: 1.1 }, { id: 'vitaminDouble', rangeMul: 1.3 }],
     ],
     frost: [
       [{ id: 'frostDeep', freezeMul: 1.5 }, { id: 'frostFrequent', cooldownMul: 0.7 }],
-      [{ id: 'frostLong', freezeMul: 1.5 }, { id: 'frostWide', rangeMul: 1.4 }],
+      // «Долгий мороз»: после льда бактерия ещё 2 с идёт в 0,6 раза медленнее (решение владельца 28 октября 2026, сообщение 3, п. 4; было freezeMul 1,5 — на IV упиралось в предел 0,5 паузы, MASTER-0008)
+      [{ id: 'frostLong', thawSlowSec: 2, thawSlowFactor: 0.6 }, { id: 'frostWide', rangeMul: 1.4 }],
     ],
     patch: [
       [{ id: 'patchSticky', trapSecMul: 1.5 }, { id: 'patchQuick', cooldownMul: 0.65 }],

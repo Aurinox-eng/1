@@ -195,6 +195,11 @@ export class Bacterium {
   /** Замедление от «Сиропа»: сколько секунд ещё действует и во сколько раз медленнее идёт (1 — не замедлена). */
   private slowLeft = 0;
   private slowBy = 1;
+  /** Сколько ещё секунд действует замедление лужей Сиропа: только оно снимает жёсткое свойство бегуна (решение владельца 28 октября 2026, сообщение 3, п. 4). */
+  private puddleSlowLeft = 0;
+  /** Замедление после оттаивания («Долгий мороз»): секунд и во сколько раз медленнее. */
+  private thawSlowSec = 0;
+  private thawSlowFactor = 1;
   private slowRing: Phaser.GameObjects.Image | null = null;
   /** «Кислота» Шипучки: сколько секунд ещё действует и во сколько раз сильнее удары по этой бактерии. */
   private acidLeft = 0;
@@ -324,15 +329,21 @@ export class Bacterium {
     return this.slowLeft > 0;
   }
 
+  /** Замедлена лужей Сиропа (с окном после выхода из неё): только это снимает жёсткое свойство бегуна; замедление после льда — нет. */
+  get puddleSlowed(): boolean {
+    return this.puddleSlowLeft > 0;
+  }
+
   /**
    * Замедлить: идёт в `factor` раз медленнее `seconds` секунд. Повторное попадание не усиливает замедление (берётся сильнейшее)
    * и продлевает время до `seconds`, но не суммируется.
    */
-  slow(factor: number, seconds: number): void {
+  slow(factor: number, seconds: number, puddle = false): void {
     if (factor >= 1 || seconds <= 0 || this.hp <= 0 || CONFIG.types[this.kind].slowImmune > 0) return;
     // Вожак палочек замедляется не сильнее своего предела
     if (this.boss?.slowFloor) factor = Math.max(factor, this.boss.slowFloor);
     if (factor >= 1) return;
+    if (puddle) this.puddleSlowLeft = Math.max(this.puddleSlowLeft, seconds);
     this.slowBy = this.slowLeft > 0 ? Math.min(this.slowBy, factor) : factor;
     this.slowLeft = Math.max(this.slowLeft, seconds);
     if (!this.slowRing) {
@@ -395,10 +406,12 @@ export class Bacterium {
   }
 
   /** Заморозка: бактерия стоит на месте `seconds` секунд (только если `freezable`); `brittle` — во сколько раз сильнее удары по ней, пока заморожена (ключ «Хрупкость»). */
-  freeze(seconds: number, brittle = 1): void {
+  freeze(seconds: number, brittle = 1, thawSlowSec = 0, thawSlowFactor = 1): void {
     if (seconds <= 0 || !this.freezable) return;
     this.freezeLeft = seconds;
     this.brittleMul = brittle;
+    this.thawSlowSec = thawSlowSec;
+    this.thawSlowFactor = thawSlowFactor;
     if (!this.ice) {
       this.ice = iceImage(this.scene, this.radius);
       this.container.add(this.ice);
@@ -488,7 +501,7 @@ export class Bacterium {
   /** Действует ли сейчас жёсткое свойство (для серого кольца): бегун вне лужи, бронированный с бронёй, слизень, босс в последней фазе. */
   get guarded(): boolean {
     switch (this.ward) {
-      case 'slow': return !this.slowed;
+      case 'slow': return !this.puddleSlowed;
       case 'pierce': return this.armor > 0;
       case 'beam': case 'memory': return true;
       case 'area': return this.inFinalPhase;
@@ -591,6 +604,9 @@ export class Bacterium {
         this.brittleMul = 1;
         this.sinceThaw = 0;
         this.ice?.setVisible(false);
+        // «Долгий мороз»: после льда — замедление (не лужей: жёсткое свойство бегуна не снимает)
+        if (this.thawSlowSec > 0) this.slow(this.thawSlowFactor, this.thawSlowSec);
+        this.thawSlowSec = 0;
       }
     }
     if (this.absorbLeft > 0) {
@@ -634,6 +650,7 @@ export class Bacterium {
       }
       this.wardRing?.setVisible(on);
     }
+    if (this.puddleSlowLeft > 0) this.puddleSlowLeft = Math.max(0, this.puddleSlowLeft - dt);
     if (this.slowLeft > 0) {
       // замедление действует на ту долю шага, что от него осталась (большой шаг не теряет его конец; находка аудита MASTER-0059)
       const p = dt > 0 ? Math.min(dt, this.slowLeft) / dt : 0;
@@ -764,7 +781,7 @@ export class Bacterium {
     if (this.capsuleLeft > 0) return false;
     // жёсткое свойство: бронированного яд не берёт (пока есть броня), босса в последней фазе — тоже, бегуна — вне лужи и окна после неё
     // бегуна яд и ловушка ранят только в луже и в окне после неё (как прямой удар, `ward` 'slow'); тот же смысл — `guarded`
-    if ((this.ward === 'pierce' && this.armor > 0) || (this.ward === 'area' && this.inFinalPhase) || (this.ward === 'slow' && !this.slowed)) return false;
+    if ((this.ward === 'pierce' && this.armor > 0) || (this.ward === 'area' && this.inFinalPhase) || (this.ward === 'slow' && !this.puddleSlowed)) return false;
     this.hp = Math.max(0, this.hp - amount);
     if (Math.abs(this.hp - this.drawnHp) >= 0.5 || this.hp <= 0) {
       this.redraw();

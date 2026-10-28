@@ -67,6 +67,10 @@ export interface TowerStats extends TowerRow {
   spotlight: number;
   immunity: boolean;
   brittle: number;
+  /** «Долгий мороз»: замедление после оттаивания — секунд (0 — нет) и во сколько раз медленнее. «Сильное усиление»: башни в ауре бьют сильнее во столько раз (1 — нет). */
+  thawSlowSec: number;
+  thawSlowFactor: number;
+  auraDamageMul: number;
   /** Потолки, в которые упёрлись числа (для карточки выбора мутации: «достигнутый потолок»). */
   caps: MutationCap[];
 }
@@ -167,6 +171,9 @@ export function computeStats(id: TowerKey, level: number, picks: readonly string
     spotlight: 1,
     immunity: false,
     brittle: 1,
+    thawSlowSec: 0,
+    thawSlowFactor: 1,
+    auraDamageMul: 1,
     caps: [],
   };
   const caps = CONFIG.mutationCaps;
@@ -238,6 +245,11 @@ export function computeStats(id: TowerKey, level: number, picks: readonly string
     if (spec.auraBonusMul) auraBonus *= scaled(spec.auraBonusMul);
     if (spec.freezeMul) s.freezeSec *= scaled(spec.freezeMul);
     if (spec.trapSecMul) s.trapSec *= scaled(spec.trapSecMul);
+    if (spec.thawSlowSec && share > 0) {
+      s.thawSlowSec += spec.thawSlowSec * share;
+      s.thawSlowFactor = Math.min(s.thawSlowFactor, spec.thawSlowFactor ?? 1);
+    }
+    if (spec.auraDamageMul) s.auraDamageMul *= scaled(spec.auraDamageMul);
     if (spec.trapDpsMul) {
       s.trapDps *= scaled(spec.trapDpsMul);
       mutTrap *= scaled(spec.trapDpsMul);
