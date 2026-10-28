@@ -9481,11 +9481,12 @@ async function runMenuExit(browser, baseUrl) {
   }
   // ---- (б) и (в): волны идут быстро (пауза между волнами 1 с, ×4), жизней хватает; ждём 3-ю волну — пройдено 2
   {
-    const cfg = 'waves.firstDelaySec:1,waves.pauseSec:4,waves.newTypePauseSec:0,waves.intervalStartSec:0.3,waves.intervalEndSec:0.3,lives.start:999';
+    // пауза между волнами 90 с игры: без башен бактерии успевают дойти до организма, и поле пустеет до следующей волны (случай MASTER-0001)
+    const cfg = 'waves.firstDelaySec:1,waves.pauseSec:90,waves.newTypePauseSec:0,waves.intervalStartSec:0.3,waves.intervalEndSec:0.3,lives.start:999';
     const game = await openGame(context, baseUrl, `${p} N волн`, { realMeta: true, speed: 4, cfg });
     const save0 = await readSave5(game.page);
     const dna0 = (await metaOf(game.page)).dna;
-    await waitForGame(game.page, (x) => x.wave >= 3, '3-я волна (до «Заново»)', { gameSec: 120 });
+    await waitForGame(game.page, (x) => x.wave >= 3, '3-я волна (до «Заново»)', { gameSec: 400 });
     let paused = await pauseGame(game, 'перед «Заново»');
     // тап по кнопке на медленном сервере изредка не доходит с первого раза: до трёх тапов
     for (let attempt = 1; attempt <= 3; attempt++) {
@@ -9502,7 +9503,7 @@ async function runMenuExit(browser, baseUrl) {
     check(`${p} «Заново» на паузе после ${Math.max(0, paused.wave - 1)} пройденных волн ничего не начисляет и попытку не засчитывает: очки ДНК ${dna0} → ${dnaR}, попыток ${attemptsOf(save0)} → ${attemptsOf(saveR)}`,
       paused.wave >= 3 && dnaR === dna0 && attemptsOf(saveR) === attemptsOf(save0) && logOf(saveR).length === logOf(save0).length, JSON.stringify({ wave: paused.wave, dna0, dnaR, saveR }));
     // пауза между волнами, поле пустое: текущая волна засчитана (решение владельца 28 октября 2026, сообщение 1, п. 7.1, находка аудита MASTER-0001)
-    await waitForGame(game.page, (x) => x.wave >= 3 && x.wavePhase === 'pause' && x.bacteria.length === 0, 'пауза после 3-й волны, поле пустое (до «В меню»)', { gameSec: 180 });
+    await waitForGame(game.page, (x) => x.wave >= 3 && x.wavePhase === 'pause' && x.bacteria.length === 0, 'пауза после 3-й волны, поле пустое (до «В меню»)', { gameSec: 600 });
     paused = await pauseGame(game, 'перед «В меню»');
     const between = paused.wavePhase === 'pause' && paused.bacteria.length === 0;
     if (!between) console.log(`⚠ ${p}: пауза поставлена уже после начала волны ${paused.wave} — проверяется прежний случай (пройдено ${paused.wave - 1})`);
