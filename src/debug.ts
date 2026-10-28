@@ -48,6 +48,11 @@ export const NO_BREATH: boolean = QA_MODE && params.has('nobreath');
 export const ART_SHEET: boolean = QA_MODE && params.has('artsheet');
 /** Страница листа образцов: пусто — пилот (новое рядом с прежним), `b1`, `b2` — все 19 бактерий, `t1`, `t2` — все 10 башен по уровням, `f1` — 19 видов «было / стало» без лиц, `f2` — 10 боссов «было / стало». */
 export const ART_SHEET_PAGE: string = params.get('artsheet') ?? '';
+/**
+ * Только режим проверки: свои стволы V–VIII у остальных семи башен (вариант Б, решение владельца 28 октября 2026, сообщение 3, п. 3) — до «да» по листам видны только на листах
+ * `?qa&artsheet=l3`, `l4`, `l5` и с `&ownhigh` (например `?qa&stress=high&ownhigh` — плотная сцена). В игре у этих башен пока ствол IV со свечением цвета уровня.
+ */
+export const OWN_HIGH_PREVIEW: boolean = QA_MODE && (params.has('ownhigh') || ['l3', 'l4', 'l5'].includes(ART_SHEET_PAGE));
 /** Только режим проверки: `?qa&treemock` — вместо игры макет радиального древа (п. 5 сообщения владельца 5 от 25 октября 2026), `&zoom=1.8` — начальный масштаб. */
 export const TREE_MOCK: boolean = QA_MODE && params.has('treemock');
 

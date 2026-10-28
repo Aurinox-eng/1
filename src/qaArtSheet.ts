@@ -50,6 +50,10 @@ export class ArtSheetScene extends Phaser.Scene {
       this.levelsPage2();
       return;
     }
+    if (ART_SHEET_PAGE === 'l3' || ART_SHEET_PAGE === 'l4' || ART_SHEET_PAGE === 'l5') {
+      this.ownBarrelPage(ART_SHEET_PAGE === 'l3' ? ['fizz', 'ampule', 'antibiotic'] : ART_SHEET_PAGE === 'l4' ? ['lamp', 'vitamin'] : ['frost', 'patch']);
+      return;
+    }
     if (ART_SHEET_PAGE === 't1' || ART_SHEET_PAGE === 't2') {
       this.towersPage(ART_SHEET_PAGE === 't1' ? TOWERS.slice(0, 5) : TOWERS.slice(5));
       return;
@@ -290,6 +294,30 @@ export class ArtSheetScene extends Phaser.Scene {
       const y = 98 + row * 94;
       label(20, y, t(`tower${id.charAt(0).toUpperCase()}${id.slice(1)}` as TextKey), 15, 0);
       for (let lv = 4; lv <= 8; lv++) createTowerArtSample(this, this.add.container(x0 + (lv - 4) * dx, y).setScale(0.8), id, lv, false, false, true);
+    });
+  }
+
+  /**
+   * Свои стволы V–VIII (`?qa&artsheet=l3` — Шипучка, Ампула, Антибиотик; `l4` — Лампа, Витамин; `l5` — Холод, Пластырь; вариант Б, решение владельца 28 октября 2026, сообщение 3, п. 3):
+   * уровни IV–VIII в ряд, крупно; ниже каждого ряда — тот же ствол в размере на поле.
+   */
+  private ownBarrelPage(ids: TowerId[]): void {
+    const W = CONFIG.screen.width;
+    const label = (x: number, y: number, text: string, size = 14, align = 0.5): void => {
+      this.add.text(x, y, text, { fontFamily: 'Arial', fontSize: `${size}px`, color: '#cfe0ff' }).setOrigin(align, 0.5);
+    };
+    label(W / 2, 14, 'Свой ствол на каждом уровне V–VIII (IV — для сравнения)', 16);
+    const x0 = 290;
+    const dx = 220;
+    ['IV', 'V', 'VI', 'VII', 'VIII'].forEach((r, i) => label(x0 + i * dx, 38, r, 15));
+    const rowH = ids.length === 3 ? 226 : 320;
+    ids.forEach((id, row) => {
+      const y = 70 + rowH / 2 + row * rowH - (ids.length === 3 ? 30 : 40);
+      label(20, y, t(`tower${id.charAt(0).toUpperCase()}${id.slice(1)}` as TextKey), 16, 0);
+      for (let lv = 4; lv <= 8; lv++) {
+        createTowerArtSample(this, this.add.container(x0 + (lv - 4) * dx, y).setScale(ids.length === 3 ? 1.2 : 1.45), id, lv, false, false, true);
+        createTowerArtSample(this, this.add.container(x0 + (lv - 4) * dx + (ids.length === 3 ? 0 : 0), y + (ids.length === 3 ? 84 : 118)).setScale(0.45), id, lv, false, false, true);
+      }
     });
   }
 
