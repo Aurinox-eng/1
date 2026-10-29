@@ -2603,7 +2603,7 @@ async function runRanks(browser, baseUrl) {
   // 1) числа по рангам: предел ранга уровня 1 поднят до ★8 через cfg, опыт ставится напрямую
   const statsAt = async (cfg) => {
     const out = [];
-    const game = await openGame(context, baseUrl, `${p} числа`, { speed: 1, cfg: ['waves.firstDelaySec:9999', cfg].filter(Boolean).join(','), query: `${ALL_TOWERS}&levelwaves&level=1` });
+    const game = await openGame(context, baseUrl, `${p} числа`, { speed: 1, cfg: ['waves.firstDelaySec:9999', cfg].filter(Boolean).join(','), query: ALL_TOWERS }); // прежний тестовый уровень (уровень игры 1): клетки FREE — те же, что в сценарии xp
     await game.page.evaluate(([ids, cs]) => ids.forEach((id, i) => window.__pvb.placeTower(id, cs[i][0], cs[i][1], 1)), [TOWER_IDS, cells]);
     for (let r = 0; r <= R.thresholds.length; r++) {
       const xp = r === 0 ? 0 : R.thresholds[r - 1];
@@ -2622,6 +2622,10 @@ async function runRanks(browser, baseUrl) {
     const steps = R.byTower[id] ?? [];
     for (let r = 0; r <= steps.length; r++) {
       const tw = byRank[r][id];
+      if (!tw) {
+        problems.push(`${id}: башня не поставилась`);
+        break;
+      }
       if (tw.rank !== r) problems.push(`${id}: опыт ${r ? R.thresholds[r - 1] : 0} — ранг ${tw.rank}, ждали ${r}`);
       const mul = (k) => steps.slice(0, r).reduce((m, e) => m * (e[k] ?? 1), 1);
       const add = (k) => steps.slice(0, r).reduce((m, e) => m + (e[k] ?? 0), 0);
@@ -2662,8 +2666,8 @@ async function runRanks(browser, baseUrl) {
   // 2) предел уровня 1 — ★4: опыт ★8 даёт ★4
   const capped = await statsAt('');
   const top = capped.at(-1);
-  const over = TOWER_IDS.filter((id) => top[id].rank !== 4);
-  check(`${p} на уровне 1 ранг не выше ★4 (growthLimits): при опыте ${R.thresholds.at(-1)} у всех 10 башен ★4 (не так: ${over.join(', ') || 'нет'})`, over.length === 0, over.map((id) => `${id} ★${top[id].rank}`).join(', '));
+  const over = TOWER_IDS.filter((id) => top[id]?.rank !== 4);
+  check(`${p} на уровне 1 ранг не выше ★4 (growthLimits): при опыте ${R.thresholds.at(-1)} у всех 10 башен ★4 (не так: ${over.join(', ') || 'нет'})`, over.length === 0, over.map((id) => `${id} ★${top[id]?.rank}`).join(', '));
   // 3) ранг за настоящий опыт: порог ★1 — 1 очко, один убитый кокк (lifeDamage 1) в зоне Таблетки
   const game = await openGame(context, baseUrl, `${p} бой`, { speed: 4, cfg: `${wavesOnlyCfg({ coccus: 1 })},waves.firstDelaySec:1,towers.pill.damage:50,economy.startCoins:2000,lives.start:3,types.coccus.lifeDamage:1,waves.total:2,waves.pauseSec:9999,ranks.thresholds.0:1,towers.pill.range:2000`, query: ALL_TOWERS });
   await placeSure(game, 'pill', FREE.a);
@@ -2708,7 +2712,7 @@ async function runXp(browser, baseUrl) {
         problems.push(`${id} ур.${level}: башня не поставилась (${tw?.level})`);
         continue;
       }
-      for (const [k, v] of Object.entries(tw.stats)) if (!Number.isFinite(v) || v < 0) problems.push(`${id} ур.${level}: ${k} = ${v}`);
+      for (const [k, v] of Object.entries(tw.stats)) if (typeof v === 'number' && (!Number.isFinite(v) || v < 0)) problems.push(`${id} ур.${level}: ${k} = ${v}`);
       if (level > 1) {
         const prev = byLevel[level - 1][id].stats;
         // не порча уровня: заморозка, упёршаяся в потолок «не дольше доли паузы» (пауза с уровнем короче — заморозка тоже; VI–VIII — отдельная проверка ниже),
