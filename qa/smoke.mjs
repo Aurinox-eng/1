@@ -142,6 +142,7 @@ import {
   readKinds,
   readLevel,
   readMetaTable,
+  readMutationIds,
   branchOpen,
   towerNodeId,
   dnaWavesReward,
@@ -167,7 +168,7 @@ if (['stage-1', 'stage-1b', 'stage-1b-qa', 'td-1-mockup', 'tmp'].includes(tag)) 
   process.exit(2);
 }
 
-const SCENARIOS = ['desktop-ru', 'phone-ru', 'desktop-en', 'phone-en', 'rules', 'graph', 'combat', 'dash', 'split', 'spore', 'armored', 'intro', 'lose-ru', 'lose-en', 'win-ru', 'win-en', 'towers', 'card', 'merge', 'mutations', 'sell', 'special', 'danger', 'rotate', 'production', 'fullgame', 'locked', 'strip', 'almanac', 'almanac-pause', 'damage-numbers', 'sell-gap', 'restart-button', 'deflation', 'camera-fit', 'colors', 'meta-save', 'meta-dna', 'meta-shop', 'meta-effects', 'tree-effects', 'tree-shop', 'level-waves', 'progress-save', 'stars', 'menu-flow', 'menu-reset', 'levels-lock', 'step-dps', 'sound', 'sdk', 'lose-line', 'attempt-line', 'toast-queue', 'shake', 'bosses', 'level2', 'wards', 'spiral-cap', 'marks', 'menu-exit', 'resume-tap', 'two-tabs', 'treemock', 'faces', 'real-game', 'dna-cap', 'xp']
+const SCENARIOS = ['desktop-ru', 'phone-ru', 'desktop-en', 'phone-en', 'rules', 'graph', 'combat', 'dash', 'split', 'spore', 'armored', 'intro', 'lose-ru', 'lose-en', 'win-ru', 'win-en', 'towers', 'card', 'merge', 'mutations', 'sell', 'special', 'danger', 'rotate', 'production', 'fullgame', 'locked', 'strip', 'almanac', 'almanac-pause', 'damage-numbers', 'sell-gap', 'restart-button', 'deflation', 'camera-fit', 'colors', 'meta-save', 'meta-dna', 'meta-shop', 'meta-effects', 'tree-effects', 'tree-shop', 'level-waves', 'progress-save', 'stars', 'menu-flow', 'menu-reset', 'levels-lock', 'step-dps', 'sound', 'sdk', 'lose-line', 'attempt-line', 'toast-queue', 'shake', 'bosses', 'level2', 'wards', 'spiral-cap', 'marks', 'menu-exit', 'resume-tap', 'two-tabs', 'treemock', 'faces', 'real-game', 'dna-cap', 'xp', 'names']
 const only = args.only === undefined ? null : String(args.only);
 if (only !== null && !SCENARIOS.includes(only)) {
   console.error(`Неизвестный сценарий --only=${only}. Есть: ${SCENARIOS.join(', ')}`);
@@ -1334,6 +1335,41 @@ function towerClearance(s, prefix) {
   const minPt = Math.min(...pts);
   const minCurve = Math.min(...curves);
   check(`${prefix}: центр каждой из ${s.towers.length} башен дальше ${f1(limit - 0.5)} px от ближайшей точки ребра (минимум ${f1(minPt)}), основание башни не заходит на полосу дорожки с каймой (до кривой ≥ ${f1(needCurve)} px = ${edgeHalf} + ${base} − ${f1(GEO.sagPx)} на изгиб, минимум ${f1(minCurve)})`, s.towers.length > 20 && limit >= edgeHalf + base - GEO.sagPx && minPt >= limit - 0.5 && minCurve >= needCurve, `точки рёбер: ${f1(minPt)}, кривая: ${f1(minCurve)}, запас клетки ${f1(limit)}`);
+}
+
+/**
+ * Имена мутаций, узлов древа, умений ★4/★8, условий уровней, видов бактерий и боссов не повторяются — отдельно RU и EN, без учёта регистра (решение владельца 29 октября 2026,
+ * сообщение 1, п. 2). Без браузера: ключи берутся из таблиц `src/config.ts` (мутации, узлы, виды, боссы) и по началу ключа в `src/i18n.ts` (`skill…` — умения, `cond…` — условия).
+ */
+// Повторы, которые есть в игре до «да» владельца на замены (`docs/names-2026-10-29.md`, раздел 2): пропускаются, пока имена не заменены; после замены — убрать.
+const NAMES_PENDING = new Set(['скорострел', 'быстрый приём', 'дальний свет', 'широкий круг', 'дальний бросок', 'rapid fire', 'armor-piercing', 'caustic', 'quick dose', 'wide beam', 'far light', 'frequent frost', 'wide circle', 'long throw']);
+function runNames() {
+  const p = '[имена не повторяются]';
+  const src = fs.readFileSync(path.join(ROOT, 'src', 'i18n.ts'), 'utf8');
+  const cfg = fs.readFileSync(path.join(ROOT, 'src', 'config.ts'), 'utf8');
+  const cap = (x) => x[0].toUpperCase() + x.slice(1);
+  const texts = (key) => [...src.matchAll(new RegExp(`\\b${key}:\\s*(?:'([^']*)'|"([^"]*)")`, 'g'))].map((m) => m[1] ?? m[2]);
+  const names = [];
+  for (const list of Object.values(readMutationIds())) for (const ids of list) for (const id of ids) names.push(['мутация', `mut${cap(id)}`]);
+  for (const id of Object.keys(readMetaTable().upgrades)) names.push(['узел', `upg${cap(id)}`]);
+  for (const k of readKinds()) names.push(['вид', `bacName${cap(k)}`]);
+  const b0 = cfg.indexOf('\n  bosses: {');
+  for (const m of cfg.slice(b0, cfg.indexOf('\n  },', b0)).matchAll(/^\s{4}(\w+):\s*\{\s*base:/gm)) names.push(['босс', `boss${cap(m[1])}`]);
+  for (const m of src.matchAll(/^\s+((?:skill|cond)[A-Z]\w*):/gm)) if (!names.some((n) => n[1] === m[1])) names.push([m[1].startsWith('skill') ? 'умение' : 'условие', m[1]]);
+  const missing = names.filter(([, key]) => texts(key).length < 2).map(([, key]) => key);
+  check(`${p} у каждого имени (${names.length}) есть текст RU и EN`, missing.length === 0, missing.join(', '));
+  for (const [lang, li] of [['RU', 0], ['EN', 1]]) {
+    const seen = new Map();
+    for (const [kind, key] of names) {
+      const v = texts(key)[li];
+      if (v === undefined) continue;
+      const n = v.trim().toLowerCase();
+      seen.set(n, [...(seen.get(n) ?? []), `${kind} ${key}`]);
+    }
+    const dups = [...seen].filter(([n, list]) => list.length > 1 && !NAMES_PENDING.has(n));
+    const pending = [...seen].filter(([n, list]) => list.length > 1 && NAMES_PENDING.has(n)).length;
+    check(`${p} ${lang}: повторов нет (имён ${seen.size}; ждут замены по docs/names-2026-10-29.md: ${pending})`, dups.length === 0, dups.map(([n, list]) => `«${n}»: ${list.join(' | ')}`).join('; '));
+  }
 }
 
 async function runRules(browser, baseUrl) {
@@ -10339,6 +10375,7 @@ try {
     if (wants(key)) await safe(`[${key}]`, () => runProfile(browser, qaServer.url, device, lang));
   }
   if (wants('rules')) await safe('[правила клеток]', () => runRules(browser, qaServer.url));
+  if (wants('names')) await safe('[имена не повторяются]', async () => runNames());
   if (wants('graph')) await safe('[граф дорожек]', () => runGraph(browser, qaServer.url));
   if (wants('combat')) await safe('[бой]', () => runCombat(browser, qaServer.url));
   if (wants('dash')) await safe('[рывки палочки]', () => runDash(browser, qaServer.url));
