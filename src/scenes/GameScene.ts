@@ -25,7 +25,7 @@ import { pointAt, tileCenter, unitCenter, type Edge } from '../pathing';
 import { gameplay } from '../sdk';
 import { sfx } from '../sound';
 import { wardBlocks } from '../ward';
-import { computeStats, MAX_TOWER_LEVEL, mergeCap, mutationById, mutationOptions, mutationStacks, towerPrice, type TowerStats } from '../towerStats';
+import { computeStats, MAX_TOWER_LEVEL, mergeCap, rankCap, mutationById, mutationOptions, mutationStacks, towerPrice, type TowerStats } from '../towerStats';
 import { COLORS, FONT, TEXT_COLORS, fs } from '../theme';
 import { FPS_ENABLED, FpsMeter, frameReport, installFrameStats } from '../perf';
 import { Panel, TOP_H, VIEW } from '../ui/Panel';
@@ -493,6 +493,14 @@ export class GameScene extends Phaser.Scene {
         return this.gameToClient(s.x, s.y);
       },
       revealTower: (id) => this.panel.revealTower(id as TowerId),
+      setTowerXp: (col, row, xp) => {
+        const tower = this.towers.find((tw) => tw.col === col && tw.row === row);
+        if (!tower) return false;
+        tower.xp = xp;
+        tower.updateRank(rankCap(currentLevel()));
+        if (this.selectedTower === tower) this.refreshCard();
+        return true;
+      },
       upgradeTower: (col, row, picks) => {
         const tower = this.towers.find((tw) => tw.col === col && tw.row === row);
         if (!tower) return false;
@@ -877,7 +885,7 @@ export class GameScene extends Phaser.Scene {
       // Холод: замерзают все в радиусе, кто может (вид замерзает, не заморожен, окно после оттаивания прошло); с ключом «Хрупкость» по замёрзшим удары сильнее
       const frozen = tower.inRange(this.bacteria).filter((b) => b.freezable);
       if (frozen.length === 0) return false;
-      for (const bacterium of frozen) bacterium.freeze(st.freezeSec, st.brittle, st.thawSlowSec, st.thawSlowFactor);
+      for (const bacterium of frozen) bacterium.freeze(st.freezeSec, st.brittle, st.thawSlowSec, st.thawSlowFactor, st.noHealFrozen);
       this.freezes++;
       this.effects.frost(tower.x, tower.y, st.range);
     } else if (st.targeting === 'trap') {
@@ -901,7 +909,13 @@ export class GameScene extends Phaser.Scene {
     } else if (st.targeting === 'beam') {
       this.bursts.push({ tower, left: st.beamPulses, timer: 0, index: 0 });
     } else {
-      this.projectiles.push(new Projectile(this, this.projectileLayer, muzzleX, muzzleY, target, tower.id, st.projectileSpeed, st));
+      // умение ранга Таблетки: каждый `nthShot`-й выстрел сильнее (×`nthMul`)
+      let shotStats = st;
+      if (st.nthShot > 0) {
+        tower.shotCount++;
+        if (tower.shotCount % st.nthShot === 0) shotStats = { ...st, damage: st.damage * st.nthMul };
+      }
+      this.projectiles.push(new Projectile(this, this.projectileLayer, muzzleX, muzzleY, target, tower.id, st.projectileSpeed, shotStats));
     }
     this.shots++;
     sfx.shoot(tower.id);
@@ -1190,7 +1204,10 @@ export class GameScene extends Phaser.Scene {
       this.effects.beam(tower.x + Math.cos(angle) * BEAM_START_PX, tower.y + Math.sin(angle) * BEAM_START_PX, angle, Math.max(0, reach - BEAM_START_PX));
     }
     sfx.zap();
-    const damage = st.damage + index * st.spiral * CONFIG.towerLevels[Math.min(tower.level, CONFIG.towerLevels.length) - 1].damageMul;
+    let damage = st.damage + index * st.spiral * CONFIG.towerLevels[Math.min(tower.level, CONFIG.towerLevels.length) - 1].damageMul;
+    // умения ранга Шприца: первый удар очереди (★4) и последний (★8) сильнее
+    if (index === 0) damage *= st.firstHitMul;
+    if (index === st.beamPulses - 1) damage *= st.lastHitMul;
     const hits = tower.beamHits(this.bacteria);
     const killsBefore = this.kills;
     // Ключ «Сквозной разряд»: первая бактерия на линии (ближайшая к башне) теряет броню до удара
@@ -1222,6 +1239,8 @@ export class GameScene extends Phaser.Scene {
       return false;
     }
     if (bacterium.ward === 'memory') bacterium.remember(st.towerId);
+    // умения ранга Ампулы: по мини-боссам и боссу удар сильнее (жёсткое свойство уровня проверено выше — неуязвимую фазу умение не пробивает)
+    if (st.bossMul !== 1 && bacterium.bossId) damage *= st.bossMul;
     // Мутант помнит вид башни, ударившей последней: удар башни того же вида слабее; удар другого вида штрафа не получает и запоминается
     const memoryMul = CONFIG.types[bacterium.kind].memoryMul;
     const resisted = memoryMul > 0 && bacterium.memory === st.towerId;
@@ -1297,7 +1316,9 @@ export class GameScene extends Phaser.Scene {
       }
       if (i < fullLimit) {
         full++;
-        if (this.damageBacterium(bacterium, st, true, st.damage * damageMul)) acid++;
+        // умение ★8 Шипучки: цель в центре взрыва (ближайшая к нему из тех, кого удар ранит) получает больше
+        const center = i === 0 && !blocked(bacterium) ? st.centerMul : 1;
+        if (this.damageBacterium(bacterium, st, true, st.damage * damageMul * center)) acid++;
         if (QA_MODE) fullDealt.push(bacterium.lastDealt);
       } else {
         rest++;
@@ -1350,16 +1371,33 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
-  /** Опыт за погибшую бактерию: её `lifeDamage` (финальный босс с отрицательным — 0) каждой башне, в зоне которой она была; Витамин получает долю опыта башен в своей ауре (`config.xp.vitaminShare`). */
+  /**
+   * Опыт за погибшую бактерию: её `lifeDamage` (финальный босс с отрицательным — 0) каждой башне, в зоне которой она была; Витамин получает долю опыта башен в своей ауре
+   * (`config.xp.vitaminShare`, ранги ★3 и ★5 Витамина её поднимают — `stats.xpShare`); башня в ауре Витамина с умением ★8 получает больше опыта (`stats.auraXpMul`, берётся наибольший).
+   * После начисления — ранги (предел уровня игры `growthLimits.rank`).
+   */
   private awardXp(bacterium: Bacterium): void {
     const points = Math.max(0, bacterium.lifeDamage);
     if (points <= 0) return;
     for (const tower of this.towers) {
       if (!tower.inXpZone(bacterium)) continue;
-      tower.xp += points;
+      let boost = 1;
       for (const aura of this.towers) {
-        if (aura.isAura && Math.hypot(aura.x - tower.x, aura.y - tower.y) <= aura.stats.range) aura.xp += points * CONFIG.xp.vitaminShare;
+        if (aura.isAura && aura !== tower && Math.hypot(aura.x - tower.x, aura.y - tower.y) <= aura.stats.range) boost = Math.max(boost, aura.stats.auraXpMul);
       }
+      tower.xp += points * boost;
+      for (const aura of this.towers) {
+        if (aura.isAura && Math.hypot(aura.x - tower.x, aura.y - tower.y) <= aura.stats.range) aura.xp += points * aura.stats.xpShare;
+      }
+    }
+    this.updateRanks();
+  }
+
+  /** Ранги всех башен по их опыту (предел ранга — уровень игры): при новом ранге числа башни пересчитываются, знак ★ меняется. */
+  private updateRanks(): void {
+    const cap = rankCap(currentLevel());
+    for (const tower of this.towers) {
+      if (tower.updateRank(cap) && tower === this.selectedTower) this.refreshCard();
     }
   }
 
@@ -1709,6 +1747,7 @@ export class GameScene extends Phaser.Scene {
     const carriedXp = source.xp;
     this.removeTower(source);
     target.upgrade(carried, carriedXp);
+    target.updateRank(rankCap(currentLevel()));
     this.effects.merged(target.x, target.y);
     sfx.merge();
     this.selectedTower = null;

@@ -197,6 +197,8 @@ export class Bacterium {
   private slowBy = 1;
   /** Сколько ещё секунд действует замедление лужей Сиропа: только оно снимает жёсткое свойство бегуна (решение владельца 28 октября 2026, сообщение 3, п. 4). */
   private puddleSlowLeft = 0;
+  /** Заморожена Холодом с умением ★8 «не лечится» (ранг опыта): лечение не действует, пока лёд не растает. */
+  private noHealFrozen = false;
   /** Замедление после оттаивания («Долгий мороз»): секунд и во сколько раз медленнее. */
   private thawSlowSec = 0;
   private thawSlowFactor = 1;
@@ -406,9 +408,10 @@ export class Bacterium {
   }
 
   /** Заморозка: бактерия стоит на месте `seconds` секунд (только если `freezable`); `brittle` — во сколько раз сильнее удары по ней, пока заморожена (ключ «Хрупкость»). */
-  freeze(seconds: number, brittle = 1, thawSlowSec = 0, thawSlowFactor = 1): void {
+  freeze(seconds: number, brittle = 1, thawSlowSec = 0, thawSlowFactor = 1, noHeal = false): void {
     if (seconds <= 0 || !this.freezable) return;
     this.freezeLeft = seconds;
+    this.noHealFrozen = noHeal;
     this.brittleMul = brittle;
     this.thawSlowSec = thawSlowSec;
     this.thawSlowFactor = thawSlowFactor;
@@ -803,6 +806,8 @@ export class Bacterium {
   /** Лечение (от лекаря рядом, самолечение): не выше полного HP; отравленная бактерия не лечится; тело перерисовывается, когда HP изменилось заметно. */
   heal(amount: number): void {
     if (this.hp <= 0 || this.hp >= this.maxHp || this.poisonLeft > 0) return;
+    // умение ★8 Холода: замороженная им бактерия не лечится, пока не оттает
+    if (this.noHealFrozen && this.freezeLeft > 0) return;
     this.hp = Math.min(this.maxHp, this.hp + amount);
     if (Math.abs(this.hp - this.drawnHp) >= 0.5 || this.hp >= this.maxHp) {
       this.redraw();

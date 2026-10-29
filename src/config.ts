@@ -42,6 +42,30 @@ export interface LevelSpec {
 }
 /** Босс или мини-босс (docs/redesign-2026-10-19.md, раздел 7): одна особая бактерия; рисуется как вид-основа `base`, крупнее и с кольцом своего цвета. */
 export type BossId = 'colony' | 'rodLeader' | 'armadillo' | 'swarmQueen' | 'giantColony' | 'sporeling' | 'shaman' | 'hopper' | 'sporeMother' | 'silencer';
+/** Действие одного ранга опыта (таблица `ranks.byTower`): множители (*Mul) и прибавки (*Add) к числам башни, умения ★4/★8. */
+export interface RankEffect {
+  rangeMul?: number;
+  cooldownMul?: number;
+  damageMul?: number;
+  dotPerSecMul?: number;
+  dotSecMul?: number;
+  puddleSecMul?: number;
+  slowSecAdd?: number;
+  beamWidthMul?: number;
+  blastMul?: number;
+  trapSecMul?: number;
+  trapDpsMul?: number;
+  xpShareAdd?: number;
+  nthShot?: number;
+  nthMul?: number;
+  centerMul?: number;
+  firstHitMul?: number;
+  lastHitMul?: number;
+  bossMul?: number;
+  auraXpMul?: number;
+  noHealFrozen?: number;
+}
+
 /** Волна уровня нового формата: обычные бактерии (`mix`, выходят вперемешку), стена — пачка одного вида одним блоком (`wall`: вид и сколько), босс волны (`boss`). */
 export interface PlanWave {
   mix: Partial<Record<KindId, number>>;
@@ -938,6 +962,33 @@ export const CONFIG = {
   ] as { fromLevel: number; merge: number; rank: number }[],
   /** Опыт башен в партии (план docs/tower-levels-xp-plan-2026-10-24.md, раздел 2): vitaminShare — доля опыта, начисленного башне в ауре Витамина, которую получает сам Витамин (доля от 0 до 1). Опыт нужен замеру (qa/bot.mjs), рангов и улучшений от него пока нет. */
   xp: { vitaminShare: 0.25 },
+  /**
+   * Ранги опыта ★1–★8 (план `docs/tower-levels-xp-plan-2026-10-24.md`, раздел 3; решение владельца 29 октября 2026, сообщение 1, пп. 1–2). Ранг — сколько порогов `thresholds`
+   * (очки опыта) башня прошла, но не выше предела ранга уровня игры (`growthLimits.rank`). ★1–★4 — окончательно, ★5–★8 — предварительно (перепроверить на уровнях 5 и 15).
+   * `byTower` — что даёт каждый ранг ★1…★8 этой башни (по порядку), действия складываются: *Mul — множитель (×), *Add — прибавка; лестница вида: ★1 дальность, ★2 скорострельность,
+   * ★3 сила, ★4 особое умение, ★5 сила, ★6 скорострельность, ★7 дальность, ★8 второе умение (раздел 3.1 — где параметр упирается в потолок, ранг даёт другой; раздел 3.2 — умения).
+   *   rangeMul — радиус (у Лампы — конуса, у Витамина — ауры); cooldownMul — пауза; damageMul — урон (у Шипучки — взрыва, у Лампы — за тик); dotPerSecMul, dotSecMul — сила и время яда;
+   *   puddleSecMul — время лужи; slowSecAdd — замедление после выхода из лужи держится дольше, с; beamWidthMul — ширина луча Шприца; blastMul — радиус взрыва; trapSecMul, trapDpsMul — ловушка;
+   *   xpShareAdd — доля опыта соседей у Витамина (к `xp.vitaminShare`); nthShot / nthMul — каждый N-й выстрел Таблетки сильнее (×; ★8 заменяет число ★4); centerMul — цель в центре взрыва;
+   *   firstHitMul / lastHitMul — первый / последний удар очереди Шприца; bossMul — урон Ампулы по мини-боссам и боссу (★8 заменяет ★4); auraXpMul — башни в ауре получают больше опыта;
+   *   noHealFrozen — замороженная бактерия не лечится (1 — да). `dpsCap` — урон в секунду от рангов не выше этого множителя к башне без рангов (раздел 4).
+   */
+  ranks: {
+    thresholds: [30, 90, 250, 550, 1000, 1600, 2500, 3800] as number[],
+    dpsCap: 1.5,
+    byTower: {
+      pill: [{ rangeMul: 1.06 }, { cooldownMul: 0.95 }, { damageMul: 1.1 }, { nthShot: 5, nthMul: 1.2 }, { damageMul: 1.1 }, { cooldownMul: 0.95 }, { rangeMul: 1.06 }, { nthMul: 1.4 }],
+      syrup: [{ rangeMul: 1.06 }, { cooldownMul: 0.95 }, { puddleSecMul: 1.1 }, { puddleSecMul: 1.15 }, { puddleSecMul: 1.1 }, { cooldownMul: 0.95 }, { rangeMul: 1.06 }, { slowSecAdd: 0.5 }],
+      fizz: [{ rangeMul: 1.06 }, { cooldownMul: 0.95 }, { damageMul: 1.1 }, { blastMul: 1.12 }, { damageMul: 1.1 }, { cooldownMul: 0.95 }, { rangeMul: 1.06 }, { centerMul: 1.25 }],
+      syringe: [{ beamWidthMul: 1.1 }, { cooldownMul: 0.95 }, { damageMul: 1.1 }, { firstHitMul: 1.25 }, { damageMul: 1.1 }, { cooldownMul: 0.95 }, { beamWidthMul: 1.1 }, { lastHitMul: 1.25 }],
+      ampule: [{ rangeMul: 1.06 }, { cooldownMul: 0.95 }, { damageMul: 1.1 }, { bossMul: 1.15 }, { damageMul: 1.1 }, { cooldownMul: 0.95 }, { rangeMul: 1.06 }, { bossMul: 1.3 }],
+      antibiotic: [{ rangeMul: 1.06 }, { cooldownMul: 0.95 }, { dotPerSecMul: 1.1 }, { dotSecMul: 1.25 }, { dotPerSecMul: 1.1 }, { cooldownMul: 0.95 }, { rangeMul: 1.06 }, { dotPerSecMul: 1.15 }],
+      lamp: [{ rangeMul: 1.06 }, { cooldownMul: 0.95 }, { damageMul: 1.1 }, { damageMul: 1.1 }, { damageMul: 1.1 }, { cooldownMul: 0.95 }, { rangeMul: 1.06 }, { rangeMul: 1.12 }],
+      vitamin: [{ rangeMul: 1.06 }, { rangeMul: 1.06 }, { xpShareAdd: 0.05 }, { rangeMul: 1.12 }, { xpShareAdd: 0.05 }, { rangeMul: 1.06 }, { rangeMul: 1.06 }, { auraXpMul: 1.05 }],
+      frost: [{ rangeMul: 1.06 }, { rangeMul: 1.06 }, { rangeMul: 1.08 }, { rangeMul: 1.12 }, { rangeMul: 1.08 }, { rangeMul: 1.06 }, { rangeMul: 1.06 }, { noHealFrozen: 1 }],
+      patch: [{ rangeMul: 1.06 }, { cooldownMul: 0.95 }, { trapDpsMul: 1.1 }, { trapSecMul: 1.2 }, { trapDpsMul: 1.1 }, { cooldownMul: 0.95 }, { rangeMul: 1.06 }, { rangeMul: 1.15 }],
+    } as Record<string, RankEffect[]>,
+  },
   /** Рост времени заморозки Холода с уровнем башни: время × (damageMul уровня) ^ это число (0,25: уровень 2 — ×1,17, 3 — ×1,38, 4 — ×1,59; у Холода своего урона нет). Время приклеивания Пластыря с уровнем не растёт, его урон в секунду растёт как урон (damageMul). */
   freezeLevelPower: 0.25,
   /** Уровни, на которых башня получает выбор мутации (по одному выбору на каждый порог; выбор бесплатный и окончательный). */

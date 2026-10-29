@@ -73,6 +73,21 @@ export interface TowerStats extends TowerRow {
   thawSlowSec: number;
   thawSlowFactor: number;
   auraDamageMul: number;
+  /**
+   * Ранг опыта ★0–★8 и его умения (`ranks.byTower`; план, разделы 3.1–3.2): доля опыта соседей у Витамина; каждый `nthShot`-й выстрел Таблетки × `nthMul` (0 — нет);
+   * цель в центре взрыва Шипучки × `centerMul`; первый / последний удар очереди Шприца × `firstHitMul` / `lastHitMul`; урон Ампулы по мини-боссам и боссу × `bossMul`;
+   * башни в ауре Витамина получают × `auraXpMul` опыта; `noHealFrozen` — замороженная Холодом бактерия не лечится.
+   */
+  rank: number;
+  xpShare: number;
+  nthShot: number;
+  nthMul: number;
+  centerMul: number;
+  firstHitMul: number;
+  lastHitMul: number;
+  bossMul: number;
+  auraXpMul: number;
+  noHealFrozen: boolean;
   /** Потолки, в которые упёрлись числа (для карточки выбора мутации: «достигнутый потолок»). */
   caps: MutationCap[];
 }
@@ -148,7 +163,7 @@ export function unlockedTiers(level: number): number {
  * Числа башни: уровень (таблица `towerLevels`) и мутации `picks` (id по порядку порогов).
  * Урон, пауза, радиусы, лужа и очередь луча считаются здесь один раз; сцена и башня читают готовое.
  */
-export function computeStats(id: TowerKey, level: number, picks: readonly string[]): TowerStats {
+export function computeStats(id: TowerKey, level: number, picks: readonly string[], rank = 0): TowerStats {
   const base: TowerRow = CONFIG.towers[id];
   const lv = CONFIG.towerLevels[Math.min(Math.max(1, level), MAX_TOWER_LEVEL) - 1];
   let auraBonus = 1;
@@ -176,6 +191,16 @@ export function computeStats(id: TowerKey, level: number, picks: readonly string
     thawSlowSec: 0,
     thawSlowFactor: 1,
     auraDamageMul: 1,
+    rank: 0,
+    xpShare: CONFIG.xp.vitaminShare,
+    nthShot: 0,
+    nthMul: 1,
+    centerMul: 1,
+    firstHitMul: 1,
+    lastHitMul: 1,
+    bossMul: 1,
+    auraXpMul: 1,
+    noHealFrozen: false,
     caps: [],
   };
   const caps = CONFIG.mutationCaps;
@@ -334,6 +359,56 @@ export function computeStats(id: TowerKey, level: number, picks: readonly string
       s.extraTargets = Math.min(caps.extraTargetsMax, s.extraTargets + k.patch.extraTargets);
     }
   }
+  applyRank(s, id, rank);
   s.caps = [...hit];
   return s;
+}
+
+/** Ранг опыта по очкам `xp`: сколько порогов `ranks.thresholds` пройдено, не выше `cap` (предел ранга уровня игры, `rankCap`). */
+export function rankOf(xp: number, cap: number): number {
+  let r = 0;
+  for (const need of CONFIG.ranks.thresholds) if (xp + 1e-9 >= need) r++;
+  return Math.max(0, Math.min(cap, r));
+}
+
+/**
+ * Улучшения рангов ★1…★rank (`ranks.byTower`; план, разделы 3.1–3.2) — после мутаций, улучшений древа и потолков мутаций: множители складываются, умения ★8, которые заменяют
+ * умение ★4 (`nthMul`, `bossMul`), записываются поверх. Урон в секунду от рангов — не выше `ranks.dpsCap` к той же башне без рангов (раздел 4).
+ */
+function applyRank(s: TowerStats, id: TowerKey, rank: number): void {
+  const steps = CONFIG.ranks.byTower[id] ?? [];
+  const r = Math.max(0, Math.min(steps.length, Math.floor(rank)));
+  s.rank = r;
+  let dmg = 1;
+  let rate = 1;
+  for (const e of steps.slice(0, r)) {
+    if (e.rangeMul) {
+      s.range *= e.rangeMul;
+      if (s.targeting === 'puddle') s.puddleRadius *= e.rangeMul; // у Сиропа дальность ранга — радиус стрельбы и лужи
+    }
+    if (e.cooldownMul) rate *= e.cooldownMul;
+    if (e.damageMul) dmg *= e.damageMul;
+    if (e.dotPerSecMul) s.dotPerSec *= e.dotPerSecMul;
+    if (e.dotSecMul) s.dotSec *= e.dotSecMul;
+    if (e.puddleSecMul) s.puddleSec *= e.puddleSecMul;
+    if (e.slowSecAdd) s.slowSec += e.slowSecAdd;
+    if (e.beamWidthMul) s.beamHalfWidthPx *= e.beamWidthMul;
+    if (e.blastMul) s.blastRadius *= e.blastMul;
+    if (e.trapSecMul) s.trapSec *= e.trapSecMul;
+    if (e.trapDpsMul) s.trapDps *= e.trapDpsMul;
+    if (e.xpShareAdd) s.xpShare += e.xpShareAdd;
+    if (e.nthShot) s.nthShot = e.nthShot;
+    if (e.nthMul) s.nthMul = e.nthMul;
+    if (e.centerMul) s.centerMul = e.centerMul;
+    if (e.firstHitMul) s.firstHitMul = e.firstHitMul;
+    if (e.lastHitMul) s.lastHitMul = e.lastHitMul;
+    if (e.bossMul) s.bossMul = e.bossMul;
+    if (e.auraXpMul) s.auraXpMul = e.auraXpMul;
+    if (e.noHealFrozen) s.noHealFrozen = true;
+  }
+  // потолок урона в секунду от рангов: прибавка урона урезается, пауза — нет
+  const cap = CONFIG.ranks.dpsCap;
+  if (dmg / rate > cap) dmg = cap * rate;
+  s.damage *= dmg;
+  if (s.cooldownMs > 0) s.cooldownMs *= rate;
 }

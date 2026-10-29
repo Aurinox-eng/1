@@ -8,9 +8,9 @@ import {
 import { COLORS, PILL_EYES, TOWER_ART } from '../theme';
 import { bakeStyled } from './styleGfx';
 import { OWN_HIGH_PREVIEW } from '../debug';
-import { accentAt, hasHighArt, HIGH_ACCENT, highBarrelKey, highBaseKey, highHaloKey, highTopKey, HALO_BOX } from './highTowerArt';
+import { accentAt, hasHighArt, HIGH_ACCENT, rankMarkKey, RANK_BOX, highBarrelKey, highBaseKey, highHaloKey, highTopKey, HALO_BOX } from './highTowerArt';
 import { darken, isPilotTower, lighten, pilotBarrelKey, pilotBaseKey, pilotEyesKey, pilotPupilKey, pilotTopKey, PILL_EYE_POS, EYES_BOX, PUPIL_BOX, RECOIL_PX, RECOIL_SEC } from './pilotTowerArt';
-import { computeStats, mutationOptions, unlockedTiers, type TowerKey, type TowerStats } from '../towerStats';
+import { computeStats, mutationOptions, rankOf, unlockedTiers, type TowerKey, type TowerStats } from '../towerStats';
 import { wardBlocks } from '../ward';
 import type { Bacterium } from './Bacterium';
 
@@ -1503,8 +1503,14 @@ export class Tower {
   /** Уровень башни (1…MAX_TOWER_LEVEL) и все её мутации: свои и принесённые слиянием (одна и та же может повторяться — см. `mutationStack`). */
   level = 1;
   picks: string[] = [];
-  /** Опыт башни в партии (план docs/tower-levels-xp-plan-2026-10-24.md, раздел 2): очки за бактерий, погибших в её зоне; при слиянии складывается. Рангов и улучшений от него пока нет. */
+  /** Опыт башни в партии (план docs/tower-levels-xp-plan-2026-10-24.md, раздел 2): очки за бактерий, погибших в её зоне; при слиянии складывается. */
   xp = 0;
+  /** Ранг опыта ★0–★8 (`ranks.thresholds`, не выше предела уровня игры): сцена пересчитывает его после начисления опыта (`updateRank`). */
+  rank = 0;
+  /** Сколько выстрелов сделала башня (для «каждого N-го выстрела» умения ранга Таблетки). */
+  shotCount = 0;
+  /** Знак ранга: одна звезда с цифрой справа вверху башни (план, раздел 5; лист `?qa&artsheet=l`); нет до ★1. */
+  private rankMark: Phaser.GameObjects.Image | null = null;
   /** Сколько порогов мутаций эта башня уже прошла выбором (свой выбор на уровнях 2 и 4; мутации, пришедшие со слиянием, порогов не закрывают). */
   private tiersDone = 0;
   /** Расстояние от башни до организма по дорожкам (по ближайшей к ней точке сети), пикселей: по нему считается «вперёд/назад». */
@@ -1674,8 +1680,18 @@ export class Tower {
     return true;
   }
 
+  /** Пересчитать ранг по опыту (`cap` — предел ранга уровня игры): при новом ранге — числа башни и знак ★. Возвращает true, если ранг вырос. */
+  updateRank(cap: number): boolean {
+    const r = rankOf(this.xp, cap);
+    if (r === this.rank) return false;
+    const up = r > this.rank;
+    this.rank = r;
+    this.recompute();
+    return up;
+  }
+
   private recompute(): void {
-    this.stats = computeStats(this.id, this.level, this.picks);
+    this.stats = computeStats(this.id, this.level, this.picks, this.rank);
     this.refreshVisuals();
     if (this.cone) {
       const { key, box } = coneArt(this.scene, this.stats.range, this.stats.coneDeg);
@@ -1687,6 +1703,18 @@ export class Tower {
   /** Метки на башне: кольцо цвета уровня, точки уровня под башней, «!» при невыбранной мутации. */
   private refreshVisuals(): void {
     setTowerArtLevel(this.scene, this.art, this.id, this.level);
+    if (this.rank > 0) {
+      if (!this.rankMark) {
+        this.rankMark = this.scene.add.image(30, -22, rankMarkKey(this.scene, this.rank));
+        // под «!» мутации: оба знака справа вверху, «!» — временный и сверху
+        this.container.addAt(this.rankMark, this.container.getIndex(this.badge));
+      } else {
+        this.rankMark.setTexture(rankMarkKey(this.scene, this.rank));
+      }
+      this.rankMark.setDisplaySize(RANK_BOX.w, RANK_BOX.h).setVisible(true);
+    } else {
+      this.rankMark?.setVisible(false);
+    }
     const badge = this.pendingTier !== null;
     this.badge.setVisible(badge);
     if (badge) this.badgeTween.resume();

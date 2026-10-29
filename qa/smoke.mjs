@@ -168,7 +168,7 @@ if (['stage-1', 'stage-1b', 'stage-1b-qa', 'td-1-mockup', 'tmp'].includes(tag)) 
   process.exit(2);
 }
 
-const SCENARIOS = ['desktop-ru', 'phone-ru', 'desktop-en', 'phone-en', 'rules', 'graph', 'combat', 'dash', 'split', 'spore', 'armored', 'intro', 'lose-ru', 'lose-en', 'win-ru', 'win-en', 'towers', 'card', 'merge', 'mutations', 'sell', 'special', 'danger', 'rotate', 'production', 'fullgame', 'locked', 'strip', 'almanac', 'almanac-pause', 'damage-numbers', 'sell-gap', 'restart-button', 'deflation', 'camera-fit', 'colors', 'meta-save', 'meta-dna', 'meta-shop', 'meta-effects', 'tree-effects', 'tree-shop', 'level-waves', 'progress-save', 'stars', 'menu-flow', 'menu-reset', 'levels-lock', 'step-dps', 'sound', 'sdk', 'lose-line', 'attempt-line', 'toast-queue', 'shake', 'bosses', 'level2', 'wards', 'spiral-cap', 'marks', 'menu-exit', 'resume-tap', 'two-tabs', 'treemock', 'faces', 'real-game', 'dna-cap', 'xp', 'names']
+const SCENARIOS = ['desktop-ru', 'phone-ru', 'desktop-en', 'phone-en', 'rules', 'graph', 'combat', 'dash', 'split', 'spore', 'armored', 'intro', 'lose-ru', 'lose-en', 'win-ru', 'win-en', 'towers', 'card', 'merge', 'mutations', 'sell', 'special', 'danger', 'rotate', 'production', 'fullgame', 'locked', 'strip', 'almanac', 'almanac-pause', 'damage-numbers', 'sell-gap', 'restart-button', 'deflation', 'camera-fit', 'colors', 'meta-save', 'meta-dna', 'meta-shop', 'meta-effects', 'tree-effects', 'tree-shop', 'level-waves', 'progress-save', 'stars', 'menu-flow', 'menu-reset', 'levels-lock', 'step-dps', 'sound', 'sdk', 'lose-line', 'attempt-line', 'toast-queue', 'shake', 'bosses', 'level2', 'wards', 'spiral-cap', 'marks', 'menu-exit', 'resume-tap', 'two-tabs', 'treemock', 'faces', 'real-game', 'dna-cap', 'xp', 'names', 'ranks']
 const only = args.only === undefined ? null : String(args.only);
 if (only !== null && !SCENARIOS.includes(only)) {
   console.error(`Неизвестный сценарий --only=${only}. Есть: ${SCENARIOS.join(', ')}`);
@@ -2576,6 +2576,108 @@ async function runMarks(browser, baseUrl) {
  * 1) перебор «башня × уровень 1–8» по числам из игры: ничто не ухудшается, хотя бы одно число растёт, все числа конечны, положительные числа остаются положительными; Холод на VI–VIII — пауза 6,0 с и заморозка 3,0 с;
  * 2) опыт: убитый кокк (`lifeDamage` 1) даёт +1 каждой башне, в зоне которой погиб, и 0 — башне вне зоны; при слиянии опыт складывается; Витамин получает `xp.vitaminShare` опыта башен в своей ауре.
  */
+/** Таблица рангов из src/config.ts (`ranks`): пороги и действия ★1–★8 каждой башни (объекты-литералы читаются как JS — это наш собственный файл). */
+function readRanks() {
+  const src = fs.readFileSync(path.join(ROOT, 'src', 'config.ts'), 'utf8');
+  const from = src.indexOf('\n  ranks: {');
+  const to = src.indexOf('} as Record<string, RankEffect[]>', from);
+  if (from < 0 || to < 0) throw new Error('В config.ts нет таблицы ranks');
+  const block = src.slice(from, to);
+  const thresholds = JSON.parse(/thresholds:\s*(\[[^\]]*\])/.exec(block)[1]);
+  const dpsCap = Number(/dpsCap:\s*([\d.]+)/.exec(block)[1]);
+  const byTower = {};
+  for (const m of block.matchAll(/^\s{6}(\w+):\s*(\[.*\]),\s*$/gm)) byTower[m[1]] = new Function(`return ${m[2]}`)();
+  return { thresholds, dpsCap, byTower };
+}
+
+/**
+ * Ранги опыта ★1–★8 и умения ★4/★8 (план docs/tower-levels-xp-plan-2026-10-24.md, разделы 3.1–3.2; решение владельца 29 октября 2026, сообщение 1, пп. 1–2):
+ * у каждой из 10 башен числа на ★0…★8 — как в таблице `ranks.byTower` (множители складываются, урон в секунду от рангов не выше `ranks.dpsCap`); на уровне 1 ранг не выше ★4
+ * (`growthLimits`); ранг за настоящий опыт в бою (порог ★1 снижен до 1 очка через cfg).
+ */
+async function runRanks(browser, baseUrl) {
+  const p = '[ранги опыта]';
+  const R = readRanks();
+  const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
+  const cells = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j'].map((k) => FREE[k]).filter(Boolean);
+  // 1) числа по рангам: предел ранга уровня 1 поднят до ★8 через cfg, опыт ставится напрямую
+  const statsAt = async (cfg) => {
+    const out = [];
+    const game = await openGame(context, baseUrl, `${p} числа`, { speed: 1, cfg: ['waves.firstDelaySec:9999', cfg].filter(Boolean).join(','), query: `${ALL_TOWERS}&levelwaves&level=1` });
+    await game.page.evaluate(([ids, cs]) => ids.forEach((id, i) => window.__pvb.placeTower(id, cs[i][0], cs[i][1], 1)), [TOWER_IDS, cells]);
+    for (let r = 0; r <= R.thresholds.length; r++) {
+      const xp = r === 0 ? 0 : R.thresholds[r - 1];
+      await game.page.evaluate(([cs, v]) => cs.forEach(([c, rw]) => window.__pvb.setTowerXp(c, rw, v)), [cells.slice(0, TOWER_IDS.length), xp]);
+      const st = await game.state();
+      out.push(Object.fromEntries(TOWER_IDS.map((id, i) => [id, towerIn(st, cells[i])])));
+    }
+    await game.page.close();
+    return out;
+  };
+  const byRank = await statsAt('growthLimits.0.rank:8');
+  const near = (a, b) => Math.abs(a - b) <= 1e-6 * Math.max(1, Math.abs(b));
+  const problems = [];
+  for (const id of TOWER_IDS) {
+    const base = byRank[0][id].stats;
+    const steps = R.byTower[id] ?? [];
+    for (let r = 0; r <= steps.length; r++) {
+      const tw = byRank[r][id];
+      if (tw.rank !== r) problems.push(`${id}: опыт ${r ? R.thresholds[r - 1] : 0} — ранг ${tw.rank}, ждали ${r}`);
+      const mul = (k) => steps.slice(0, r).reduce((m, e) => m * (e[k] ?? 1), 1);
+      const add = (k) => steps.slice(0, r).reduce((m, e) => m + (e[k] ?? 0), 0);
+      const last = (k, d) => steps.slice(0, r).reduce((v, e) => (e[k] !== undefined ? e[k] : v), d);
+      let dmg = mul('damageMul');
+      const rate = mul('cooldownMul');
+      if (dmg / rate > R.dpsCap) dmg = R.dpsCap * rate;
+      const want = {
+        range: base.range * mul('rangeMul'),
+        cooldownMs: base.cooldownMs * (base.cooldownMs > 0 ? rate : 1),
+        damage: base.damage * dmg,
+        dotPerSec: base.dotPerSec * mul('dotPerSecMul'),
+        dotSec: base.dotSec * mul('dotSecMul'),
+        puddleSec: base.puddleSec * mul('puddleSecMul'),
+        puddleRadius: base.puddleRadius * (base.puddleRadius > 0 && id === 'syrup' ? mul('rangeMul') : 1),
+        slowSec: base.slowSec + add('slowSecAdd'),
+        beamHalfWidthPx: base.beamHalfWidthPx * mul('beamWidthMul'),
+        blastRadius: base.blastRadius * mul('blastMul'),
+        trapSec: base.trapSec * mul('trapSecMul'),
+        trapDps: base.trapDps * mul('trapDpsMul'),
+        xpShare: base.xpShare + add('xpShareAdd'),
+        nthShot: last('nthShot', 0),
+        nthMul: last('nthMul', 1),
+        centerMul: last('centerMul', 1),
+        firstHitMul: last('firstHitMul', 1),
+        lastHitMul: last('lastHitMul', 1),
+        bossMul: last('bossMul', 1),
+        auraXpMul: last('auraXpMul', 1),
+        noHealFrozen: last('noHealFrozen', 0) > 0,
+      };
+      for (const [k, v] of Object.entries(want)) {
+        const got = tw.stats[k];
+        if (typeof v === 'boolean' ? got !== v : !near(got ?? NaN, v)) problems.push(`${id} ★${r}: ${k} ${got} (ждали ${typeof v === 'number' ? +v.toFixed(4) : v})`);
+      }
+    }
+  }
+  check(`${p} числа 10 башен на ★0–★8 — по таблице ranks.byTower (дальность, скорострельность, сила, умения ★4/★8; урон в секунду от рангов не выше ×${R.dpsCap}): расхождений ${problems.length}`, problems.length === 0, problems.slice(0, 6).join(' | '));
+  // 2) предел уровня 1 — ★4: опыт ★8 даёт ★4
+  const capped = await statsAt('');
+  const top = capped.at(-1);
+  const over = TOWER_IDS.filter((id) => top[id].rank !== 4);
+  check(`${p} на уровне 1 ранг не выше ★4 (growthLimits): при опыте ${R.thresholds.at(-1)} у всех 10 башен ★4 (не так: ${over.join(', ') || 'нет'})`, over.length === 0, over.map((id) => `${id} ★${top[id].rank}`).join(', '));
+  // 3) ранг за настоящий опыт: порог ★1 — 1 очко, один убитый кокк (lifeDamage 1) в зоне Таблетки
+  const game = await openGame(context, baseUrl, `${p} бой`, { speed: 4, cfg: `${wavesOnlyCfg({ coccus: 1 })},waves.firstDelaySec:1,towers.pill.damage:50,economy.startCoins:2000,lives.start:3,types.coccus.lifeDamage:1,waves.total:2,waves.pauseSec:9999,ranks.thresholds.0:1,towers.pill.range:2000`, query: ALL_TOWERS });
+  await placeSure(game, 'pill', FREE.a);
+  const before = towerIn(await game.state(), FREE.a);
+  const s = await waitFor(game.page, (x) => x.kills >= 1 && x.bacteria.length === 0, WAIT_MS, 'гибель кокка');
+  const after = towerIn(s, FREE.a);
+  const step = (R.byTower.pill ?? [])[0]?.rangeMul ?? 1;
+  check(`${p} в бою: убит кокк в зоне Таблетки — опыт ${after.xp}, ранг ★${after.rank} (ждали ★1), радиус ${f1(before.stats.range)} → ${f1(after.stats.range)} (×${step})`, after.rank === 1 && near(after.stats.range, before.stats.range * step), `xp ${after.xp}, rank ${after.rank}`);
+  await frames(game.page, 3);
+  await shot(game.page, 'ranks-battle');
+  await game.page.close();
+  await context.close();
+}
+
 async function runXp(browser, baseUrl) {
   const p = '[опыт башен и уровни V–VIII]';
   const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
@@ -10376,6 +10478,7 @@ try {
   }
   if (wants('rules')) await safe('[правила клеток]', () => runRules(browser, qaServer.url));
   if (wants('names')) await safe('[имена не повторяются]', async () => runNames());
+  if (wants('ranks')) await safe('[ранги опыта]', () => runRanks(browser, qaServer.url));
   if (wants('graph')) await safe('[граф дорожек]', () => runGraph(browser, qaServer.url));
   if (wants('combat')) await safe('[бой]', () => runCombat(browser, qaServer.url));
   if (wants('dash')) await safe('[рывки палочки]', () => runDash(browser, qaServer.url));
