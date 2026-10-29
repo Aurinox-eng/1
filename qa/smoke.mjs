@@ -2389,7 +2389,9 @@ async function runWards(browser, baseUrl) {
   try {
     const mixCfg = (mix) => [...new Set([...Object.keys(PLAN[0].mix), ...Object.keys(mix)])].map((k) => `levels.specs.0.plan.waves.0.mix.${k}:${mix[k] ?? 0}`).join(',');
     /** Одна партия: башни по списку, первая волна `mix`; идёт, пока не выйдет бегун и не уйдёт с карты (убит или дошёл). Возвращает все опросы состояния. */
-    const run = async (label, mix, towers, { upgrade = null, upgrades = [] } = {}) => {
+    // untilClear — партия идёт, пока с карты не уйдут все бактерии (не только бегун): бегун быстрый и уходит раньше кокков, и выстрелы Таблетки по ним не успевали стать убийствами
+    // (падала 28–29 октября 2026: «выстрелов 2, убито 0»; список плавающих, `docs/technical-notes.md`)
+    const run = async (label, mix, towers, { upgrade = null, upgrades = [], untilClear = false } = {}) => {
       const game = await openGame(context, baseUrl, `${p} ${label}`, { speed: 4, cfg: `${mixCfg(mix)},levels.specs.0.plan.startCoins:1500,lives.start:500`, query: '&levelwaves&level=1&towers=all' });
       for (const [id, cell] of towers) await placeSure(game, id, cell);
       if (upgrade) await game.page.evaluate(([c, r, picks]) => window.__pvb.upgradeTower(c, r, picks), [upgrade.cell[0], upgrade.cell[1], upgrade.picks]);
@@ -2402,7 +2404,7 @@ async function runWards(browser, baseUrl) {
         samples.push(st);
         const runners = st.bacteria.filter((b) => b.kind === 'runner');
         if (runners.length) seen = true;
-        if ((seen && !runners.length) || st.state !== 'playing' || Date.now() - started > 120000) break;
+        if ((seen && (untilClear ? !st.bacteria.length : !runners.length)) || st.state !== 'playing' || Date.now() - started > 120000) break;
         await sleep(25);
       }
       await game.page.close();
@@ -2427,7 +2429,7 @@ async function runWards(browser, baseUrl) {
     const thaw = await run('лёд «Долгий мороз» и Таблетка', { runner: 1 }, [['frost', FREE.a], ['pill', FREE.b]], { upgrades: [{ cell: FREE.a, picks: [] }, { cell: FREE.a, picks: [] }, { cell: FREE.a, picks: ['frostDeep', 'frostLong'] }] });
     const thawSlowed = runnersOf(thaw).some((b) => b.slowed);
     check(`${p} «Долгий мороз»: бегун после льда замедлен (${thawSlowed}), но не ранен — Таблетка по нему не бьёт (мин. доля HP ${minHp(thaw).toFixed(2)})`, thaw.seen && thawSlowed && fullHp(thaw), `замедлен ${thawSlowed}, мин. доля ${minHp(thaw).toFixed(2)}`);
-    const pillMix = await run('Таблетка, кокки и бегун', { coccus: 3, runner: 1 }, [['pill', FREE.a]]);
+    const pillMix = await run('Таблетка, кокки и бегун', { coccus: 3, runner: 1 }, [['pill', FREE.a]], { untilClear: true });
     check(`${p} при других целях в зоне Таблетка бьёт их: выстрелов ${pillMix.last.shots}, убито ${pillMix.last.kills}; бегун не ранен`, pillMix.seen && pillMix.last.shots > 0 && pillMix.last.kills >= 1 && fullHp(pillMix), `выстрелов ${pillMix.last.shots}, убито ${pillMix.last.kills}, мин. доля ${minHp(pillMix).toFixed(2)}`);
     // Сироп и Таблетка: лужа ложится и под незамедленного бегуна (Сироп не трогаем), в луже Таблетка его бьёт
     const both = await run('Сироп и Таблетка', { runner: 1 }, [['syrup', FREE.a], ['pill', FREE.b]]);
