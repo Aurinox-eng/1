@@ -51,10 +51,10 @@ function isHighFrame(level: number, legacy: boolean): boolean {
   return !legacy && level >= 5;
 }
 /**
- * Свой ствол V–VIII у остальных семи башен (вариант Б, сообщение 3 от 28 октября 2026, п. 3; `drawBarrelHigh`). В игре — у пяти башен («да» по листам l3–l5, сообщение 4 от 28 октября 2026, п. 2);
- * Шипучка и Пластырь после поправок пп. 2.1–2.2 — до «да» по листу `?qa&artsheet=l6` только на листах и с `&ownhigh`.
+ * Свой ствол V–VIII у остальных семи башен (вариант Б, сообщение 3 от 28 октября 2026, п. 3; `drawBarrelHigh`). В игре — у всех семи башен («да» по листам l3–l5, сообщение 4 от 28 октября 2026, п. 2;
+ * Шипучка и Пластырь после поправок — «да» по листу `?qa&artsheet=l6`, сообщение 1 от 29 октября 2026, п. 3).
  */
-const OWN_HIGH_IN_GAME: ReadonlySet<TowerId> = new Set<TowerId>(['ampule', 'antibiotic', 'lamp', 'vitamin', 'frost']);
+const OWN_HIGH_IN_GAME: ReadonlySet<TowerId> = new Set<TowerId>(['fizz', 'ampule', 'antibiotic', 'lamp', 'vitamin', 'frost', 'patch']);
 function hasOwnHighBarrel(id: TowerId, level: number, legacy: boolean): boolean {
   return (OWN_HIGH_PREVIEW || OWN_HIGH_IN_GAME.has(id)) && !legacy && level >= 5 && !hasHighArt(id);
 }
