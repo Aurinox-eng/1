@@ -213,7 +213,7 @@ export function qaSnapshot(s: GameSceneInternals): DebugSnapshot {
       shielded: b.shielded,
       phase: b.phaseIndex,
     })),
-    plan: s.params.plan ? { waves: s.params.plan.waves.length, startCoins: s.params.plan.startCoins, pauseSec: s.params.plan.pauseSec } : null,
+    plan: s.params.plan ? { waves: s.params.plan.waves.length, startCoins: s.params.plan.startCoins, pauseSec: s.params.plan.pauseSec, firstWave: firstWaveOf(s.params.plan.waves) } : null,
     mapId: MAP_ID,
     bossBits: s.bossBits,
     fever: { owned: s.feverGfx !== null, left: s.feverLeft, wait: s.feverWait, uses: s.feverUses },
@@ -242,6 +242,16 @@ export function qaSnapshot(s: GameSceneInternals): DebugSnapshot {
 }
 
 /** Ставит одну башню нужного вида и уровня без оплаты (снимки qa/art-shots.mjs); клетка должна быть свободной, не дорожкой и не закрытой. */
+/** Первая волна плана, где выходит каждый вид (обычные и стена): `{ runner: 15, … }` — для бота (образец строит Сироп до выхода бегунов). */
+function firstWaveOf(waves: readonly { mix?: Record<string, number>; wall?: readonly [string, number] }[]): Record<string, number> {
+  const out: Record<string, number> = {};
+  waves.forEach((w, i) => {
+    const kinds = [...Object.keys(w.mix ?? {}).filter((k) => (w.mix?.[k] ?? 0) > 0), ...(w.wall ? [w.wall[0]] : [])];
+    for (const k of kinds) if (out[k] === undefined) out[k] = i + 1;
+  });
+  return out;
+}
+
 export function placeTowerQa(s: GameSceneInternals, id: TowerId, col: number, row: number, level: number): boolean {
   const key = cellKey(col, row);
   if (!(id in CONFIG.towers) || PATH_TILES.has(key) || BLOCKED_TILES.has(key) || s.occupied.has(key)) return false;

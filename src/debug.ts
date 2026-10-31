@@ -204,7 +204,8 @@ export interface DebugSnapshot {
   /** Разбивка очков ДНК за партию на экране конца уровня (волны, победа, новые звёзды) и строка, которую видит игрок. */
   dnaParts: { waves: number; win: number; coins: number; bosses: number; flawless: number; floor: number; stars: number };
   /** Уровень нового формата: сколько волн, монет на старте и пауза между волнами (null — прежний формат); id карты; побеждённые за партию боссы (биты); «Лихорадка»; строка «не хватает N ДНК»; фаза волн и её таймер. */
-  plan: { waves: number; startCoins: number; pauseSec: number } | null;
+  /** План волн уровня нового формата: число волн, монеты, пауза; `firstWave` — первая волна каждого вида (`runner: 15`). */
+  plan: { waves: number; startCoins: number; pauseSec: number; firstWave: Record<string, number> } | null;
   mapId: string;
   bossBits: number;
   fever: { owned: boolean; left: number; wait: number; uses: number };

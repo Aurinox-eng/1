@@ -299,6 +299,15 @@ const REVIEW_STEPS = [
  * решение владельца 28 октября 2026, сообщение 3, п. 3.1: образец собирает группы ровно до IV, и V без этого правила в замере не появляется).
  */
 const REVIEW_V_STEPS = [['syringeA', 16], ['syringeB', 16], ['fizzA', 16], ['syrupA', 16]];
+/**
+ * Порядок образца с купленными башнями (решение владельца 31 октября 2026, сообщение 1, п. 1.2): ранняя оборона — как в 1-й попытке (только Таблетки, пока группа Таблеток
+ * не дошла до IV — 8 обычных башен — и не наступила волна REVIEW_EARLY_WAVE), новые башни — когда до них доходит дело: Сироп — за REVIEW_SYRUP_LEAD волн до первого выхода бегунов
+ * (волна — из плана уровня, `plan.firstWave.runner`; бегуна ранят только в луже), Шприц и Шипучка — после ранних Таблеток, в прежнем порядке REVIEW_STEPS.
+ * Прежде после покупки узлов башен образец со 2-й попытки начинал с Шипучки и Сиропа и гиб раньше 1-й попытки (6–8-я волна против 9–11-й).
+ */
+const REVIEW_EARLY_WAVE = 10;
+const REVIEW_EARLY_PILLS = 8;
+const REVIEW_SYRUP_LEAD = 2;
 /** Покупки очков ДНК по отчёту (с. 71): узел и уровень, до которого он покупается, в порядке покупок за попытки 1–5. */
 const REVIEW_BUYS = [['towerSyrup', 1], ['towerFizz', 1], ['towerSyringe', 1], ['damage', 1], ['coins', 3], ['syringePower', 1], ['syrupPower', 1]];
 const listArg = (name) => (args[name] === undefined || args[name] === true ? null : String(args[name]).split(',').map((x) => x.trim()).filter(Boolean));
@@ -1101,10 +1110,16 @@ function makePlayer({ world, rng, buttons }) {
   const reviewDecide = (view) => {
     const fighting = view.towers.filter((tw) => tw.id !== 'syrup').reduce((sum, tw) => sum + 2 ** ((tw.level ?? 1) - 1), 0);
     const syrups = view.towers.filter((tw) => tw.id === 'syrup').reduce((sum, tw) => sum + 2 ** ((tw.level ?? 1) - 1), 0);
+    const wave = view.s.wave ?? 0;
+    const early = reviewUnits(view, 'pillA') < REVIEW_EARLY_PILLS && wave < REVIEW_EARLY_WAVE;
+    // уровень без бегунов или без плана волн — Сироп в прежнем порядке
+    const runnerWave = view.s.plan?.firstWave?.runner;
+    const syrupOpen = runnerWave === undefined || wave >= runnerWave - REVIEW_SYRUP_LEAD;
     for (const [key, target] of FX.has('v') ? [...REVIEW_STEPS, ...REVIEW_V_STEPS] : REVIEW_STEPS) {
       const g = REVIEW_GROUPS[key];
       if (!available(g.type) || reviewGaveUp.has(key) || reviewUnits(view, key) >= target) continue;
-      if (g.type === 'syrup' && syrups + 1 > fighting) continue;
+      if (early && g.type !== 'pill') continue;
+      if (g.type === 'syrup' && (!syrupOpen || syrups + 1 > fighting)) continue;
       const cell = reviewCell(view, key);
       if (!cell) {
         reviewGaveUp.add(key);
