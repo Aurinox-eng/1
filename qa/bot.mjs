@@ -300,13 +300,15 @@ const REVIEW_STEPS = [
  */
 const REVIEW_V_STEPS = [['syringeA', 16], ['syringeB', 16], ['fizzA', 16], ['syrupA', 16]];
 /**
- * Порядок образца с купленными башнями (решение владельца 31 октября 2026, сообщение 1, п. 1.2): ранняя оборона — как в 1-й попытке (только Таблетки, пока группа Таблеток
- * не дошла до IV — 8 обычных башен — и не наступила волна REVIEW_EARLY_WAVE), новые башни — когда до них доходит дело: Сироп — за REVIEW_SYRUP_LEAD волн до первого выхода бегунов
- * (волна — из плана уровня, `plan.firstWave.runner`; бегуна ранят только в луже), Шприц и Шипучка — после ранних Таблеток, в прежнем порядке REVIEW_STEPS.
+ * Порядок образца с купленными башнями (решение владельца 31 октября 2026, сообщение 1, п. 1.2): ранняя оборона — как в 1-й попытке (первые REVIEW_FIRST_PILLS обычных
+ * Таблеток — до всего остального; Шипучка — только когда группа Таблеток дошла до IV — REVIEW_EARLY_PILLS обычных башен — или наступила волна REVIEW_EARLY_WAVE),
+ * Сироп — за REVIEW_SYRUP_LEAD волн до первого выхода бегунов (волна — из плана уровня, `plan.firstWave.runner`; бегуна ранят только в луже). Шприц — главный урон образца:
+ * строится сразу после первых Таблеток, в прежнем порядке REVIEW_STEPS (лестница `41230985157` с Шприцем после ранних Таблеток: 4–5 попыток подряд гибель на 12-й волне).
  * Прежде после покупки узлов башен образец со 2-й попытки начинал с Шипучки и Сиропа и гиб раньше 1-й попытки (6–8-я волна против 9–11-й).
  */
 const REVIEW_EARLY_WAVE = 10;
 const REVIEW_EARLY_PILLS = 8;
+const REVIEW_FIRST_PILLS = 4;
 const REVIEW_SYRUP_LEAD = 2;
 /** Покупки очков ДНК по отчёту (с. 71): узел и уровень, до которого он покупается, в порядке покупок за попытки 1–5. */
 const REVIEW_BUYS = [['towerSyrup', 1], ['towerFizz', 1], ['towerSyringe', 1], ['damage', 1], ['coins', 3], ['syringePower', 1], ['syrupPower', 1]];
@@ -1118,7 +1120,8 @@ function makePlayer({ world, rng, buttons }) {
     for (const [key, target] of FX.has('v') ? [...REVIEW_STEPS, ...REVIEW_V_STEPS] : REVIEW_STEPS) {
       const g = REVIEW_GROUPS[key];
       if (!available(g.type) || reviewGaveUp.has(key) || reviewUnits(view, key) >= target) continue;
-      if (early && g.type !== 'pill') continue;
+      if (reviewUnits(view, 'pillA') < REVIEW_FIRST_PILLS && g.type !== 'pill') continue;
+      if (early && g.type === 'fizz') continue;
       if (g.type === 'syrup' && (!syrupOpen || syrups + 1 > fighting)) continue;
       const cell = reviewCell(view, key);
       if (!cell) {
