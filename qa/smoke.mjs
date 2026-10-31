@@ -1339,10 +1339,43 @@ function towerClearance(s, prefix) {
 
 /**
  * Имена мутаций, узлов древа, умений ★4/★8, условий уровней, видов бактерий и боссов не повторяются — отдельно RU и EN, без учёта регистра (решение владельца 29 октября 2026,
- * сообщение 1, п. 2). Без браузера: ключи берутся из таблиц `src/config.ts` (мутации, узлы, виды, боссы) и по началу ключа в `src/i18n.ts` (`skill…` — умения, `cond…` — условия).
+ * сообщение 1, п. 2). Без браузера: ключи берутся из таблиц `src/config.ts` (мутации, узлы, виды, боссы) и по началу ключа в `src/i18n.ts` (`skill…` — умения, `cond…` — условия);
+ * имена из плана глав — `readPlanNames`.
  */
-// Повторы, которые есть в игре до «да» владельца на замены (`docs/names-2026-10-29.md`, раздел 2): пропускаются, пока имена не заменены; после замены — убрать.
-const NAMES_PENDING = new Set(['скорострел', 'быстрый приём', 'дальний свет', 'широкий круг', 'дальний бросок', 'rapid fire', 'armor-piercing', 'caustic', 'quick dose', 'wide beam', 'far light', 'frequent frost', 'wide circle', 'long throw']);
+/**
+ * Имена из плана глав (`docs/content-plan-2026-10-26.md`: новые виды, мини-боссы, башни, их ключевые узлы и мутации, условия уровней) — проверяются вместе с именами игры,
+ * чтобы будущие повторы ловились заранее (решение владельца 31 октября 2026, сообщение 1, п. 2.5). Повторы, уже известные плану (раздел 9а; «частая» — найден проверкой
+ * 31 октября 2026), пропускаются: новые имена — владельцу с листом главы, где объект появляется; после замены — убрать из списка.
+ */
+const PLAN_NAMES_PENDING = new Set(['колония', 'флора', 'фильтр', 'иммунитет', 'хрупкость', 'кислота', 'частая']);
+function readPlanNames() {
+  const doc = fs.readFileSync(path.join(ROOT, 'docs', 'content-plan-2026-10-26.md'), 'utf8');
+  const section = (n) => {
+    const a = doc.indexOf(`\n## ${n}.`);
+    const b = doc.indexOf('\n## ', a + 5);
+    return a < 0 ? '' : doc.slice(a, b < 0 ? undefined : b);
+  };
+  const rows = (txt) => txt.split('\n').filter((l) => l.startsWith('|') && !/^\|\s*-/.test(l)).slice(1).map((l) => l.split('|').slice(1, -1).map((c) => c.trim()));
+  const out = [];
+  for (const r of rows(section(1))) {
+    const m = /\*\*(.+?)\*\*/.exec(r[4] ?? '');
+    if (m) out.push(['вид (план)', m[1]]);
+  }
+  for (const r of rows(section(2))) if (r[1]) out.push(['мини-босс (план)', r[1]]);
+  const [towers, muts = ''] = section(3).split('Мутации (по две');
+  for (const r of rows(towers)) {
+    const m = /\*\*(.+?)\*\*/.exec(r[1] ?? '');
+    if (m) out.push(['башня (план)', m[1]]);
+    const k = /«(.+?)»/.exec(r[5] ?? '');
+    if (k) out.push(['ключевой узел (план)', k[1]]);
+  }
+  for (const r of rows(muts)) for (const c of r.slice(1)) for (const m of c.matchAll(/(?:^|\/\s*)«(.+?)»/g)) out.push(['мутация (план)', m[1]]);
+  for (const r of rows(section(5))) {
+    const m = /«(.+?)»/.exec(r[1] ?? '');
+    if (m) out.push(['условие (план)', m[1]]);
+  }
+  return out;
+}
 function runNames() {
   const p = '[имена не повторяются]';
   const src = fs.readFileSync(path.join(ROOT, 'src', 'i18n.ts'), 'utf8');
@@ -1366,9 +1399,14 @@ function runNames() {
       const n = v.trim().toLowerCase();
       seen.set(n, [...(seen.get(n) ?? []), `${kind} ${key}`]);
     }
-    const dups = [...seen].filter(([n, list]) => list.length > 1 && !NAMES_PENDING.has(n));
-    const pending = [...seen].filter(([n, list]) => list.length > 1 && NAMES_PENDING.has(n)).length;
-    check(`${p} ${lang}: повторов нет (имён ${seen.size}; ждут замены по docs/names-2026-10-29.md: ${pending})`, dups.length === 0, dups.map(([n, list]) => `«${n}»: ${list.join(' | ')}`).join('; '));
+    // в план глав имена записаны по-русски: они — только в проверке RU
+    if (lang === 'RU') for (const [kind, name] of readPlanNames()) {
+      const n = name.trim().toLowerCase();
+      seen.set(n, [...(seen.get(n) ?? []), kind]);
+    }
+    const dups = [...seen].filter(([n, list]) => list.length > 1 && !PLAN_NAMES_PENDING.has(n));
+    const pending = [...seen].filter(([n, list]) => list.length > 1 && PLAN_NAMES_PENDING.has(n)).length;
+    check(`${p} ${lang}: повторов нет (имён ${seen.size}${lang === 'RU' ? `, с планом глав; повторов плана, ждущих новых имён с листами глав: ${pending}` : ''})`, dups.length === 0, dups.map(([n, list]) => `«${n}»: ${list.join(' | ')}`).join('; '));
   }
 }
 
