@@ -1343,18 +1343,41 @@ function towerClearance(s, prefix) {
  * имена из плана глав — `readPlanNames`.
  */
 /**
- * Имена из плана глав (`docs/content-plan-2026-10-26.md`: новые виды, мини-боссы, башни, их ключевые узлы и мутации, условия уровней) — проверяются вместе с именами игры,
+ * Имена из плана глав (`docs/content-plan-2026-10-26.md`: новые виды, мини-боссы, башни, их ключевые узлы и мутации, препятствия и зоны, условия уровней; финальные боссы глав —
+ * `docs/levels30-enemies-plan-2026-10-26.md`, п. 8.4; сообщение владельца 1 от 2 ноября 2026, п. 3.5) — проверяются вместе с именами игры,
  * чтобы будущие повторы ловились заранее (решение владельца 31 октября 2026, сообщение 1, п. 2.5). Повторы, уже известные плану (раздел 9а; «частая» — найден проверкой
- * 31 октября 2026), пропускаются: новые имена — владельцу с листом главы, где объект появляется; после замены — убрать из списка.
+ * 31 октября 2026, «пробка» — 2 ноября 2026), пропускаются: новые имена — владельцу с листом главы, где объект появляется; после замены — убрать из списка.
  */
-const PLAN_NAMES_PENDING = new Set(['колония', 'флора', 'фильтр', 'иммунитет', 'хрупкость', 'кислота', 'частая']);
+const PLAN_NAMES_PENDING = new Set(['колония', 'флора', 'фильтр', 'иммунитет', 'хрупкость', 'кислота', 'частая', 'тромб', 'барьер', 'пробка']);
+/** Раздел `## N.` (или `### N.`) документа: от заголовка до следующего заголовка того же уровня. */
+function docSection(doc, n, level = '##') {
+  const a = doc.indexOf(`\n${level} ${n}.`);
+  const b = doc.indexOf(`\n${level} `, a + level.length + 3);
+  return a < 0 ? '' : doc.slice(a, b < 0 ? undefined : b);
+}
+/** Имена препятствий и зон из ячейки «зубы (непроходимые), налёт (разрушаемый)»: запятые вне скобок делят имена; «зона «X»» — имя X; пояснение в скобках отбрасывается. */
+function obstacleNames(cell) {
+  const out = [];
+  let depth = 0;
+  let cur = '';
+  for (const ch of `${cell},`) {
+    if (ch === '(') depth++;
+    if (ch === ')') depth--;
+    if (ch === ',' && depth === 0) {
+      const item = cur.trim();
+      cur = '';
+      if (!item || item === '—' || item.startsWith('—')) continue;
+      const zone = /^зона\s*«(.+?)»/.exec(item);
+      out.push(zone ? zone[1] : item.replace(/\(.*\)/g, '').trim());
+      continue;
+    }
+    cur += ch;
+  }
+  return out.filter(Boolean);
+}
 function readPlanNames() {
   const doc = fs.readFileSync(path.join(ROOT, 'docs', 'content-plan-2026-10-26.md'), 'utf8');
-  const section = (n) => {
-    const a = doc.indexOf(`\n## ${n}.`);
-    const b = doc.indexOf('\n## ', a + 5);
-    return a < 0 ? '' : doc.slice(a, b < 0 ? undefined : b);
-  };
+  const section = (n) => docSection(doc, n);
   const rows = (txt) => txt.split('\n').filter((l) => l.startsWith('|') && !/^\|\s*-/.test(l)).slice(1).map((l) => l.split('|').slice(1, -1).map((c) => c.trim()));
   const out = [];
   for (const r of rows(section(1))) {
@@ -1374,6 +1397,14 @@ function readPlanNames() {
     const m = /«(.+?)»/.exec(r[1] ?? '');
     if (m) out.push(['условие (план)', m[1]]);
   }
+  // препятствия и зоны (раздел 4; сообщение владельца 1 от 2 ноября 2026, п. 3.5): одно препятствие в разных главах — одно имя, не повтор
+  const obstacles = new Set();
+  for (const r of rows(section(4))) for (const n of obstacleNames(r[1] ?? '')) obstacles.add(n.toLowerCase());
+  for (const n of obstacles) out.push(['препятствие (план)', n]);
+  // финальные боссы глав 2–15 (`docs/levels30-enemies-plan-2026-10-26.md`, п. 8.4)
+  const old = fs.readFileSync(path.join(ROOT, 'docs', 'levels30-enemies-plan-2026-10-26.md'), 'utf8');
+  const bossTable = docSection(old, '8.4', '###').split('**Вопрос')[0];
+  for (const r of rows(bossTable)) if (r[1] && /^\d+$/.test(r[0])) out.push(['босс главы (план)', r[1]]);
   return out;
 }
 function runNames() {
