@@ -31,16 +31,23 @@ interface BodyColors {
   sign: number;
 }
 
-/** Плёнка — молочно-бирюзовая с прозрачной волнистой «юбкой»-плёнкой вокруг тела; Налёт — жёлто-серый с бугристой коркой; Кариес — бурый с тёмными дуплами; Тень — дымчато-фиолетовая. */
+/**
+ * Плёнка — молочно-бирюзовая (заметно темнее белого, ободок мягкий: поправка 3.3 сообщения 1 от 2 ноября 2026) с прозрачной волнистой «юбкой»-плёнкой вокруг тела;
+ * Зубной камень (мини-босс Плёнки, было «Налёт» — отменено 2 ноября 2026, п. 3.4) — жёлто-серый с бугристой коркой; Кариес — бурый с дуплами у одного края;
+ * Тень — дымчато-фиолетовая полупрозрачная, без блика (п. 3.2).
+ */
 export const CH2_COLORS = {
-  film: { body: 0xcdeef0, shell: 0x4f97a3, sign: 0xe9fbff } as BodyColors,
+  film: { body: 0x92cfd2, shell: 0x6eb2b8, sign: 0xd6f1f3 } as BodyColors,
+  tartar: { body: 0xd8cf9c, shell: 0x857a4e, sign: 0xf1e8bf } as BodyColors,
+  /** Корка препятствия «налёт» на карте (главы 2 и 7). */
   plaque: { body: 0xd8cf9c, shell: 0x857a4e, sign: 0xf1e8bf } as BodyColors,
+  shadow: { body: 0xb6a4dc, shell: 0x8c7abd, sign: 0xe6dcff } as BodyColors,
   caries: { body: 0x7a5434, shell: 0x2f1c0e, sign: 0xc79a62 } as BodyColors,
   shadowTint: 0xa894d6,
   shadowSmoke: 0x4a3a6e,
   /** Кольцо босса «Кариес». */
   cariesRing: 0xe0a04a,
-  /** Плёнка на дорожке (вид) и широкая плёнка (мини-босс Налёт). */
+  /** Плёнка на дорожке (вид) и широкая плёнка (мини-босс Зубной камень). */
   patchFilm: 0xcdeef0,
   patchFilmEdge: 0x7cc4cf,
   patchPlaque: 0xd8cf9c,
@@ -75,8 +82,9 @@ function wavyPath(ctx: Ctx, r: number, n: number, amp: number, phase = 0): void 
 }
 
 /** Тело в стиле пилота: мягкая тень, оболочка толщины sw с переходом цвета, тело, обводка тёмным оттенком оболочки, блик сверху слева. */
-function roundBody(ctx: Ctx, d: number, r: number, sw: number, col: BodyColors): void {
-  const outline = darken(col.shell, 0.6);
+function roundBody(ctx: Ctx, d: number, r: number, sw: number, col: BodyColors, soft = false, withShine = true): void {
+  // soft — мягкий ободок без резкого тёмного кольца (Плёнка, Тень); withShine — блик сверху слева (у Тени и Плёнки нет: светлая точка на теле читалась как зрачок)
+  const outline = darken(col.shell, soft ? 0.28 : 0.6);
   ctx.save();
   ctx.shadowColor = 'rgba(4,8,22,0.5)';
   ctx.shadowBlur = r * 0.3 * d;
@@ -89,14 +97,14 @@ function roundBody(ctx: Ctx, d: number, r: number, sw: number, col: BodyColors):
   const shell = ctx.createRadialGradient(-r * 0.35, -r * 0.4, r * 0.1, 0, 0, r * 1.15);
   shell.addColorStop(0, css(lighten(col.shell, 0.45)));
   shell.addColorStop(0.5, css(col.shell));
-  shell.addColorStop(1, css(darken(col.shell, 0.4)));
+  shell.addColorStop(1, css(darken(col.shell, soft ? 0.14 : 0.4)));
   ctx.fillStyle = shell;
   circle(ctx, 0, 0, r);
   ctx.fill();
   const body = ctx.createRadialGradient(-r * 0.3, -r * 0.38, r * 0.08, 0, 0, r * 1.05);
   body.addColorStop(0, css(lighten(col.body, 0.5)));
   body.addColorStop(0.45, css(col.body));
-  body.addColorStop(1, css(darken(col.body, 0.3)));
+  body.addColorStop(1, css(darken(col.body, soft ? 0.16 : 0.3)));
   ctx.fillStyle = body;
   circle(ctx, 0, 0, Math.max(1, r - sw));
   ctx.fill();
@@ -104,10 +112,11 @@ function roundBody(ctx: Ctx, d: number, r: number, sw: number, col: BodyColors):
   ctx.strokeStyle = css(outline, 0.65);
   circle(ctx, 0, 0, Math.max(1, r - sw));
   ctx.stroke();
-  ctx.lineWidth = Math.max(2, r * 0.06);
-  ctx.strokeStyle = css(outline);
+  ctx.lineWidth = Math.max(2, r * (soft ? 0.04 : 0.06));
+  ctx.strokeStyle = css(outline, soft ? 0.7 : 1);
   circle(ctx, 0, 0, r - ctx.lineWidth / 2);
   ctx.stroke();
+  if (!withShine) return;
   const shine = ctx.createRadialGradient(-r * 0.36, -r * 0.42, 0, -r * 0.36, -r * 0.42, r * 0.34);
   shine.addColorStop(0, 'rgba(255,255,255,0.7)');
   shine.addColorStop(1, 'rgba(255,255,255,0)');
@@ -132,13 +141,13 @@ function filmSkirt(ctx: Ctx, r: number, col: BodyColors): void {
 /** Знак Плёнки поверх тела: два глянцевых изогнутых блика-«натёка» (плёнка блестит). */
 function filmSheen(ctx: Ctx, r: number): void {
   ctx.lineCap = 'round';
-  ctx.strokeStyle = 'rgba(255,255,255,0.75)';
-  ctx.lineWidth = Math.max(2, r * 0.09);
+  ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+  ctx.lineWidth = Math.max(2, r * 0.08);
   ctx.beginPath();
   ctx.arc(0, 0, r * 0.62, 0.15 * Math.PI, 0.42 * Math.PI);
   ctx.stroke();
   ctx.lineWidth = Math.max(1.5, r * 0.06);
-  ctx.strokeStyle = 'rgba(255,255,255,0.55)';
+  ctx.strokeStyle = 'rgba(255,255,255,0.35)';
   ctx.beginPath();
   ctx.arc(0, 0, r * 0.42, 0.2 * Math.PI, 0.38 * Math.PI);
   ctx.stroke();
@@ -196,43 +205,86 @@ function plaqueCrust(ctx: Ctx, r: number, col: BodyColors): void {
   for (const [x, y, s] of spots) lump(ctx, x * r, y * r, s * r, col, rnd);
 }
 
-/** Дупла Кариеса: тёмные ямы со светлой кромкой (как дырка в зубе). */
+/**
+ * Дупла Кариеса (поправка 3.1 сообщения 1 от 2 ноября 2026): несимметрично — все у правого нижнего края тела, на разной высоте, разного размера, без центрального;
+ * два — сколами по краю (тёмная выемка через кромку тела). Левая и верхняя части тела чистые.
+ */
 function cariesCavities(ctx: Ctx, r: number, col: BodyColors): void {
-  const pits: [number, number, number, number][] = [
-    [-0.4, -0.3, 0.2, 0.15], [0.32, -0.42, 0.15, 0.11], [0.45, 0.22, 0.22, 0.16], [-0.24, 0.4, 0.16, 0.12], [0.02, 0.0, 0.11, 0.09],
+  // [x, y, полуось x, полуось y, поворот] в долях радиуса; высоты у всех разные
+  const pits: [number, number, number, number, number][] = [
+    [0.5, -0.24, 0.2, 0.15, 0.5], [0.24, 0.44, 0.13, 0.1, -0.2], [0.68, 0.18, 0.07, 0.06, 0.1], [0.02, 0.7, 0.06, 0.05, 0],
   ];
-  for (const [px, py, rx, ry] of pits) {
+  for (const [px, py, rx, ry, rot] of pits) {
     ctx.beginPath();
-    ctx.ellipse(px * r, py * r, rx * r * 1.18, ry * r * 1.25, 0.3, 0, Math.PI * 2);
+    ctx.ellipse(px * r, py * r, rx * r * 1.2, ry * r * 1.28, rot, 0, Math.PI * 2);
     ctx.fillStyle = css(col.sign, 0.95);
     ctx.fill();
     ctx.beginPath();
-    ctx.ellipse(px * r, py * r + ry * r * 0.12, rx * r, ry * r, 0.3, 0, Math.PI * 2);
+    ctx.ellipse(px * r, py * r + ry * r * 0.12, rx * r, ry * r, rot, 0, Math.PI * 2);
     const g = ctx.createRadialGradient(px * r, py * r + ry * r * 0.4, 0, px * r, py * r, rx * r);
     g.addColorStop(0, css(0x0c0603));
     g.addColorStop(1, css(darken(col.shell, 0.2)));
     ctx.fillStyle = g;
     ctx.fill();
   }
+  // сколы по краю: неровная тёмная выемка, наполовину за кромкой тела, со светлой кромкой изнутри
+  for (const [ang, size] of [[0.42, 0.17], [1.05, 0.11]] as const) {
+    const cx = Math.cos(ang) * r * 0.98;
+    const cy = Math.sin(ang) * r * 0.98;
+    ctx.save();
+    circle(ctx, 0, 0, r * 1.02);
+    ctx.clip();
+    ctx.beginPath();
+    for (let i = 0; i <= 8; i++) {
+      const a = (i / 8) * Math.PI * 2;
+      const k = size * r * (0.8 + 0.35 * Math.abs(Math.sin(a * 2.3 + ang)));
+      const x = cx + Math.cos(a) * k;
+      const y = cy + Math.sin(a) * k * 0.85;
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.closePath();
+    ctx.fillStyle = css(0x120a05);
+    ctx.fill();
+    ctx.lineWidth = Math.max(1.5, r * 0.03);
+    ctx.strokeStyle = css(col.sign, 0.9);
+    ctx.stroke();
+    ctx.restore();
+  }
 }
 
-export type Ch2Body = 'film' | 'plaque' | 'caries';
+export type Ch2Body = 'film' | 'tartar' | 'caries' | 'shadow';
 
 /** Рамка тела радиуса r с запасом под юбку и тень. */
 function bodyBox(r: number): ArtBox {
   return squareBox(r * 1.3 + 14);
 }
 
-/** Картинка тела главы 2: вид (`film`), мини-босс Налёт (`plaque`), босс Кариес (`caries`); sw — толщина оболочки (полная прочность — r × 0,22, 1 HP — r × 0,08). */
+/**
+ * Картинка тела главы 2: вид (`film`), мини-босс Зубной камень (`tartar`), босс Кариес (`caries`), мини-босс Тень (`shadow`: тело скрытной своим цветом, без юбки, со знаком вида —
+ * пунктирным ободком внутри); sw — толщина оболочки (полная прочность — r × 0,22, 1 HP — r × 0,08).
+ */
 export function ch2BodyImage(scene: Phaser.Scene, which: Ch2Body, r: number, sw = r * 0.22): Phaser.GameObjects.Image {
   const box = bodyBox(r);
   const col = CH2_COLORS[which];
   const key = bakeCanvasArt(scene, `ch2-${which}-${r}-${Math.round(sw)}`, box, (ctx, d) => {
     ctx.lineJoin = 'round';
-    filmSkirt(ctx, r, which === 'film' ? col : { ...col, sign: which === 'plaque' ? CH2_COLORS.plaque.sign : 0x9a7a52 });
-    roundBody(ctx, d, r, sw, col);
+    if (which !== 'shadow') filmSkirt(ctx, r, which === 'film' ? col : { ...col, sign: which === 'tartar' ? col.sign : 0x9a7a52 });
+    const soft = which === 'film' || which === 'shadow';
+    roundBody(ctx, d, r, sw, col, soft, which === 'tartar'); // блик-точки нет у Плёнки, Тени и Кариеса: светлая точка рядом с тёмным читается как глаз
     if (which === 'film') filmSheen(ctx, r);
-    if (which === 'plaque') plaqueCrust(ctx, r, col);
+    if (which === 'tartar') plaqueCrust(ctx, r, col);
+    if (which === 'shadow') {
+      // знак скрытной: бледный пунктирный ободок внутри
+      ctx.lineWidth = Math.max(2, r * 0.07);
+      ctx.strokeStyle = css(col.sign, 0.75);
+      for (let i = 0; i < 10; i++) {
+        const a = (i / 10) * Math.PI * 2;
+        ctx.beginPath();
+        ctx.arc(0, 0, r * 0.74, a, a + 0.38);
+        ctx.stroke();
+      }
+    }
     if (which === 'caries') cariesCavities(ctx, r, col);
   });
   return artImage(scene, key, box);

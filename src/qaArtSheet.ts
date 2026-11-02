@@ -348,15 +348,12 @@ export class ArtSheetScene extends Phaser.Scene {
     this.add.text(x, y, text, { fontFamily: 'Arial', fontSize: `${size}px`, color, align: 'center' }).setOrigin(0.5, 0.5);
   }
 
-  /** Мини-босс «Тень»: тело скрытной ×`bossRules.scale` дымчато-фиолетового цвета, полупрозрачное (как скрытная в бою), с рваным дымным ореолом. */
+  /** Мини-босс «Тень»: тело скрытной ×`bossRules.scale`, дымчато-фиолетовое и полупрозрачное, без блика (поправка 3.2 сообщения 1 от 2 ноября 2026), с рваным дымным ореолом. */
   private shadowBoss(holder: Phaser.GameObjects.Container): void {
     const scale = CONFIG.bossRules.scale;
     const r = CONFIG.types.stealth.radius;
     holder.add(shadowHaloImage(this, r).setScale(scale));
-    const body = bacteriumSample(this, 'stealth', CONFIG.types.stealth.hp, CONFIG.types.stealth.hp, false, false, 'signs').setScale(scale);
-    for (const part of body.list as Phaser.GameObjects.Image[]) part.setTint(CH2_COLORS.shadowTint);
-    body.setAlpha(0.62);
-    holder.add(body);
+    holder.add(ch2BodyImage(this, 'shadow', r * scale).setAlpha(0.72));
     holder.add(ringImage(this, 0, 0, r * scale + 10, 6, 0xc9b6ff, 0.95));
   }
 
@@ -369,7 +366,7 @@ export class ArtSheetScene extends Phaser.Scene {
 
   /**
    * Лист главы 2 «Рот и зубы» (`?qa&artsheet=c2`; план `docs/content-plan-2026-10-26.md`, пп. 1, 2, 4, 5; финальный босс — `docs/levels30-enemies-plan-2026-10-26.md`, п. 8.4):
-   * вид «Плёнка» (полная прочность и 1 HP) и плёнка на дорожке; мини-боссы «Налёт» и «Тень», босс «Кариес» (×`bossRules.scale`, уменьшены, чтобы влезли); зуб и налёт на карте (налёт — целый,
+   * вид «Плёнка» (полная прочность и 1 HP) и плёнка на дорожке; мини-боссы «Зубной камень» (было «Налёт», отменено 2 ноября 2026) и «Тень», босс «Кариес» (×`bossRules.scale`, уменьшены, чтобы влезли); зуб и налёт на карте (налёт — целый,
    * треть и две трети разбиты); значки условий уровней 3 и 4 — в бою (без текста) и на экране выбора уровня (со строкой). Без глаз и черт лица.
    */
   private chapter2Page(): void {
@@ -385,7 +382,7 @@ export class ArtSheetScene extends Phaser.Scene {
     ch2BodyImage(this, 'film', FILM_RADIUS, FILM_RADIUS * 0.08).setPosition(cellW / 2 + 54, rowY);
     this.ch2Label(cellW / 2 - 54, rowY + 62, 'полная', 12, '#9fb4d8');
     this.ch2Label(cellW / 2 + 54, rowY + 62, '1 HP', 12, '#9fb4d8');
-    // 2. плёнка на дорожке: обычная (4 с) и широкая — мини-босса Налёт (8 с)
+    // 2. плёнка на дорожке: обычная (4 с) и широкая — мини-босса Зубной камень (8 с)
     const c2 = cellW * 1.5;
     this.ch2Label(c2, rowY - 108, 'Плёнка на дорожке');
     this.laneStrip(c2, rowY - 38, cellW - 24);
@@ -394,14 +391,14 @@ export class ArtSheetScene extends Phaser.Scene {
     this.laneStrip(c2, rowY + 64, cellW - 24);
     filmPatchImage(this, 210, 82, true).setPosition(c2, rowY + 64);
     this.ch2Label(c2, rowY + 12, 'вид, 4 с', 12, '#9fb4d8');
-    this.ch2Label(c2, rowY + 114, 'шире — Налёт, 8 с', 12, '#9fb4d8');
+    this.ch2Label(c2, rowY + 114, 'шире — Зубной камень, 8 с', 12, '#9fb4d8');
     // 3–5. мини-боссы и босс
     const fitBoss = (r: number): number => Math.min(1, 92 / (r * scale * 1.3 + 10));
     const plaque = this.add.container(cellW * 2.5, rowY + 10);
-    plaque.add(ch2BodyImage(this, 'plaque', FILM_RADIUS * scale));
+    plaque.add(ch2BodyImage(this, 'tartar', FILM_RADIUS * scale));
     plaque.add(ringImage(this, 0, 0, FILM_RADIUS * scale + 10, 6, 0xe8dc8a, 0.95));
     plaque.setScale(fitBoss(FILM_RADIUS));
-    this.ch2Label(cellW * 2.5, rowY - 108, 'Налёт (мини-босс Плёнки)');
+    this.ch2Label(cellW * 2.5, rowY - 108, 'Зубной камень (мини-босс Плёнки)');
     const shadow = this.add.container(cellW * 3.5, rowY + 10);
     this.shadowBoss(shadow);
     shadow.setScale(fitBoss(CONFIG.types.stealth.radius) * 0.92);
@@ -447,7 +444,7 @@ export class ArtSheetScene extends Phaser.Scene {
 
   /**
    * Плотная поздняя сцена главы 2 (`?qa&artsheet=c2s`): две дорожки, клетки с зубами и налётом, башни V–VIII, толпа нынешних видов вместе с Плёнкой, плёнкой на дорожке,
-   * мини-боссами Налёт и Тень и боссом Кариес — читаются ли новые рисунки в толпе (как снимок «плотной поздней сцены» для листа; в бой — после «да»).
+   * мини-боссами Зубной камень и Тень и боссом Кариес — читаются ли новые рисунки в толпе (как снимок «плотной поздней сцены» для листа; в бой — после «да»).
    */
   private chapter2Scene(): void {
     const W = CONFIG.screen.width;
@@ -504,7 +501,7 @@ export class ArtSheetScene extends Phaser.Scene {
     });
     for (const [x, y] of [[300, laneY[0] - 8], [370, laneY[0] + 12], [880, laneY[0]], [640, laneY[1] + 10], [200, laneY[1]]]) ch2BodyImage(this, 'film', FILM_RADIUS).setPosition(x, y).setScale(0.8);
     const plaque = this.add.container(520, laneY[1]);
-    plaque.add(ch2BodyImage(this, 'plaque', FILM_RADIUS * CONFIG.bossRules.scale));
+    plaque.add(ch2BodyImage(this, 'tartar', FILM_RADIUS * CONFIG.bossRules.scale));
     plaque.add(ringImage(this, 0, 0, FILM_RADIUS * CONFIG.bossRules.scale + 10, 6, 0xe8dc8a, 0.95));
     plaque.setScale(0.8);
     const shadow = this.add.container(1040, laneY[0]);
