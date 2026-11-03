@@ -27,7 +27,7 @@
     "group": "Башни и бактерии: Лампа, Витамин, все вместе, виды бактерий, Холод, Пластырь (towers, часть 2; плёнка)",
     "key": "towers-b",
     "scenarios": "towers",
-    "towers_only": "lamp,vitamin,mixed,swarm,runner,healer,regen,commander,brood,giant,leaper,phago,stealth,toxin,frost,patch,mutant,parasite,film"
+    "towers_only": "lamp,vitamin,mixed,swarm,runner,healer,regen,commander,brood,giant,leaper,phago,stealth,toxin,frost,patch,mutant,parasite,film,ch2bosses"
   },
   {
     "group": "Карточка, слияние, мутации, «Продолжить» в режиме постройки (card, merge, mutations, sell, special, strip, sell-gap, resume-tap)",

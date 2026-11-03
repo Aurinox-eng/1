@@ -1999,7 +1999,7 @@ export class Tower {
     const { range, side, toughest, targeting } = this.stats;
     const found: Bacterium[] = [];
     for (const b of bacteria) {
-      if (b.hp <= 0) continue;
+      if (b.hp <= 0 || b.hidden) continue;
       // Скрытную башня видит только на доле радиуса (b.stealth); конус Лампы видит полностью; подсвеченную Лампой (b.lit) видят на полном радиусе
       const reach = b.stealth > 0 && targeting !== 'cone' && !b.lit ? range * b.stealth : range;
       if (Math.hypot(b.x - this.x, b.y - this.y) > reach + b.radius) continue;

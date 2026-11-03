@@ -3,7 +3,7 @@ import { artImage, bakeCanvasArt, type ArtBox } from '../art';
 import { CONFIG } from '../config';
 import { COLORS } from '../theme';
 import { bodyHalfSize, shellRange, shellWidth, SPLITTER_LOBE_OFFSET } from './bacteriumArt';
-import { drawCh2Body } from './chapter2Art';
+import { drawCh2Body, type Ch2Body } from './chapter2Art';
 
 /**
  * Новый рисунок бактерий этапа 8 (стиль утверждён владельцем 18 октября 2026, docs/art-style.md; пилот — кокк, бронированная, Гигант, перенос — все 19 видов):
@@ -508,6 +508,16 @@ export function styleBodyKey(scene: Phaser.Scene, kind: StyleKind, sw: number, e
     if (eyes === 'signs') drawKindSigns(ctx, kind);
     else if (isCoreKind(kind)) drawFaceCore(ctx, kind, eyes === 'shut', small);
     else drawFaceStyle(ctx, kind, eyes === 'shut');
+    ctx.restore();
+  });
+}
+
+/** Тело босса главы 2 по листу главы (Зубной камень, Тень, Кариес; принят 3 ноября 2026): рисунок вида-основы своего босса, масштабируется вместе с телом (`bossRules.scale`). */
+export function styleCh2BossKey(scene: Phaser.Scene, kind: StyleKind, which: Ch2Body, sw: number): string {
+  const q = shellQuant(kind, sw);
+  return bakeCanvasArt(scene, `style-ch2boss-${which}-${q}`, styleBodyBox(kind), (ctx, d) => {
+    ctx.save();
+    drawCh2Body(ctx, d, which, CONFIG.types[kind].radius, q);
     ctx.restore();
   });
 }

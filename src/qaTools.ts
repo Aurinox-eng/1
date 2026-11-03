@@ -210,6 +210,8 @@ export function qaSnapshot(s: GameSceneInternals): DebugSnapshot {
       memory: b.memory,
       latchedTo: b.latchedTo ? { col: b.latchedTo.col, row: b.latchedTo.row } : null,
       boss: b.bossId,
+      hidden: b.hidden,
+      stealth: b.stealth,
       armor: b.armor,
       reward: b.reward,
       shielded: b.shielded,

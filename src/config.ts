@@ -41,7 +41,7 @@ export interface LevelSpec {
   plan?: LevelPlan;
 }
 /** Босс или мини-босс (docs/redesign-2026-10-19.md, раздел 7): одна особая бактерия; рисуется как вид-основа `base`, крупнее и с кольцом своего цвета. */
-export type BossId = 'colony' | 'rodLeader' | 'armadillo' | 'swarmQueen' | 'giantColony' | 'sporeling' | 'shaman' | 'hopper' | 'sporeMother' | 'silencer';
+export type BossId = 'colony' | 'rodLeader' | 'armadillo' | 'swarmQueen' | 'giantColony' | 'sporeling' | 'shaman' | 'hopper' | 'sporeMother' | 'silencer' | 'tartar' | 'shadow' | 'caries';
 /** Действие одного ранга опыта (таблица `ranks.byTower`): множители (*Mul) и прибавки (*Add) к числам башни, умения ★4/★8. */
 export interface RankEffect {
   rangeMul?: number;
@@ -130,6 +130,10 @@ export interface BossPhase {
   spawnKind?: KindId;
   spawnEverySec?: number;
   spawnCount?: number;
+  filmEverySec?: number;
+  filmSec?: number;
+  filmRadius?: number;
+  stealth?: number;
 }
 /**
  * Строка таблицы боссов (`bosses`). Обязательные поля: вид-основа (как рисуется), прочность (HP, без множителя волны), скорость (к `bacteria.baseSpeed`), броня (без роста по волнам),
@@ -138,7 +142,9 @@ export interface BossPhase {
  *  dashEverySec, dashSec, dashFactor — рывки; rallyRadius, rallyDashMul — палочки ближе rallyRadius делают рывки в rallyDashMul раз чаще; slowFloor — замедление не сильнее этого множителя;
  *  spawnKind, spawnEverySec, spawnCount — раз в spawnEverySec выпускает spawnCount бактерий; capsuleEverySec, capsuleSec — через capsuleEverySec секунд без капсулы становится неуязвимым на capsuleSec
  *  (часы стоят, пока капсула держится: цикл capsuleEverySec + capsuleSec; находка аудита MASTER-0051, поведение оставлено решением владельца 28 октября 2026, сообщение 2, п. 5);
- *  regenShare — самолечение (доля прочности в секунду); phases — фазы по доле прочности (`BossPhase`).
+ *  regenShare — самолечение (доля прочности в секунду); phases — фазы по доле прочности (`BossPhase`);
+ *  filmEverySec, filmSec, filmRadius, filmWide — плёнка на дорожке, как у вида «Плёнка» (раз в filmEverySec секунд, на filmSec секунд, радиус filmRadius; filmWide — широкая жёлто-серая, Зубной камень);
+ *  stealth — скрытность, как у вида (доля радиуса башни, на которой босс виден; 0 — виден всегда); hideEverySec, hideSec — раз в hideEverySec секунд на hideSec секунд невидим: башни его не выбирают целью.
  */
 export interface BossSpec {
   base: KindId;
@@ -164,6 +170,13 @@ export interface BossSpec {
   capsuleSec?: number;
   regenShare?: number;
   phases?: BossPhase[];
+  filmEverySec?: number;
+  filmSec?: number;
+  filmRadius?: number;
+  filmWide?: boolean;
+  stealth?: number;
+  hideEverySec?: number;
+  hideSec?: number;
 }
 /**
  * Мутация башни (выбор на уровнях 2 и 4): заплатка к числам башни. Все поля необязательны, пропущенное — «не меняет».
@@ -1171,6 +1184,18 @@ export const CONFIG = {
     silencer: {
       base: 'spore', hp: 19226, speedFactor: 0.4, armor: 0, lifeDamage: -1, color: 0x8a5fff, spawnKind: 'spore', spawnEverySec: 4, spawnCount: 4,
       phases: [{ below: 0.66, armor: 6, spawnKind: 'healer', spawnEverySec: 5, spawnCount: 2 }, { below: 0.33, armor: 0, speedMul: 1.6, regenShare: 0.01, spawnCount: 0 }],
+    },
+    // Глава 2 «Рот и зубы» (план docs/content-plan-2026-10-26.md, п. 2; docs/levels30-enemies-plan-2026-10-26.md, п. 8.4; лист главы принят 3 ноября 2026, сообщение 1, п. 3).
+    // Прочность — начальная, для замера: калибровка — с волнами уровней 3–4 после «да» владельца по карте и волнам.
+    /** Зубной камень (мини-босс Плёнки; было «Налёт» — отменено 2 ноября 2026): медленный (×0,5); плёнка шире (радиус 90 px) и держится 8 с, раз в 1,5 с. */
+    tartar: { base: 'film', hp: 600, speedFactor: 0.5, armor: 0, lifeDamage: 5, color: 0xe8dc8a, filmEverySec: 1.5, filmSec: 8, filmRadius: 90, filmWide: true },
+    /** Тень (мини-босс Скрытной): скрытна, как вид (башни видят её на 60 % радиуса); раз в 8 с на 2 с невидима совсем — башни её не выбирают целью. */
+    shadow: { base: 'stealth', hp: 600, speedFactor: 0.8, armor: 0, lifeDamage: 5, color: 0xc9b6ff, hideEverySec: 8, hideSec: 2 },
+    /** Кариес (финальный босс главы 2): три фазы — 100–66 % кладёт плёнку по всему пути (раз в 1 с, радиус 90 px, 6 с); 66–33 % невидим дальше 0,6 радиуса башни;
+     *  33–0 % раз в 4 с выпускает 3 скрытных. Дошёл — поражение. */
+    caries: {
+      base: 'film', hp: 20000, speedFactor: 0.4, armor: 0, lifeDamage: -1, color: 0xe0a04a, filmEverySec: 1, filmSec: 6, filmRadius: 90,
+      phases: [{ below: 0.66, filmEverySec: 0, stealth: 0.6 }, { below: 0.33, filmEverySec: 0, stealth: 0, spawnKind: 'stealth', spawnEverySec: 4, spawnCount: 3 }],
     },
   } as Record<BossId, BossSpec>,
   /** Плёнка на дорожке (вид «Плёнка» и мини-босс «Зубной камень», глава 2): бактерия, стоящая на плёнке (центр в круге плёнки), получает от снарядов этих башен урон ×damageMul;

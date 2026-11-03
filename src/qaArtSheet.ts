@@ -183,7 +183,7 @@ export class ArtSheetScene extends Phaser.Scene {
     const W = CONFIG.screen.width;
     const cellW = W / 5;
     const cellH = 336;
-    const ids = Object.keys(CONFIG.bosses) as (keyof typeof CONFIG.bosses)[];
+    const ids = (Object.keys(CONFIG.bosses) as (keyof typeof CONFIG.bosses)[]).slice(0, 10); // «было / стало» — 10 боссов на 26 октября 2026; боссы главы 2 — на листе c2
     ids.forEach((id, i) => {
       const boss = CONFIG.bosses[id];
       const kind = boss.base as BacteriumKind;

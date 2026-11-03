@@ -5901,6 +5901,74 @@ async function typesFilm(browser, baseUrl) {
   check(`${p} снаряд Таблетки по Плёнке на плёнке снимает ×${mul} от удара вне плёнки: медиана на плёнке ${f2(med(on))} (${on.length} ударов), вне ${f2(med(off))} (${off.length}), отношение ${f2(ratio)}`, on.length >= 3 && off.length >= 3 && Math.abs(ratio - mul) <= 0.08, `на плёнке ${on.length}, вне ${off.length}`);
 }
 
+// ---------------------------------------------------------------- Боссы главы 2: Зубной камень, Тень, Кариес
+
+/**
+ * Боссы главы 2 (план docs/content-plan-2026-10-26.md, п. 2; docs/levels30-enemies-plan-2026-10-26.md, п. 8.4; решение владельца 3 ноября 2026, сообщение 1, пп. 3, 3.1). Уровней главы 2 в игре
+ * ещё нет: босс выпускается вызовом режима проверки `spawnBoss`. (А) Зубной камень кладёт плёнку радиуса bosses.tartar.filmRadius на filmSec; (Б) Тень раз в hideEverySec на hideSec невидима:
+ * башня с огромным радиусом в это время по ней не попадает (hits стоят), видимую — бьёт; (В) Кариес: в первой фазе кладёт плёнку, во второй — скрытен (stealth 0,6) и плёнку не кладёт,
+ * в третьей — выпускает скрытных.
+ */
+async function typesCh2Bosses(browser, baseUrl) {
+  const p = '[боссы главы 2]';
+  const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
+  const open = async (label, cfg = [], tower = false) => {
+    const all = [...wavesOnly({}), 'waves.firstDelaySec:900', ...FIXED_NO_TOWERS, 'bacteria.baseSpeed:85', `economy.startCoins:${tower ? TW.pill.price : 0}`, 'lives.start:5000', ...cfg].join(',');
+    const game = await openGame(context, baseUrl, `${p} ${label}`, { query: ALL_TOWERS, speed: 4, cfg: all });
+    if (tower) await game.placeTowersOf('pill', [[FREE.a[0], FREE.a[1]]]);
+    return game;
+  };
+  const watch = async (game, id, until, timeoutMs = 120000) => {
+    const ok = await game.page.evaluate((x) => window.__pvb.spawnBoss(x), id);
+    const log = [];
+    const startedAt = Date.now();
+    await pollUntil(game, (st) => {
+      log.push(st);
+      return until(st, log) || Date.now() - startedAt > timeoutMs - 15000;
+    }, timeoutMs, 25);
+    await game.page.close();
+    return { ok, frames: distinctFrames(log) };
+  };
+  const bossOf = (st, id) => st.bacteria.find((b) => b.boss === id);
+
+  // ---- А. Зубной камень: широкая плёнка
+  const tr = { r: readConfigNumber('tartar', 'filmRadius'), sec: readConfigNumber('tartar', 'filmSec') };
+  const A = await watch(await open('Зубной камень'), 'tartar', (st) => st.films.length >= 3);
+  const filmA = A.frames.find((st) => st.films.length > 0)?.films[0];
+  check(`${p} Зубной камень выпущен и кладёт плёнку радиуса ${filmA?.r} (в таблице ${tr.r}) сроком ≤ ${tr.sec} с (в первый миг ${f2(filmA?.left)})`, A.ok && filmA?.r === tr.r && filmA.left <= tr.sec + 1e-6 && filmA.left > tr.sec - 1, JSON.stringify(filmA ?? null));
+
+  // ---- Б. Тень: невидимость
+  const B = await watch(await open('Тень', ['towers.pill.range:3000', 'towers.pill.damage:0.01'], true), 'shadow', (st, log) => log.filter((x) => bossOf(x, 'shadow')?.hidden).length > 40 && log.filter((x) => bossOf(x, 'shadow') && !bossOf(x, 'shadow').hidden).length > 40 && (st.elapsed ?? 0) > 22);
+  let hitsHidden = 0;
+  let hitsSeen = 0;
+  for (let i = 1; i < B.frames.length; i++) {
+    const a = bossOf(B.frames[i - 1], 'shadow');
+    const b = bossOf(B.frames[i], 'shadow');
+    if (!a || !b || a.hidden !== b.hidden) continue;
+    const d = b.hits - a.hits;
+    if (a.hidden) hitsHidden += d;
+    else hitsSeen += d;
+  }
+  const hiddenFrames = B.frames.filter((st) => bossOf(st, 'shadow')?.hidden).length;
+  check(`${p} Тень то невидима, то видна (невидима в ${hiddenFrames} кадрах из ${B.frames.length}); невидимую башня не бьёт (попаданий ${hitsHidden}, допуск — долёт уже выпущенного снаряда ≤ 2), видимую бьёт (${hitsSeen})`, B.ok && hiddenFrames > 0 && hitsHidden <= 2 && hitsSeen > 0, `невидима ${hiddenFrames}, попаданий в невидимую ${hitsHidden}, в видимую ${hitsSeen}`);
+
+  // ---- В. Кариес: фазы
+  const C = await watch(await open('Кариес', ['bosses.caries.hp:60', 'towers.pill.range:3000', 'towers.pill.damage:0.25', 'towers.pill.cooldownMs:100'], true), 'caries', (st) => st.bacteria.filter((b) => b.kind === 'stealth' && !b.boss).length >= 3 || st.state !== 'playing', 150000);
+  const ph = (b) => (b.hp / b.maxHp > 0.66 ? 1 : b.hp / b.maxHp > 0.33 ? 2 : 3);
+  const seen = { 1: { films: 0, stealth: new Set() }, 2: { films: 0, stealth: new Set() }, 3: { films: 0, stealth: new Set() } };
+  for (let i = 1; i < C.frames.length; i++) {
+    const b = bossOf(C.frames[i], 'caries');
+    if (!b) continue;
+    const k = ph(b);
+    seen[k].stealth.add(b.stealth);
+    seen[k].films += Math.max(0, C.frames[i].filmsMade - C.frames[i - 1].filmsMade);
+  }
+  const stealthKids = Math.max(0, ...C.frames.map((st) => st.bacteria.filter((x) => x.kind === 'stealth' && !x.boss).length));
+  check(`${p} Кариес, фаза 1: кладёт плёнку (${seen[1].films}), не скрытен (${[...seen[1].stealth].join('/')})`, C.ok && seen[1].films > 0 && [...seen[1].stealth].every((x) => x === 0));
+  check(`${p} Кариес, фаза 2: скрытен (${[...seen[2].stealth].join('/')}, ждали 0.6), новой плёнки не кладёт (${seen[2].films})`, seen[2].stealth.size > 0 && [...seen[2].stealth].every((x) => x === 0.6) && seen[2].films === 0);
+  check(`${p} Кариес, фаза 3: выпускает скрытных (на поле до ${stealthKids})`, stealthKids >= 3);
+}
+
 // ---------------------------------------------------------------- Токсин: облако после гибели
 
 /**
@@ -8024,6 +8092,7 @@ async function runTowers(browser, baseUrl) {
   await part('mutant', '[бактерии: мутант]', () => typesMutant(browser, baseUrl));
   await part('parasite', '[бактерии: паразит]', () => typesParasite(browser, baseUrl));
   await part('film', '[бактерии: плёнка]', () => typesFilm(browser, baseUrl));
+  await part('ch2bosses', '[боссы главы 2]', () => typesCh2Bosses(browser, baseUrl));
 }
 
 // ================================================================== круг 14: плашки, закрытые башни, полоса кнопок, кнопка «Заново», дефляция, отдаление

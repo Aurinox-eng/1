@@ -501,6 +501,13 @@ export class GameScene extends Phaser.Scene {
         return this.gameToClient(s.x, s.y);
       },
       revealTower: (id) => this.panel.revealTower(id as TowerId),
+      spawnBoss: (id) => {
+        // режим проверки: выпускает босса таблицы `bosses` сейчас (боссы глав, чьих уровней ещё нет в игре); ход волн не меняется
+        if (!(id in CONFIG.bosses)) return false;
+        const bossId = id as BossId;
+        this.spawnBacterium({ kind: CONFIG.bosses[bossId].base, edge: null, gapSec: 0, boss: bossId });
+        return true;
+      },
       setTowerXp: (col, row, xp) => {
         const tower = this.towers.find((tw) => tw.col === col && tw.row === row);
         if (!tower) return false;
@@ -1171,7 +1178,8 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  /** Плёнка: бактерия вида «Плёнка» раз в filmEverySec секунд оставляет под собой плёнку на filmSec секунд (план главы 2); старые плёнки бледнеют и исчезают. Плёнок на поле не больше FILM_MAX. */
+  /** Плёнка: вид «Плёнка», Зубной камень и Кариес (в первой фазе) раз в filmEverySec секунд оставляют под собой плёнку на filmSec секунд (план главы 2); старые плёнки бледнеют и исчезают.
+   *  Плёнок на поле не больше FILM_MAX. Здесь же — шаг невидимости Тени. */
   private updateFilms(dt: number): void {
     if (this.films.length > 0) {
       this.films = this.films.filter((film) => {
@@ -1181,12 +1189,13 @@ export class GameScene extends Phaser.Scene {
       });
     }
     for (const b of this.bacteria) {
-      const { filmEverySec, filmSec, filmRadius } = CONFIG.types[b.kind];
-      if (filmEverySec <= 0 || filmSec <= 0 || b.hp <= 0) continue;
+      b.stepHide(dt);
+      const plan = b.hp > 0 ? b.filmPlan : null;
+      if (!plan) continue;
       b.filmClock += dt;
-      if (b.filmClock < filmEverySec) continue;
-      b.filmClock -= filmEverySec;
-      this.films.push(new FilmPatch(this, this.puddleLayer, b.x, b.y, pointAt(b.edge, b.s).angle, filmRadius, filmSec));
+      if (b.filmClock < plan.everySec) continue;
+      b.filmClock -= plan.everySec;
+      this.films.push(new FilmPatch(this, this.puddleLayer, b.x, b.y, pointAt(b.edge, b.s).angle, plan.radius, plan.sec, plan.wide));
       this.filmsMade++;
       if (this.films.length > FILM_MAX) this.films.shift()?.destroy();
     }
