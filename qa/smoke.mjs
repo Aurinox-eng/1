@@ -5976,6 +5976,126 @@ async function typesCh2Bosses(browser, baseUrl) {
   check(`${p} Кариес, фаза 3: выпускает скрытных (на поле до ${stealthKids})`, stealthKids >= 3);
 }
 
+// ---------------------------------------------------------------- Препятствия и условия главы 2: зуб, налёт, «Сладкое», «Без продажи»
+
+/**
+ * Препятствия главы 2 (план docs/content-plan-2026-10-26.md, раздел 4; решение владельца 3 ноября 2026, сообщение 1, п. 3) — на тестовой карте с `&obstacles` (три зуба, два налёта):
+ * (А) на зуб и налёт поставить башню нельзя ни тапом, ни вызовом проверки; (Б) Таблетка рядом с налётом без бактерий бьёт его, после obstacles.plaqueHits ударов налёт разбит, клетки открыты,
+ * башня на освобождённую клетку ставится; (В) пока в зоне башни есть бактерии, налёт она не бьёт; (Г) луч и свет упираются в зуб (toothCut: из соседней клетки в сторону зуба — короче клетки,
+ * в обратную — нет).
+ * Условия уровня (раздел 5): (Д) «Сладкое» — скорость бактерий ×conditions.sweet.speedMul, монеты за убитых ×rewardMul (сравнение с той же партией без условия); (Е) «Без продажи» — у карточки
+ * башни нет кнопки «Продать».
+ */
+async function typesCh2Obstacles(browser, baseUrl) {
+  const p = '[препятствия и условия главы 2]';
+  const hitsNeed = readConfigNumber('obstacles', 'plaqueHits');
+  const toothR = readConfigNumber('obstacles', 'toothRadius');
+  const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
+  const open = (label, { counts = {}, delay = 900, cfg = [], coins = 0, cond = '' } = {}) => {
+    const all = [...wavesOnly(counts), `waves.firstDelaySec:${delay}`, ...FIXED_NO_TOWERS, 'bacteria.baseSpeed:85', `economy.startCoins:${coins}`, NO_LIFE_LOSS, ...cfg].join(',');
+    return openGame(context, baseUrl, `${p} ${label}`, { query: `${ALL_TOWERS}&obstacles${cond ? `&cond=${cond}` : ''}`, speed: 4, cfg: all });
+  };
+  const cellOf = (key) => key.split(',').map(Number);
+  /** Свободная клетка из подобранных для проверок (FREE), не зуб и не налёт. */
+  const spot = (st) => Object.values(FREE).find(([c, r]) => !st.teeth.includes(`${c},${r}`) && !st.plaqueTiles.includes(`${c},${r}`));
+  /** Ставит башню вызовом проверки в первую свободную клетку рядом с налётом; возвращает клетку или null. */
+  const besidePlaque = (game, id, plaque) => game.page.evaluate(([tid, keys]) => {
+    const [c, r] = keys[0].split(',').map(Number);
+    for (const [dc, dr] of [[-1, 0], [0, -1], [0, 1], [-1, -1], [-1, 1], [keys.length, 0]]) if (window.__pvb.placeTower(tid, c + dc, r + dr, 1)) return [c + dc, r + dr];
+    return null;
+  }, [id, plaque.keys]);
+
+  // ---- А. на зуб и налёт не строится
+  const gA = await open('постройка', { coins: TW.pill.price });
+  const s0 = await gA.state();
+  check(`${p} на тестовой карте с &obstacles зубов ${s0.teeth.length} (ждали 3), налётов ${s0.plaques.length} (ждали 2), налёт закрывает клеток ${s0.plaqueTiles.length} (ждали 5)`, s0.teeth.length === 3 && s0.plaques.length === 2 && s0.plaqueTiles.length === 5, JSON.stringify({ teeth: s0.teeth, plaque: s0.plaqueTiles }));
+  await gA.selectTower('pill');
+  await gA.tapCell(...cellOf(s0.teeth[0]));
+  await gA.tapCell(...cellOf(s0.plaqueTiles[0]));
+  const sA = await gA.state();
+  const apiA = await gA.page.evaluate(([t, pl]) => [window.__pvb.placeTower('pill', ...t.split(',').map(Number), 1), window.__pvb.placeTower('pill', ...pl.split(',').map(Number), 1)], [s0.teeth[0], s0.plaqueTiles[0]]);
+  check(`${p} тап по зубу и по налёту башню не ставит и монет не тратит (башен ${sA.towers.length}, монет ${sA.coins} из ${TW.pill.price}); вызов проверки тоже отказывает (${apiA.join(', ')})`, sA.towers.length === 0 && sA.coins === TW.pill.price && apiA.every((x) => x === false));
+
+  // ---- Г. луч и свет упираются в зуб
+  const tile = MAP.tile;
+  // центр соседней слева клетки (пиксели мира): смотрит вправо — на зуб, влево — от зуба
+  const [tc, tr] = cellOf(s0.teeth[0]);
+  const cx = MAP.orgW + tile * (tc - 1 + 0.5);
+  const cy = tile * (tr + 0.5);
+  const [toward, away] = await gA.page.evaluate(([x, y, len]) => [window.__pvb.toothCut(x, y, 0, len), window.__pvb.toothCut(x, y, Math.PI, len)], [cx, cy, tile * 4]);
+  const expectCut = tile - toothR * tile;
+  check(`${p} луч и свет из соседней клетки в сторону зуба обрываются у зуба: ${f1(toward)} px (ждали ${f1(expectCut)} = клетка − радиус зуба ${toothR} клетки), в обратную сторону — во всю длину ${f1(away)} px`, Math.abs(toward - expectCut) <= 1 && away === tile * 4, `${toward} / ${away}`);
+  await gA.page.close();
+
+  // ---- Б. Таблетка разбивает налёт без бактерий
+  const gB = await open('удары по налёту', { cfg: ['towers.pill.cooldownMs:50'] });
+  const sB0 = await gB.state();
+  const plaque = sB0.plaques[0];
+  const at = await besidePlaque(gB, 'pill', plaque);
+  const endB = await pollUntil(gB, (st) => st.plaquesBroken >= 1, 60000, 50);
+  const freed = endB.plaques.length === 1 && plaque.keys.every((k) => !endB.plaqueTiles.includes(k));
+  const reuse = await gB.page.evaluate((k) => window.__pvb.placeTower('pill', ...k.split(',').map(Number), 1), plaque.keys[0]);
+  check(`${p} Таблетка рядом с налётом (клетка ${JSON.stringify(at)}) без бактерий бьёт его: ударов ${endB.plaqueStrikes} (налёт разбит после ${hitsNeed}), налёт разбит (${endB.plaquesBroken}), его клетки открыты (${freed}), башня на освобождённую клетку ставится (${reuse})`, at !== null && endB.plaquesBroken === 1 && endB.plaqueStrikes >= hitsNeed && freed && reuse === true);
+  await gB.page.close();
+
+  // ---- В. бактерии в зоне — налёт не бьётся
+  const gC = await open('бактерии в зоне', { counts: { coccus: 4 }, delay: 3, cfg: ['types.coccus.hp:100000', 'towers.pill.range:3000', 'towers.pill.damage:0.01'] });
+  const sC0 = await gC.state();
+  await besidePlaque(gC, 'pill', sC0.plaques[0]);
+  const logC = [];
+  const startedC = Date.now();
+  await pollUntil(gC, (st) => {
+    logC.push(st);
+    return (st.elapsed ?? 0) > 16 || Date.now() - startedC > 80000;
+  }, 90000, 30);
+  const framesC = distinctFrames(logC);
+  let busy = 0;
+  let busyStrikes = 0;
+  let idleStrikes = 0;
+  for (let i = 1; i < framesC.length; i++) {
+    const d = framesC[i].plaqueStrikes - framesC[i - 1].plaqueStrikes;
+    if (framesC[i - 1].bacteria.length > 0 && framesC[i].bacteria.length > 0) {
+      busy++;
+      busyStrikes += d;
+    } else idleStrikes += d;
+  }
+  check(`${p} пока в зоне Таблетки бактерии, налёт она не бьёт: ударов за ${busy} кадров с бактериями ${busyStrikes} (допуск 1 — удар в кадре выхода первой бактерии), до выхода бактерий бьёт (${idleStrikes})`, busy >= 20 && busyStrikes <= 1 && idleStrikes > 0, `кадров ${busy}, ударов ${busyStrikes}/${idleStrikes}`);
+  await gC.page.close();
+
+  // ---- Д. «Сладкое»: скорость и награда
+  const sweetSpeed = readConfigNumber('sweet', 'speedMul');
+  const sweetReward = readConfigNumber('sweet', 'rewardMul');
+  const run = async (cond) => {
+    const g = await open(cond ? '«Сладкое»' : 'без условия', { counts: { coccus: 20 }, delay: 2, coins: TW.pill.price, cond, cfg: ['bacteria.speedSpread:0', 'types.coccus.hp:1', 'towers.pill.range:3000', 'towers.pill.cooldownMs:50'] });
+    const st0 = await g.state();
+    await g.page.evaluate(([c, r]) => window.__pvb.placeTower('pill', c, r, 1), spot(st0));
+    let speed = 0;
+    const end = await pollUntil(g, (st) => {
+      const b = st.bacteria.find((x) => x.kind === 'coccus');
+      if (b) speed = b.speed;
+      return st.kills >= 20 || st.state !== 'playing';
+    }, 90000, 30);
+    await g.page.close();
+    return { speed, gain: end.coins - st0.coins, cond: st0.condition, kills: end.kills };
+  };
+  const plain = await run('');
+  const sweet = await run('sweet');
+  const speedRatio = sweet.speed / plain.speed;
+  const gainRatio = sweet.gain / plain.gain;
+  check(`${p} «Сладкое»: условие партии ${sweet.cond} (без него — ${plain.cond}); скорость кокка ${f2(sweet.speed)} против ${f2(plain.speed)} — ×${f2(speedRatio)} (в таблице ×${sweetSpeed})`, sweet.cond === 'sweet' && plain.cond === null && Math.abs(speedRatio - sweetSpeed) <= 0.005);
+  check(`${p} «Сладкое»: монет за ${sweet.kills} убитых ${sweet.gain} против ${plain.gain} за ${plain.kills} — ×${f2(gainRatio)} (в таблице ×${sweetReward}, допуск ±0,08 на округление монет)`, sweet.kills === 20 && plain.kills === 20 && plain.gain > 0 && Math.abs(gainRatio - sweetReward) <= 0.08);
+
+  // ---- Е. «Без продажи»: на карточке башни нет кнопки «Продать»
+  const gE = await open('«Без продажи»', { coins: TW.pill.price, cond: 'nosell' });
+  const cellE = spot(await gE.state());
+  await gE.selectTower('pill');
+  await gE.tapCell(...cellE);
+  await gE.tapCell(...cellE);
+  const sE = await gE.state();
+  check(`${p} «Без продажи»: условие ${sE.condition}; башня стоит (${sE.towers.length}), карточка открыта (${sE.ui.card.visible}), кнопки «Продать» нет (ширина ${sE.ui.card.sell.w}), продаж ${sE.sells}`, sE.condition === 'nosell' && sE.towers.length === 1 && sE.ui.card.visible && sE.ui.card.sell.w === 0 && sE.sells === 0);
+  await gE.page.close();
+}
+
 // ---------------------------------------------------------------- Токсин: облако после гибели
 
 /**
@@ -8100,6 +8220,7 @@ async function runTowers(browser, baseUrl) {
   await part('parasite', '[бактерии: паразит]', () => typesParasite(browser, baseUrl));
   await part('film', '[бактерии: плёнка]', () => typesFilm(browser, baseUrl));
   await part('ch2bosses', '[боссы главы 2]', () => typesCh2Bosses(browser, baseUrl));
+  await part('ch2obstacles', '[препятствия и условия главы 2]', () => typesCh2Obstacles(browser, baseUrl));
 }
 
 // ================================================================== круг 14: плашки, закрытые башни, полоса кнопок, кнопка «Заново», дефляция, отдаление
