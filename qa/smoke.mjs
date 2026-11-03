@@ -8629,8 +8629,8 @@ async function runLevelWaves(browser, baseUrl) {
     totals.push(s.plannedTotal);
     hps.push(s.plannedHp);
     firsts.push(s.firstWaves);
-    // уровни 1 и 2 — новый формат (50 волн, карты «Горло» и «Нос», 200 монет), уровни 3–10 — прежний (30 волн, карта «корни»)
-    const want = level === 1 ? { waves: PLAN.length, map: 'throat' } : level === 2 ? { waves: PLAN2.length, map: 'nose' } : { waves: 30, map: 'roots' };
+    // уровни 1 и 2 — новый формат (50 волн, карты «Горло» и «Нос», 200 монет), уровни 3–10 — прежний (30 волн); карта уровней 3–4 — «Рот» (глава 2, свои входы у каждого), 5–10 — «корни»
+    const want = level === 1 ? { waves: PLAN.length, map: 'throat' } : level === 2 ? { waves: PLAN2.length, map: 'nose' } : { waves: 30, map: level === 3 ? 'mouth3' : level === 4 ? 'mouth4' : 'roots' };
     check(`${p} уровень ${level}: номер уровня в игре, ${want.waves} волн, карта «${want.map}», бактерии запланированы`, s.level === level && s.waveTotal === want.waves && s.mapId === want.map && s.plannedTotal > 0 && (level <= 2) === (s.plan !== null), `уровень ${s.level}, волн ${s.waveTotal}, карта ${s.mapId}, план ${JSON.stringify(s.plan)}, бактерий ${s.plannedTotal}`);
     if (level === 1) check(`${p} уровень 1: монет на старте ${s.coins} (ждали ${readConfigNumber('plan', 'startCoins')})`, s.coins === readConfigNumber('plan', 'startCoins'), String(s.coins));
     await game.page.close();
