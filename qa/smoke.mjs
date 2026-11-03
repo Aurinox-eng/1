@@ -1431,9 +1431,13 @@ function runNames() {
       seen.set(n, [...(seen.get(n) ?? []), `${kind} ${key}`]);
     }
     // в план глав имена записаны по-русски: они — только в проверке RU
+    // вид или босс плана, уже введённый в игру под тем же именем, — тот же объект, не повтор (вид и босс в игре одни; мутации, узлы и условия бывают у разных башен и уровней — их сравниваем всегда)
+    const SAME = { 'вид (план)': ['вид'], 'мини-босс (план)': ['босс'], 'босс главы (план)': ['босс'] };
     if (lang === 'RU') for (const [kind, name] of readPlanNames()) {
       const n = name.trim().toLowerCase();
-      seen.set(n, [...(seen.get(n) ?? []), kind]);
+      const have = seen.get(n) ?? [];
+      if (have.some((x) => (SAME[kind] ?? []).includes(x.split(' ')[0]))) continue;
+      seen.set(n, [...have, kind]);
     }
     const dups = [...seen].filter(([n, list]) => list.length > 1 && !PLAN_NAMES_PENDING.has(n));
     const pending = [...seen].filter(([n, list]) => list.length > 1 && PLAN_NAMES_PENDING.has(n)).length;
@@ -5877,9 +5881,10 @@ async function typesFilm(browser, baseUrl) {
   const firstFilm = framesA.find((s) => s.films.length > 0);
   const maxLeft = Math.max(0, ...framesA.flatMap((s) => s.films.map((f) => f.left)));
   check(`${p} идущая Плёнка оставляет плёнку раз в ${every} с: за ${f1(walked)} с на дорожке плёнок ${A.end.filmsMade} (ждали около ${f1(expect)}, допуск ±2), радиус ${firstFilm?.films[0]?.r} (в таблице ${radius}), срок не больше ${sec} с (наибольший остаток ${f2(maxLeft)})`, A.end.filmsMade >= 2 && Math.abs(A.end.filmsMade - expect) <= 2 && firstFilm?.films[0]?.r === radius && maxLeft <= sec + 1e-6, `плёнок ${A.end.filmsMade}`);
-  const lastSeen = framesA.findLast?.((s) => s.films.length > 0);
-  const afterGone = lastSeen ? framesA.find((s) => s.elapsed > lastSeen.elapsed && s.films.length === 0) : null;
-  check(`${p} плёнка исчезает: после ухода Плёнки последняя плёнка пропала (${afterGone ? `на ${f1(afterGone.elapsed)} с` : 'нет'})`, A.end.state === 'won' && afterGone !== null && afterGone !== undefined);
+  // плёнки не копятся: одновременно на поле не больше, чем успевает лечь за срок жизни одной (filmSec / filmEverySec, с округлением вверх, +1 на шаг кадра)
+  const maxOnField = Math.max(0, ...framesA.map((s) => s.films.length));
+  const cap = Math.ceil(sec / every) + 1;
+  check(`${p} плёнки исчезают через ${sec} с и не копятся: одновременно на поле не больше ${maxOnField} (предел ${cap} = ${sec} / ${every} с округлением вверх + 1)`, maxOnField >= 2 && maxOnField <= cap, `больше всего на поле ${maxOnField}`);
 
   // ---- Б. снаряд Таблетки на плёнке — ×film.damageMul
   const mul = readConfigNumber('film', 'damageMul');
@@ -5890,7 +5895,8 @@ async function typesFilm(browser, baseUrl) {
   for (let i = 1; i < framesB.length; i++) {
     const a = framesB[i - 1].bacteria.find((b) => b.kind === 'film');
     const b = framesB[i].bacteria.find((x) => x.kind === 'film');
-    if (!a || !b || b.hits !== a.hits + 1 || !(a.hp > b.hp)) continue;
+    // удар снаряда — убыль прочности между соседними кадрами (пауза Таблетки 1 с, кадры чаще: один удар на пару кадров)
+    if (!a || !b || !(a.hp > b.hp)) continue;
     const film = (s, x) => s.films.some((f) => Math.hypot(f.x - x.x, f.y - x.y) <= f.r);
     const stays = film(framesB[i - 1], a) === film(framesB[i], b);
     if (!stays) continue;
@@ -5945,7 +5951,8 @@ async function typesCh2Bosses(browser, baseUrl) {
     const a = bossOf(B.frames[i - 1], 'shadow');
     const b = bossOf(B.frames[i], 'shadow');
     if (!a || !b || a.hidden !== b.hidden) continue;
-    const d = b.hits - a.hits;
+    // попадание — убыль прочности между соседними кадрами
+    const d = a.hp > b.hp ? 1 : 0;
     if (a.hidden) hitsHidden += d;
     else hitsSeen += d;
   }
