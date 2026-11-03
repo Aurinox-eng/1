@@ -19,6 +19,7 @@
  *   http://localhost:5173/?level=5       — номер уровня; работает и в игровой сборке (уровень должен быть открыт у игрока)
  *   http://localhost:5173/?qa&towers=all — открыты все башни (без узлов древа)
  *   http://localhost:5173/?qa&wave=30    — партия начинается с волны 30 (проверки боссов)
+ *   http://localhost:5173/?qa&obstacles  — на тестовой карте препятствия главы 2 (зубы, налёт); &cond=sweet|nosell — условие уровня на любом уровне
  *   http://localhost:5173/?qa&meta=lives:1,coins:2,damage:3,reward:0,dna:50 — подменяет уровни улучшений вне партии и очки ДНК (в сохранение ничего не пишется)
  *   http://localhost:5173/?lang=en       — принудительно выбирает язык (проверка переводов)
  *   http://localhost:5173/?qa&best=30,19 — лучшие волны уровней 1, 2, … (в сохранение ничего не пишется)
@@ -79,6 +80,12 @@ export const ALL_TOWERS: boolean = QA_MODE && params.get('towers') === 'all';
 
 /** `?qa&wave=N` — партия начинается с волны N (предыдущие считаются пройденными, монеты — как на старте): проверкам боссов и поздних волн. Без параметра — с первой волны. */
 export const QA_START_WAVE: number = QA_MODE && Number.isFinite(Number(params.get('wave'))) && Number(params.get('wave')) > 1 ? Math.floor(Number(params.get('wave'))) : 1;
+
+/** `?qa&obstacles` — на тестовой карте «корни» препятствия главы 2 (три зуба и два налёта у дорожек): проверкам зуба и налёта до карты уровней 3–4. Без параметра препятствий нет. */
+export const QA_OBSTACLES: boolean = QA_MODE && params.has('obstacles');
+
+/** `?qa&cond=sweet|nosell` — условие уровня («Сладкое», «Без продажи») на любом уровне: проверкам условий. Без параметра — по таблице `conditions.byLevel`. */
+export const QA_CONDITION: string | null = QA_MODE ? params.get('cond') : null;
 
 /** `?qa&norender` — сцена партии не рисуется, цикл кадров идёт по таймеру: боты идут в 3–5 раз быстрее (ответ владельца 12, сверка с рисованием 19 октября 2026 — docs/process-speedup-2026-10-18.md, раздел 4.3). */
 export const QA_NORENDER: boolean = QA_MODE && params.has('norender');
@@ -150,6 +157,10 @@ export interface DebugSnapshot {
   /** Сколько облаков оставили токсины за партию. */
   cloudsMade: number;
   filmsMade: number;
+  /** Удары башен по налёту и сколько налётов разбито (глава 2); условие партии («Сладкое», «Без продажи» или null). */
+  plaqueStrikes: number;
+  plaquesBroken: number;
+  condition: string | null;
   /** Сколько раз Холод замораживал, сколько ловушек положил Пластырь и сколько раз паразит присосался к башне (за партию). */
   freezes: number;
   trapsMade: number;
@@ -268,6 +279,10 @@ export interface DebugSnapshot {
   /** Облака токсина: центр, радиус и сколько секунд ещё живут. */
   clouds: { x: number; y: number; r: number; left: number }[];
   films: { x: number; y: number; r: number; left: number }[];
+  /** Налёт (целый): центр, удары, клетки; клетки, которые он ещё закрывает; клетки с зубом. */
+  plaques: { x: number; y: number; hits: number; keys: string[] }[];
+  plaqueTiles: string[];
+  teeth: string[];
   /** Ловушки Пластыря: где приклеена бактерия и сколько секунд ещё держит. */
   traps: { x: number; y: number; left: number }[];
   /** Накопленный, но ещё не списанный урон по жизням от «дробных» бактерий (рой: 0,25 за штуку); при 1 списывается целая жизнь. */
@@ -300,6 +315,8 @@ export interface DebugSnapshot {
     freezeLeft: number;
     trapLeft: number;
     memory: string | null;
+    /** Скорость без замедлений и рывков, пикселей в секунду (с условием уровня «Сладкое»). */
+    speed: number;
     latchedTo: { col: number; row: number } | null;
   }[];
   /** Снаряды, капли сиропа и очереди луча в полёте. */
@@ -373,6 +390,8 @@ export interface DebugApi {
   setTowerXp: (col: number, row: number, xp: number) => boolean;
   /** Выпустить босса таблицы `bosses` сейчас (режим проверки); false — нет такого. */
   spawnBoss: (id: string) => boolean;
+  /** На каком расстоянии от точки (x, y) по направлению angle луч или свет упирается в зуб (не дальше length), пикселей (глава 2; режим проверки). */
+  toothCut: (x: number, y: number, angle: number, length: number) => number;
   upgradeTower: (col: number, row: number, picks: string[]) => boolean;
   /** Замер скорости с последнего сброса (reset — начать заново) и сколько объектов сейчас рисуется. */
   /** Журнал событий игры (с номера `from`): см. QaEvent. Сбрасывается при перезапуске уровня. */

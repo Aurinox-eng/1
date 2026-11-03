@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { CONFIG } from '../config';
-import { aimAngle, AIM_STEPS, bestBeamDirection, remainingNear, WORLD } from '../level';
+import { aimAngle, AIM_STEPS, bestBeamDirection, remainingNear, toothBlocks, toothCut, WORLD } from '../level';
 import {
   artImage, bakeArt, glowCircle, glowRing, glowRR, ringImage, setArt, shArc, shBox, shCirc, shEll, shLine, shPath, shPoly, shQuad, shRot, shRR, shStar, squareBox,
   type ArtBox, type Pt,
@@ -1234,7 +1234,7 @@ export function defaultAim(cfg: { beamLengthPx: number; beamHalfWidthPx: number 
   return bestBeamDirection(x, y, cfg.beamLengthPx, cfg.beamHalfWidthPx + BEAM_COVER_MARGIN);
 }
 
-/** До какого расстояния от точки (x, y) в направлении angle тянется луч: не дальше длины луча и не дальше края карты, пикселей. */
+/** До какого расстояния от точки (x, y) в направлении angle тянется луч: не дальше длины луча, края карты и первого зуба на линии, пикселей. */
 export function beamReach(x: number, y: number, angle: number, length: number): number {
   const ux = Math.cos(angle);
   const uy = Math.sin(angle);
@@ -1243,6 +1243,8 @@ export function beamReach(x: number, y: number, angle: number, length: number): 
   else if (ux < -1e-6) reach = Math.min(reach, (0 - x) / ux);
   if (uy > 1e-6) reach = Math.min(reach, (WORLD.h - y) / uy);
   else if (uy < -1e-6) reach = Math.min(reach, (0 - y) / uy);
+  // зуб (глава 2) луч не пропускает
+  reach = toothCut(x, y, angle, reach);
   return Math.max(0, reach);
 }
 
@@ -1778,16 +1780,17 @@ export class Tower {
     const { beamLengthPx, beamHalfWidthPx } = this.stats;
     const lines = this.beamDirections().map((d) => {
       const angle = aimAngle(d);
-      return { ux: Math.cos(angle), uy: Math.sin(angle) };
+      // за зубом (глава 2) луч не бьёт
+      return { ux: Math.cos(angle), uy: Math.sin(angle), length: toothCut(this.x, this.y, angle, beamLengthPx + 400) };
     });
     const hits: Bacterium[] = [];
     for (const b of bacteria) {
       if (b.hp <= 0) continue;
       const dx = b.x - this.x;
       const dy = b.y - this.y;
-      for (const { ux, uy } of lines) {
+      for (const { ux, uy, length } of lines) {
         const along = dx * ux + dy * uy;
-        if (along < 0 || along > beamLengthPx + b.radius) continue;
+        if (along < 0 || along > beamLengthPx + b.radius || along > length) continue;
         if (Math.abs(-dx * uy + dy * ux) > beamHalfWidthPx + b.radius * 0.7) continue;
         hits.push(b);
         break;
@@ -1830,6 +1833,15 @@ export class Tower {
 
   get isDisabled(): boolean {
     return this.disabledFor > 0;
+  }
+
+  /** Повернуть ствол к точке (x, y) — удар по налёту (глава 2); у луча направление задаёт игрок, его башня не поворачивает. */
+  faceTo(x: number, y: number): void {
+    if (this.isBeam || this.isAura) return;
+    const angle = Math.atan2(y - this.y, x - this.x);
+    this.lookAngle = angle;
+    this.barrel.setRotation(angle);
+    lookPupils(this.art, artLevel(this.level), angle);
   }
 
   /** Заглушить башню на seconds секунд (если уже заглушена дольше — не сокращаем). */
@@ -1883,6 +1895,8 @@ export class Tower {
         diff = Math.abs(Math.atan2(Math.sin(diff), Math.cos(diff)));
         if (diff > half + Math.asin(Math.min(1, (b.radius * 0.7) / dist))) continue;
       }
+      // свет через зуб (глава 2) не проходит
+      if (toothBlocks(this.x, this.y, b.x, b.y)) continue;
       hits.push(b);
     }
     return hits;
@@ -2003,6 +2017,8 @@ export class Tower {
       // Скрытную башня видит только на доле радиуса (b.stealth); конус Лампы видит полностью; подсвеченную Лампой (b.lit) видят на полном радиусе
       const reach = b.stealth > 0 && targeting !== 'cone' && !b.lit ? range * b.stealth : range;
       if (Math.hypot(b.x - this.x, b.y - this.y) > reach + b.radius) continue;
+      // Лампа не смотрит на бактерию за зубом (свет через зуб не проходит)
+      if (targeting === 'cone' && toothBlocks(this.x, this.y, b.x, b.y)) continue;
       if (side === 'forward' && !(b.remaining > this.remaining)) continue;
       if (side === 'back' && !(b.remaining < this.remaining)) continue;
       if (affectable && !this.canAffect(b)) continue;

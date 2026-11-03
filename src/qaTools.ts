@@ -9,7 +9,8 @@ import Phaser from 'phaser';
 import { CONFIG } from './config';
 import { QA_EVENTS_MAX, QA_MODE, STRESS_FIZZ, STRESS_HIGH, type DebugSnapshot, type QaEvent } from './debug';
 import { refundBonus } from './meta';
-import { BLOCKED_TILES, EDGES, LEVEL, MAP_ID, PATH_TILES, WORLD, cellKey } from './level';
+import { BLOCKED_TILES, EDGES, LEVEL, MAP_ID, PATH_TILES, TOOTH_TILES, WORLD, cellKey } from './level';
+import { activeCondition } from './conditions';
 import { Bacterium, type BacteriumKind } from './objects/Bacterium';
 import { Tower, type TowerId } from './objects/Tower';
 import { pointAt, tileCenter } from './pathing';
@@ -73,6 +74,9 @@ export function qaSnapshot(s: GameSceneInternals): DebugSnapshot {
     leaps: s.leaps,
     cloudsMade: s.cloudsMade,
     filmsMade: s.filmsMade,
+    plaqueStrikes: s.plaqueStrikes,
+    plaquesBroken: s.plaquesBroken,
+    condition: activeCondition(),
     freezes: s.freezes,
     trapsMade: s.trapsMade,
     latches: s.latches,
@@ -183,6 +187,9 @@ export function qaSnapshot(s: GameSceneInternals): DebugSnapshot {
     puddles: s.puddles.map((p: any) => ({ x: p.x, y: p.y, r: p.radius, left: p.left })),
     clouds: s.clouds.map((c: any) => ({ x: c.x, y: c.y, r: c.radius, left: c.left })),
     films: s.films.map((f: any) => ({ x: f.x, y: f.y, r: f.radius, left: f.left })),
+    plaques: s.plaques.map((p: any) => ({ x: p.x, y: p.y, hits: p.hits, keys: p.keys })),
+    plaqueTiles: [...s.plaqueTiles],
+    teeth: [...TOOTH_TILES],
     traps: s.traps.map((tr: any) => ({ x: tr.target.x, y: tr.target.y, left: tr.target.trapLeft })),
     lifePool: s.lifePool,
     bacteria: s.bacteria.map((b: any) => ({
@@ -196,6 +203,7 @@ export function qaSnapshot(s: GameSceneInternals): DebugSnapshot {
       decor: b.decorated,
       edge: b.edge.id,
       s: b.s,
+      speed: b.baseSpeed,
       dashing: b.dashing,
       slowed: b.slowed,
       lit: b.lit,
@@ -258,7 +266,7 @@ function firstWaveOf(waves: readonly { mix?: Record<string, number>; wall?: read
 
 export function placeTowerQa(s: GameSceneInternals, id: TowerId, col: number, row: number, level: number): boolean {
   const key = cellKey(col, row);
-  if (!(id in CONFIG.towers) || PATH_TILES.has(key) || BLOCKED_TILES.has(key) || s.occupied.has(key)) return false;
+  if (!(id in CONFIG.towers) || PATH_TILES.has(key) || BLOCKED_TILES.has(key) || s.occupied.has(key) || TOOTH_TILES.has(key) || s.plaqueTiles.has(key)) return false;
   const center = tileCenter(col, row);
   const tower = new Tower(s, s.towerLayer, id, col, row, center.x, center.y);
   for (let lv = 1; lv < Math.min(level, MAX_TOWER_LEVEL); lv++) tower.upgrade();
