@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import { conditionSpeedMul } from '../conditions';
 import { CONFIG, type BossId, type BossSpec, type Ward } from '../config';
 import { EDGES_FROM } from '../level';
 import { pointAt, type Edge } from '../pathing';
@@ -280,7 +281,7 @@ export class Bacterium {
     this.hp = this.maxHp;
     this.radius = extentOf(kind) * this.visual;
     const spread = this.boss ? 1 : 1 + (Math.random() * 2 - 1) * CONFIG.bacteria.speedSpread;
-    this.baseSpeed = CONFIG.bacteria.baseSpeed * (this.boss ? this.boss.speedFactor : cfg.speedFactor) * spread;
+    this.baseSpeed = CONFIG.bacteria.baseSpeed * (this.boss ? this.boss.speedFactor : cfg.speedFactor) * spread * conditionSpeedMul();
     this.dashClock = Math.random() * Math.max(1, this.dashEvery);
     this.leapClock = Math.random() * Math.max(0, cfg.leapEverySec);
     this.edge = edge;

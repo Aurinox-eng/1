@@ -21,7 +21,8 @@ export interface CardModel {
   /** Слияние: можно («ready»), нет пары («none»), высший уровень («max»), идёт выбор пары («active» — кнопка «Отмена»). */
   /** cap — башня на пределе роста уровня игры (`growthLimits`): кнопка серая, без текста. */
   merge: 'ready' | 'none' | 'max' | 'cap' | 'active';
-  sell: number;
+  /** Сколько монет вернёт продажа; null — продавать нельзя (условие уровня «Без продажи»): кнопки нет. */
+  sell: number | null;
   /** Подсказка режима слияния (рисуется в узкой полосе вместо полной карточки); null — не режим слияния. */
   mergeHint: string | null;
 }
@@ -307,7 +308,7 @@ export class TowerCard {
     this.applyEnabled();
 
     // «Слить» и «Продать»
-    this.sellVisible = m.merge !== 'active'; // в режиме слияния «Продать» скрыта: выбор пары по карте не должен заканчиваться случайной продажей
+    this.sellVisible = m.merge !== 'active' && m.sell !== null; // в режиме слияния «Продать» скрыта: выбор пары по карте не должен заканчиваться случайной продажей
     this.mergeEnabled = m.merge === 'ready' || m.merge === 'active';
     const mergeColor = m.merge === 'active' ? 0x9a5a1c : this.mergeEnabled ? 0x1f7a46 : 0x25324d;
     const mergeEdge = m.merge === 'active' ? 0xffb347 : this.mergeEnabled ? COLORS.merge : 0x3a4a6b;
@@ -325,7 +326,7 @@ export class TowerCard {
     if (this.sellVisible) {
       this.btns.fillStyle(0x8a2f45, 1).fillRoundedRect(sellX - BTN_W / 2, cy - BTN_H / 2, BTN_W, BTN_H, 14);
       this.btns.lineStyle(3, 0xff8aa0, 1).strokeRoundedRect(sellX - BTN_W / 2, cy - BTN_H / 2, BTN_W, BTN_H, 14);
-      this.sellText.setText(t('cardSell', { n: m.sell })).setPosition(sellX, cy);
+      this.sellText.setText(t('cardSell', { n: m.sell ?? 0 })).setPosition(sellX, cy);
       if (this.sellText.width > BTN_W - 16) this.sellText.setScale((BTN_W - 16) / this.sellText.width);
       else this.sellText.setScale(1);
       this.zones.sell.setPosition(sellX, cy);
