@@ -255,6 +255,29 @@ function cariesCavities(ctx: Ctx, r: number, col: BodyColors): void {
 
 export type Ch2Body = 'film' | 'tartar' | 'caries' | 'shadow';
 
+/** Тело главы 2 на холсте (центр — 0, 0): для листа образцов (`ch2BodyImage`) и для картинки тела вида в игре (`styleBodyKey`, вид «Плёнка»). */
+export function drawCh2Body(ctx: Ctx, d: number, which: Ch2Body, r: number, sw: number): void {
+  const col = CH2_COLORS[which];
+  ctx.lineJoin = 'round';
+  if (which !== 'shadow') filmSkirt(ctx, r, which === 'film' ? col : { ...col, sign: which === 'tartar' ? col.sign : 0x9a7a52 });
+  const soft = which === 'film' || which === 'shadow';
+  roundBody(ctx, d, r, sw, col, soft, which === 'tartar'); // блик-точки нет у Плёнки, Тени и Кариеса: светлая точка рядом с тёмным читается как глаз
+  if (which === 'film') filmSheen(ctx, r);
+  if (which === 'tartar') plaqueCrust(ctx, r, col);
+  if (which === 'shadow') {
+    // знак скрытной: бледный пунктирный ободок внутри
+    ctx.lineWidth = Math.max(2, r * 0.07);
+    ctx.strokeStyle = css(col.sign, 0.75);
+    for (let i = 0; i < 10; i++) {
+      const a = (i / 10) * Math.PI * 2;
+      ctx.beginPath();
+      ctx.arc(0, 0, r * 0.74, a, a + 0.38);
+      ctx.stroke();
+    }
+  }
+  if (which === 'caries') cariesCavities(ctx, r, col);
+}
+
 /** Рамка тела радиуса r с запасом под юбку и тень. */
 function bodyBox(r: number): ArtBox {
   return squareBox(r * 1.3 + 14);
@@ -266,27 +289,7 @@ function bodyBox(r: number): ArtBox {
  */
 export function ch2BodyImage(scene: Phaser.Scene, which: Ch2Body, r: number, sw = r * 0.22): Phaser.GameObjects.Image {
   const box = bodyBox(r);
-  const col = CH2_COLORS[which];
-  const key = bakeCanvasArt(scene, `ch2-${which}-${r}-${Math.round(sw)}`, box, (ctx, d) => {
-    ctx.lineJoin = 'round';
-    if (which !== 'shadow') filmSkirt(ctx, r, which === 'film' ? col : { ...col, sign: which === 'tartar' ? col.sign : 0x9a7a52 });
-    const soft = which === 'film' || which === 'shadow';
-    roundBody(ctx, d, r, sw, col, soft, which === 'tartar'); // блик-точки нет у Плёнки, Тени и Кариеса: светлая точка рядом с тёмным читается как глаз
-    if (which === 'film') filmSheen(ctx, r);
-    if (which === 'tartar') plaqueCrust(ctx, r, col);
-    if (which === 'shadow') {
-      // знак скрытной: бледный пунктирный ободок внутри
-      ctx.lineWidth = Math.max(2, r * 0.07);
-      ctx.strokeStyle = css(col.sign, 0.75);
-      for (let i = 0; i < 10; i++) {
-        const a = (i / 10) * Math.PI * 2;
-        ctx.beginPath();
-        ctx.arc(0, 0, r * 0.74, a, a + 0.38);
-        ctx.stroke();
-      }
-    }
-    if (which === 'caries') cariesCavities(ctx, r, col);
-  });
+  const key = bakeCanvasArt(scene, `ch2-${which}-${r}-${Math.round(sw)}`, box, (ctx, d) => drawCh2Body(ctx, d, which, r, sw));
   return artImage(scene, key, box);
 }
 

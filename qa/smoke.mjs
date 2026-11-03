@@ -5436,14 +5436,14 @@ async function typesPhago(browser, baseUrl) {
 // Всё считается по игровому времени (elapsed) и состоянию игры (clouds, cloudsMade, towers[].suppressed / auraMul, stats.coneDeg / auraMul), а не по реальным секундам: сервер медленный.
 
 /** Размеры таблиц config.ts после пачки 3 (docs/stage-7-plan.md): с каждой новой пачкой числа здесь обновляются (проверка заодно ловит случай, когда читалка таблиц молча пропустила строки). */
-const STAGE7 = { towers: ['pill', 'syrup', 'fizz', 'syringe', 'ampule', 'antibiotic', 'lamp', 'vitamin', 'frost', 'patch'], kinds: 19, nodes: 67, intro: { stealth: 5, toxin: 7, parasite: 8, mutant: 9 } };
+const STAGE7 = { towers: ['pill', 'syrup', 'fizz', 'syringe', 'ampule', 'antibiotic', 'lamp', 'vitamin', 'frost', 'patch'], kinds: 20, nodes: 67, intro: { stealth: 5, toxin: 7, parasite: 8, mutant: 9 } };
 function tablesSizes() {
   const p = '[таблицы config.ts: размеры]';
   const towers = Object.keys(readTowerTable());
   const kinds = readKinds();
   const nodes = Object.keys(readMetaTable().upgrades);
   check(`${p} башен ${towers.length}: ${towers.join(', ')} (ждали ${STAGE7.towers.join(', ')}; Лампа и Витамин — пачка 2, Холод и Пластырь — пачка 3)`, towers.join() === STAGE7.towers.join(), towers.join(', '));
-  check(`${p} типов бактерий ${kinds.length} (ждали ${STAGE7.kinds}, с «stealth», «toxin», «mutant» и «parasite»)`, kinds.length === STAGE7.kinds && ['stealth', 'toxin', 'mutant', 'parasite'].every((k) => kinds.includes(k)), kinds.join(', '));
+  check(`${p} типов бактерий ${kinds.length} (ждали ${STAGE7.kinds}, с «stealth», «toxin», «mutant», «parasite» и «film» — Плёнка главы 2)`, kinds.length === STAGE7.kinds && ['stealth', 'toxin', 'mutant', 'parasite', 'film'].every((k) => kinds.includes(k)), kinds.join(', '));
   check(`${p} узлов древа ${nodes.length} (ждали ${STAGE7.nodes}: 7 «Организм» и «Защита» + 9 узлов башен + «Лихорадка» и «Автостарт волны» + по 5 у девяти веток башен и 4 у Витамина)`, nodes.length === STAGE7.nodes, nodes.join(', '));
   check(`${p} у каждой башни, кроме Таблетки, есть узел древа (${STAGE7.towers.slice(1).map(towerNodeId).join(', ')})`, STAGE7.towers.slice(1).every((id) => nodes.includes(towerNodeId(id))) && !nodes.includes(towerNodeId('pill')));
   const t = readTowerTable();
@@ -5840,6 +5840,65 @@ async function towersStealth(browser, baseUrl) {
   }
   check(`${p} Лампа подсвечивает скрытную в круге радиуса ${f1(L)}: кадров в круге ${inCircle}, подсвечена в ${inLit} (все, lightSec ${lightSec}); кадров далеко за кругом ${outCircle}, подсвечена в ${outLit} (ни в одном)`, lightSec > 0 && inCircle >= 20 && inLit === inCircle && outCircle >= 20 && outLit === 0);
   await context.close();
+}
+
+// ---------------------------------------------------------------- Плёнка (глава 2): плёнка на дорожке ослабляет снаряды
+
+/**
+ * Плёнка (вид главы 2; план docs/content-plan-2026-10-26.md, п. 1; решение владельца 3 ноября 2026, сообщение 1, п. 3): (А) идущая Плёнка оставляет плёнку раз в filmEverySec игровых секунд,
+ * радиус и срок жизни — из таблицы, плёнка исчезает через filmSec; (Б) снаряд Таблетки по Плёнке, стоящей на плёнке, снимает вдвое меньше (film.damageMul), чем вне плёнки, — сравнение
+ * снятого за один удар в той же партии (одна башня, те же ранг и узлы).
+ */
+async function typesFilm(browser, baseUrl) {
+  const p = '[бактерии: плёнка]';
+  const every = readConfigNumber('film', 'filmEverySec');
+  const sec = readConfigNumber('film', 'filmSec');
+  const radius = readConfigNumber('film', 'filmRadius');
+  const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
+  const play = async (label, { counts, cfg = [], coins = 0, place = false, timeoutMs = 150000 }) => {
+    const all = [...wavesOnly(counts), 'waves.firstDelaySec:2', ...FIXED_NO_TOWERS, 'bacteria.baseSpeed:85', `economy.startCoins:${coins}`, NO_LIFE_LOSS, ...cfg].join(',');
+    const game = await openGame(context, baseUrl, `${p} ${label}`, { query: ALL_TOWERS, speed: 4, cfg: all });
+    if (place) await game.placeTowersOf('pill', [[FREE.a[0], FREE.a[1]]]);
+    const log = [];
+    const startedAt = Date.now();
+    const end = await pollUntil(game, (st) => {
+      log.push(st);
+      return st.state === 'won' || st.state === 'lost' || Date.now() - startedAt > timeoutMs - 20000;
+    }, timeoutMs, 20);
+    await game.page.close();
+    return { log, end };
+  };
+
+  // ---- А. плёнка остаётся на дорожке: шаг, радиус, срок
+  const A = await play('плёнка на дорожке', { counts: { film: 1 } });
+  const framesA = distinctFrames(A.log);
+  const walked = Math.max(0, ...framesA.filter((s) => s.bacteria.some((b) => b.kind === 'film')).map((s) => s.elapsed)) - (framesA.find((s) => s.bacteria.some((b) => b.kind === 'film'))?.elapsed ?? 0);
+  const expect = walked / every;
+  const firstFilm = framesA.find((s) => s.films.length > 0);
+  const maxLeft = Math.max(0, ...framesA.flatMap((s) => s.films.map((f) => f.left)));
+  check(`${p} идущая Плёнка оставляет плёнку раз в ${every} с: за ${f1(walked)} с на дорожке плёнок ${A.end.filmsMade} (ждали около ${f1(expect)}, допуск ±2), радиус ${firstFilm?.films[0]?.r} (в таблице ${radius}), срок не больше ${sec} с (наибольший остаток ${f2(maxLeft)})`, A.end.filmsMade >= 2 && Math.abs(A.end.filmsMade - expect) <= 2 && firstFilm?.films[0]?.r === radius && maxLeft <= sec + 1e-6, `плёнок ${A.end.filmsMade}`);
+  const lastSeen = framesA.findLast?.((s) => s.films.length > 0);
+  const afterGone = lastSeen ? framesA.find((s) => s.elapsed > lastSeen.elapsed && s.films.length === 0) : null;
+  check(`${p} плёнка исчезает: после ухода Плёнки последняя плёнка пропала (${afterGone ? `на ${f1(afterGone.elapsed)} с` : 'нет'})`, A.end.state === 'won' && afterGone !== null && afterGone !== undefined);
+
+  // ---- Б. снаряд Таблетки на плёнке — ×film.damageMul
+  const mul = readConfigNumber('film', 'damageMul');
+  const B = await play('снаряд на плёнке', { counts: { film: 1 }, coins: TW.pill.price, place: true, cfg: ['types.film.hp:400', 'towers.pill.range:3000', 'towers.pill.damage:2'] });
+  const framesB = distinctFrames(B.log);
+  const on = [];
+  const off = [];
+  for (let i = 1; i < framesB.length; i++) {
+    const a = framesB[i - 1].bacteria.find((b) => b.kind === 'film');
+    const b = framesB[i].bacteria.find((x) => x.kind === 'film');
+    if (!a || !b || b.hits !== a.hits + 1 || !(a.hp > b.hp)) continue;
+    const film = (s, x) => s.films.some((f) => Math.hypot(f.x - x.x, f.y - x.y) <= f.r);
+    const stays = film(framesB[i - 1], a) === film(framesB[i], b);
+    if (!stays) continue;
+    (film(framesB[i], b) ? on : off).push(a.hp - b.hp);
+  }
+  const med = (xs) => (xs.length ? [...xs].sort((x, y) => x - y)[Math.floor(xs.length / 2)] : NaN);
+  const ratio = med(on) / med(off);
+  check(`${p} снаряд Таблетки по Плёнке на плёнке снимает ×${mul} от удара вне плёнки: медиана на плёнке ${f2(med(on))} (${on.length} ударов), вне ${f2(med(off))} (${off.length}), отношение ${f2(ratio)}`, on.length >= 3 && off.length >= 3 && Math.abs(ratio - mul) <= 0.08, `на плёнке ${on.length}, вне ${off.length}`);
 }
 
 // ---------------------------------------------------------------- Токсин: облако после гибели
@@ -7964,6 +8023,7 @@ async function runTowers(browser, baseUrl) {
   await part('patch', '[башни: Пластырь]', () => towersPatch(browser, baseUrl));
   await part('mutant', '[бактерии: мутант]', () => typesMutant(browser, baseUrl));
   await part('parasite', '[бактерии: паразит]', () => typesParasite(browser, baseUrl));
+  await part('film', '[бактерии: плёнка]', () => typesFilm(browser, baseUrl));
 }
 
 // ================================================================== круг 14: плашки, закрытые башни, полоса кнопок, кнопка «Заново», дефляция, отдаление

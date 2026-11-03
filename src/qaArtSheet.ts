@@ -158,7 +158,7 @@ export class ArtSheetScene extends Phaser.Scene {
    * только знаки вида. Пять видов в ряд, четыре ряда; крупные виды уменьшены, чтобы влезли в клетку (одинаково слева и справа).
    */
   private facesKindsPage(): void {
-    this.facesHeader('БЕЗ ЛИЦ: 19 видов — слева было, справа стало');
+    this.facesHeader(`БЕЗ ЛИЦ: ${KINDS.length} видов — слева было, справа стало`);
     const W = CONFIG.screen.width;
     const cellW = W / 5;
     const cellH = 172;

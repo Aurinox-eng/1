@@ -3,6 +3,7 @@ import { artImage, bakeCanvasArt, type ArtBox } from '../art';
 import { CONFIG } from '../config';
 import { COLORS } from '../theme';
 import { bodyHalfSize, shellRange, shellWidth, SPLITTER_LOBE_OFFSET } from './bacteriumArt';
+import { drawCh2Body } from './chapter2Art';
 
 /**
  * Новый рисунок бактерий этапа 8 (стиль утверждён владельцем 18 октября 2026, docs/art-style.md; пилот — кокк, бронированная, Гигант, перенос — все 19 видов):
@@ -497,10 +498,12 @@ export function styleBodyKey(scene: Phaser.Scene, kind: StyleKind, sw: number, e
   const faceTag = eyes === 'none' ? '' : eyes === 'signs' ? '-k' : `-${eyes === 'open' ? 'o' : 'b'}${small ? '-s' : ''}`;
   return bakeCanvasArt(scene, `style-body-${kind}-${q}${faceTag}`, styleBodyBox(kind), (ctx, d) => {
     ctx.save();
-    if (isCoreKind(kind)) drawBodyCanvas(ctx, d, kind, q);
+    // Плёнка (глава 2): тело и знак вида — кайма-плёнка и блики — по листу главы 2 (`chapter2Art.ts`); лица и отдельных знаков нет
+    if (kind === 'film') drawCh2Body(ctx, d, 'film', CONFIG.types.film.radius, q);
+    else if (isCoreKind(kind)) drawBodyCanvas(ctx, d, kind, q);
     else drawBodyStyle(ctx, d, kind, q);
     ctx.restore();
-    if (eyes === 'none') return;
+    if (eyes === 'none' || kind === 'film') return;
     ctx.save();
     if (eyes === 'signs') drawKindSigns(ctx, kind);
     else if (isCoreKind(kind)) drawFaceCore(ctx, kind, eyes === 'shut', small);
@@ -1088,6 +1091,7 @@ export const BREATH_SEC: Record<StyleKind, [number, number]> = {
   toxin: [1.8, 2.6],
   mutant: [1.6, 2.4],
   parasite: [1.4, 2.0],
+  film: [1.8, 2.6],
 };
 /** Моргание: случайно раз в 2–5 секунд, около 120 мс. */
 export const BLINK_EVERY_SEC: [number, number] = [2, 5];

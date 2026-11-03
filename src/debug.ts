@@ -149,6 +149,7 @@ export interface DebugSnapshot {
   leaps: number;
   /** Сколько облаков оставили токсины за партию. */
   cloudsMade: number;
+  filmsMade: number;
   /** Сколько раз Холод замораживал, сколько ловушек положил Пластырь и сколько раз паразит присосался к башне (за партию). */
   freezes: number;
   trapsMade: number;
@@ -266,6 +267,7 @@ export interface DebugSnapshot {
   puddles: { x: number; y: number; r: number; left: number }[];
   /** Облака токсина: центр, радиус и сколько секунд ещё живут. */
   clouds: { x: number; y: number; r: number; left: number }[];
+  films: { x: number; y: number; r: number; left: number }[];
   /** Ловушки Пластыря: где приклеена бактерия и сколько секунд ещё держит. */
   traps: { x: number; y: number; left: number }[];
   /** Накопленный, но ещё не списанный урон по жизням от «дробных» бактерий (рой: 0,25 за штуку); при 1 списывается целая жизнь. */

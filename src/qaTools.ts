@@ -72,6 +72,7 @@ export function qaSnapshot(s: GameSceneInternals): DebugSnapshot {
     absorbs: s.absorbs,
     leaps: s.leaps,
     cloudsMade: s.cloudsMade,
+    filmsMade: s.filmsMade,
     freezes: s.freezes,
     trapsMade: s.trapsMade,
     latches: s.latches,
@@ -181,6 +182,7 @@ export function qaSnapshot(s: GameSceneInternals): DebugSnapshot {
     mutationsPicked: s.mutationsPicked,
     puddles: s.puddles.map((p: any) => ({ x: p.x, y: p.y, r: p.radius, left: p.left })),
     clouds: s.clouds.map((c: any) => ({ x: c.x, y: c.y, r: c.radius, left: c.left })),
+    films: s.films.map((f: any) => ({ x: f.x, y: f.y, r: f.radius, left: f.left })),
     traps: s.traps.map((tr: any) => ({ x: tr.target.x, y: tr.target.y, left: tr.target.trapLeft })),
     lifePool: s.lifePool,
     bacteria: s.bacteria.map((b: any) => ({

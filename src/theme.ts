@@ -46,6 +46,8 @@ export const COLORS = {
     /** Мутант — фиолетовый с радужными пятнами; паразит — болотно-коричневый с присоской-щупальцем. */
     mutant: { body: 0xa24fd8, shell: 0x56208a, crack: 0x2a0c4a },
     parasite: { body: 0x9a7240, shell: 0x4c3416, crack: 0x261a08 },
+    /** Плёнка (глава 2) — молочно-бирюзовая, мягкий ободок (лист главы 2 принят 3 ноября 2026, сообщение 1, п. 3). */
+    film: { body: 0x92cfd2, shell: 0x6eb2b8, crack: 0x2e6a70 },
   } satisfies Record<Kind, { body: number; shell: number; crack: number }>,
   /** Крест лекаря, аура лекаря, лужа сиропа и луч шприца. */
   cross: 0xe0457a,

@@ -17,6 +17,7 @@ import { Bacterium, type BacteriumExtra, type BacteriumKind } from '../objects/B
 import { GroundShot } from '../objects/GroundShot';
 import { Projectile } from '../objects/Projectile';
 import { Cloud } from '../objects/Cloud';
+import { FilmPatch } from '../objects/FilmPatch';
 import { Trap } from '../objects/Trap';
 import { Puddle } from '../objects/Puddle';
 import { beamReach, createTowerArt, defaultAim, drawAimLine, Tower, type TowerId } from '../objects/Tower';
@@ -40,6 +41,8 @@ const DAMAGE_COLORS: Record<TowerStats['targeting'], number> = { radius: 0xfffff
 const hitNum = (x: number): string => num(x < 1 ? Math.round(x * 100) / 100 : Math.round(x * 10) / 10);
 /** Цвет числа урона, когда удар ослаблен памятью мутанта (башня того же вида, что и прошлая). */
 const RESIST_COLOR = 0x9aa6bd;
+/** Плёнок на поле не больше (старые исчезают раньше): защита кадра при толпе Плёнок, на баланс не влияет — плёнки лежат на пути толпы с перекрытием. */
+const FILM_MAX = 40;
 /** Цвет облачка у дула по башне (вид, не баланс). */
 const MUZZLE_PUFF: Partial<Record<string, number>> = { pill: 0xffffff, syrup: COLORS.syrup, fizz: COLORS.acid, syringe: COLORS.needle, ampule: 0x9fdcff, antibiotic: COLORS.antibiotic };
 /** Защита от «прыжков» после сворачивания вкладки: один кадр не длиннее 50 мс. */
@@ -153,6 +156,9 @@ export class GameScene extends Phaser.Scene {
   private puddles: Puddle[] = [];
   /** Облака токсина на поле. */
   private clouds: Cloud[] = [];
+  /** Плёнка на дорожке (вид «Плёнка», глава 2): ослабляет урон снарядов по бактериям на ней. */
+  private films: FilmPatch[] = [];
+  private filmsMade = 0;
   /** Ловушки Пластыря на дорожках и нити паразитов к башням (одна картинка-линия на всех). */
   private traps: Trap[] = [];
   private threads!: Phaser.GameObjects.Graphics;
@@ -299,6 +305,7 @@ export class GameScene extends Phaser.Scene {
     this.absorbs = 0;
     this.leaps = 0;
     this.cloudsMade = 0;
+    this.filmsMade = 0;
     this.freezes = 0;
     this.trapsMade = 0;
     this.latches = 0;
@@ -344,6 +351,7 @@ export class GameScene extends Phaser.Scene {
     this.groundShots = [];
     this.puddles = [];
     this.clouds = [];
+    this.films = [];
     this.traps = [];
     this.bursts = [];
     this.chains = [];
@@ -553,6 +561,7 @@ export class GameScene extends Phaser.Scene {
     this.applyPoison(dt);
     this.applyTraps(dt);
     this.updateBrood(dt);
+    this.updateFilms(dt);
     // защита от глушения спорами — по Витаминам, стоящим сейчас (а не по прошлому шагу): находки аудита MASTER-0061, 0062
     this.refreshImmunity();
     this.applySpores();
@@ -1162,6 +1171,32 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  /** Плёнка: бактерия вида «Плёнка» раз в filmEverySec секунд оставляет под собой плёнку на filmSec секунд (план главы 2); старые плёнки бледнеют и исчезают. Плёнок на поле не больше FILM_MAX. */
+  private updateFilms(dt: number): void {
+    if (this.films.length > 0) {
+      this.films = this.films.filter((film) => {
+        if (film.update(dt)) return true;
+        film.destroy();
+        return false;
+      });
+    }
+    for (const b of this.bacteria) {
+      const { filmEverySec, filmSec, filmRadius } = CONFIG.types[b.kind];
+      if (filmEverySec <= 0 || filmSec <= 0 || b.hp <= 0) continue;
+      b.filmClock += dt;
+      if (b.filmClock < filmEverySec) continue;
+      b.filmClock -= filmEverySec;
+      this.films.push(new FilmPatch(this, this.puddleLayer, b.x, b.y, pointAt(b.edge, b.s).angle, filmRadius, filmSec));
+      this.filmsMade++;
+      if (this.films.length > FILM_MAX) this.films.shift()?.destroy();
+    }
+  }
+
+  /** Стоит ли бактерия на плёнке (центр — в круге плёнки). */
+  private onFilm(b: Bacterium): boolean {
+    return this.films.some((film) => film.covers(b.x, b.y));
+  }
+
   /** Матка: раз в brewEverySec секунд рожает brewCount бактерий роя на своём месте (чуть друг за другом). Рождённые в «вышло за волну» не считаются. */
   private updateBrood(dt: number): void {
     for (const mother of [...this.bacteria]) {
@@ -1241,6 +1276,8 @@ export class GameScene extends Phaser.Scene {
     if (bacterium.ward === 'memory') bacterium.remember(st.towerId);
     // умения ранга Ампулы: по мини-боссам и боссу удар сильнее (жёсткое свойство уровня проверено выше — неуязвимую фазу умение не пробивает)
     if (st.bossMul !== 1 && bacterium.bossId) damage *= st.bossMul;
+    // плёнка на дорожке (глава 2): снаряд Таблетки, Ампулы и Антибиотика по бактерии на плёнке слабее; взрыв, луч и конус — полностью
+    if (this.films.length > 0 && CONFIG.film.towers.includes(st.towerId) && this.onFilm(bacterium)) damage *= CONFIG.film.damageMul;
     // Мутант помнит вид башни, ударившей последней: удар башни того же вида слабее; удар другого вида штрафа не получает и запоминается
     const memoryMul = CONFIG.types[bacterium.kind].memoryMul;
     const resisted = memoryMul > 0 && bacterium.memory === st.towerId;
