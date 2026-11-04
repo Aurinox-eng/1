@@ -32,7 +32,7 @@ import { wardBlocks } from '../ward';
 import { computeStats, MAX_TOWER_LEVEL, mergeCap, rankCap, mutationById, mutationOptions, mutationStacks, towerPrice, type TowerStats } from '../towerStats';
 import { COLORS, FONT, TEXT_COLORS, fs } from '../theme';
 import { FPS_ENABLED, FpsMeter, frameReport, installFrameStats } from '../perf';
-import { Panel, TOP_H, VIEW } from '../ui/Panel';
+import { CONDITION_ICON, Panel, TOP_H, VIEW } from '../ui/Panel';
 
 const { width: W, height: H } = CONFIG.screen;
 /** Самое сильное отдаление камеры: карта помещается целиком и по ширине, и по высоте (≈ 0,499). */
@@ -446,9 +446,9 @@ export class GameScene extends Phaser.Scene {
     this.bossBarGfx = this.add.graphics().setDepth(99).setVisible(false);
     this.bossBarText = this.add.text(BOSS_BAR.x, BOSS_BAR.y - BOSS_BAR.h / 2 - 2, '', this.textStyle(fs(18, 22))).setOrigin(0.5, 1).setDepth(99).setVisible(false);
     if (feverOwned()) this.buildFeverButton();
-    // Особое условие уровня: в бою — только значок, без текста (план docs/content-plan-2026-10-26.md, раздел 5)
+    // Особое условие уровня: в бою — только значок, без текста (план docs/content-plan-2026-10-26.md, раздел 5), в верхней полосе — не над картой
     const cond = activeCondition();
-    if (cond) conditionIconImage(this, cond, 20).setPosition(W - 40, TOP_H + 34).setDepth(98);
+    if (cond) conditionIconImage(this, cond, CONDITION_ICON.r).setPosition(CONDITION_ICON.x, CONDITION_ICON.y).setDepth(CONDITION_ICON.depth);
     this.buildGhost();
     this.userSpeed = this.loadSpeed();
     this.panel = new Panel(this, {
