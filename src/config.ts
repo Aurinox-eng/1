@@ -462,7 +462,7 @@ export const CONFIG = {
         { mix: { coccus: 36, rod: 18, swarm: 24, runner: 14, splitter: 9, armored: 4, slick: 5 } }, // 37
         { mix: { coccus: 36, rod: 18, swarm: 24, runner: 14, splitter: 9, armored: 4, slick: 5 } }, // 38
         { mix: { coccus: 36, rod: 18, swarm: 24, runner: 14, splitter: 9, armored: 4, slick: 5 } }, // 39
-        { mix: { coccus: 42, rod: 21, swarm: 36, runner: 16, splitter: 11, armored: 4, slick: 6 }, boss: 'swarmQueen' }, // 40 Матка роя 6891 HP
+        { mix: { coccus: 42, rod: 21, swarm: 36, runner: 16, splitter: 11, armored: 4, slick: 6 }, boss: 'swarmQueen' }, // 40 Матка роя 4479 HP
         { mix: { coccus: 39, rod: 19, swarm: 24, runner: 14, splitter: 10, armored: 4, slick: 6 } }, // 41
         { mix: { coccus: 39, rod: 19, swarm: 24, runner: 14, splitter: 10, armored: 4, slick: 6 } }, // 42
         { mix: { coccus: 39, rod: 19, swarm: 24, runner: 15, splitter: 10, armored: 4, slick: 6 }, wall: ['armored', 6] }, // 43
@@ -1161,8 +1161,10 @@ export const CONFIG = {
     rodLeader: { base: 'rod', hp: 200, speedFactor: 1, armor: 0, lifeDamage: 5, color: 0x5aa8ff, dashEverySec: 2, dashSec: 1, dashFactor: 2.5, rallyRadius: 150, rallyDashMul: 2, slowFloor: 0.6 },
     /** Броненосец (30-я волна): броня 13; на половине прочности сбрасывает панцирь — броня 0, скорость ×1,5. */
     armadillo: { base: 'armored', hp: 1530, speedFactor: 0.55, armor: 13, lifeDamage: 5, color: 0xb88cff, phases: [{ below: 0.5, armor: 0, speedMul: 1.5 }] },
-    /** Матка роя (40-я волна): раз в 3 с выпускает 6 роёв; каждые 15 с — капсула на 3 с (неуязвима, видна как пузырь). */
-    swarmQueen: { base: 'brood', hp: 6891, speedFactor: 0.7, armor: 0, lifeDamage: 5, color: 0x5fe0d0, spawnKind: 'swarm', spawnEverySec: 3, spawnCount: 6, capsuleEverySec: 15, capsuleSec: 3 },
+    /** Матка роя (40-я волна): раз в 3 с выпускает 6 роёв; каждые 15 с — капсула на 3 с (неуязвима, видна как пузырь).
+     *  Прочность 4479 (×0,65 от прежних 6891) — решение владельца 4 ноября 2026 (сообщение 1, п. 1, вариант А): пробы ×0,8 и ×0,65 (`docs/balance-history.md`), только ×0,65 выполняет условие —
+     *  образец в цели уровня 1 (медиана 8), эксперт не больше 3 попыток подряд на одной волне (медиана 14 из 20). Строка общая: сейчас Матка только на уровне 1; на уровне 4 прочность — с калибровкой уровня. */
+    swarmQueen: { base: 'brood', hp: 4479, speedFactor: 0.7, armor: 0, lifeDamage: 5, color: 0x5fe0d0, spawnKind: 'swarm', spawnEverySec: 3, spawnCount: 6, capsuleEverySec: 15, capsuleSec: 3 },
     /** Гигантская колония (50-я волна; прочность 4 000 — решение владельца 22 октября 2026, п. 1: эксперт побеждает в первой партии, дошедшей до 50-й волны, первая победа на 9–10-й попытке;
      *  условие, что босс уровня 1 без «Лихорадки» сильнейшей стратегией не проходится (19 октября 2026, сводное сообщение, п. 3.2), для уровня 1 снято): три фазы — 100–66 % медленно и выпускает кокков; 66–33 % броня 6 и палочки пачками; 33–0 % скорость ×1,6 и самолечение 1 % прочности в секунду. */
     giantColony: {
