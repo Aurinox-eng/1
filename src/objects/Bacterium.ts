@@ -18,6 +18,8 @@ export type BacteriumKind = keyof typeof CONFIG.types;
 export interface BacteriumExtra {
   armorMul?: number;
   boss?: BossId;
+  /** Числа босса поверх строки таблицы `bosses` (поле волны `bossTune`). */
+  bossTune?: Partial<BossSpec>;
   reward?: number;
 }
 
@@ -273,7 +275,7 @@ export class Bacterium {
     this.hpMul = hpMul;
     const cfg = CONFIG.types[kind];
     this.bossId = extra.boss ?? null;
-    this.boss = this.bossId ? CONFIG.bosses[this.bossId] : null;
+    this.boss = this.bossId ? (extra.bossTune ? { ...CONFIG.bosses[this.bossId], ...extra.bossTune } : CONFIG.bosses[this.bossId]) : null;
     this.armorMul = extra.armorMul ?? 1;
     this.reward = extra.reward ?? cfg.reward;
     this.visual = this.boss ? CONFIG.bossRules.scale : 1;

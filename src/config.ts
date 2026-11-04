@@ -71,6 +71,8 @@ export interface PlanWave {
   mix: Partial<Record<KindId, number>>;
   wall?: [KindId, number];
   boss?: BossId;
+  /** Числа босса этой волны поверх его строки в таблице `bosses` (прочность на этом уровне, усиленный босс второго уровня главы — docs/levels30-enemies-plan-2026-10-26.md, п. 8.4); нет — строка как есть. */
+  bossTune?: Partial<BossSpec>;
 }
 /**
  * План уровня нового формата (раздел 2 и 9 документа дизайна). Прочность одной бактерии на волне n: HP вида × hpScale × (n ≤ hpFlatUntil ? 1 : (n / hpFlatUntil)^hpExp), после волны hpLateFrom — × (n / hpLateFrom)^hpLateExp от волны hpLateFrom;
@@ -557,8 +559,164 @@ export const CONFIG = {
           ] as PlanWave[],
         },
       },
-      { intro: { coccus: 1, rod: 2, swarm: 3, runner: 4, splitter: 5, armored: 6, spore: 7, slick: 9 }, hpBudget: [10, 1174], growth: { perWave: 0.08, fromWave: 8, latePerWave: 0.95, lateFromWave: 16 } },
-      { intro: { coccus: 1, rod: 2, swarm: 3, runner: 4, splitter: 5, armored: 6, spore: 7, slick: 8, regen: 10, leaper: 14 }, hpBudget: [10, 1255], growth: { perWave: 0.08, fromWave: 8, latePerWave: 1.6, lateFromWave: 16 } },
+      // Уровень 3 (глава 2 «Рот и зубы») — новый формат: карта «Рот» (`MAPS.mouth3`), состав волн — docs/level34-plan-2026-11-03.md (принят владельцем 4 ноября 2026, сообщение 1, п. 2).
+      // Скрытная с 8-й волны, Плёнка с 12-й; мини-боссы видов уровня 2 (Споровик, Знахарь, Скакун, Мать спор), финальный — Кариес; условие «Сладкое» (`conditions.byLevel`).
+      // Прочность (`hpScale`) и прочность мини-боссов и финального босса (`bossTune`) — НАЧАЛЬНЫЕ: подбираются лестницами по цели уровней 2–30, таблица — владельцу; уровень в игре закрыт (`levels.ready`).
+      {
+        plan: {
+          startCoins: 200,
+          pauseSec: 4,
+          spawnBaseSec: 8,
+          spawnPerWaveSec: 0.6,
+          spawnMaxSec: 30,
+          miniBossSec: 15,
+          bossSec: 75,
+          wallGapSec: 0.4,
+          bossEnterShare: 0.5,
+          incomeBase: 25,
+          incomePerWave: 7,
+          incomeMiniBoss: 60,
+          /** Множитель прочности всех видов к форме уровня 1 (начальное значение; у уровня 2 — 4,8). */
+          hpScale: 6.0,
+          hpFlatUntil: 8,
+          hpExp: 1.75,
+          hpLateFrom: 30,
+          hpLateExp: 1.0,
+          armorPerWave: 0.04,
+          hardWalls: { runnerSlow: 1, armoredPierce: 1, slickBeam: 1, slickMemory: 0, bossArea: 1 },
+          waves: [
+        { mix: { coccus: 5 } }, // 1
+        { mix: { coccus: 2, rod: 1 } }, // 2
+        { mix: { coccus: 3, rod: 2 } }, // 3
+        { mix: { coccus: 3, rod: 2, swarm: 12 } }, // 4
+        { mix: { coccus: 4, rod: 2, swarm: 12 }, wall: ['rod', 1] }, // 5
+        { mix: { coccus: 6, rod: 3, swarm: 12, runner: 2 } }, // 6
+        { mix: { coccus: 7, rod: 3, swarm: 12, runner: 3 } }, // 7
+        { mix: { coccus: 6, rod: 4, swarm: 12, runner: 3, spore: 2, stealth: 1 } }, // 8
+        { mix: { coccus: 6, rod: 4, swarm: 12, runner: 3, spore: 2, stealth: 1 }, wall: ['stealth', 4] }, // 9
+        { mix: { coccus: 9, rod: 6, swarm: 12, runner: 4, spore: 3, stealth: 2 }, boss: 'sporeling' }, // 10 Споровик
+        { mix: { coccus: 7, rod: 4, swarm: 12, runner: 3, spore: 2, splitter: 2, stealth: 1 } }, // 11
+        { mix: { coccus: 6, rod: 4, swarm: 12, runner: 3, spore: 2, splitter: 2, healer: 1, stealth: 1, film: 1 } }, // 12
+        { mix: { coccus: 6, rod: 4, swarm: 12, runner: 3, spore: 2, splitter: 2, healer: 1, stealth: 1, film: 1 }, wall: ['splitter', 3] }, // 13
+        { mix: { coccus: 7, rod: 5, swarm: 12, runner: 4, spore: 2, splitter: 2, healer: 1, stealth: 2, film: 1 } }, // 14
+        { mix: { coccus: 6, rod: 4, swarm: 12, runner: 3, spore: 2, splitter: 2, healer: 1, armored: 1, stealth: 1, film: 1 } }, // 15
+        { mix: { coccus: 6, rod: 4, swarm: 12, runner: 3, spore: 2, splitter: 2, healer: 1, armored: 1, stealth: 1, film: 1 }, wall: ['stealth', 8] }, // 16
+        { mix: { coccus: 7, rod: 5, swarm: 12, runner: 4, spore: 3, splitter: 3, healer: 1, armored: 1, stealth: 2, film: 1 } }, // 17
+        { mix: { coccus: 7, rod: 5, swarm: 12, runner: 4, spore: 2, splitter: 2, healer: 1, armored: 1, leaper: 2, stealth: 2, film: 1 } }, // 18
+        { mix: { coccus: 7, rod: 5, swarm: 12, runner: 4, spore: 2, splitter: 2, healer: 1, armored: 1, leaper: 2, stealth: 2, film: 1 }, wall: ['armored', 2] }, // 19
+        { mix: { coccus: 13, rod: 10, swarm: 12, runner: 7, spore: 5, splitter: 5, healer: 2, armored: 2, leaper: 4, stealth: 3, film: 3 }, boss: 'shaman' }, // 20 Знахарь
+        { mix: { coccus: 7, rod: 6, swarm: 12, runner: 4, spore: 3, splitter: 3, healer: 1, armored: 1, leaper: 2, stealth: 2, film: 2 } }, // 21
+        { mix: { coccus: 8, rod: 6, swarm: 12, runner: 4, spore: 3, splitter: 3, healer: 1, armored: 1, leaper: 2, stealth: 2, film: 2 } }, // 22
+        { mix: { coccus: 8, rod: 6, swarm: 12, runner: 4, spore: 3, splitter: 3, healer: 1, armored: 1, leaper: 2, stealth: 2, film: 2 }, wall: ['film', 6] }, // 23
+        { mix: { coccus: 8, rod: 6, swarm: 12, runner: 5, spore: 3, splitter: 3, healer: 2, armored: 1, leaper: 2, stealth: 2, film: 2 } }, // 24
+        { mix: { coccus: 9, rod: 6, swarm: 12, runner: 5, spore: 3, splitter: 3, healer: 2, armored: 1, leaper: 3, stealth: 2, film: 2 } }, // 25
+        { mix: { coccus: 9, rod: 6, swarm: 12, runner: 5, spore: 3, splitter: 3, healer: 2, armored: 1, leaper: 3, stealth: 2, film: 2 }, wall: ['leaper', 10] }, // 26
+        { mix: { coccus: 9, rod: 7, swarm: 12, runner: 5, spore: 3, splitter: 3, healer: 2, armored: 1, leaper: 3, stealth: 3, film: 2 } }, // 27
+        { mix: { coccus: 8, rod: 6, swarm: 12, runner: 5, spore: 3, splitter: 3, healer: 2, armored: 1, leaper: 2, slick: 2, stealth: 2, film: 2 } }, // 28
+        { mix: { coccus: 9, rod: 6, swarm: 12, runner: 5, spore: 3, splitter: 3, healer: 2, armored: 1, leaper: 3, slick: 2, stealth: 2, film: 2 }, wall: ['splitter', 8] }, // 29
+        { mix: { coccus: 13, rod: 10, swarm: 12, runner: 7, spore: 5, splitter: 5, healer: 2, armored: 2, leaper: 4, slick: 3, stealth: 4, film: 3 }, boss: 'hopper' }, // 30 Скакун
+        { mix: { coccus: 10, rod: 7, swarm: 12, runner: 6, spore: 4, splitter: 4, healer: 2, armored: 1, leaper: 3, slick: 2, stealth: 3, film: 2 } }, // 31
+        { mix: { coccus: 10, rod: 8, swarm: 12, runner: 6, spore: 4, splitter: 4, healer: 2, armored: 2, leaper: 3, slick: 2, stealth: 3, film: 2 } }, // 32
+        { mix: { coccus: 11, rod: 8, swarm: 12, runner: 6, spore: 4, splitter: 4, healer: 2, armored: 2, leaper: 3, slick: 2, stealth: 3, film: 2 }, wall: ['film', 9] }, // 33
+        { mix: { coccus: 12, rod: 9, swarm: 12, runner: 6, spore: 4, splitter: 4, healer: 2, armored: 2, leaper: 3, slick: 3, stealth: 3, film: 2 } }, // 34
+        { mix: { coccus: 12, rod: 9, swarm: 12, runner: 7, spore: 5, splitter: 5, healer: 2, armored: 2, leaper: 4, slick: 3, stealth: 3, film: 3 } }, // 35
+        { mix: { coccus: 13, rod: 9, swarm: 12, runner: 7, spore: 5, splitter: 5, healer: 2, armored: 2, leaper: 4, slick: 3, stealth: 3, film: 3 }, wall: ['armored', 3] }, // 36
+        { mix: { coccus: 13, rod: 10, swarm: 12, runner: 8, spore: 5, splitter: 5, healer: 3, armored: 2, leaper: 4, slick: 3, stealth: 4, film: 3 } }, // 37
+        { mix: { coccus: 14, rod: 10, swarm: 12, runner: 8, spore: 5, splitter: 5, healer: 3, armored: 2, leaper: 4, slick: 3, stealth: 4, film: 3 } }, // 38
+        { mix: { coccus: 14, rod: 10, swarm: 12, runner: 8, spore: 5, splitter: 5, healer: 3, armored: 2, leaper: 4, slick: 3, stealth: 4, film: 3 }, wall: ['rod', 11] }, // 39
+        { mix: { coccus: 17, rod: 12, swarm: 24, runner: 9, spore: 6, splitter: 6, healer: 3, armored: 2, leaper: 5, slick: 4, stealth: 4, film: 3 }, boss: 'sporeMother' }, // 40 Мать спор
+        { mix: { coccus: 17, rod: 12, swarm: 24, runner: 9, spore: 6, splitter: 6, healer: 3, armored: 2, leaper: 5, slick: 4, stealth: 4, film: 3 } }, // 41
+        { mix: { coccus: 17, rod: 12, swarm: 24, runner: 9, spore: 6, splitter: 6, healer: 3, armored: 2, leaper: 5, slick: 4, stealth: 4, film: 3 } }, // 42
+        { mix: { coccus: 17, rod: 12, swarm: 24, runner: 9, spore: 6, splitter: 6, healer: 3, armored: 2, leaper: 5, slick: 4, stealth: 4, film: 4 }, wall: ['stealth', 16] }, // 43
+        { mix: { coccus: 17, rod: 13, swarm: 24, runner: 10, spore: 7, splitter: 7, healer: 3, armored: 3, leaper: 5, slick: 4, stealth: 5, film: 4 } }, // 44
+        { mix: { coccus: 18, rod: 13, swarm: 24, runner: 10, spore: 7, splitter: 7, healer: 3, armored: 3, leaper: 5, slick: 4, stealth: 5, film: 4 } }, // 45
+        { mix: { coccus: 18, rod: 14, swarm: 24, runner: 10, spore: 7, splitter: 7, healer: 3, armored: 3, leaper: 5, slick: 4, stealth: 5, film: 4 }, wall: ['runner', 29] }, // 46
+        { mix: { coccus: 20, rod: 14, swarm: 24, runner: 11, spore: 7, splitter: 7, healer: 4, armored: 3, leaper: 6, slick: 4, stealth: 5, film: 4 } }, // 47
+        { mix: { coccus: 20, rod: 15, swarm: 24, runner: 11, spore: 7, splitter: 7, healer: 4, armored: 3, leaper: 6, slick: 4, stealth: 5, film: 4 }, wall: ['leaper', 26] }, // 48
+        { mix: { coccus: 21, rod: 16, swarm: 24, runner: 12, spore: 8, splitter: 8, healer: 4, armored: 3, leaper: 6, slick: 5, stealth: 6, film: 4 } }, // 49
+        { mix: { coccus: 55, rod: 40, swarm: 60, runner: 30, spore: 20, splitter: 20, healer: 10, armored: 8, leaper: 16, slick: 12, stealth: 14, film: 11 }, boss: 'caries' }, // 50 Кариес
+          ] as PlanWave[],
+        },
+      },
+      // Уровень 4 (глава 2 «Рот и зубы») — новый формат: карта «Рот» (`MAPS.mouth4`), состав волн — docs/level34-plan-2026-11-03.md (принят владельцем 4 ноября 2026, сообщение 1, п. 2).
+      // Скрытная с 4-й, Плёнка с 6-й; мини-боссы Тень, Зубной камень, Броненосец, Матка роя; финальный — Кариес усиленный (плёнка вдвое дольше, п. 8.4 плана); условие «Без продажи».
+      // Прочность (`hpScale`) и прочность мини-боссов и финального босса (`bossTune`) — НАЧАЛЬНЫЕ: подбираются лестницами по цели уровней 2–30, таблица — владельцу; уровень в игре закрыт (`levels.ready`).
+      {
+        plan: {
+          startCoins: 200,
+          pauseSec: 4,
+          spawnBaseSec: 8,
+          spawnPerWaveSec: 0.6,
+          spawnMaxSec: 30,
+          miniBossSec: 15,
+          bossSec: 75,
+          wallGapSec: 0.4,
+          bossEnterShare: 0.5,
+          incomeBase: 25,
+          incomePerWave: 7,
+          incomeMiniBoss: 60,
+          /** Множитель прочности всех видов к форме уровня 1 (начальное значение; у уровня 2 — 4,8). */
+          hpScale: 7.2,
+          hpFlatUntil: 8,
+          hpExp: 1.75,
+          hpLateFrom: 30,
+          hpLateExp: 1.0,
+          armorPerWave: 0.04,
+          hardWalls: { runnerSlow: 1, armoredPierce: 1, slickBeam: 1, slickMemory: 0, bossArea: 1 },
+          waves: [
+        { mix: { coccus: 5 } }, // 1
+        { mix: { coccus: 2, rod: 1 } }, // 2
+        { mix: { coccus: 3, rod: 2 } }, // 3
+        { mix: { coccus: 2, rod: 2, swarm: 12, stealth: 1 } }, // 4
+        { mix: { coccus: 3, rod: 2, swarm: 12, stealth: 1 }, wall: ['stealth', 3] }, // 5
+        { mix: { coccus: 4, rod: 3, swarm: 12, runner: 2, stealth: 1, film: 1 } }, // 6
+        { mix: { coccus: 5, rod: 3, swarm: 12, runner: 3, stealth: 1, film: 1 } }, // 7
+        { mix: { coccus: 5, rod: 4, swarm: 12, runner: 3, spore: 2, stealth: 1, film: 1 } }, // 8
+        { mix: { coccus: 5, rod: 4, swarm: 12, runner: 3, spore: 2, stealth: 1, film: 1 }, wall: ['film', 4] }, // 9
+        { mix: { coccus: 7, rod: 6, swarm: 12, runner: 4, spore: 3, stealth: 2, film: 2 }, boss: 'shadow' }, // 10 Тень
+        { mix: { coccus: 6, rod: 4, swarm: 12, runner: 3, spore: 2, splitter: 2, stealth: 1, film: 1 } }, // 11
+        { mix: { coccus: 6, rod: 4, swarm: 12, runner: 3, spore: 2, splitter: 2, healer: 1, stealth: 1, film: 1 } }, // 12
+        { mix: { coccus: 6, rod: 4, swarm: 12, runner: 3, spore: 2, splitter: 2, healer: 1, stealth: 1, film: 1 }, wall: ['splitter', 3] }, // 13
+        { mix: { coccus: 7, rod: 5, swarm: 12, runner: 4, spore: 2, splitter: 2, healer: 1, stealth: 2, film: 1 } }, // 14
+        { mix: { coccus: 6, rod: 4, swarm: 12, runner: 3, spore: 2, splitter: 2, healer: 1, armored: 1, stealth: 1, film: 1 } }, // 15
+        { mix: { coccus: 6, rod: 4, swarm: 12, runner: 3, spore: 2, splitter: 2, healer: 1, armored: 1, stealth: 1, film: 1 }, wall: ['film', 8] }, // 16
+        { mix: { coccus: 7, rod: 5, swarm: 12, runner: 4, spore: 3, splitter: 3, healer: 1, armored: 1, stealth: 2, film: 1 } }, // 17
+        { mix: { coccus: 7, rod: 5, swarm: 12, runner: 4, spore: 2, splitter: 2, healer: 1, armored: 1, leaper: 2, stealth: 2, film: 1 } }, // 18
+        { mix: { coccus: 7, rod: 5, swarm: 12, runner: 4, spore: 2, splitter: 2, healer: 1, armored: 1, leaper: 2, stealth: 2, film: 1 }, wall: ['armored', 2] }, // 19
+        { mix: { coccus: 13, rod: 10, swarm: 12, runner: 7, spore: 5, splitter: 5, healer: 2, armored: 2, leaper: 4, stealth: 3, film: 3 }, boss: 'tartar', bossTune: { hp: 900 } }, // 20 Зубной камень
+        { mix: { coccus: 7, rod: 6, swarm: 12, runner: 4, spore: 3, splitter: 3, healer: 1, armored: 1, leaper: 2, stealth: 2, film: 2 } }, // 21
+        { mix: { coccus: 8, rod: 6, swarm: 12, runner: 4, spore: 3, splitter: 3, healer: 1, armored: 1, leaper: 2, stealth: 2, film: 2 } }, // 22
+        { mix: { coccus: 8, rod: 6, swarm: 12, runner: 4, spore: 3, splitter: 3, healer: 1, armored: 1, leaper: 2, stealth: 2, film: 2 }, wall: ['stealth', 10] }, // 23
+        { mix: { coccus: 8, rod: 6, swarm: 12, runner: 5, spore: 3, splitter: 3, healer: 2, armored: 1, leaper: 2, stealth: 2, film: 2 } }, // 24
+        { mix: { coccus: 9, rod: 6, swarm: 12, runner: 5, spore: 3, splitter: 3, healer: 2, armored: 1, leaper: 3, stealth: 2, film: 2 } }, // 25
+        { mix: { coccus: 9, rod: 6, swarm: 12, runner: 5, spore: 3, splitter: 3, healer: 2, armored: 1, leaper: 3, stealth: 2, film: 2 }, wall: ['leaper', 10] }, // 26
+        { mix: { coccus: 9, rod: 7, swarm: 12, runner: 5, spore: 3, splitter: 3, healer: 2, armored: 1, leaper: 3, stealth: 3, film: 2 } }, // 27
+        { mix: { coccus: 8, rod: 6, swarm: 12, runner: 5, spore: 3, splitter: 3, healer: 2, armored: 1, leaper: 2, slick: 2, stealth: 2, film: 2 } }, // 28
+        { mix: { coccus: 9, rod: 6, swarm: 12, runner: 5, spore: 3, splitter: 3, healer: 2, armored: 1, leaper: 3, slick: 2, stealth: 2, film: 2 }, wall: ['film', 12] }, // 29
+        { mix: { coccus: 13, rod: 10, swarm: 12, runner: 7, spore: 5, splitter: 5, healer: 2, armored: 2, leaper: 4, slick: 3, stealth: 4, film: 3 }, boss: 'armadillo', bossTune: { hp: 5000 } }, // 30 Броненосец
+        { mix: { coccus: 10, rod: 7, swarm: 12, runner: 6, spore: 4, splitter: 4, healer: 2, armored: 1, leaper: 3, slick: 2, stealth: 3, film: 2 } }, // 31
+        { mix: { coccus: 10, rod: 8, swarm: 12, runner: 6, spore: 4, splitter: 4, healer: 2, armored: 2, leaper: 3, slick: 2, stealth: 3, film: 2 } }, // 32
+        { mix: { coccus: 11, rod: 8, swarm: 12, runner: 6, spore: 4, splitter: 4, healer: 2, armored: 2, leaper: 3, slick: 2, stealth: 3, film: 2 }, wall: ['slick', 5] }, // 33
+        { mix: { coccus: 12, rod: 9, swarm: 12, runner: 6, spore: 4, splitter: 4, healer: 2, armored: 2, leaper: 3, slick: 3, stealth: 3, film: 2 } }, // 34
+        { mix: { coccus: 12, rod: 9, swarm: 12, runner: 7, spore: 5, splitter: 5, healer: 2, armored: 2, leaper: 4, slick: 3, stealth: 3, film: 3 } }, // 35
+        { mix: { coccus: 13, rod: 9, swarm: 12, runner: 7, spore: 5, splitter: 5, healer: 2, armored: 2, leaper: 4, slick: 3, stealth: 3, film: 3 }, wall: ['stealth', 14] }, // 36
+        { mix: { coccus: 13, rod: 10, swarm: 12, runner: 8, spore: 5, splitter: 5, healer: 3, armored: 2, leaper: 4, slick: 3, stealth: 4, film: 3 } }, // 37
+        { mix: { coccus: 14, rod: 10, swarm: 12, runner: 8, spore: 5, splitter: 5, healer: 3, armored: 2, leaper: 4, slick: 3, stealth: 4, film: 3 } }, // 38
+        { mix: { coccus: 14, rod: 10, swarm: 12, runner: 8, spore: 5, splitter: 5, healer: 3, armored: 2, leaper: 4, slick: 3, stealth: 4, film: 3 }, wall: ['rod', 11] }, // 39
+        { mix: { coccus: 17, rod: 12, swarm: 24, runner: 9, spore: 6, splitter: 6, healer: 3, armored: 2, leaper: 5, slick: 4, stealth: 4, film: 3 }, boss: 'swarmQueen', bossTune: { hp: 15000 } }, // 40 Матка роя
+        { mix: { coccus: 17, rod: 12, swarm: 24, runner: 9, spore: 6, splitter: 6, healer: 3, armored: 2, leaper: 5, slick: 4, stealth: 4, film: 3 } }, // 41
+        { mix: { coccus: 17, rod: 12, swarm: 24, runner: 9, spore: 6, splitter: 6, healer: 3, armored: 2, leaper: 5, slick: 4, stealth: 4, film: 3 } }, // 42
+        { mix: { coccus: 17, rod: 12, swarm: 24, runner: 9, spore: 6, splitter: 6, healer: 3, armored: 2, leaper: 5, slick: 4, stealth: 4, film: 4 }, wall: ['film', 16] }, // 43
+        { mix: { coccus: 17, rod: 13, swarm: 24, runner: 10, spore: 7, splitter: 7, healer: 3, armored: 3, leaper: 5, slick: 4, stealth: 5, film: 4 } }, // 44
+        { mix: { coccus: 18, rod: 13, swarm: 24, runner: 10, spore: 7, splitter: 7, healer: 3, armored: 3, leaper: 5, slick: 4, stealth: 5, film: 4 } }, // 45
+        { mix: { coccus: 18, rod: 14, swarm: 24, runner: 10, spore: 7, splitter: 7, healer: 3, armored: 3, leaper: 5, slick: 4, stealth: 5, film: 4 }, wall: ['runner', 29] }, // 46
+        { mix: { coccus: 20, rod: 14, swarm: 24, runner: 11, spore: 7, splitter: 7, healer: 4, armored: 3, leaper: 6, slick: 4, stealth: 5, film: 4 } }, // 47
+        { mix: { coccus: 20, rod: 15, swarm: 24, runner: 11, spore: 7, splitter: 7, healer: 4, armored: 3, leaper: 6, slick: 4, stealth: 5, film: 4 }, wall: ['stealth', 24] }, // 48
+        { mix: { coccus: 21, rod: 16, swarm: 24, runner: 12, spore: 8, splitter: 8, healer: 4, armored: 3, leaper: 6, slick: 5, stealth: 6, film: 4 } }, // 49
+        { mix: { coccus: 55, rod: 40, swarm: 60, runner: 30, spore: 20, splitter: 20, healer: 10, armored: 8, leaper: 16, slick: 12, stealth: 14, film: 11 }, boss: 'caries', bossTune: { filmSec: 12 } }, // 50 Кариес усиленный: плёнка 12 с вместо 6
+          ] as PlanWave[],
+        },
+      },
       { intro: { coccus: 1, rod: 2, swarm: 3, runner: 4, splitter: 5, armored: 6, spore: 7, slick: 8, regen: 9, leaper: 10, healer: 11, stealth: 15 }, hpBudget: [10, 1336], growth: { perWave: 0.08, fromWave: 8, latePerWave: 2.6, lateFromWave: 16 } },
       { intro: { coccus: 1, rod: 2, swarm: 3, runner: 4, splitter: 5, armored: 6, spore: 7, slick: 8, regen: 9, healer: 10, leaper: 11, commander: 12, phago: 15, stealth: 18 }, hpBudget: [10, 1417], growth: { perWave: 0.08, fromWave: 8, latePerWave: 3.2, lateFromWave: 16 } },
       { intro: { coccus: 1, rod: 2, swarm: 3, runner: 4, splitter: 5, armored: 6, spore: 7, slick: 8, regen: 9, healer: 10, commander: 11, leaper: 12, brood: 13, phago: 15, stealth: 17, toxin: 21 }, hpBudget: [10, 1498], growth: { perWave: 0.08, fromWave: 8, latePerWave: 2.9, lateFromWave: 16 } },

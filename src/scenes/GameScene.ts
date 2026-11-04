@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import { CameraRig } from '../cameraRig';
-import { CONFIG, type BossId, type Ward } from '../config';
+import { CONFIG, type BossId, type BossSpec, type Ward } from '../config';
 import { exposeDebug, QA_ENABLED, QA_ENTRANCE, QA_MODE, QA_NORENDER, QA_START_WAVE, STRESS, STRESS_FIZZ, STRESS_HIGH, TIME_SCALE, type QaEvent } from '../debug';
 import { placeTowerQa, qaLog, qaSnapshot, setupStress, stressFrame } from '../qaTools';
 import { Effects } from '../effects';
@@ -32,7 +32,7 @@ import { wardBlocks } from '../ward';
 import { computeStats, MAX_TOWER_LEVEL, mergeCap, rankCap, mutationById, mutationOptions, mutationStacks, towerPrice, type TowerStats } from '../towerStats';
 import { COLORS, FONT, TEXT_COLORS, fs } from '../theme';
 import { FPS_ENABLED, FpsMeter, frameReport, installFrameStats } from '../perf';
-import { Panel, TOP_H, VIEW } from '../ui/Panel';
+import { CONDITION_ICON, Panel, TOP_H, VIEW } from '../ui/Panel';
 
 const { width: W, height: H } = CONFIG.screen;
 /** Самое сильное отдаление камеры: карта помещается целиком и по ширине, и по высоте (≈ 0,499). */
@@ -76,6 +76,7 @@ interface SpawnItem {
   edge: Edge | null;
   gapSec: number;
   boss?: BossId;
+  bossTune?: Partial<BossSpec>;
   reward?: number;
 }
 /** Номер бита босса в записи побед (`DnaInput.bossBits`): мини-боссы 10, 20, 30, 40-й волн — биты 0–3, босс уровня — бит 4. */
@@ -446,9 +447,9 @@ export class GameScene extends Phaser.Scene {
     this.bossBarGfx = this.add.graphics().setDepth(99).setVisible(false);
     this.bossBarText = this.add.text(BOSS_BAR.x, BOSS_BAR.y - BOSS_BAR.h / 2 - 2, '', this.textStyle(fs(18, 22))).setOrigin(0.5, 1).setDepth(99).setVisible(false);
     if (feverOwned()) this.buildFeverButton();
-    // Особое условие уровня: в бою — только значок, без текста (план docs/content-plan-2026-10-26.md, раздел 5)
+    // Особое условие уровня: в бою — только значок, без текста (план docs/content-plan-2026-10-26.md, раздел 5), в верхней полосе — не над картой
     const cond = activeCondition();
-    if (cond) conditionIconImage(this, cond, 20).setPosition(W - 40, TOP_H + 34).setDepth(98);
+    if (cond) conditionIconImage(this, cond, CONDITION_ICON.r).setPosition(CONDITION_ICON.x, CONDITION_ICON.y).setDepth(CONDITION_ICON.depth);
     this.buildGhost();
     this.userSpeed = this.loadSpeed();
     this.panel = new Panel(this, {
@@ -781,7 +782,7 @@ export class GameScene extends Phaser.Scene {
       [rest[a], rest[b]] = [rest[b], rest[a]];
     }
     blocks.push(...rest);
-    if (wave.boss) blocks.splice(Math.min(blocks.length, Math.max(head, Math.round(blocks.length * plan.bossEnterShare))), 0, [{ kind: CONFIG.bosses[wave.boss].base, edge: null, gapSec: 0, boss: wave.boss }]);
+    if (wave.boss) blocks.splice(Math.min(blocks.length, Math.max(head, Math.round(blocks.length * plan.bossEnterShare))), 0, [{ kind: CONFIG.bosses[wave.boss].base, edge: null, gapSec: 0, boss: wave.boss, bossTune: wave.bossTune }]);
     // Длительность волны — по разделу 9 документа дизайна (решение владельца 20 октября 2026, сообщение 2, п. 2.2): промежутки внутри пачек (рой, стена) входят в неё, а не идут сверх;
     // остаток — поровну после каждого блока. Если промежутки пачек длиннее волны, они сжимаются пропорционально.
     const inner = blocks.reduce((sum, block) => sum + block.slice(0, -1).reduce((s, item) => s + item.gapSec, 0), 0);
@@ -874,7 +875,7 @@ export class GameScene extends Phaser.Scene {
   private spawnBacterium(item: SpawnItem): void {
     const { kind } = item;
     const edge = item.edge ?? this.pickEntrance();
-    const born = new Bacterium(this, this.bacteriaLayer, kind, edge, 0, this.waveHpMul(), { armorMul: this.waveArmorMul(), boss: item.boss, reward: item.reward });
+    const born = new Bacterium(this, this.bacteriaLayer, kind, edge, 0, this.waveHpMul(), { armorMul: this.waveArmorMul(), boss: item.boss, bossTune: item.bossTune, reward: item.reward });
     born.ward = this.wardFor(kind, item.boss);
     this.bacteria.push(born);
     this.spawned++;

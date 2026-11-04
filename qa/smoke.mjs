@@ -3324,6 +3324,7 @@ async function sporeGame(context, baseUrl, p, { radius = null, far = false, minZ
 
 async function runSpore(browser, baseUrl) {
   const p = '[спора]';
+  const PILL_RANGE = readConfigNumber('pill', 'range');
   const disableSec = readConfigNumber('spore', 'disableSec');
   const disableRadius = readConfigNumber('spore', 'disableRadius');
   const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
@@ -3338,7 +3339,9 @@ async function runSpore(browser, baseUrl) {
       const tower = s.towers[0];
       const spore = s.bacteria.find((b) => b.kind === 'spore');
       const dist = tower && spore ? Math.hypot(spore.x - tower.x, spore.y - tower.y) : null;
-      log.push({ e: s.elapsed, shots: s.shots, disabled: tower?.disabled ?? false, far: s.towers[1]?.disabled ?? false, disables: s.disables, zaps: s.effects.zaps, dist, prevDist: log.length ? log[log.length - 1].dist : null });
+      // inRange — сколько живых бактерий в радиусе Таблетки: после глушения ей может быть некого бить (бактерии выходят в случайном порядке; спора последней — рядом уже пусто)
+      const inRange = tower ? s.bacteria.filter((b) => b.hp > 0 && Math.hypot(b.x - tower.x, b.y - tower.y) <= PILL_RANGE + b.r).length : 0;
+      log.push({ e: s.elapsed, shots: s.shots, disabled: tower?.disabled ?? false, far: s.towers[1]?.disabled ?? false, disables: s.disables, zaps: s.effects.zaps, dist, prevDist: log.length ? log[log.length - 1].dist : null, inRange });
       if (shotName && !shotDone && tower?.disabled) {
         await shot(game.page, shotName);
         shotDone = true;
@@ -3366,7 +3369,10 @@ async function runSpore(browser, baseUrl) {
   check(`${p} глушение срабатывает на расстоянии ≤ ${disableRadius} px (на замере ${f1(dOn)} px, за замер до этого ${f1(L[on]?.prevDist)} px)`, on > 0 && dOn <= disableRadius + 0.5 && dOn >= disableRadius - 70 && L[on].prevDist > disableRadius - 0.5, `расстояние ${f1(dOn)}, раньше ${f1(L[on]?.prevDist)}`);
   const dur = off >= 0 ? L[off].e - L[on].e : -1;
   check(`${p} башня заглушена ≈ ${disableSec} с (замерено ${f2(dur)} с, допуск ±0,4)`, off > on && Math.abs(dur - disableSec) <= 0.4, `с ${f2(L[on]?.e)} по ${f2(L[off]?.e)}`);
-  check(`${p} пока башня заглушена, её выстрелы не растут (выстрелов ${L[on]?.shots} → ${L[off - 1]?.shots}), а до и после глушения она стреляла`, on > 0 && off > on && L[off - 1].shots === L[on].shots && L[on].shots > 0 && L[L.length - 1].shots > L[off].shots, `до: ${L[on]?.shots}, в конце: ${L[L.length - 1].shots}`);
+  // «после глушения стреляет» требуем, только если после включения в радиусе была живая бактерия (иначе стрелять не в кого — это не ошибка игры; разбор 4 ноября 2026, docs/technical-notes.md)
+  const targetsAfter = off > on ? L.slice(off).some((q) => q.inRange > 0) : false;
+  const firedAfter = off > on && L[L.length - 1].shots > L[off].shots;
+  check(`${p} пока башня заглушена, её выстрелы не растут (выстрелов ${L[on]?.shots} → ${L[off - 1]?.shots}), до глушения она стреляла, после — стреляет, если есть в кого (цели в радиусе после включения: ${targetsAfter ? 'есть' : 'нет'})`, on > 0 && off > on && L[off - 1].shots === L[on].shots && L[on].shots > 0 && (firedAfter || !targetsAfter), `до: ${L[on]?.shots}, в конце: ${L[L.length - 1].shots}, цели после: ${targetsAfter}`);
   check(`${p} спора глушит башню один раз, кольцо глушения сработало один раз (disables = ${r1.end.disables}, zaps = ${r1.end.effects.zaps}) и ещё 5 с после включения башни`, r1.end.disables === 1 && r1.end.effects.zaps === 1, `состояние ${r1.end.state}`);
   await game.page.close();
 
@@ -8618,6 +8624,8 @@ async function runMetaSave(browser, baseUrl) {
 /** Уровни 1–10 (этап 5, шаг 1): откуда берётся состав волн. Число бактерий на уровне игра отдаёт в `plannedTotal`. */
 async function runLevelWaves(browser, baseUrl) {
   const p = '[состав волн уровней]';
+  /** Сколько первых уровней идут по своим планам волн (новый формат): 1 «Горло», 2 «Нос», 3–4 «Рот». */
+  const PLANNED = 4;
   const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
   const cfg = 'waves.firstDelaySec:600';
   const totals = [];
@@ -8629,9 +8637,9 @@ async function runLevelWaves(browser, baseUrl) {
     totals.push(s.plannedTotal);
     hps.push(s.plannedHp);
     firsts.push(s.firstWaves);
-    // уровни 1 и 2 — новый формат (50 волн, карты «Горло» и «Нос», 200 монет), уровни 3–10 — прежний (30 волн); карта уровней 3–4 — «Рот» (глава 2, свои входы у каждого), 5–10 — «корни»
-    const want = level === 1 ? { waves: PLAN.length, map: 'throat' } : level === 2 ? { waves: PLAN2.length, map: 'nose' } : { waves: 30, map: level === 3 ? 'mouth3' : level === 4 ? 'mouth4' : 'roots' };
-    check(`${p} уровень ${level}: номер уровня в игре, ${want.waves} волн, карта «${want.map}», бактерии запланированы`, s.level === level && s.waveTotal === want.waves && s.mapId === want.map && s.plannedTotal > 0 && (level <= 2) === (s.plan !== null), `уровень ${s.level}, волн ${s.waveTotal}, карта ${s.mapId}, план ${JSON.stringify(s.plan)}, бактерий ${s.plannedTotal}`);
+    // уровни 1–4 — новый формат (50 волн; карты «Горло», «Нос», «Рот» со своими входами у уровней 3 и 4), уровни 5–10 — прежний (30 волн, карта «корни»)
+    const want = [{ waves: PLAN.length, map: 'throat' }, { waves: PLAN2.length, map: 'nose' }, { waves: PLAN3.length, map: 'mouth3' }, { waves: PLAN4.length, map: 'mouth4' }][level - 1] ?? { waves: 30, map: 'roots' };
+    check(`${p} уровень ${level}: номер уровня в игре, ${want.waves} волн, карта «${want.map}», бактерии запланированы`, s.level === level && s.waveTotal === want.waves && s.mapId === want.map && s.plannedTotal > 0 && (level <= PLANNED) === (s.plan !== null), `уровень ${s.level}, волн ${s.waveTotal}, карта ${s.mapId}, план ${JSON.stringify(s.plan)}, бактерий ${s.plannedTotal}`);
     if (level === 1) check(`${p} уровень 1: монет на старте ${s.coins} (ждали ${readConfigNumber('plan', 'startCoins')})`, s.coins === readConfigNumber('plan', 'startCoins'), String(s.coins));
     await game.page.close();
   }
@@ -8640,13 +8648,18 @@ async function runLevelWaves(browser, baseUrl) {
   check(`${p} уровень 1 идёт по плану волн (levels.specs.0.plan): бактерий с боссами ${planTotal}`, totals[0] === planTotal, `в игре ${totals[0]}`);
   const plan2Total = PLAN2.reduce((sum, w) => sum + Object.values(w.mix).reduce((a, b) => a + b, 0) + (w.wall ? w.wall[1] : 0) + (w.boss ? 1 : 0), 0);
   check(`${p} уровень 2 идёт по плану волн (levels.specs.1.plan): бактерий с боссами ${plan2Total}`, totals[1] === plan2Total, `в игре ${totals[1]}`);
-  check(`${p} с уровня на уровень суммарная прочность не становится меньше (3–10; уровни 1–2 — свои планы)`, hps.slice(3).every((n, i) => n >= hps[i + 2]), hps.join(', '));
+  for (const [i, plan] of [[2, PLAN3], [3, PLAN4]]) {
+    const total = plan.reduce((sum, w) => sum + Object.values(w.mix).reduce((a, b) => a + b, 0) + (w.wall ? w.wall[1] : 0) + (w.boss ? 1 : 0), 0);
+    check(`${p} уровень ${i + 1} идёт по плану волн (levels.specs.${i}.plan): 50 волн, бактерий с боссами ${total}`, plan.length === 50 && totals[i] === total, `волн в плане ${plan.length}, в игре бактерий ${totals[i]}`);
+  }
+  // уровни 1–PLANNED идут по своим планам; генератор (прежний формат) — с уровня PLANNED + 1
+  check(`${p} с уровня на уровень суммарная прочность не становится меньше (${PLANNED + 2}–10; уровни 1–${PLANNED} — свои планы)`, hps.slice(PLANNED + 1).every((n, i) => n >= hps[i + PLANNED]), hps.join(', '));
   // Сглаживание выхода типов (этап 5б, `levels.gen.introSpread`): на уровне 2 шесть типов уровня 1 выходят в те же волны, что на уровне 1, дальше выход только сдвигается к началу, на уровне 10 — все шесть в первых 6–8 волнах
   if (readConfigNumber('levels', 'introSpread') === 1) {
     const six = ['coccus', 'rod', 'swarm', 'runner', 'splitter', 'armored'];
     const sched = (i) => six.map((k) => firsts[i][k]);
     // расписание, к которому сглаживаются уровни 3–10, — прежняя таблица волн `waves.list` (уровни 1 и 2 идут по своим планам)
-    const rising = firsts.slice(3).every((f, i) => six.every((k) => f[k] <= firsts[i + 2][k]));
+    const rising = firsts.slice(PLANNED + 1).every((f, i) => six.every((k) => f[k] <= firsts[i + PLANNED][k]));
     check(`${p} с уровня на уровень первая волна каждого из шести типов не отодвигается (расписание только сжимается)`, rising, firsts.map((f, i) => `${i + 1}: ${six.map((k) => f[k]).join(',')}`).join(' | '));
     check(`${p} на уровне 10 шесть типов выходят подряд в первых 6–8 волнах: ${sched(9).join(', ')}`, sched(9).every((w, j) => w >= 1 && w <= 8 && (j === 0 || w >= sched(9)[j - 1])), sched(9).join(', '));
   }
@@ -8654,7 +8667,7 @@ async function runLevelWaves(browser, baseUrl) {
   // Пачка 2 (раздел 5 того же документа): Скрытная выходит с уровня 5, Токсин с уровня 7; пачка 3 (раздел 7): Паразит с уровня 8, Мутант с уровня 9
   for (const [kind, from] of Object.entries({ leaper: 4, phago: 6, ...STAGE7.intro })) {
     if (!KINDS.includes(kind)) continue;
-    const early = firsts.slice(2, from - 1).every((f) => !(f[kind] > 0)); // уровни 1 и 2 — свои планы (на уровне 2 есть прыгун)
+    const early = firsts.slice(PLANNED, from - 1).every((f) => !(f[kind] > 0)); // уровни 1–PLANNED — свои планы (на уровне 2 есть прыгун, на 3–4 — скрытная)
     const later = firsts.slice(from - 1).every((f) => f[kind] > 0);
     check(`${p} «${kind}» выходит с уровня ${from}: на уровнях 1…${from - 1} его нет в составе волн, на ${from}…10 есть (первые волны: ${firsts.slice(from - 1).map((f) => f[kind]).join(', ')})`, early && later, firsts.map((f, i) => `${i + 1}: ${f[kind] ?? '—'}`).join(' | '));
   }
@@ -8857,17 +8870,21 @@ async function runBosses(browser, baseUrl) {
   await context.close();
 }
 
-/** Планы волн уровней 1 и 2 (levels.specs.0.plan.waves и levels.specs.1.plan.waves в config.ts): строки `{ mix: {...}, wall: ['вид', N], boss: 'id' }`; план уровня 2 начинается после комментария «Уровень 2 «Нос» — новый формат». */
-const [PLAN, PLAN2] = (() => {
+/** Планы волн уровней 1–4 (levels.specs.0…3.plan.waves в config.ts): строки `{ mix: {...}, wall: ['вид', N], boss: 'id', bossTune: {...} }`; план уровня 2 начинается после комментария
+ *  «Уровень 2 «Нос» — новый формат», уровня 3 — после «Уровень 3 (глава 2», уровня 4 — после «Уровень 4 (глава 2». */
+const [PLAN, PLAN2, PLAN3, PLAN4] = (() => {
   const src = fs.readFileSync(path.join(ROOT, 'src', 'config.ts'), 'utf8');
-  const rows = (text) => [...text.matchAll(/^\s*\{ mix: \{([^}]*)\}(?:, wall: \['(\w+)', (\d+)\])?(?:, boss: '(\w+)')? \},/gm)].map((m) => ({
+  const rows = (text) => [...text.matchAll(/^\s*\{ mix: \{([^}]*)\}(?:, wall: \['(\w+)', (\d+)\])?(?:, boss: '(\w+)')?(?:, bossTune: \{[^}]*\})? \},/gm)].map((m) => ({
     mix: Object.fromEntries([...m[1].matchAll(/(\w+): (\d+)/g)].map((x) => [x[1], Number(x[2])])),
     wall: m[2] ? [m[2], Number(m[3])] : null,
     boss: m[4] ?? null,
   }));
-  const at = src.indexOf('// Уровень 2 «Нос» — новый формат');
-  if (at < 0) throw new Error('В config.ts нет комментария «Уровень 2 «Нос» — новый формат» перед планом уровня 2');
-  return [rows(src.slice(0, at)), rows(src.slice(at))];
+  const marks = ['// Уровень 2 «Нос» — новый формат', '// Уровень 3 (глава 2', '// Уровень 4 (глава 2'].map((mark) => {
+    const at = src.indexOf(mark);
+    if (at < 0) throw new Error(`В config.ts нет комментария «${mark.slice(3)}» перед планом уровня`);
+    return at;
+  });
+  return [rows(src.slice(0, marks[0])), rows(src.slice(marks[0], marks[1])), rows(src.slice(marks[1], marks[2])), rows(src.slice(marks[2]))];
 })();
 
 /** Прогресс по уровням в сохранении версии 2 и показанные уведомления (этап 5, шаг 2). */
