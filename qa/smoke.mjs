@@ -3324,6 +3324,7 @@ async function sporeGame(context, baseUrl, p, { radius = null, far = false, minZ
 
 async function runSpore(browser, baseUrl) {
   const p = '[спора]';
+  const PILL_RANGE = readConfigNumber('pill', 'range');
   const disableSec = readConfigNumber('spore', 'disableSec');
   const disableRadius = readConfigNumber('spore', 'disableRadius');
   const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
@@ -3338,7 +3339,9 @@ async function runSpore(browser, baseUrl) {
       const tower = s.towers[0];
       const spore = s.bacteria.find((b) => b.kind === 'spore');
       const dist = tower && spore ? Math.hypot(spore.x - tower.x, spore.y - tower.y) : null;
-      log.push({ e: s.elapsed, shots: s.shots, disabled: tower?.disabled ?? false, far: s.towers[1]?.disabled ?? false, disables: s.disables, zaps: s.effects.zaps, dist, prevDist: log.length ? log[log.length - 1].dist : null });
+      // inRange — сколько живых бактерий в радиусе Таблетки: после глушения ей может быть некого бить (бактерии выходят в случайном порядке; спора последней — рядом уже пусто)
+      const inRange = tower ? s.bacteria.filter((b) => b.hp > 0 && Math.hypot(b.x - tower.x, b.y - tower.y) <= PILL_RANGE + b.r).length : 0;
+      log.push({ e: s.elapsed, shots: s.shots, disabled: tower?.disabled ?? false, far: s.towers[1]?.disabled ?? false, disables: s.disables, zaps: s.effects.zaps, dist, prevDist: log.length ? log[log.length - 1].dist : null, inRange });
       if (shotName && !shotDone && tower?.disabled) {
         await shot(game.page, shotName);
         shotDone = true;
@@ -3366,7 +3369,10 @@ async function runSpore(browser, baseUrl) {
   check(`${p} глушение срабатывает на расстоянии ≤ ${disableRadius} px (на замере ${f1(dOn)} px, за замер до этого ${f1(L[on]?.prevDist)} px)`, on > 0 && dOn <= disableRadius + 0.5 && dOn >= disableRadius - 70 && L[on].prevDist > disableRadius - 0.5, `расстояние ${f1(dOn)}, раньше ${f1(L[on]?.prevDist)}`);
   const dur = off >= 0 ? L[off].e - L[on].e : -1;
   check(`${p} башня заглушена ≈ ${disableSec} с (замерено ${f2(dur)} с, допуск ±0,4)`, off > on && Math.abs(dur - disableSec) <= 0.4, `с ${f2(L[on]?.e)} по ${f2(L[off]?.e)}`);
-  check(`${p} пока башня заглушена, её выстрелы не растут (выстрелов ${L[on]?.shots} → ${L[off - 1]?.shots}), а до и после глушения она стреляла`, on > 0 && off > on && L[off - 1].shots === L[on].shots && L[on].shots > 0 && L[L.length - 1].shots > L[off].shots, `до: ${L[on]?.shots}, в конце: ${L[L.length - 1].shots}`);
+  // «после глушения стреляет» требуем, только если после включения в радиусе была живая бактерия (иначе стрелять не в кого — это не ошибка игры; разбор 4 ноября 2026, docs/technical-notes.md)
+  const targetsAfter = off > on ? L.slice(off).some((q) => q.inRange > 0) : false;
+  const firedAfter = off > on && L[L.length - 1].shots > L[off].shots;
+  check(`${p} пока башня заглушена, её выстрелы не растут (выстрелов ${L[on]?.shots} → ${L[off - 1]?.shots}), до глушения она стреляла, после — стреляет, если есть в кого (цели в радиусе после включения: ${targetsAfter ? 'есть' : 'нет'})`, on > 0 && off > on && L[off - 1].shots === L[on].shots && L[on].shots > 0 && (firedAfter || !targetsAfter), `до: ${L[on]?.shots}, в конце: ${L[L.length - 1].shots}, цели после: ${targetsAfter}`);
   check(`${p} спора глушит башню один раз, кольцо глушения сработало один раз (disables = ${r1.end.disables}, zaps = ${r1.end.effects.zaps}) и ещё 5 с после включения башни`, r1.end.disables === 1 && r1.end.effects.zaps === 1, `состояние ${r1.end.state}`);
   await game.page.close();
 
