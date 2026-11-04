@@ -280,6 +280,8 @@ const ru = {
   /** Жёсткие свойства видов (plan.hardWalls; решения владельца 19 октября 2026, сообщение 7, п. 3, и 22 октября 2026): пометка над бактерией, которую удар не ранил, и строки Альманаха. */
   wardImmune: 'неуязвим',
   almWardRunner: 'Ранят только в луже Сиропа и сразу после выхода из неё',
+  almWardRunnerAny: 'Ранят только в луже и сразу после выхода из неё',
+  almBossAreaNote: 'В конце ранят только взрыв Шипучки и луч Шприца',
   almWardArmored: 'Пока цела броня, ранит только бронебойный удар',
   almWardSlick: 'Луч Шприца проходит насквозь, не раня',
   /** Альманах: вкладка «Боссы» — фазы с числами из config.ts (решение владельца 20 октября 2026, сообщение 2, п. 3.2); строка потолков над башнями. */
@@ -764,6 +766,8 @@ const en: Record<TextKey, string> = {
   statBlast: 'Blast {r} px',
   wardImmune: 'immune',
   almWardRunner: 'Hurt only in a Syrup puddle and right after leaving it',
+  almWardRunnerAny: 'Hurt only in a puddle and right after leaving it',
+  almBossAreaNote: 'At the end, only Fizz blasts and Syringe beams hurt it',
   almWardArmored: 'While its armor holds, hurt only by armor-piercing hits',
   almWardSlick: 'The Syringe beam passes through without harm',
   almTabBosses: 'Bosses: {n} of {m}',
