@@ -45,7 +45,7 @@ function strokeRing(ctx: CanvasRenderingContext2D, r: number, width: number, lv:
 }
 
 /** Цвет n-го элемента акцента: у V–VII — цвет уровня, у VIII — по кругу радуги. */
-function accentAt(lv: number, i: number): number {
+export function accentAt(lv: number, i: number): number {
   return lv === 8 ? RAINBOW[i % (RAINBOW.length - 1)] : HIGH_ACCENT[lv];
 }
 

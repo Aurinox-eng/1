@@ -1,15 +1,16 @@
 import Phaser from 'phaser';
 import { CONFIG } from '../config';
-import { aimAngle, AIM_STEPS, bestBeamDirection, remainingNear, WORLD } from '../level';
+import { aimAngle, AIM_STEPS, bestBeamDirection, remainingNear, toothBlocks, toothCut, WORLD } from '../level';
 import {
   artImage, bakeArt, glowCircle, glowRing, glowRR, ringImage, setArt, shArc, shBox, shCirc, shEll, shLine, shPath, shPoly, shQuad, shRot, shRR, shStar, squareBox,
   type ArtBox, type Pt,
 } from '../art';
 import { COLORS, PILL_EYES, TOWER_ART } from '../theme';
 import { bakeStyled } from './styleGfx';
-import { hasHighArt, HIGH_ACCENT, highBarrelKey, highBaseKey, highHaloKey, highTopKey, HALO_BOX } from './highTowerArt';
-import { isPilotTower, pilotBarrelKey, pilotBaseKey, pilotEyesKey, pilotPupilKey, pilotTopKey, PILL_EYE_POS, EYES_BOX, PUPIL_BOX, RECOIL_PX, RECOIL_SEC } from './pilotTowerArt';
-import { computeStats, mutationOptions, unlockedTiers, type TowerKey, type TowerStats } from '../towerStats';
+import { OWN_HIGH_PREVIEW } from '../debug';
+import { accentAt, hasHighArt, HIGH_ACCENT, rankMarkKey, RANK_BOX, highBarrelKey, highBaseKey, highHaloKey, highTopKey, HALO_BOX } from './highTowerArt';
+import { darken, isPilotTower, lighten, pilotBarrelKey, pilotBaseKey, pilotEyesKey, pilotPupilKey, pilotTopKey, PILL_EYE_POS, EYES_BOX, PUPIL_BOX, RECOIL_PX, RECOIL_SEC } from './pilotTowerArt';
+import { computeStats, mutationOptions, rankOf, unlockedTiers, type TowerKey, type TowerStats } from '../towerStats';
 import { wardBlocks } from '../ward';
 import type { Bacterium } from './Bacterium';
 
@@ -49,6 +50,14 @@ function isHighArt(id: TowerId, level: number, legacy: boolean): boolean {
 function isHighFrame(level: number, legacy: boolean): boolean {
   return !legacy && level >= 5;
 }
+/**
+ * Свой ствол V–VIII у остальных семи башен (вариант Б, сообщение 3 от 28 октября 2026, п. 3; `drawBarrelHigh`). В игре — у всех семи башен («да» по листам l3–l5, сообщение 4 от 28 октября 2026, п. 2;
+ * Шипучка и Пластырь после поправок — «да» по листу `?qa&artsheet=l6`, сообщение 1 от 29 октября 2026, п. 3).
+ */
+const OWN_HIGH_IN_GAME: ReadonlySet<TowerId> = new Set<TowerId>(['fizz', 'ampule', 'antibiotic', 'lamp', 'vitamin', 'frost', 'patch']);
+function hasOwnHighBarrel(id: TowerId, level: number, legacy: boolean): boolean {
+  return (OWN_HIGH_PREVIEW || OWN_HIGH_IN_GAME.has(id)) && !legacy && level >= 5 && !hasHighArt(id);
+}
 function highLevel(level: number): number {
   return Math.max(5, Math.min(8, Math.round(level)));
 }
@@ -58,6 +67,8 @@ function highLevel(level: number): number {
  * В игре — с 28 октября 2026 («да» владельца по листу `?qa&artsheet=l`, сообщение 2, п. 2); `false` — тёмная втулка (лист «было»).
  */
 const HUB_RIVET = true;
+/** Цвет светлой заклёпки; им же — сопло Шипучки IV–VIII (решение владельца 28 октября 2026, сообщение 4, п. 2.2). */
+const NOZZLE_LIGHT = 0xe9f1ff;
 
 /** Ограничение уровня рисунка: у башни 4 вида рисунков (уровни слияния 1–4). */
 function artLevel(level: number): 1 | 2 | 3 | 4 {
@@ -74,6 +85,7 @@ function barrelImage(scene: Phaser.Scene, id: TowerId, level: number, legacy = f
  */
 function barrelTexture(scene: Phaser.Scene, id: TowerId, level: number, legacy = false): string {
   if (isHighArt(id, level, legacy)) return highBarrelKey(scene, id, highLevel(level), BARREL_BOX);
+  if (hasOwnHighBarrel(id, level, legacy)) return bakeStyled(scene, `tower-barrel-high-${id}-${highLevel(level)}`, BARREL_BOX, (g) => drawBarrelHigh(g, id, highLevel(level)));
   const lv = artLevel(level);
   if (!legacy && isPilotTower(id, lv)) return pilotBarrelKey(scene, id, lv, BARREL_BOX);
   // Остальные башни и уровни: прежние команды рисования выполняются в новом стиле (styleGfx.ts): объём, переход цвета, мягкие тени
@@ -309,8 +321,8 @@ function drawFizz(g: Gfx, lv: number): void {
   shCirc(g, 36, 0, 22, COLORS.acid, null, 0, 0.1);
   shCirc(g, 36, 0, 17, COLORS.acid, null, 0, 0.2);
   shCirc(g, 36, 0, 12, COLORS.acid, null, 0, 0.3);
-  shCirc(g, 36, 0, 7, A.acidLight, null, 0, 0.7);
-  shCirc(g, 33, 0, 8, A.acidDark, COLORS.acid, 2);
+  // сопло светлое, как заклёпка: тёмное сопло с бликом читалось как глаз (решение владельца 28 октября 2026, сообщение 4, п. 2.2)
+  shCirc(g, 33, 0, 8, NOZZLE_LIGHT, COLORS.acid, 2);
   for (const [x, y, r] of [[46, -10, 5.5], [52, 4, 4.5], [47, 12, 3.4], [56, -4, 3]]) {
     shCirc(g, x, y, r, 0xffffff, COLORS.acid, 1.5, 0.9);
   }
@@ -778,6 +790,297 @@ function drawPatch(g: Gfx, lv: number): void {
   for (const [x, y, r] of [[58, -22, 7], [60, 20, 5], [-4, -32, 5]]) shStar(g, x, y, r, 0xffffff);
 }
 
+// ---------------------------------------------------------------- стволы V–VIII остальных семи башен
+
+/**
+ * Свои стволы V–VIII у Шипучки, Ампулы, Антибиотика, Лампы, Витамина, Холода и Пластыря (вариант Б, решение владельца 28 октября 2026, сообщение 3, п. 3): как у Таблетки,
+ * Сиропа и Шприца, ствол меняется на каждом уровне. Основа — ствол IV; знаки нарастают: V — второй заряд (вторая бомба, второй патронник, капельницы, лента на рулоне…),
+ * VI — крылья, рёбра или лишние лучи, VII — светящиеся кольца цвета уровня, VIII — золото и радужные акценты. Дуло там же, где у IV. Лиц нет.
+ */
+function drawBarrelHigh(g: Gfx, id: TowerId, lv: number): void {
+  const c = HIGH_ACCENT[lv];
+  const acc = (i: number): number => accentAt(lv, i);
+  /** Светящееся кольцо-катушка цвета уровня (с VII): вертикальный эллипс. */
+  const coil = (x: number, y: number, rx: number, ry: number): void => {
+    shEll(g, x, y, rx + 2, ry + 2, c, null, 0, 0.22);
+    shEll(g, x, y, rx, ry, null, c, 2.6);
+  };
+  /** Золотой зубец короны (VIII): треугольник остриём наружу от (x, y) в направлении angle. */
+  const crown = (x: number, y: number, angle: number, size = 7): void =>
+    shPoly(g, shRot([[0, -size * 0.55], [size * 1.3, 0], [0, size * 0.55]], x, y, angle), COLORS.gold, COLORS.goldEdge, 1.4);
+  if (id === 'fizz') {
+    const pink = COLORS.fizz;
+    const dk = COLORS.fizzDark;
+    // VI: боковые баллоны с пеной
+    if (lv >= 6) {
+      for (const s of [-1, 1]) {
+        shRR(g, -16, s * 31 - 7, 36, 14, 7, pink, dk, 2);
+        shRR(g, 18, s * 31 - 5, 6, 10, 2, c, darken(c, 0.5), 1.5);
+        shCirc(g, 30, s * 33, 3.4, 0xffffff, c, 1.2, 0.9);
+      }
+    }
+    // V: вторая (задняя) бомба на перемычке цвета уровня
+    shRR(g, -26, -6, 22, 12, 4, c, darken(c, 0.5), 2);
+    shCirc(g, -30, 0, 15, A.fizzShade, dk, 3);
+    shCirc(g, -30, 0, 12.5, pink);
+    shCirc(g, -33, -4, 7, A.fizzBright, null, 0, 0.55);
+    for (const [x, y] of [[-34, 6], [-26, -7]]) shCirc(g, x, y, 2, A.bolt, A.rivet, 1);
+    // шипы основной бомбы: два на сторону у V, три с VI
+    const spikes = lv >= 6 ? [1, 2, 3] : [1, 2];
+    for (const s of [-1, 1]) {
+      for (const k of spikes) shPoly(g, shRot([[16, -7], [34, 0], [16, 7]], 6, 0, s * k * (lv >= 6 ? 0.5 : 0.62)), dk, lv >= 7 ? c : A.fizzLight, 1.5);
+    }
+    glowRR(g, 28, -16, 9, 32, 4, lv >= 7 ? c : COLORS.acid, 12, 0.45);
+    shRR(g, 28, -16, 9, 32, 4, dk, c, 2);
+    shCirc(g, 6, 0, 24, A.fizzShade, dk, 3.5);
+    shCirc(g, 6, 0, 21, pink);
+    shCirc(g, 1, -6, 15, A.fizzBright, null, 0, 0.55);
+    // кольцо цвета уровня вокруг бомбы
+    shCirc(g, 6, 0, 26.5, null, c, 2.4);
+    const cracks: Pt[][] = [
+      [[-14, -12], [-6, -4], [-10, 4], [0, 10], [-2, 22]],
+      [[-6, -4], [4, -12], [8, -24]],
+      [[0, 10], [12, 8], [20, 16]],
+    ];
+    cracks.forEach((cr, i) => {
+      const col = lv === 8 ? acc(i * 2) : COLORS.acid;
+      shPath(g, cr, col, 7, 0.14);
+      shPath(g, cr, col, 2.4);
+    });
+    // жерло и пена
+    shCirc(g, 36, 0, 22, COLORS.acid, null, 0, 0.1);
+    shCirc(g, 36, 0, 17, COLORS.acid, null, 0, 0.2);
+    shCirc(g, 33, 0, 8, NOZZLE_LIGHT, COLORS.acid, 2); // сопло светлое, как у IV
+    // VII: светящиеся кольца у жерла
+    if (lv >= 7) {
+      coil(42, 0, 3.6, 15);
+      coil(50, 0, 3, 11);
+    }
+    for (const [x, y, r] of [[46, -10, 5.5], [52, 4, 4.5], [47, 12, 3.4], [56, -4, 3]]) shCirc(g, x, y, r, 0xffffff, COLORS.acid, 1.5, 0.9);
+    // VIII: золотая корона задней бомбы
+    if (lv === 8) for (let i = 0; i < 5; i++) crown(-30 + Math.cos(Math.PI * 0.6 + i * 0.4) * 15, Math.sin(Math.PI * 0.6 + i * 0.4) * 15, Math.PI * 0.6 + i * 0.4);
+    shStar(g, -16, -22, 8, COLORS.hit);
+    return;
+  }
+  if (id === 'ampule') {
+    // VI: стабилизаторы-крылья сзади
+    if (lv >= 6) {
+      for (const s of [-1, 1]) shPoly(g, [[-18, s * 10], [-44, s * (lv >= 7 ? 40 : 34)], [-36, s * 16], [-44, s * 20], [-24, s * 4]], c, darken(c, 0.5), 2);
+    }
+    // V: два патронника вместо одного
+    for (const y of [-9, 9]) {
+      glowRR(g, -28, y - 9, 34, 18, 8, A.ampuleLiquid, 10, 0.35);
+      ampoule(g, -28, y, 32, 17, 6, A.ampuleLiquid, COLORS.goldEdge);
+    }
+    shRR(g, -6, -13, 7, 26, 3, A.steelDark, c, 2);
+    shRR(g, -2, -9, 80, 18, 5, COLORS.gold, COLORS.goldEdge, 2);
+    shRR(g, 6, -6, 66, 4, 2, 0xfff0b0, null, 0, 0.8);
+    // пояса цвета уровня на стволе (у VIII — радужные)
+    [14, 34, 54].forEach((x, i) => shRR(g, x, -11, 5, 22, 2, acc(i), darken(acc(i), 0.5), 1.5));
+    // VII: светящиеся катушки вокруг ствола
+    if (lv >= 7) for (const x of [24, 44, 64]) coil(x, 0, 3.4, 13);
+    // дульный тормоз: с VI — с прорезями цвета уровня
+    shRR(g, 74, -13, 14, 26, 4, A.steelDark, COLORS.gold, 2);
+    for (const x of [77, 82]) shLine(g, x, -11, x, 11, lv >= 6 ? c : COLORS.gold, 2);
+    // оптика: линза цвета уровня
+    shRR(g, 4, -28, 36, 11, 5, A.scope, COLORS.gold, 2);
+    shLine(g, 14, -18, 14, -9, COLORS.goldEdge, 3);
+    shLine(g, 30, -18, 30, -9, COLORS.goldEdge, 3);
+    glowCircle(g, 40, -22.5, 7, c, 10, 0.6);
+    shCirc(g, 40, -22.5, 7, c, 0xffffff, 1.8);
+    shCirc(g, 38, -24.5, 2.2, 0xffffff, null, 0, 0.85);
+    // VIII: золотая корона на оптике
+    if (lv === 8) for (const x of [10, 18, 26]) crown(x, -28, -Math.PI / 2, 6);
+    shCirc(g, 90, 0, 8, c, null, 0, 0.25);
+    shCirc(g, 90, 0, 5, 0xffffff, null, 0, 0.5);
+    shStar(g, 90, 0, 7, 0xffffff);
+    return;
+  }
+  if (id === 'antibiotic') {
+    const L = A.capsuleLight;
+    const D = A.capsuleDark;
+    glowRR(g, -4, -26, 56, 52, 12, lv >= 7 ? c : COLORS.antibiotic, 14, 0.4);
+    // V: два пакета с раствором (сверху и снизу) и трубки цвета уровня
+    for (const s of [-1, 1]) {
+      const y0 = s < 0 ? -30 : 6;
+      shRR(g, -42, y0, 22, 24, 8, A.label, D, 2);
+      shRR(g, -40, y0 + 12, 18, 10, 4, L);
+      shRR(g, -35, s < 0 ? -34 : 28, 8, 5, 2, c, darken(c, 0.5), 1.2);
+      shPath(g, [[-24, s * 6], ...shQuad([-24, s * 6], [-18, s * 16], [-6, s * 14], 6)], c, 3);
+    }
+    shRR(g, -16, -27, 12, 54, 5, A.steelDark, c, 2);
+    greenCapsule(g, -2, -14, 54, 20, 12);
+    greenCapsule(g, -2, 14, 54, 20, 12);
+    glowRR(g, -6, -10, 66, 20, 10, L, 10, 0.4);
+    greenCapsule(g, -6, 0, 66, 20, 13);
+    [8, 22, 36].forEach((x, i) => shRR(g, x, -26, 5, 52, 2, A.syringeWhite, lv === 8 ? acc(i) : c, 1.5));
+    // VI: изогнутые трубки с раствором цвета уровня снаружи (от пакетов к носику)
+    if (lv >= 6) {
+      for (const s of [-1, 1]) {
+        const arc: Pt[] = [[-30, s * 26], ...shQuad([-30, s * 26], [10, s * 62], [56, s * 20], 10)];
+        shPath(g, arc, darken(c, 0.5), 6.5);
+        shPath(g, arc, c, 3.6);
+        shCirc(g, 10, s * 43, 3, 0xffffff, null, 0, 0.8);
+      }
+    }
+    // V: капельницы на концах боковых капсул
+    {
+      for (const s of [-1, 1]) {
+        shRR(g, 52, s * 14 - 4, 7, 8, 2, A.syringeWhite, c, 1.2);
+        shPoly(g, [[59, s * 14 - 2], [66, s * 14], [59, s * 14 + 2]], A.syringeWhite, c, 1);
+        shPoly(g, dropPts([69, s * 14], [72, s * 14 + 4], [69, s * 14 + 6], [66, s * 14 + 4]), L, 0xffffff, 1);
+      }
+    }
+    // VII: светящиеся кольца вокруг средней капсулы
+    if (lv >= 7) for (const x of [16, 44]) coil(x, 0, 3.2, 13);
+    shRR(g, 58, -6, 10, 12, 3, A.syringeWhite, COLORS.gold, 1.5);
+    shPoly(g, [[68, -3], [80, 0], [68, 3]], A.syringeWhite, COLORS.gold, 1.2);
+    glowCircle(g, 85, 0, 7, c, 10, 0.55);
+    shPoly(g, dropPts([84, 0], [90, 6], [84, 10], [78, 6]), L, 0xffffff, 1.2);
+    // VIII: золотые зубцы на пакетах
+    if (lv === 8) for (const s of [-1, 1]) for (const x of [-38, -31, -24]) crown(x, s < 0 ? -30 : 30, s * Math.PI / 2, 5);
+    [[-14, 34, 4], [6, 32, 3], [40, -32, 3.4], [26, 31, 2.4], [52, 26, 3]].forEach(([x, y, r], i) => shCirc(g, x, y, r, A.capsuleBubble, lv === 8 ? acc(i) : c, 1.2, 0.9));
+    return;
+  }
+  if (id === 'lamp') {
+    const Y = COLORS.lamp;
+    const YE = COLORS.lampEdge;
+    const YL = COLORS.lampLight;
+    const reflector = (x0: number, x1: number, h0: number, h1: number, oy: number, fill: number, edge: number): void =>
+      shPoly(g, [[x0, oy - h0], [x1, oy - h1], [x1, oy + h1], [x0, oy + h0]], fill, edge, 2);
+    const lens = (x: number, oy: number, ry: number, glow: number): void => {
+      glowCircle(g, x, oy, ry * 0.9, A.lampGlow, 10, glow);
+      shEll(g, x, oy, 4, ry, YL, YE, 2);
+    };
+    // VI: рёбра охлаждения сзади цвета уровня
+    if (lv >= 6) for (const x of [-46, -40]) shRR(g, x, -24, 4, 48, 2, c, darken(c, 0.5), 1.2);
+    // V: боковые прожекторы с кромкой цвета уровня и третий — снизу-сзади (сдвоенный ряд)
+    for (const s of [-1, 1]) {
+      reflector(-6, 30, 7, 15, s * 32, A.steelDark, c);
+      lens(30, s * 32, 15, 0.45);
+      shLine(g, 34, s * 32, 60, s * 40, c, 3, 0.35);
+    }
+    for (const x of [-34, -28, -22]) shRR(g, x, -19, 4, 38, 2, A.steelDark, COLORS.gold, 1.2);
+    shRR(g, -16, -22, 10, 44, 4, A.steelDark, c, 2);
+    glowRR(g, -8, -18, 50, 36, 10, lv >= 7 ? c : A.lampGlow, 14, 0.35);
+    reflector(-8, 42, 13, 26, 0, COLORS.gold, COLORS.goldEdge);
+    // пояс цвета уровня на большом отражателе
+    shPoly(g, [[10, -18], [16, -20], [16, 20], [10, 18]], c, darken(c, 0.5), 1.5);
+    for (const x of [24, 34]) shRR(g, x - 1.5, -14 - (x + 8) * 0.25, 3, 28 + (x + 8) * 0.5, 1, A.steelDark, COLORS.goldEdge, 1);
+    // VII: светящиеся кольца на отражателе
+    if (lv >= 7) coil(30, 0, 3.6, 21);
+    shCirc(g, 20, 0, 9, YL, COLORS.goldEdge, 1.5);
+    glowCircle(g, 20, 0, 9, A.lampGlow, 10, 0.6);
+    lens(42, 0, 26, 0.6);
+    // лучи: шире с уровнем; у VIII — радужные кромки
+    const spread = 30 + (lv - 4) * 3;
+    shPoly(g, [[46, 0], [96, -spread], [96, spread]], Y, null, 0, 0.1);
+    shPoly(g, [[46, 0], [92, -18], [92, 18]], c, null, 0, 0.16);
+    shPoly(g, [[46, 0], [86, -8], [86, 8]], YL, null, 0, 0.22);
+    if (lv === 8) [-1, 1].forEach((s, i) => shLine(g, 50, s * 2, 96, s * spread, acc(i * 3 + 1), 2.4, 0.7));
+    shCirc(g, 50, 0, 9, YL, null, 0, 0.35);
+    shStar(g, 48, 0, 12 + (lv - 5), 0xffffff);
+    // VIII: золотая корона на заднем колпаке
+    if (lv === 8) for (const y of [-16, -6, 6, 16]) crown(-16, y, Math.PI, 6);
+    return;
+  }
+  if (id === 'vitamin') {
+    const capsule = (angle: number, fill: number, edge: number, len = 31): void =>
+      shPoly(g, shRot([[-len, -4], [-len + 6, -10], [len - 6, -10], [len, -4], [len, 4], [len - 6, 10], [-len + 6, 10], [-len, 4]], 0, 0, angle), fill, edge, 2);
+    glowRing(g, 0, 0, 30, 3, c, 12, 0.5);
+    // VI: листья цвета уровня между капсулами
+    if (lv >= 6) {
+      for (let i = 0; i < 4; i++) {
+        const a = (i * Math.PI) / 2 + Math.PI / 8;
+        shPoly(g, shRot([[30, 0], [38, -6], [47, 0], [38, 6]], 0, 0, a), lv === 8 ? acc(i) : c, darken(c, 0.5), 1.5);
+        shPoly(g, shRot([[30, 0], [38, -6], [47, 0], [38, 6]], 0, 0, a + Math.PI / 4), A.vitaminGreen, A.capsuleDark, 1.5);
+      }
+    }
+    // V: четыре капсулы звездой (вторая пара — прямо, цвета уровня)
+    capsule(0, c, darken(c, 0.5), 47);
+    capsule(Math.PI / 2, lighten(c, 0.3), darken(c, 0.5), 47);
+    capsule(Math.PI / 4, COLORS.gold, COLORS.goldEdge);
+    capsule(-Math.PI / 4, A.vitaminLight, COLORS.goldEdge);
+    shCirc(g, 0, 0, 30, null, COLORS.gold, 2.5);
+    // VII: светящаяся орбита с бусинами
+    if (lv >= 7) {
+      glowRing(g, 0, 0, 42, 2, c, 8, 0.4);
+      shCirc(g, 0, 0, 42, null, c, 2);
+      for (let i = 0; i < 8; i++) {
+        const a = (i * Math.PI) / 4 + Math.PI / 8;
+        shCirc(g, Math.cos(a) * 42, Math.sin(a) * 42, 3.4, lv === 8 ? acc(i) : c, 0xffffff, 1);
+      }
+    }
+    for (let i = 0; i < 8; i++) {
+      const a = (i * Math.PI) / 4;
+      shStar(g, Math.cos(a) * 40, Math.sin(a) * 40, i % 2 === 0 ? 7 : 5, 0xffffff);
+    }
+    glowCircle(g, 0, 0, 22, COLORS.vitamin, 12, 0.5);
+    vitaminTablet(g, 0, 0, 22, COLORS.goldEdge);
+    // VIII: золотая корона по кругу таблетки
+    if (lv === 8) for (let i = 0; i < 8; i++) crown(Math.cos(i * Math.PI / 4 + Math.PI / 8) * 23, Math.sin(i * Math.PI / 4 + Math.PI / 8) * 23, i * Math.PI / 4 + Math.PI / 8, 5);
+    return;
+  }
+  if (id === 'frost') {
+    const F = COLORS.frost;
+    const FL = COLORS.frostLight;
+    const shards = (inner: number, outer: number, wid: number, fill: number, edge: number, rot: number, n = 6): void => {
+      for (let i = 0; i < n; i++) {
+        const a = rot + (i * 2 * Math.PI) / n;
+        shPoly(g, shRot([[inner, -wid], [outer, 0], [inner, wid]], 0, 0, a), fill, edge, 1.5);
+      }
+    };
+    glowRing(g, 0, 0, 36, 3, lv >= 7 ? c : F, 14, 0.55);
+    // VI: двенадцать тонких игл цвета уровня
+    if (lv >= 6) shards(30, 48, 3.2, c, darken(c, 0.5), 0, 12);
+    // V: второй ряд осколков (между золотыми), острия цвета уровня
+    shards(26, 50, 7.5, A.frostShard, c, Math.PI / 6);
+    for (let i = 0; i < 6; i++) {
+      const a = Math.PI / 6 + (i * Math.PI) / 3;
+      shCirc(g, Math.cos(a) * 46, Math.sin(a) * 46, 2.6, lv === 8 ? acc(i) : c, 0xffffff, 1);
+    }
+    shards(24, 42, 6, COLORS.gold, COLORS.goldEdge, 0);
+    // V: шесть кристаллов цвета уровня за кольцом, напротив золотых осколков
+    for (let i = 0; i < 6; i++) {
+      const a = (i * Math.PI) / 3;
+      shPoly(g, shRot([[38, 0], [44, -5], [50, 0], [44, 5]], 0, 0, a), lv === 8 ? acc(i) : c, 0xffffff, 1.4);
+    }
+    glowCircle(g, 0, 0, 24, F, 12, 0.4);
+    shPoly(g, hexagon(23), A.frostMid, lv >= 7 ? c : COLORS.gold, 3);
+    // VII: светящийся шестиугольник цвета уровня
+    if (lv >= 7) {
+      shPoly(g, hexagon(31, Math.PI / 6), null, c, 2.4);
+      shPoly(g, hexagon(33, Math.PI / 6), null, c, 5, 0.2);
+    }
+    shPoly(g, hexagon(15, Math.PI / 6), F, null, 0, 0.6);
+    snowflake(g, 40, 3.6, 0xffffff, A.frostDeep);
+    snowflake(g, 24, 2.6, FL, A.frostDeep, Math.PI / 6);
+    glowCircle(g, 0, 0, 7, 0xffffff, 6, 0.5);
+    shCirc(g, 0, 0, 8, 0xffffff, COLORS.gold, 2);
+    // VIII: золотая корона между лучами снежинки
+    if (lv === 8) for (let i = 0; i < 6; i++) crown(Math.cos(i * Math.PI / 3 + Math.PI / 6) * 18, Math.sin(i * Math.PI / 3 + Math.PI / 6) * 18, i * Math.PI / 3 + Math.PI / 6, 5);
+    return;
+  }
+  // Пластырь
+  glowCircle(g, 18, 0, 34, lv >= 7 ? c : A.patchRed, 14, 0.25);
+  // рулон один, как у IV (два рулона один над другим читались как пара глаз — решение владельца 28 октября 2026, сообщение 4, п. 2.1); V: лента цвета уровня на рулоне
+  shCirc(g, -28, 0, 17, COLORS.gold, COLORS.goldEdge, 2.5);
+  shArc(g, -28, 0, 14, Math.PI * 0.55, Math.PI * 1.45, c, 4);
+  shCirc(g, -28, 0, 11, COLORS.patchPad, c, 1.8);
+  shCirc(g, -28, 0, 5, COLORS.patchPad, COLORS.goldEdge, 1.2);
+  // VI: шесть полос веером вместо четырёх
+  const fan = lv >= 6 ? [-0.95, 0.95, -0.62, 0.62, -0.3, 0.3] : [-0.78, 0.78, -0.3, 0.3];
+  fan.forEach((ang, i) => plasterStrip(g, 22, 0, 74, 22, ang, A.patchStrip, lv === 8 ? acc(i) : c));
+  plasterStrip(g, 22, 0, 80, 26, 0, COLORS.patch, COLORS.gold);
+  // VII: светящиеся кольца на главной полосе
+  if (lv >= 7) for (const x of [-6, 50]) coil(x, 0, 3, 15);
+  gauzePad(g, 22, 0, 28, 0, COLORS.gold, lv >= 7 ? c : A.patchRed);
+  glowCircle(g, 22, 0, 8, lv >= 7 ? c : A.patchRed, 8, 0.45);
+  // VIII: золотая корона на рулонах
+  if (lv === 8) for (let i = 0; i < 5; i++) crown(-28 + Math.cos(Math.PI * 0.6 + i * 0.2) * 17, Math.sin(Math.PI * 0.6 + i * 0.2) * 17, Math.PI * 0.6 + i * 0.2, 5);
+  for (const [x, y, r] of [[58, -22, 7], [60, 20, 5], [-6, -38, 5]]) shStar(g, x, y, r, 0xffffff);
+}
+
 /** Основание башни (неподвижное, не вращается): диск, у уровней 2–4 — свои пояса, болты, шкалы; у 4-го — шипы и лужи по краю. */
 function drawBase(g: Gfx, id: TowerId, lv: number): void {
   if (id === 'syrup' && lv === 4) {
@@ -931,7 +1234,7 @@ export function defaultAim(cfg: { beamLengthPx: number; beamHalfWidthPx: number 
   return bestBeamDirection(x, y, cfg.beamLengthPx, cfg.beamHalfWidthPx + BEAM_COVER_MARGIN);
 }
 
-/** До какого расстояния от точки (x, y) в направлении angle тянется луч: не дальше длины луча и не дальше края карты, пикселей. */
+/** До какого расстояния от точки (x, y) в направлении angle тянется луч: не дальше длины луча, края карты и первого зуба на линии, пикселей. */
 export function beamReach(x: number, y: number, angle: number, length: number): number {
   const ux = Math.cos(angle);
   const uy = Math.sin(angle);
@@ -940,6 +1243,8 @@ export function beamReach(x: number, y: number, angle: number, length: number): 
   else if (ux < -1e-6) reach = Math.min(reach, (0 - x) / ux);
   if (uy > 1e-6) reach = Math.min(reach, (WORLD.h - y) / uy);
   else if (uy < -1e-6) reach = Math.min(reach, (0 - y) / uy);
+  // зуб (глава 2) луч не пропускает
+  reach = toothCut(x, y, angle, reach);
   return Math.max(0, reach);
 }
 
@@ -1086,7 +1391,7 @@ function buildTowerArt(scene: Phaser.Scene, parent: Phaser.GameObjects.Container
 
 /** Свечение цвета уровня за стволом IV (V–VIII у башен без своего ствола V–VIII). */
 function setBarrelGlow(scene: Phaser.Scene, art: TowerArt, id: TowerId, level: number): void {
-  const on = isHighFrame(level, art.legacy) && !hasHighArt(id);
+  const on = isHighFrame(level, art.legacy) && !hasHighArt(id) && !hasOwnHighBarrel(id, level, art.legacy);
   art.barrelGlow.setVisible(on);
   if (!on) return;
   setArt(art.barrelGlow, barrelTexture(scene, id, level, art.legacy), BARREL_BOX);
@@ -1200,6 +1505,14 @@ export class Tower {
   /** Уровень башни (1…MAX_TOWER_LEVEL) и все её мутации: свои и принесённые слиянием (одна и та же может повторяться — см. `mutationStack`). */
   level = 1;
   picks: string[] = [];
+  /** Опыт башни в партии (план docs/tower-levels-xp-plan-2026-10-24.md, раздел 2): очки за бактерий, погибших в её зоне; при слиянии складывается. */
+  xp = 0;
+  /** Ранг опыта ★0–★8 (`ranks.thresholds`, не выше предела уровня игры): сцена пересчитывает его после начисления опыта (`updateRank`). */
+  rank = 0;
+  /** Сколько выстрелов сделала башня (для «каждого N-го выстрела» умения ранга Таблетки). */
+  shotCount = 0;
+  /** Знак ранга: одна звезда с цифрой справа вверху башни (план, раздел 5; лист `?qa&artsheet=l`); нет до ★1. */
+  private rankMark: Phaser.GameObjects.Image | null = null;
   /** Сколько порогов мутаций эта башня уже прошла выбором (свой выбор на уровнях 2 и 4; мутации, пришедшие со слиянием, порогов не закрывают). */
   private tiersDone = 0;
   /** Расстояние от башни до организма по дорожкам (по ближайшей к ней точке сети), пикселей: по нему считается «вперёд/назад». */
@@ -1217,6 +1530,20 @@ export class Tower {
   aim = 0;
   /** Множитель паузы от ауры Витамина рядом (1 — нет; меньше — быстрее): сцена выставляет его каждый кадр. */
   auraMul = 1;
+  /** Множитель урона от «Сильного усиления» Витамина рядом (1 — нет): сцена выставляет его каждый кадр (решение владельца 28 октября 2026, сообщение 3, п. 5). */
+  auraDamageMul = 1;
+  private boosted: { mul: number; from: TowerStats; stats: TowerStats } | null = null;
+
+  /** Числа выстрела: с «Сильным усилением» рядом — урон, яд и ловушка сильнее (копия чисел пересчитывается, только когда меняется множитель или числа башни). */
+  get fireStats(): TowerStats {
+    const mul = this.auraDamageMul;
+    if (mul === 1) return this.stats;
+    if (!this.boosted || this.boosted.mul !== mul || this.boosted.from !== this.stats) {
+      const s = this.stats;
+      this.boosted = { mul, from: s, stats: { ...s, damage: s.damage * mul, dotPerSec: s.dotPerSec * mul, trapDps: s.trapDps * mul, poisonPerSec: s.poisonPerSec * mul } };
+    }
+    return this.boosted.stats;
+  }
   /** Множитель паузы от паразита, присосавшегося к башне (1 — нет; 1,5 — пауза в полтора раза длиннее): сцена выставляет его каждый кадр. */
   latchMul = 1;
   /** Куда смотрит башня на цель, радианы (по нему считается попадание в конус Лампы). */
@@ -1334,8 +1661,9 @@ export class Tower {
   }
 
   /** Слияние: башня становится уровнем выше и получает мутации сливаемой башни `extraPicks` (свои остаются; решение владельца 8 октября 2026), пауза до выстрела не сбрасывается. */
-  upgrade(extraPicks: readonly string[] = []): void {
+  upgrade(extraPicks: readonly string[] = [], extraXp = 0): void {
     this.level++;
+    this.xp += extraXp;
     this.picks.push(...extraPicks);
     this.recompute();
     this.scene.tweens.add({ targets: this.container, scale: { from: 1.35, to: 1 }, duration: 260, ease: 'Back.easeOut' });
@@ -1354,8 +1682,18 @@ export class Tower {
     return true;
   }
 
+  /** Пересчитать ранг по опыту (`cap` — предел ранга уровня игры): при новом ранге — числа башни и знак ★. Возвращает true, если ранг вырос. */
+  updateRank(cap: number): boolean {
+    const r = rankOf(this.xp, cap);
+    if (r === this.rank) return false;
+    const up = r > this.rank;
+    this.rank = r;
+    this.recompute();
+    return up;
+  }
+
   private recompute(): void {
-    this.stats = computeStats(this.id, this.level, this.picks);
+    this.stats = computeStats(this.id, this.level, this.picks, this.rank);
     this.refreshVisuals();
     if (this.cone) {
       const { key, box } = coneArt(this.scene, this.stats.range, this.stats.coneDeg);
@@ -1367,6 +1705,18 @@ export class Tower {
   /** Метки на башне: кольцо цвета уровня, точки уровня под башней, «!» при невыбранной мутации. */
   private refreshVisuals(): void {
     setTowerArtLevel(this.scene, this.art, this.id, this.level);
+    if (this.rank > 0) {
+      if (!this.rankMark) {
+        this.rankMark = this.scene.add.image(30, -22, rankMarkKey(this.scene, this.rank));
+        // под «!» мутации: оба знака справа вверху, «!» — временный и сверху
+        this.container.addAt(this.rankMark, this.container.getIndex(this.badge));
+      } else {
+        this.rankMark.setTexture(rankMarkKey(this.scene, this.rank));
+      }
+      this.rankMark.setDisplaySize(RANK_BOX.w, RANK_BOX.h).setVisible(true);
+    } else {
+      this.rankMark?.setVisible(false);
+    }
     const badge = this.pendingTier !== null;
     this.badge.setVisible(badge);
     if (badge) this.badgeTween.resume();
@@ -1430,16 +1780,17 @@ export class Tower {
     const { beamLengthPx, beamHalfWidthPx } = this.stats;
     const lines = this.beamDirections().map((d) => {
       const angle = aimAngle(d);
-      return { ux: Math.cos(angle), uy: Math.sin(angle) };
+      // за зубом (глава 2) луч не бьёт
+      return { ux: Math.cos(angle), uy: Math.sin(angle), length: toothCut(this.x, this.y, angle, beamLengthPx + 400) };
     });
     const hits: Bacterium[] = [];
     for (const b of bacteria) {
       if (b.hp <= 0) continue;
       const dx = b.x - this.x;
       const dy = b.y - this.y;
-      for (const { ux, uy } of lines) {
+      for (const { ux, uy, length } of lines) {
         const along = dx * ux + dy * uy;
-        if (along < 0 || along > beamLengthPx + b.radius) continue;
+        if (along < 0 || along > beamLengthPx + b.radius || along > length) continue;
         if (Math.abs(-dx * uy + dy * ux) > beamHalfWidthPx + b.radius * 0.7) continue;
         hits.push(b);
         break;
@@ -1448,8 +1799,49 @@ export class Tower {
     return hits;
   }
 
+  /**
+   * В зоне ли башни бактерия `b` (для опыта: проверка в момент гибели, поэтому HP не смотрим): радиус стрельбы плюс радиус бактерии; у Шприца — линия луча (оба луча при «Втором луче»),
+   * у Лампы — конус; у Витамина зоны нет (он получает долю опыта башен в ауре).
+   */
+  inXpZone(b: Bacterium): boolean {
+    if (this.isAura) return false;
+    const dx = b.x - this.x;
+    const dy = b.y - this.y;
+    if (this.isBeam) {
+      const { beamLengthPx, beamHalfWidthPx } = this.stats;
+      for (const d of this.beamDirections()) {
+        const angle = aimAngle(d);
+        const ux = Math.cos(angle);
+        const uy = Math.sin(angle);
+        const along = dx * ux + dy * uy;
+        if (along < 0 || along > beamLengthPx + b.radius) continue;
+        if (Math.abs(-dx * uy + dy * ux) <= beamHalfWidthPx + b.radius * 0.7) return true;
+      }
+      return false;
+    }
+    const dist = Math.hypot(dx, dy);
+    if (this.isCone) {
+      const { range, coneDeg } = this.stats;
+      if (dist > range + b.radius * 0.5) return false;
+      if (dist <= b.radius * 0.7) return true;
+      let diff = Math.atan2(dy, dx) - this.lookAngle;
+      diff = Math.abs(Math.atan2(Math.sin(diff), Math.cos(diff)));
+      return diff <= (coneDeg * Math.PI) / 360 + Math.asin(Math.min(1, (b.radius * 0.7) / dist));
+    }
+    return dist <= this.stats.range + b.radius;
+  }
+
   get isDisabled(): boolean {
     return this.disabledFor > 0;
+  }
+
+  /** Повернуть ствол к точке (x, y) — удар по налёту (глава 2); у луча направление задаёт игрок, его башня не поворачивает. */
+  faceTo(x: number, y: number): void {
+    if (this.isBeam || this.isAura) return;
+    const angle = Math.atan2(y - this.y, x - this.x);
+    this.lookAngle = angle;
+    this.barrel.setRotation(angle);
+    lookPupils(this.art, artLevel(this.level), angle);
   }
 
   /** Заглушить башню на seconds секунд (если уже заглушена дольше — не сокращаем). */
@@ -1503,6 +1895,8 @@ export class Tower {
         diff = Math.abs(Math.atan2(Math.sin(diff), Math.cos(diff)));
         if (diff > half + Math.asin(Math.min(1, (b.radius * 0.7) / dist))) continue;
       }
+      // свет через зуб (глава 2) не проходит
+      if (toothBlocks(this.x, this.y, b.x, b.y)) continue;
       hits.push(b);
     }
     return hits;
@@ -1619,10 +2013,12 @@ export class Tower {
     const { range, side, toughest, targeting } = this.stats;
     const found: Bacterium[] = [];
     for (const b of bacteria) {
-      if (b.hp <= 0) continue;
+      if (b.hp <= 0 || b.hidden) continue;
       // Скрытную башня видит только на доле радиуса (b.stealth); конус Лампы видит полностью; подсвеченную Лампой (b.lit) видят на полном радиусе
       const reach = b.stealth > 0 && targeting !== 'cone' && !b.lit ? range * b.stealth : range;
       if (Math.hypot(b.x - this.x, b.y - this.y) > reach + b.radius) continue;
+      // Лампа не смотрит на бактерию за зубом (свет через зуб не проходит)
+      if (targeting === 'cone' && toothBlocks(this.x, this.y, b.x, b.y)) continue;
       if (side === 'forward' && !(b.remaining > this.remaining)) continue;
       if (side === 'back' && !(b.remaining < this.remaining)) continue;
       if (affectable && !this.canAffect(b)) continue;

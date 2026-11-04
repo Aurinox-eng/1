@@ -1,11 +1,11 @@
 import type { CONFIG } from './config';
-import { FONT_PLAN, PILL_EYES_OFF } from './debug';
+import { PILL_EYES_OFF } from './debug';
 
 /**
- * Размеры надписей по плану MASTER-0025 (решение владельца 28 октября 2026, сообщение 2, п. 4): пока — только с `?qa&fontplan` (снимки владельцу), после «да» — в игре.
- * `fs(сейчас, по плану)` — размер шрифта, пикселей игры.
+ * Размеры надписей по плану MASTER-0025 (решение владельца 28 октября 2026, сообщение 2, п. 4; в игре — сообщение 3, п. 2): основной текст не меньше 22 px игры, второстепенный — не меньше 20.
+ * `fs(прежний, нынешний)` — размер шрифта, пикселей игры (прежний оставлен для сравнения; `BIG_TEXT` false — прежние размеры).
  */
-export const BIG_TEXT: boolean = FONT_PLAN;
+export const BIG_TEXT = true;
 export const fs = (now: number, plan: number): number => (BIG_TEXT ? plan : now);
 
 type Kind = keyof typeof CONFIG.types;
@@ -46,6 +46,8 @@ export const COLORS = {
     /** Мутант — фиолетовый с радужными пятнами; паразит — болотно-коричневый с присоской-щупальцем. */
     mutant: { body: 0xa24fd8, shell: 0x56208a, crack: 0x2a0c4a },
     parasite: { body: 0x9a7240, shell: 0x4c3416, crack: 0x261a08 },
+    /** Плёнка (глава 2) — молочно-бирюзовая, мягкий ободок (лист главы 2 принят 3 ноября 2026, сообщение 1, п. 3). */
+    film: { body: 0x92cfd2, shell: 0x6eb2b8, crack: 0x2e6a70 },
   } satisfies Record<Kind, { body: number; shell: number; crack: number }>,
   /** Крест лекаря, аура лекаря, лужа сиропа и луч шприца. */
   cross: 0xe0457a,

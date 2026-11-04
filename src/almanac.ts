@@ -46,4 +46,5 @@ export const ALMANAC_BEATEN_BY: Record<BacteriumKind, TowerId[]> = {
   toxin: ['ampule', 'syringe'],
   mutant: ['ampule', 'lamp', 'syringe'],
   parasite: ['pill', 'lamp', 'frost'],
+  film: ['fizz', 'syringe', 'lamp'],
 };

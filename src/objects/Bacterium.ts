@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import { conditionSpeedMul } from '../conditions';
 import { CONFIG, type BossId, type BossSpec, type Ward } from '../config';
 import { EDGES_FROM } from '../level';
 import { pointAt, type Edge } from '../pathing';
@@ -7,8 +8,9 @@ import { COLORS, TOWER_MARK } from '../theme';
 import { artDensity, artImage, bakeArt, discImage, ringImage, setArt, squareBox, type ArtBox } from '../art';
 import type { Tower } from './Tower';
 import { bodyHalfSize, crackCount, drawCracks, drawShape, hasRadialCracks, shellWidth, SPLITTER_LOBE_OFFSET } from './bacteriumArt';
-import { BLINK_EVERY_SEC, BLINK_SEC, BREATH_AMP, EYES_DRAWN, BREATH_SEC, BREATH_STEP, type Eyes, styleBodyBox, styleBodyKey } from './styleArt';
-import { BOSS_TINT, bossDecorImage } from './bossDecor';
+import { BLINK_EVERY_SEC, BLINK_SEC, BREATH_AMP, EYES_DRAWN, BREATH_SEC, BREATH_STEP, type Eyes, styleBodyBox, styleBodyKey, styleCh2BossKey } from './styleArt';
+import { BOSS_TINT, CH2_BOSS_ART, bossDecorImage } from './bossDecor';
+import { shadowHaloImage } from './chapter2Art';
 
 export type BacteriumKind = keyof typeof CONFIG.types;
 
@@ -28,6 +30,8 @@ function bodyBox(kind: BacteriumKind, legacy = false): ArtBox {
 
 /** Прозрачность тела скрытной бактерии (вид, не баланс). */
 const STEALTH_ALPHA = 0.62;
+/** Тело невидимой Тени: почти прозрачное (видно игроку, что она здесь, но башни её не берут). */
+const HIDDEN_ALPHA = 0.18;
 /** Лёд на замороженной бактерии: полупрозрачный неровный кристалл вокруг тела, с гранями и бликом (одна картинка на радиус). */
 function iceImage(scene: Phaser.Scene, radius: number): Phaser.GameObjects.Image {
   const r = Math.round(radius * 2) / 2 + 7;
@@ -135,6 +139,8 @@ export class Bacterium {
   haste = 1;
   /** Сколько секунд прошло с последнего рождения (у матки). */
   brewClock = 0;
+  /** Сколько секунд прошло с последней оставленной плёнки (вид «Плёнка», глава 2). */
+  filmClock = 0;
   /** Яд башни «Антибиотик»: сколько секунд ещё идёт и сколько HP в секунду снимает (0 — не отравлена). Пока бактерия отравлена, она не лечится. */
   poisonLeft = 0;
   poisonDps = 0;
@@ -195,6 +201,13 @@ export class Bacterium {
   /** Замедление от «Сиропа»: сколько секунд ещё действует и во сколько раз медленнее идёт (1 — не замедлена). */
   private slowLeft = 0;
   private slowBy = 1;
+  /** Сколько ещё секунд действует замедление лужей Сиропа: только оно снимает жёсткое свойство бегуна (решение владельца 28 октября 2026, сообщение 3, п. 4). */
+  private puddleSlowLeft = 0;
+  /** Заморожена Холодом с умением ★8 «не лечится» (ранг опыта): лечение не действует, пока лёд не растает. */
+  private noHealFrozen = false;
+  /** Замедление после оттаивания («Долгий мороз»): секунд и во сколько раз медленнее. */
+  private thawSlowSec = 0;
+  private thawSlowFactor = 1;
   private slowRing: Phaser.GameObjects.Image | null = null;
   /** «Кислота» Шипучки: сколько секунд ещё действует и во сколько раз сильнее удары по этой бактерии. */
   private acidLeft = 0;
@@ -268,15 +281,15 @@ export class Bacterium {
     this.hp = this.maxHp;
     this.radius = extentOf(kind) * this.visual;
     const spread = this.boss ? 1 : 1 + (Math.random() * 2 - 1) * CONFIG.bacteria.speedSpread;
-    this.baseSpeed = CONFIG.bacteria.baseSpeed * (this.boss ? this.boss.speedFactor : cfg.speedFactor) * spread;
+    this.baseSpeed = CONFIG.bacteria.baseSpeed * (this.boss ? this.boss.speedFactor : cfg.speedFactor) * spread * conditionSpeedMul();
     this.dashClock = Math.random() * Math.max(1, this.dashEvery);
     this.leapClock = Math.random() * Math.max(0, cfg.leapEverySec);
     this.edge = edge;
     this.s = Math.max(0, Math.min(edge.length, s));
 
     const box = bodyBox(kind);
-    this.body = artImage(scene, bodyTexture(scene, kind, shellWidth(kind, this.hp, this.maxHp), false, this.eyes()), box);
-    this.cracks = artImage(scene, bodyTexture(scene, kind, shellWidth(kind, this.hp, this.maxHp), false, this.eyes()), box).setVisible(false);
+    this.body = artImage(scene, this.bodyArtKey(), box);
+    this.cracks = artImage(scene, this.bodyArtKey(), box).setVisible(false);
     // Круглые типы: трещины повёрнуты на свой угол у каждой бактерии (как раньше: от угла seed)
     if (hasRadialCracks(kind)) this.cracks.setRotation(this.seed);
     this.breathSec = BREATH_SEC[kind][0] + Math.random() * (BREATH_SEC[kind][1] - BREATH_SEC[kind][0]);
@@ -291,6 +304,8 @@ export class Bacterium {
       if (decor) this.shape.add(decor);
       this.decorated = true;
     }
+    // Тень (мини-босс главы 2): рваный дымный ореол под телом
+    if (this.bossId === 'shadow') this.shape.addAt(shadowHaloImage(scene, cfg.radius), 0);
     this.container = scene.add.container(0, 0, [this.shape]);
     // Босс: кольцо своего цвета вокруг тела
     if (this.boss) this.container.add(ringImage(scene, 0, 0, this.radius + 10, 6, this.boss.color, 0.95));
@@ -324,15 +339,21 @@ export class Bacterium {
     return this.slowLeft > 0;
   }
 
+  /** Замедлена лужей Сиропа (с окном после выхода из неё): только это снимает жёсткое свойство бегуна; замедление после льда — нет. */
+  get puddleSlowed(): boolean {
+    return this.puddleSlowLeft > 0;
+  }
+
   /**
    * Замедлить: идёт в `factor` раз медленнее `seconds` секунд. Повторное попадание не усиливает замедление (берётся сильнейшее)
    * и продлевает время до `seconds`, но не суммируется.
    */
-  slow(factor: number, seconds: number): void {
+  slow(factor: number, seconds: number, puddle = false): void {
     if (factor >= 1 || seconds <= 0 || this.hp <= 0 || CONFIG.types[this.kind].slowImmune > 0) return;
     // Вожак палочек замедляется не сильнее своего предела
     if (this.boss?.slowFloor) factor = Math.max(factor, this.boss.slowFloor);
     if (factor >= 1) return;
+    if (puddle) this.puddleSlowLeft = Math.max(this.puddleSlowLeft, seconds);
     this.slowBy = this.slowLeft > 0 ? Math.min(this.slowBy, factor) : factor;
     this.slowLeft = Math.max(this.slowLeft, seconds);
     if (!this.slowRing) {
@@ -395,10 +416,13 @@ export class Bacterium {
   }
 
   /** Заморозка: бактерия стоит на месте `seconds` секунд (только если `freezable`); `brittle` — во сколько раз сильнее удары по ней, пока заморожена (ключ «Хрупкость»). */
-  freeze(seconds: number, brittle = 1): void {
+  freeze(seconds: number, brittle = 1, thawSlowSec = 0, thawSlowFactor = 1, noHeal = false): void {
     if (seconds <= 0 || !this.freezable) return;
     this.freezeLeft = seconds;
+    this.noHealFrozen = noHeal;
     this.brittleMul = brittle;
+    this.thawSlowSec = thawSlowSec;
+    this.thawSlowFactor = thawSlowFactor;
     if (!this.ice) {
       this.ice = iceImage(this.scene, this.radius);
       this.container.add(this.ice);
@@ -488,7 +512,7 @@ export class Bacterium {
   /** Действует ли сейчас жёсткое свойство (для серого кольца): бегун вне лужи, бронированный с бронёй, слизень, босс в последней фазе. */
   get guarded(): boolean {
     switch (this.ward) {
-      case 'slow': return !this.slowed;
+      case 'slow': return !this.puddleSlowed;
       case 'pierce': return this.armor > 0;
       case 'beam': case 'memory': return true;
       case 'area': return this.inFinalPhase;
@@ -591,6 +615,9 @@ export class Bacterium {
         this.brittleMul = 1;
         this.sinceThaw = 0;
         this.ice?.setVisible(false);
+        // «Долгий мороз»: после льда — замедление (не лужей: жёсткое свойство бегуна не снимает)
+        if (this.thawSlowSec > 0) this.slow(this.thawSlowFactor, this.thawSlowSec);
+        this.thawSlowSec = 0;
       }
     }
     if (this.absorbLeft > 0) {
@@ -634,6 +661,7 @@ export class Bacterium {
       }
       this.wardRing?.setVisible(on);
     }
+    if (this.puddleSlowLeft > 0) this.puddleSlowLeft = Math.max(0, this.puddleSlowLeft - dt);
     if (this.slowLeft > 0) {
       // замедление действует на ту долю шага, что от него осталась (большой шаг не теряет его конец; находка аудита MASTER-0059)
       const p = dt > 0 ? Math.min(dt, this.slowLeft) / dt : 0;
@@ -716,9 +744,16 @@ export class Bacterium {
     this.applyBody();
   }
 
+  /** Ключ картинки тела: у боссов главы 2 — свой рисунок по листу главы, у остальных — тело вида. */
+  private bodyArtKey(): string {
+    const sw = shellWidth(this.kind, this.hp, this.maxHp);
+    const ch2 = this.bossId ? CH2_BOSS_ART[this.bossId] : undefined;
+    return ch2 ? styleCh2BossKey(this.scene, this.kind, ch2, sw) : bodyTexture(this.scene, this.kind, sw, false, this.eyes());
+  }
+
   /** Ставит на тело картинку по текущей толщине оболочки и состоянию глаз (если она изменилась). */
   private applyBody(): void {
-    const bodyKey = bodyTexture(this.scene, this.kind, shellWidth(this.kind, this.hp, this.maxHp), false, this.eyes());
+    const bodyKey = this.bodyArtKey();
     if (bodyKey === this.bodyKey) return;
     this.bodyKey = bodyKey;
     setArt(this.body, bodyKey, bodyBox(this.kind));
@@ -764,7 +799,7 @@ export class Bacterium {
     if (this.capsuleLeft > 0) return false;
     // жёсткое свойство: бронированного яд не берёт (пока есть броня), босса в последней фазе — тоже, бегуна — вне лужи и окна после неё
     // бегуна яд и ловушка ранят только в луже и в окне после неё (как прямой удар, `ward` 'slow'); тот же смысл — `guarded`
-    if ((this.ward === 'pierce' && this.armor > 0) || (this.ward === 'area' && this.inFinalPhase) || (this.ward === 'slow' && !this.slowed)) return false;
+    if ((this.ward === 'pierce' && this.armor > 0) || (this.ward === 'area' && this.inFinalPhase) || (this.ward === 'slow' && !this.puddleSlowed)) return false;
     this.hp = Math.max(0, this.hp - amount);
     if (Math.abs(this.hp - this.drawnHp) >= 0.5 || this.hp <= 0) {
       this.redraw();
@@ -786,6 +821,8 @@ export class Bacterium {
   /** Лечение (от лекаря рядом, самолечение): не выше полного HP; отравленная бактерия не лечится; тело перерисовывается, когда HP изменилось заметно. */
   heal(amount: number): void {
     if (this.hp <= 0 || this.hp >= this.maxHp || this.poisonLeft > 0) return;
+    // умение ★8 Холода: замороженная им бактерия не лечится, пока не оттает
+    if (this.noHealFrozen && this.freezeLeft > 0) return;
     this.hp = Math.min(this.maxHp, this.hp + amount);
     if (Math.abs(this.hp - this.drawnHp) >= 0.5 || this.hp >= this.maxHp) {
       this.redraw();
@@ -816,7 +853,35 @@ export class Bacterium {
 
   /** Скрытность: доля радиуса башни, на которой её видят (0 — не скрытная). */
   get stealth(): number {
+    if (this.boss) return this.phase()?.stealth ?? this.boss.stealth ?? CONFIG.types[this.kind].stealth;
     return CONFIG.types[this.kind].stealth;
+  }
+
+  /** Плёнка под бактерией (вид «Плёнка», мини-босс Зубной камень, босс Кариес — с учётом фазы); null — плёнки не оставляет. */
+  get filmPlan(): { everySec: number; sec: number; radius: number; wide: boolean } | null {
+    const cfg = CONFIG.types[this.kind];
+    const p = this.boss ? this.phase() : null;
+    const everySec = this.boss ? (p?.filmEverySec ?? this.boss.filmEverySec ?? cfg.filmEverySec) : cfg.filmEverySec;
+    const sec = this.boss ? (p?.filmSec ?? this.boss.filmSec ?? cfg.filmSec) : cfg.filmSec;
+    const radius = this.boss ? (p?.filmRadius ?? this.boss.filmRadius ?? cfg.filmRadius) : cfg.filmRadius;
+    return everySec > 0 && sec > 0 && radius > 0 ? { everySec, sec, radius, wide: this.boss?.filmWide ?? false } : null;
+  }
+
+  /** Тень: часы невидимости (раз в hideEverySec на hideSec секунд). */
+  private hideClock = 0;
+  /** Невидим сейчас (мини-босс Тень): башни не выбирают целью. */
+  hidden = false;
+
+  /** Шаг невидимости Тени: hideEverySec секунд видна, затем hideSec секунд невидима (тело почти прозрачно). */
+  stepHide(dt: number): void {
+    const every = this.boss?.hideEverySec ?? 0;
+    const sec = this.boss?.hideSec ?? 0;
+    if (every <= 0 || sec <= 0 || this.hp <= 0) return;
+    this.hideClock = (this.hideClock + dt) % (every + sec);
+    const hidden = this.hideClock >= every;
+    if (hidden === this.hidden) return;
+    this.hidden = hidden;
+    this.shape.setAlpha(hidden ? HIDDEN_ALPHA : 1);
   }
 
   /** Сколько жизней отнимает, дойдя до организма; у босса уровня −1 — поражение сразу. */

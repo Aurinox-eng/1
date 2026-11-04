@@ -294,6 +294,22 @@ const REVIEW_STEPS = [
   ['fizzA', 4], ['pillA', 4], ['fizzA', 8], ['syringeB', 8], ['syrupB', 4], ['fizzB', 8],
   ['pillA', 8], ['syrupB', 8], ['pillB', 8], ['fizzC', 8], ['syrupC', 8], ['fizzD', 2], ['fizzE', 1],
 ];
+/**
+ * fx:v — после всей обороны образца группы достраиваются до V (16 обычных башен), по очереди: два Шприца, Шипучка, Сироп у входа (перекалибровка уровня 1 со слиянием до V,
+ * решение владельца 28 октября 2026, сообщение 3, п. 3.1: образец собирает группы ровно до IV, и V без этого правила в замере не появляется).
+ */
+const REVIEW_V_STEPS = [['syringeA', 16], ['syringeB', 16], ['fizzA', 16], ['syrupA', 16]];
+/**
+ * Порядок образца с купленными башнями (решение владельца 31 октября 2026, сообщение 1, п. 1.2): ранняя оборона — как в 1-й попытке (первые REVIEW_FIRST_PILLS обычных
+ * Таблеток — до всего остального; Шипучка — только когда группа Таблеток дошла до IV — REVIEW_EARLY_PILLS обычных башен — или наступила волна REVIEW_EARLY_WAVE),
+ * Сироп — за REVIEW_SYRUP_LEAD волн до первого выхода бегунов (волна — из плана уровня, `plan.firstWave.runner`; бегуна ранят только в луже). Шприц — главный урон образца:
+ * строится сразу после первых Таблеток, в прежнем порядке REVIEW_STEPS (лестница `41230985157` с Шприцем после ранних Таблеток: 4–5 попыток подряд гибель на 12-й волне).
+ * Прежде после покупки узлов башен образец со 2-й попытки начинал с Шипучки и Сиропа и гиб раньше 1-й попытки (6–8-я волна против 9–11-й).
+ */
+const REVIEW_EARLY_WAVE = 10;
+const REVIEW_EARLY_PILLS = 8;
+const REVIEW_FIRST_PILLS = 4;
+const REVIEW_SYRUP_LEAD = 2;
 /** Покупки очков ДНК по отчёту (с. 71): узел и уровень, до которого он покупается, в порядке покупок за попытки 1–5. */
 const REVIEW_BUYS = [['towerSyrup', 1], ['towerFizz', 1], ['towerSyringe', 1], ['damage', 1], ['coins', 3], ['syringePower', 1], ['syrupPower', 1]];
 const listArg = (name) => (args[name] === undefined || args[name] === true ? null : String(args[name]).split(',').map((x) => x.trim()).filter(Boolean));
@@ -432,9 +448,12 @@ const NO_ALT = new Set();
  *  iv     — Шприцы кучкой в радиусе слияния от первого и строятся до IV раньше остального (круг до волны LATE_WAVE: Сироп, четыре Шприца, Сироп, четыре Шприца);
  *  puddle — лужи Сиропа ложатся на пересечения лучей Шприцев с дорожкой;
  *  coins  — «Стартовые монеты» в начале порядка очков ДНК: после башен Сироп, Шипучка, Шприц — три уровня.
+ *  v      — только образец (review): после всей обороны группы достраиваются до V (`REVIEW_V_STEPS`).
  */
-const FX_KNOWN = ['beam', 'beamlen', 'iv', 'puddle', 'coins'];
+const FX_KNOWN = ['beam', 'beamlen', 'iv', 'puddle', 'coins', 'v'];
 const FX = new Set();
+/** Предел уровня слияния у бота (по умолчанию — без предела; `--mut mergelimit:4`). */
+let MERGE_LIMIT = 99;
 /** Запись «nolatebuy» в --mut: без покупки веток Таблетки и Шипучки после выхода на волну N (core:…:late). */
 const NO_LATE_BUY = { value: false };
 if (MUT_ALT) for (const [towerId, ids] of Object.entries(DEFAULT_MUT)) MUT_IDS[towerId] = ids.map((id, tier) => (MUTATION_IDS[towerId]?.[tier] ?? []).find((x) => x !== id) ?? id);
@@ -446,6 +465,12 @@ else if (args.mut !== undefined) {
     // «nolatebuy» — core:…:late без правила e81a82e: очки ДНК только в ветки ядра и после выхода на волну N (сверка, сообщение владельца 4 от 20 октября 2026, п. 4)
     if (towerId === 'nolatebuy') {
       NO_LATE_BUY.value = true;
+      continue;
+    }
+    // «mergelimit:4» — бот не сливает башни выше IV уровня (план docs/tower-levels-xp-plan-2026-10-24.md, раздел 7: замер опыта сначала с пределом IV, потом без него; правило 12)
+    if (towerId === 'mergelimit') {
+      MERGE_LIMIT = Number(list);
+      if (!Number.isInteger(MERGE_LIMIT) || MERGE_LIMIT < 1) die(`--mut=mergelimit:N — N целое от 1, получено «${list}»`);
       continue;
     }
     if (towerId === 'noalt') {
@@ -1087,10 +1112,17 @@ function makePlayer({ world, rng, buttons }) {
   const reviewDecide = (view) => {
     const fighting = view.towers.filter((tw) => tw.id !== 'syrup').reduce((sum, tw) => sum + 2 ** ((tw.level ?? 1) - 1), 0);
     const syrups = view.towers.filter((tw) => tw.id === 'syrup').reduce((sum, tw) => sum + 2 ** ((tw.level ?? 1) - 1), 0);
-    for (const [key, target] of REVIEW_STEPS) {
+    const wave = view.s.wave ?? 0;
+    const early = reviewUnits(view, 'pillA') < REVIEW_EARLY_PILLS && wave < REVIEW_EARLY_WAVE;
+    // уровень без бегунов или без плана волн — Сироп в прежнем порядке
+    const runnerWave = view.s.plan?.firstWave?.runner;
+    const syrupOpen = runnerWave === undefined || wave >= runnerWave - REVIEW_SYRUP_LEAD;
+    for (const [key, target] of FX.has('v') ? [...REVIEW_STEPS, ...REVIEW_V_STEPS] : REVIEW_STEPS) {
       const g = REVIEW_GROUPS[key];
       if (!available(g.type) || reviewGaveUp.has(key) || reviewUnits(view, key) >= target) continue;
-      if (g.type === 'syrup' && syrups + 1 > fighting) continue;
+      if (reviewUnits(view, 'pillA') < REVIEW_FIRST_PILLS && g.type !== 'pill') continue;
+      if (early && g.type === 'fizz') continue;
+      if (g.type === 'syrup' && (!syrupOpen || syrups + 1 > fighting)) continue;
       const cell = reviewCell(view, key);
       if (!cell) {
         reviewGaveUp.add(key);
@@ -1454,7 +1486,7 @@ async function playGame(browser, baseUrl, run, metaLevels = null, salt = '', lev
      * Возвращает true, если слилось.
      */
     const mergeOnce = async (s0) => {
-      const limit = 99; // эксперт сливает до предела игры (maxTowerLevel)
+      const limit = MERGE_LIMIT; // эксперт сливает до предела игры (maxTowerLevel); запись `mergelimit:N` в --mut — не выше уровня N (замер опыта с пределом слияния IV, п. 7.3 плана слияния до VIII)
       const radius = s0.mergeRadiusPx;
       const groups = new Map();
       for (const tw of s0.towers) {
@@ -1561,6 +1593,9 @@ async function playGame(browser, baseUrl, run, metaLevels = null, salt = '', lev
     // 3) главный цикл
     const bad = new Set(); // клетки, где не вышло
     const waveSeen = { wave: 0 };
+    // Опыт башен (замер 6.6, решение владельца 25 октября 2026): на начале волн 10/20/30/40/50 и в конце партии — [вид, столбец, ряд, уровень, опыт] каждой башни; поведение бота не меняется
+    const xpByWave = {};
+    const xpSnapshot = (st) => st.towers.map((tw) => [tw.id, tw.col, tw.row, tw.level, Math.round((tw.xp ?? 0) * 100) / 100]);
     const timeline = [];
     // Журнал волны (план переработки баланса, 18 октября 2026): сколько HP вышло в волне, за сколько игровых секунд после выхода последней бактерии поле опустело, «бумажный» урон обороны
     // (урон × удары в очереди луча / настоящая пауза, по одной цели), сколько бактерий было на карте одновременно; пишется в запись волны при переходе к следующей.
@@ -1627,6 +1662,7 @@ async function playGame(browser, baseUrl, run, metaLevels = null, salt = '', lev
         if (prev) Object.assign(prev, { hpSpawned: Math.round(ws.hp), clearSec: ws.clearT === null ? null : Math.round((ws.clearT - ws.startT) * 10) / 10, maxOnMap: ws.maxOnMap, builds: record.builds.length - ws.buildsAt });
         ws = { hp: 0, startT: s.elapsed, clearT: null, maxOnMap: 0, buildsAt: record.builds.length };
         waveSeen.wave = s.wave;
+        if ([10, 20, 30, 40, 50].includes(s.wave)) xpByWave[s.wave] = xpSnapshot(s);
         timeline.push({ wave: s.wave, t: Math.round(s.elapsed), coins: s.coins, towers: s.towers.length, lives: s.lives, dps: Math.round(paperDps(s) * 10) / 10, merges: record.merges, picks: record.picks });
       }
       for (const b of s.bacteria) {
@@ -1719,12 +1755,14 @@ async function playGame(browser, baseUrl, run, metaLevels = null, salt = '', lev
       const tail = timeline[timeline.length - 1];
       if (tail && tail.hpSpawned === undefined) Object.assign(tail, { hpSpawned: Math.round(ws.hp), clearSec: ws.clearT === null ? null : Math.round((ws.clearT - ws.startT) * 10) / 10, maxOnMap: ws.maxOnMap, builds: record.builds.length - ws.buildsAt });
     }
+    xpByWave.end = xpSnapshot(last);
     const counts = {};
     for (const id of KNOWN_TOWERS) counts[id] = last.towers.filter((tw) => tw.id === id).length;
     const startCoins = (last.plan?.startCoins ?? cfgGet('economy.startCoins') ?? readConfigNumber('economy', 'startCoins')) + (metaLevels ? (metaLevels.coins ?? 0) * META.upgrades.coins.perLevel : 0); // уровень нового формата — монеты плана (200)
     return {
       profile,
       strategy: STRATEGY_LABEL,
+      xpByWave,
       run,
       result,
       wave: last.wave,

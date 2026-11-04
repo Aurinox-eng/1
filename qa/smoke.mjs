@@ -94,6 +94,7 @@
  *   wards                  жёсткое свойство «бегуна ранят только в луже» (решение владельца 24 октября 2026, сообщение 2, пп. 2.2–2.3): ловушка Пластыря вне лужи — 0 урона, яд «Едкой» в луже ранит; Таблетка не стреляет по незамедленному бегуну, при других целях бьёт их; Сироп кладёт лужу и под незамедленного бегуна
  *   spiral-cap             ключ `mutationCaps.spiralInCap` (решение владельца 25 октября 2026, сообщение 1, п. 2.3): выключен — Шприц IV с «Бронебойный» ×2, «Больше ударов» ×2 и «Спиралью» бьёт ×4,7 к башне без мутаций (числа прежние); включён — не выше ×2,5, прибавка «Спирали» ужата
  *   marks                  макет знаков уровня и ранга на настоящих башнях (решение владельца 25 октября 2026, сообщение 1, п. 6.7): снимки плотной сцены `marks-desktop` и `marks-phone`, проверок значений нет
+ *   xp                     опыт башен и уровни V–VIII (ветка слияния до VIII, решение владельца 25 октября 2026, п. 9): убитый кокк даёт `lifeDamage` каждой башне в зоне и не даёт башне вне зоны, при слиянии опыт складывается, Витамин получает долю опыта башен в ауре; числа башен на уровнях 1–8 не ухудшаются и хоть одно растёт (перебор), Холод на VI–VIII — пауза 6,0 с и заморозка 3,0 с
  *   restart-button         конец уровня (проигрыш и победа, компьютер ru и телефон en): есть кнопка «Заново» (endButton), тапы мимо неё не перезапускают, тап по ней — перезапускает
  *   deflation              economy.rewardMul: ×0,5 — два кокка номиналом 5 дают 2 + 3 = 5 монет (дробная часть копится); ×0,1 — 0 + 1, «+N» всплывает только при N ≥ 1
  *   camera-fit             самое сильное отдаление (считает игра, (считает игра): высота карты × масштаб ≤ высоты окна карты (568), ширина влезает, камера по центру и сдвигом не уводится
@@ -141,6 +142,7 @@ import {
   readKinds,
   readLevel,
   readMetaTable,
+  readMutationIds,
   branchOpen,
   towerNodeId,
   dnaWavesReward,
@@ -166,7 +168,7 @@ if (['stage-1', 'stage-1b', 'stage-1b-qa', 'td-1-mockup', 'tmp'].includes(tag)) 
   process.exit(2);
 }
 
-const SCENARIOS = ['desktop-ru', 'phone-ru', 'desktop-en', 'phone-en', 'rules', 'graph', 'combat', 'dash', 'split', 'spore', 'armored', 'intro', 'lose-ru', 'lose-en', 'win-ru', 'win-en', 'towers', 'card', 'merge', 'mutations', 'sell', 'special', 'danger', 'rotate', 'production', 'fullgame', 'locked', 'strip', 'almanac', 'almanac-pause', 'damage-numbers', 'sell-gap', 'restart-button', 'deflation', 'camera-fit', 'colors', 'meta-save', 'meta-dna', 'meta-shop', 'meta-effects', 'tree-effects', 'tree-shop', 'level-waves', 'progress-save', 'stars', 'menu-flow', 'menu-reset', 'levels-lock', 'step-dps', 'sound', 'sdk', 'lose-line', 'attempt-line', 'toast-queue', 'shake', 'bosses', 'level2', 'wards', 'spiral-cap', 'marks', 'menu-exit', 'resume-tap', 'two-tabs', 'treemock', 'faces', 'real-game', 'dna-cap']
+const SCENARIOS = ['desktop-ru', 'phone-ru', 'desktop-en', 'phone-en', 'rules', 'graph', 'combat', 'dash', 'split', 'spore', 'armored', 'intro', 'lose-ru', 'lose-en', 'win-ru', 'win-en', 'towers', 'card', 'merge', 'mutations', 'sell', 'special', 'danger', 'rotate', 'production', 'fullgame', 'locked', 'strip', 'almanac', 'almanac-pause', 'damage-numbers', 'sell-gap', 'restart-button', 'deflation', 'camera-fit', 'colors', 'meta-save', 'meta-dna', 'meta-shop', 'meta-effects', 'tree-effects', 'tree-shop', 'level-waves', 'progress-save', 'stars', 'menu-flow', 'menu-reset', 'levels-lock', 'step-dps', 'sound', 'sdk', 'lose-line', 'attempt-line', 'toast-queue', 'shake', 'bosses', 'level2', 'wards', 'spiral-cap', 'marks', 'menu-exit', 'resume-tap', 'two-tabs', 'treemock', 'faces', 'real-game', 'dna-cap', 'xp', 'names', 'ranks']
 const only = args.only === undefined ? null : String(args.only);
 if (only !== null && !SCENARIOS.includes(only)) {
   console.error(`Неизвестный сценарий --only=${only}. Есть: ${SCENARIOS.join(', ')}`);
@@ -1335,6 +1337,114 @@ function towerClearance(s, prefix) {
   check(`${prefix}: центр каждой из ${s.towers.length} башен дальше ${f1(limit - 0.5)} px от ближайшей точки ребра (минимум ${f1(minPt)}), основание башни не заходит на полосу дорожки с каймой (до кривой ≥ ${f1(needCurve)} px = ${edgeHalf} + ${base} − ${f1(GEO.sagPx)} на изгиб, минимум ${f1(minCurve)})`, s.towers.length > 20 && limit >= edgeHalf + base - GEO.sagPx && minPt >= limit - 0.5 && minCurve >= needCurve, `точки рёбер: ${f1(minPt)}, кривая: ${f1(minCurve)}, запас клетки ${f1(limit)}`);
 }
 
+/**
+ * Имена мутаций, узлов древа, умений ★4/★8, условий уровней, видов бактерий и боссов не повторяются — отдельно RU и EN, без учёта регистра (решение владельца 29 октября 2026,
+ * сообщение 1, п. 2). Без браузера: ключи берутся из таблиц `src/config.ts` (мутации, узлы, виды, боссы) и по началу ключа в `src/i18n.ts` (`skill…` — умения, `cond…` — условия);
+ * имена из плана глав — `readPlanNames`.
+ */
+/**
+ * Имена из плана глав (`docs/content-plan-2026-10-26.md`: новые виды, мини-боссы, башни, их ключевые узлы и мутации, препятствия и зоны, условия уровней; финальные боссы глав —
+ * `docs/levels30-enemies-plan-2026-10-26.md`, п. 8.4; сообщение владельца 1 от 2 ноября 2026, п. 3.5) — проверяются вместе с именами игры,
+ * чтобы будущие повторы ловились заранее (решение владельца 31 октября 2026, сообщение 1, п. 2.5). Повторы, уже известные плану (раздел 9а; «частая» — найден проверкой
+ * 31 октября 2026, «пробка» — 2 ноября 2026), пропускаются: новые имена — владельцу с листом главы, где объект появляется; после замены — убрать из списка.
+ */
+const PLAN_NAMES_PENDING = new Set(['колония', 'флора', 'фильтр', 'иммунитет', 'хрупкость', 'кислота', 'частая', 'тромб', 'барьер', 'пробка']);
+/** Раздел `## N.` (или `### N.`) документа: от заголовка до следующего заголовка того же уровня. */
+function docSection(doc, n, level = '##') {
+  const a = doc.indexOf(`\n${level} ${n}.`);
+  const b = doc.indexOf(`\n${level} `, a + level.length + 3);
+  return a < 0 ? '' : doc.slice(a, b < 0 ? undefined : b);
+}
+/** Имена препятствий и зон из ячейки «зубы (непроходимые), налёт (разрушаемый)»: запятые вне скобок делят имена; «зона «X»» — имя X; пояснение в скобках отбрасывается. */
+function obstacleNames(cell) {
+  const out = [];
+  let depth = 0;
+  let cur = '';
+  for (const ch of `${cell},`) {
+    if (ch === '(') depth++;
+    if (ch === ')') depth--;
+    if (ch === ',' && depth === 0) {
+      const item = cur.trim();
+      cur = '';
+      if (!item || item === '—' || item.startsWith('—')) continue;
+      const zone = /^зона\s*«(.+?)»/.exec(item);
+      out.push(zone ? zone[1] : item.replace(/\(.*\)/g, '').trim());
+      continue;
+    }
+    cur += ch;
+  }
+  return out.filter(Boolean);
+}
+function readPlanNames() {
+  const doc = fs.readFileSync(path.join(ROOT, 'docs', 'content-plan-2026-10-26.md'), 'utf8');
+  const section = (n) => docSection(doc, n);
+  const rows = (txt) => txt.split('\n').filter((l) => l.startsWith('|') && !/^\|\s*-/.test(l)).slice(1).map((l) => l.split('|').slice(1, -1).map((c) => c.trim()));
+  const out = [];
+  for (const r of rows(section(1))) {
+    const m = /\*\*(.+?)\*\*/.exec(r[4] ?? '');
+    if (m) out.push(['вид (план)', m[1]]);
+  }
+  for (const r of rows(section(2))) if (r[1]) out.push(['мини-босс (план)', r[1]]);
+  const [towers, muts = ''] = section(3).split('Мутации (по две');
+  for (const r of rows(towers)) {
+    const m = /\*\*(.+?)\*\*/.exec(r[1] ?? '');
+    if (m) out.push(['башня (план)', m[1]]);
+    const k = /«(.+?)»/.exec(r[5] ?? '');
+    if (k) out.push(['ключевой узел (план)', k[1]]);
+  }
+  for (const r of rows(muts)) for (const c of r.slice(1)) for (const m of c.matchAll(/(?:^|\/\s*)«(.+?)»/g)) out.push(['мутация (план)', m[1]]);
+  for (const r of rows(section(5))) {
+    const m = /«(.+?)»/.exec(r[1] ?? '');
+    if (m) out.push(['условие (план)', m[1]]);
+  }
+  // препятствия и зоны (раздел 4; сообщение владельца 1 от 2 ноября 2026, п. 3.5): одно препятствие в разных главах — одно имя, не повтор
+  const obstacles = new Set();
+  for (const r of rows(section(4))) for (const n of obstacleNames(r[1] ?? '')) obstacles.add(n.toLowerCase());
+  for (const n of obstacles) out.push(['препятствие (план)', n]);
+  // финальные боссы глав 2–15 (`docs/levels30-enemies-plan-2026-10-26.md`, п. 8.4)
+  const old = fs.readFileSync(path.join(ROOT, 'docs', 'levels30-enemies-plan-2026-10-26.md'), 'utf8');
+  const bossTable = docSection(old, '8.4', '###').split('**Вопрос')[0];
+  for (const r of rows(bossTable)) if (r[1] && /^\d+$/.test(r[0])) out.push(['босс главы (план)', r[1]]);
+  return out;
+}
+function runNames() {
+  const p = '[имена не повторяются]';
+  const src = fs.readFileSync(path.join(ROOT, 'src', 'i18n.ts'), 'utf8');
+  const cfg = fs.readFileSync(path.join(ROOT, 'src', 'config.ts'), 'utf8');
+  const cap = (x) => x[0].toUpperCase() + x.slice(1);
+  const texts = (key) => [...src.matchAll(new RegExp(`\\b${key}:\\s*(?:'([^']*)'|"([^"]*)")`, 'g'))].map((m) => m[1] ?? m[2]);
+  const names = [];
+  for (const list of Object.values(readMutationIds())) for (const ids of list) for (const id of ids) names.push(['мутация', `mut${cap(id)}`]);
+  for (const id of Object.keys(readMetaTable().upgrades)) names.push(['узел', `upg${cap(id)}`]);
+  for (const k of readKinds()) names.push(['вид', `bacName${cap(k)}`]);
+  const b0 = cfg.indexOf('\n  bosses: {');
+  for (const m of cfg.slice(b0, cfg.indexOf('\n  },', b0)).matchAll(/^\s{4}(\w+):\s*\{\s*base:/gm)) names.push(['босс', `boss${cap(m[1])}`]);
+  for (const m of src.matchAll(/^\s+((?:skill|cond)[A-Z]\w*):/gm)) if (!names.some((n) => n[1] === m[1])) names.push([m[1].startsWith('skill') ? 'умение' : 'условие', m[1]]);
+  const missing = names.filter(([, key]) => texts(key).length < 2).map(([, key]) => key);
+  check(`${p} у каждого имени (${names.length}) есть текст RU и EN`, missing.length === 0, missing.join(', '));
+  for (const [lang, li] of [['RU', 0], ['EN', 1]]) {
+    const seen = new Map();
+    for (const [kind, key] of names) {
+      const v = texts(key)[li];
+      if (v === undefined) continue;
+      const n = v.trim().toLowerCase();
+      seen.set(n, [...(seen.get(n) ?? []), `${kind} ${key}`]);
+    }
+    // в план глав имена записаны по-русски: они — только в проверке RU
+    // вид или босс плана, уже введённый в игру под тем же именем, — тот же объект, не повтор (вид и босс в игре одни; мутации, узлы и условия бывают у разных башен и уровней — их сравниваем всегда)
+    const SAME = { 'вид (план)': ['вид'], 'мини-босс (план)': ['босс'], 'босс главы (план)': ['босс'] };
+    if (lang === 'RU') for (const [kind, name] of readPlanNames()) {
+      const n = name.trim().toLowerCase();
+      const have = seen.get(n) ?? [];
+      if (have.some((x) => (SAME[kind] ?? []).includes(x.split(' ')[0]))) continue;
+      seen.set(n, [...have, kind]);
+    }
+    const dups = [...seen].filter(([n, list]) => list.length > 1 && !PLAN_NAMES_PENDING.has(n));
+    const pending = [...seen].filter(([n, list]) => list.length > 1 && PLAN_NAMES_PENDING.has(n)).length;
+    check(`${p} ${lang}: повторов нет (имён ${seen.size}${lang === 'RU' ? `, с планом глав; повторов плана, ждущих новых имён с листами глав: ${pending}` : ''})`, dups.length === 0, dups.map(([n, list]) => `«${n}»: ${list.join(' | ')}`).join('; '));
+  }
+}
+
 async function runRules(browser, baseUrl) {
   const p = '[правила клеток]';
   const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
@@ -2388,10 +2498,13 @@ async function runWards(browser, baseUrl) {
   try {
     const mixCfg = (mix) => [...new Set([...Object.keys(PLAN[0].mix), ...Object.keys(mix)])].map((k) => `levels.specs.0.plan.waves.0.mix.${k}:${mix[k] ?? 0}`).join(',');
     /** Одна партия: башни по списку, первая волна `mix`; идёт, пока не выйдет бегун и не уйдёт с карты (убит или дошёл). Возвращает все опросы состояния. */
-    const run = async (label, mix, towers, { upgrade = null } = {}) => {
+    // untilClear — партия идёт, пока с карты не уйдут все бактерии (не только бегун): бегун быстрый и уходит раньше кокков, и выстрелы Таблетки по ним не успевали стать убийствами
+    // (падала 28–29 октября 2026: «выстрелов 2, убито 0»; список плавающих, `docs/technical-notes.md`)
+    const run = async (label, mix, towers, { upgrade = null, upgrades = [], untilClear = false } = {}) => {
       const game = await openGame(context, baseUrl, `${p} ${label}`, { speed: 4, cfg: `${mixCfg(mix)},levels.specs.0.plan.startCoins:1500,lives.start:500`, query: '&levelwaves&level=1&towers=all' });
       for (const [id, cell] of towers) await placeSure(game, id, cell);
       if (upgrade) await game.page.evaluate(([c, r, picks]) => window.__pvb.upgradeTower(c, r, picks), [upgrade.cell[0], upgrade.cell[1], upgrade.picks]);
+      for (const u of upgrades) await game.page.evaluate(([c, r, picks]) => window.__pvb.upgradeTower(c, r, picks), [u.cell[0], u.cell[1], u.picks]);
       const samples = [];
       let seen = false;
       const started = Date.now();
@@ -2400,7 +2513,7 @@ async function runWards(browser, baseUrl) {
         samples.push(st);
         const runners = st.bacteria.filter((b) => b.kind === 'runner');
         if (runners.length) seen = true;
-        if ((seen && !runners.length) || st.state !== 'playing' || Date.now() - started > 120000) break;
+        if ((seen && (untilClear ? !st.bacteria.length : !runners.length)) || st.state !== 'playing' || Date.now() - started > 120000) break;
         await sleep(25);
       }
       await game.page.close();
@@ -2421,7 +2534,11 @@ async function runWards(browser, baseUrl) {
     // 2.3: Таблетка не стреляет по бегуну без замедления; при других целях в зоне бьёт их
     const pillOnly = await run('Таблетка и бегун', { runner: 1 }, [['pill', FREE.a]]);
     check(`${p} Таблетка не тратит выстрелы на незамедленного бегуна: выстрелов ${pillOnly.last.shots}, HP бегуна не ниже полного`, pillOnly.seen && pillOnly.last.shots === 0 && fullHp(pillOnly), `выстрелов ${pillOnly.last.shots}, мин. доля ${minHp(pillOnly).toFixed(2)}`);
-    const pillMix = await run('Таблетка, кокки и бегун', { coccus: 3, runner: 1 }, [['pill', FREE.a]]);
+    // «Долгий мороз»: замедление после льда жёсткое свойство бегуна не снимает (решение владельца 28 октября 2026, сообщение 3, п. 4) — Таблетка его не ранит
+    const thaw = await run('лёд «Долгий мороз» и Таблетка', { runner: 1 }, [['frost', FREE.a], ['pill', FREE.b]], { upgrades: [{ cell: FREE.a, picks: [] }, { cell: FREE.a, picks: [] }, { cell: FREE.a, picks: ['frostDeep', 'frostLong'] }] });
+    const thawSlowed = runnersOf(thaw).some((b) => b.slowed);
+    check(`${p} «Долгий мороз»: бегун после льда замедлен (${thawSlowed}), но не ранен — Таблетка по нему не бьёт (мин. доля HP ${minHp(thaw).toFixed(2)})`, thaw.seen && thawSlowed && fullHp(thaw), `замедлен ${thawSlowed}, мин. доля ${minHp(thaw).toFixed(2)}`);
+    const pillMix = await run('Таблетка, кокки и бегун', { coccus: 3, runner: 1 }, [['pill', FREE.a]], { untilClear: true });
     check(`${p} при других целях в зоне Таблетка бьёт их: выстрелов ${pillMix.last.shots}, убито ${pillMix.last.kills}; бегун не ранен`, pillMix.seen && pillMix.last.shots > 0 && pillMix.last.kills >= 1 && fullHp(pillMix), `выстрелов ${pillMix.last.shots}, убито ${pillMix.last.kills}, мин. доля ${minHp(pillMix).toFixed(2)}`);
     // Сироп и Таблетка: лужа ложится и под незамедленного бегуна (Сироп не трогаем), в луже Таблетка его бьёт
     const both = await run('Сироп и Таблетка', { runner: 1 }, [['syrup', FREE.a], ['pill', FREE.b]]);
@@ -2525,6 +2642,219 @@ async function runMarks(browser, baseUrl) {
     await game.page.close();
     await context.close();
   }
+}
+
+/**
+ * Опыт башен и уровни V–VIII (ветка слияния до VIII; план docs/tower-levels-xp-plan-2026-10-24.md, разделы 1, 2 и 4):
+ * 1) перебор «башня × уровень 1–8» по числам из игры: ничто не ухудшается, хотя бы одно число растёт, все числа конечны, положительные числа остаются положительными; Холод на VI–VIII — пауза 6,0 с и заморозка 3,0 с;
+ * 2) опыт: убитый кокк (`lifeDamage` 1) даёт +1 каждой башне, в зоне которой погиб, и 0 — башне вне зоны; при слиянии опыт складывается; Витамин получает `xp.vitaminShare` опыта башен в своей ауре.
+ */
+/** Таблица рангов из src/config.ts (`ranks`): пороги и действия ★1–★8 каждой башни (объекты-литералы читаются как JS — это наш собственный файл). */
+function readRanks() {
+  const src = fs.readFileSync(path.join(ROOT, 'src', 'config.ts'), 'utf8');
+  const from = src.indexOf('\n  ranks: {');
+  const to = src.indexOf('} as Record<string, RankEffect[]>', from);
+  if (from < 0 || to < 0) throw new Error('В config.ts нет таблицы ranks');
+  const block = src.slice(from, to);
+  const thresholds = JSON.parse(/thresholds:\s*(\[[^\]]*\])/.exec(block)[1]);
+  const dpsCap = Number(/dpsCap:\s*([\d.]+)/.exec(block)[1]);
+  const byTower = {};
+  for (const m of block.matchAll(/^\s{6}(\w+):\s*(\[.*\]),\s*$/gm)) byTower[m[1]] = new Function(`return ${m[2]}`)();
+  return { thresholds, dpsCap, byTower };
+}
+
+/**
+ * Ранги опыта ★1–★8 и умения ★4/★8 (план docs/tower-levels-xp-plan-2026-10-24.md, разделы 3.1–3.2; решение владельца 29 октября 2026, сообщение 1, пп. 1–2):
+ * у каждой из 10 башен числа на ★0…★8 — как в таблице `ranks.byTower` (множители складываются, урон в секунду от рангов не выше `ranks.dpsCap`); на уровне 1 ранг не выше ★4
+ * (`growthLimits`); ранг за настоящий опыт в бою (порог ★1 снижен до 1 очка через cfg).
+ */
+async function runRanks(browser, baseUrl) {
+  const p = '[ранги опыта]';
+  const R = readRanks();
+  const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
+  const cells = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j'].map((k) => FREE[k]).filter(Boolean);
+  // 1) числа по рангам: предел ранга уровня 1 поднят до ★8 через cfg, опыт ставится напрямую
+  const statsAt = async (cfg) => {
+    const out = [];
+    const game = await openGame(context, baseUrl, `${p} числа`, { speed: 1, cfg: ['waves.firstDelaySec:9999', cfg].filter(Boolean).join(','), query: ALL_TOWERS }); // прежний тестовый уровень (уровень игры 1): клетки FREE — те же, что в сценарии xp
+    await game.page.evaluate(([ids, cs]) => ids.forEach((id, i) => window.__pvb.placeTower(id, cs[i][0], cs[i][1], 1)), [TOWER_IDS, cells]);
+    for (let r = 0; r <= R.thresholds.length; r++) {
+      const xp = r === 0 ? 0 : R.thresholds[r - 1];
+      await game.page.evaluate(([cs, v]) => cs.forEach(([c, rw]) => window.__pvb.setTowerXp(c, rw, v)), [cells.slice(0, TOWER_IDS.length), xp]);
+      const st = await game.state();
+      out.push(Object.fromEntries(TOWER_IDS.map((id, i) => [id, towerIn(st, cells[i])])));
+    }
+    await game.page.close();
+    return out;
+  };
+  const byRank = await statsAt('growthLimits.0.rank:8');
+  const near = (a, b) => Math.abs(a - b) <= 1e-6 * Math.max(1, Math.abs(b));
+  const problems = [];
+  for (const id of TOWER_IDS) {
+    const base = byRank[0][id].stats;
+    const steps = R.byTower[id] ?? [];
+    for (let r = 0; r <= steps.length; r++) {
+      const tw = byRank[r][id];
+      if (!tw) {
+        problems.push(`${id}: башня не поставилась`);
+        break;
+      }
+      if (tw.rank !== r) problems.push(`${id}: опыт ${r ? R.thresholds[r - 1] : 0} — ранг ${tw.rank}, ждали ${r}`);
+      const mul = (k) => steps.slice(0, r).reduce((m, e) => m * (e[k] ?? 1), 1);
+      const add = (k) => steps.slice(0, r).reduce((m, e) => m + (e[k] ?? 0), 0);
+      const last = (k, d) => steps.slice(0, r).reduce((v, e) => (e[k] !== undefined ? e[k] : v), d);
+      let dmg = mul('damageMul');
+      const rate = mul('cooldownMul');
+      if (dmg / rate > R.dpsCap) dmg = R.dpsCap * rate;
+      const want = {
+        range: base.range * mul('rangeMul'),
+        cooldownMs: base.cooldownMs * (base.cooldownMs > 0 ? rate : 1),
+        damage: base.damage * dmg,
+        dotPerSec: base.dotPerSec * mul('dotPerSecMul'),
+        dotSec: base.dotSec * mul('dotSecMul'),
+        puddleSec: base.puddleSec * mul('puddleSecMul'),
+        puddleRadius: base.puddleRadius * (base.puddleRadius > 0 && id === 'syrup' ? mul('rangeMul') : 1),
+        slowSec: base.slowSec + add('slowSecAdd'),
+        beamHalfWidthPx: base.beamHalfWidthPx * mul('beamWidthMul'),
+        blastRadius: base.blastRadius * mul('blastMul'),
+        trapSec: base.trapSec * mul('trapSecMul'),
+        trapDps: base.trapDps * mul('trapDpsMul'),
+        xpShare: base.xpShare + add('xpShareAdd'),
+        nthShot: last('nthShot', 0),
+        nthMul: last('nthMul', 1),
+        centerMul: last('centerMul', 1),
+        firstHitMul: last('firstHitMul', 1),
+        lastHitMul: last('lastHitMul', 1),
+        bossMul: last('bossMul', 1),
+        auraXpMul: last('auraXpMul', 1),
+        noHealFrozen: last('noHealFrozen', 0) > 0,
+      };
+      for (const [k, v] of Object.entries(want)) {
+        const got = tw.stats[k];
+        if (typeof v === 'boolean' ? got !== v : !near(got ?? NaN, v)) problems.push(`${id} ★${r}: ${k} ${got} (ждали ${typeof v === 'number' ? +v.toFixed(4) : v})`);
+      }
+    }
+  }
+  check(`${p} числа 10 башен на ★0–★8 — по таблице ranks.byTower (дальность, скорострельность, сила, умения ★4/★8; урон в секунду от рангов не выше ×${R.dpsCap}): расхождений ${problems.length}`, problems.length === 0, problems.slice(0, 6).join(' | '));
+  // 2) предел уровня 1 — ★4: опыт ★8 даёт ★4
+  const capped = await statsAt('');
+  const top = capped.at(-1);
+  const over = TOWER_IDS.filter((id) => top[id]?.rank !== 4);
+  check(`${p} на уровне 1 ранг не выше ★4 (growthLimits): при опыте ${R.thresholds.at(-1)} у всех 10 башен ★4 (не так: ${over.join(', ') || 'нет'})`, over.length === 0, over.map((id) => `${id} ★${top[id]?.rank}`).join(', '));
+  // 3) ранг за настоящий опыт: порог ★1 — 1 очко, один убитый кокк (lifeDamage 1) в зоне Таблетки
+  const game = await openGame(context, baseUrl, `${p} бой`, { speed: 4, cfg: `${wavesOnlyCfg({ coccus: 1 })},waves.firstDelaySec:1,towers.pill.damage:50,economy.startCoins:2000,lives.start:3,types.coccus.lifeDamage:1,waves.total:2,waves.pauseSec:9999,ranks.thresholds.0:1,towers.pill.range:2000`, query: ALL_TOWERS });
+  await placeSure(game, 'pill', FREE.a);
+  const before = towerIn(await game.state(), FREE.a);
+  const s = await waitFor(game.page, (x) => x.kills >= 1 && x.bacteria.length === 0, WAIT_MS, 'гибель кокка');
+  const after = towerIn(s, FREE.a);
+  const step = (R.byTower.pill ?? [])[0]?.rangeMul ?? 1;
+  check(`${p} в бою: убит кокк в зоне Таблетки — опыт ${after.xp}, ранг ★${after.rank} (ждали ★1), радиус ${f1(before.stats.range)} → ${f1(after.stats.range)} (×${step})`, after.rank === 1 && near(after.stats.range, before.stats.range * step), `xp ${after.xp}, rank ${after.rank}`);
+  await frames(game.page, 3);
+  await shot(game.page, 'ranks-battle');
+  await game.page.close();
+  await context.close();
+}
+
+async function runXp(browser, baseUrl) {
+  const p = '[опыт башен и уровни V–VIII]';
+  const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
+  const share = Number(/xp:\s*\{\s*vitaminShare:\s*([\d.]+)/.exec(fs.readFileSync(path.join(ROOT, 'src', 'config.ts'), 'utf8'))[1]);
+  const maxLv = readStage4Tables().levels.length;
+  // ---- 1) перебор чисел башен по уровням
+  const higher = ['damage', 'range', 'blastRadius', 'puddleRadius', 'puddleSec', 'beamPulses', 'beamHalfWidthPx', 'dotPerSec', 'dotSec', 'freezeSec', 'trapSec', 'trapDps', 'coneDeg'];
+  const lower = ['cooldownMs', 'slowFactor', 'auraMul'];
+  const byLevel = []; // byLevel[L][id] = stats
+  const cells = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j'].map((k) => FREE[k]).filter(Boolean);
+  if (cells.length < TOWER_IDS.length) throw new Error(`на карте не нашлось ${TOWER_IDS.length} свободных клеток`);
+  let levelsInGame = 0;
+  for (let level = 1; level <= maxLv; level++) {
+    const game = await openGame(context, baseUrl, `${p} уровень ${level}`, { speed: 1, cfg: 'waves.firstDelaySec:9999', query: ALL_TOWERS });
+    await game.page.evaluate(([ids, cs, lv]) => ids.forEach((id, i) => window.__pvb.placeTower(id, cs[i][0], cs[i][1], lv)), [TOWER_IDS, cells, level]);
+    await sleep(300);
+    const st = await game.state();
+    levelsInGame = st.maxTowerLevel;
+    byLevel[level] = Object.fromEntries(TOWER_IDS.map((id, i) => [id, towerIn(st, cells[i])]));
+    await game.page.close();
+  }
+  check(`${p} в игре ${levelsInGame} уровней башни (ждали ${maxLv})`, levelsInGame === maxLv, `maxTowerLevel ${levelsInGame}`);
+  const problems = [];
+  for (const id of TOWER_IDS) {
+    for (let level = 1; level <= maxLv; level++) {
+      const tw = byLevel[level][id];
+      if (!tw || tw.level !== level) {
+        problems.push(`${id} ур.${level}: башня не поставилась (${tw?.level})`);
+        continue;
+      }
+      for (const [k, v] of Object.entries(tw.stats)) if (typeof v === 'number' && (!Number.isFinite(v) || v < 0)) problems.push(`${id} ур.${level}: ${k} = ${v}`);
+      if (level > 1) {
+        const prev = byLevel[level - 1][id].stats;
+        // не порча уровня: заморозка, упёршаяся в потолок «не дольше доли паузы» (пауза с уровнем короче — заморозка тоже; VI–VIII — отдельная проверка ниже),
+        // и меньший конус Лампы на уровне, где выбрана мутация (placeTower берёт первый вариант: «Узкий луч» — обмен ширины на урон)
+        const capped = (st) => st.freezeSec > 0 && Math.abs(st.freezeSec - (st.cooldownMs / 1000) * CAPS.freezeShareOfCooldown) < 1e-6;
+        const newPick = (tw.picks ?? []).length > (byLevel[level - 1][id].picks ?? []).length;
+        const tradeOff = (k) => (k === 'freezeSec' && capped(tw.stats) && capped(prev)) || (k === 'coneDeg' && newPick);
+        let better = 0;
+        for (const k of higher) {
+          if (tw.stats[k] < prev[k] - 1e-9 && !tradeOff(k)) problems.push(`${id} ур.${level}: ${k} ${prev[k]} → ${tw.stats[k]} (хуже)`);
+          if (tw.stats[k] > prev[k] + 1e-9) better++;
+        }
+        for (const k of lower) {
+          if (tw.stats[k] > prev[k] + 1e-9) problems.push(`${id} ур.${level}: ${k} ${prev[k]} → ${tw.stats[k]} (хуже)`);
+          if (tw.stats[k] < prev[k] - 1e-9) better++;
+        }
+        if (better === 0) problems.push(`${id} ур.${level}: ни одно число не стало лучше`);
+      }
+      if (level > 1) {
+        const first = byLevel[1][id].stats;
+        for (const [k, v] of Object.entries(first)) if (v > 0 && !(tw.stats[k] > 0)) problems.push(`${id} ур.${level}: ${k} был ${v}, стал ${tw.stats[k]}`);
+      }
+    }
+  }
+  check(`${p} башни на уровнях 1–${maxLv} (${TOWER_IDS.length} башен): числа конечны, на каждом шаге ни одно число не хуже и хотя бы одно лучше, положительные не обнуляются: проблем ${problems.length}`, problems.length === 0, problems.slice(0, 5).join(' | '));
+  const frost = [6, 7, 8].map((l) => byLevel[l].frost.stats);
+  check(`${p} Холод на VI–VIII: пауза ${frost.map((x) => x.cooldownMs / 1000).join(', ')} с (ждали 6,0), заморозка ${frost.map((x) => x.freezeSec).join(', ')} с (ждали 3,0), радиус растёт: ${frost.map((x) => x.range.toFixed(1)).join(' < ')}`, frost.every((x) => Math.abs(x.cooldownMs - 6000) < 1e-6 && Math.abs(x.freezeSec - 3) < 1e-6) && frost[0].range < frost[1].range && frost[1].range < frost[2].range);
+
+  // ---- 2) опыт
+  const cfgXp = `${wavesOnlyCfg({ coccus: 1 })},waves.firstDelaySec:1,towers.pill.damage:50,economy.startCoins:2000,lives.start:3,types.coccus.lifeDamage:1,waves.total:2,waves.pauseSec:9999`; // вторая волна не начнётся: партия идёт и после гибели кокка, слияние возможно
+  const [A, B, C] = [FREE.a, FREE.b, FREE.c];
+  // зоны на всю карту: убитый кокк в зоне обеих Таблеток
+  let game = await openGame(context, baseUrl, p, { speed: 4, cfg: `${cfgXp},towers.pill.range:2000`, query: ALL_TOWERS });
+  await placeSure(game, 'pill', A);
+  await placeSure(game, 'pill', B);
+  await placeSure(game, 'vitamin', C);
+  let s = await waitFor(game.page, (x) => x.kills >= 1 && x.bacteria.length === 0, WAIT_MS, 'гибель единственного кокка');
+  const [ta, tb, tv] = [towerIn(s, A), towerIn(s, B), towerIn(s, C)];
+  check(`${p} убит один кокк (lifeDamage 1) в зоне двух Таблеток: опыт ${ta.xp} и ${tb.xp} (ждали 1 и 1), у Витамина ${tv.xp} (ждали ${share} × 2 = ${share * 2}); убито ${s.kills}`, s.kills === 1 && ta.xp === 1 && tb.xp === 1 && Math.abs(tv.xp - share * 2) < 1e-9, `kills ${s.kills}, xp ${ta.xp}/${tb.xp}/${tv.xp}`);
+  s = await mergeInto(game, B, A);
+  const merged = towerIn(s, A);
+  check(`${p} при слиянии опыт складывается: ${ta.xp} + ${tb.xp} = ${merged.xp} (уровень ${merged.level})`, merged.level === 2 && merged.xp === ta.xp + tb.xp, `xp ${merged.xp}`);
+  await game.page.close();
+  // башня вне зоны: ищем свободную клетку, куда радиус Таблетки (200 px) не достаёт дорожки
+  const far = (() => {
+    const sc = startCenterPx();
+    let best = null;
+    for (let col = 0; col < LEVEL.cols; col++) {
+      for (let row = 0; row < LEVEL.rows; row++) {
+        if (GEO.isPathCell(col, row)) continue;
+        const w = GEO.center(col, row);
+        const sx = VIEW_CENTER.x + (w.x - sc.x);
+        const sy = VIEW_CENTER.y + (w.y - sc.y);
+        if (sx < CELL_WINDOW.x0 || sx > CELL_WINDOW.x1 || sy < CELL_WINDOW.y0 || sy > CELL_WINDOW.y1) continue;
+        const cov = GEO.coverage(col, row, 260);
+        if (!best || cov < best.cov) best = { cell: [col, row], cov };
+      }
+    }
+    return best && best.cov === 0 ? best.cell : null;
+  })();
+  game = await openGame(context, baseUrl, p, { speed: 4, cfg: cfgXp, query: ALL_TOWERS });
+  await placeSure(game, 'pill', A);
+  if (far) await placeSure(game, 'pill', far);
+  s = await waitFor(game.page, (x) => x.kills >= 1 && x.bacteria.length === 0, WAIT_MS, 'гибель единственного кокка (зона 200 px)');
+  const near = towerIn(s, A);
+  const away = far ? towerIn(s, far) : null;
+  check(`${p} опыт только в зоне: Таблетка у дорожки (убила кокка) ${near.xp} (ждали 1)${far ? `, Таблетка вне зоны (клетка ${far.join(';')}) ${away.xp} (ждали 0)` : '; клетки вне зоны на экране нет — проверка «вне зоны» пропущена'}`, near.xp === 1 && (!far || away.xp === 0), `xp ${near.xp}/${away?.xp}`);
+  await game.page.close();
+  await context.close();
 }
 
 // ================================================================== запуск
@@ -3351,7 +3681,8 @@ function towerTable() {
     antibiotic: row('antibiotic'),
     lamp: row('lamp'),
     vitamin: row('vitamin'),
-    frost: row('frost'),
+    // пауза Холода на уровнях слияния не короче, чем на VI (minCooldownMul; src/towerStats.ts)
+    frost: { ...row('frost'), minCooldownMul: readConfigNumber('frost', 'minCooldownMul') },
     patch: row('patch'),
   };
 }
@@ -4564,10 +4895,15 @@ async function syringeBlind(browser, baseUrl) {
 
 // ---------------------------------------------------------------- Таблетка: поведение прежнее
 
-/** Минимум оценённых выстрелов Таблетки: не меньше половины сделанных и не меньше пяти; иначе проверка красная с пометкой «мало данных». */
+/**
+ * Минимум оценённых выстрелов Таблетки: не меньше пяти и либо не меньше половины сделанных, либо не меньше PILL_ENOUGH_JUDGED (на медленной странице неоднозначных больше половины —
+ * 28 октября 2026 падала «мало данных» при 8–10 оценённых и 0 ошибок: список плавающих, `docs/technical-notes.md`); иначе проверка красная с пометкой «мало данных».
+ */
 const PILL_MIN_SHARE = 0.5;
 const PILL_MIN_JUDGED = 5;
-const PILL_MAX_SHOTS = 40;
+const PILL_ENOUGH_JUDGED = 12;
+const PILL_MAX_SHOTS = 60;
+const pillJudgedEnough = (a) => a.judged >= PILL_MIN_JUDGED && (a.judged >= a.fires * PILL_MIN_SHARE || a.judged >= PILL_ENOUGH_JUDGED);
 
 /**
  * Таблетка бьёт ту бактерию в радиусе, которой до организма ближе всего (remaining). По каждому выстрелу, где в радиусе было ≥ 2 бактерий
@@ -4608,7 +4944,7 @@ async function towersPill(browser, baseUrl) {
   const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
   const cfg = [
     'waves.total:1',
-    'waves.list.0.coccus:40',
+    'waves.list.0.coccus:70', // хватает на PILL_MAX_SHOTS выстрелов: выборка добирается и на медленной странице
     'waves.intervalStartSec:0.4',
     'waves.intervalEndSec:0.4',
     'waves.firstDelaySec:1',
@@ -4631,14 +4967,14 @@ async function towersPill(browser, baseUrl) {
     log.push(st);
     if (st.shots >= 12 && log.length % 20 === 0) {
       const part = analyzePillTargets(log, tw, TW.pill.damage);
-      enough = part.judged >= PILL_MIN_JUDGED && part.judged >= part.fires * PILL_MIN_SHARE;
+      enough = pillJudgedEnough(part);
     }
     return st.state !== 'playing' || (st.projectiles === 0 && ((st.shots >= 12 && enough) || st.shots >= PILL_MAX_SHOTS)) || Date.now() - startedAt > 100000;
   }, 120000, 20);
   await game.page.close();
   const a = analyzePillTargets(log, tw, TW.pill.damage);
-  const pillEnough = a.judged >= PILL_MIN_JUDGED && a.judged >= a.fires * PILL_MIN_SHARE;
-  const pillNeed = Math.max(PILL_MIN_JUDGED, Math.ceil(a.fires * PILL_MIN_SHARE));
+  const pillEnough = pillJudgedEnough(a);
+  const pillNeed = Math.max(PILL_MIN_JUDGED, Math.min(PILL_ENOUGH_JUDGED, Math.ceil(a.fires * PILL_MIN_SHARE)));
   const last = log.at(-1);
   check(`${p} Таблетка поставлена и стреляет (выстрелов ${last.shots})`, placed.towers.length === 1 && placed.towers[0].id === 'pill' && last.shots >= 6, `выстрелов ${last.shots}`);
   check(`${p} цель Таблетки — бактерия, ближайшая к организму: из ${a.fires} выстрелов оценено ${a.judged} (≥ 2 бактерий в радиусе, лидер впереди на ≥ 12 px; неоднозначных ${a.ambiguous}), ошибок ${a.wrong.length}`, pillEnough && a.wrong.length === 0, pillEnough ? a.wrong.slice(0, 3).join('; ') || `оценено ${a.judged}` : `мало данных: оценено ${a.judged} из ${a.fires} выстрелов, нужно не меньше ${pillNeed}; неоднозначных ${a.ambiguous}`);
@@ -5104,14 +5440,14 @@ async function typesPhago(browser, baseUrl) {
 // Всё считается по игровому времени (elapsed) и состоянию игры (clouds, cloudsMade, towers[].suppressed / auraMul, stats.coneDeg / auraMul), а не по реальным секундам: сервер медленный.
 
 /** Размеры таблиц config.ts после пачки 3 (docs/stage-7-plan.md): с каждой новой пачкой числа здесь обновляются (проверка заодно ловит случай, когда читалка таблиц молча пропустила строки). */
-const STAGE7 = { towers: ['pill', 'syrup', 'fizz', 'syringe', 'ampule', 'antibiotic', 'lamp', 'vitamin', 'frost', 'patch'], kinds: 19, nodes: 67, intro: { stealth: 5, toxin: 7, parasite: 8, mutant: 9 } };
+const STAGE7 = { towers: ['pill', 'syrup', 'fizz', 'syringe', 'ampule', 'antibiotic', 'lamp', 'vitamin', 'frost', 'patch'], kinds: 20, nodes: 67, intro: { stealth: 5, toxin: 7, parasite: 8, mutant: 9 } };
 function tablesSizes() {
   const p = '[таблицы config.ts: размеры]';
   const towers = Object.keys(readTowerTable());
   const kinds = readKinds();
   const nodes = Object.keys(readMetaTable().upgrades);
   check(`${p} башен ${towers.length}: ${towers.join(', ')} (ждали ${STAGE7.towers.join(', ')}; Лампа и Витамин — пачка 2, Холод и Пластырь — пачка 3)`, towers.join() === STAGE7.towers.join(), towers.join(', '));
-  check(`${p} типов бактерий ${kinds.length} (ждали ${STAGE7.kinds}, с «stealth», «toxin», «mutant» и «parasite»)`, kinds.length === STAGE7.kinds && ['stealth', 'toxin', 'mutant', 'parasite'].every((k) => kinds.includes(k)), kinds.join(', '));
+  check(`${p} типов бактерий ${kinds.length} (ждали ${STAGE7.kinds}, с «stealth», «toxin», «mutant», «parasite» и «film» — Плёнка главы 2)`, kinds.length === STAGE7.kinds && ['stealth', 'toxin', 'mutant', 'parasite', 'film'].every((k) => kinds.includes(k)), kinds.join(', '));
   check(`${p} узлов древа ${nodes.length} (ждали ${STAGE7.nodes}: 7 «Организм» и «Защита» + 9 узлов башен + «Лихорадка» и «Автостарт волны» + по 5 у девяти веток башен и 4 у Витамина)`, nodes.length === STAGE7.nodes, nodes.join(', '));
   check(`${p} у каждой башни, кроме Таблетки, есть узел древа (${STAGE7.towers.slice(1).map(towerNodeId).join(', ')})`, STAGE7.towers.slice(1).every((id) => nodes.includes(towerNodeId(id))) && !nodes.includes(towerNodeId('pill')));
   const t = readTowerTable();
@@ -5328,7 +5664,7 @@ async function towersVitamin(browser, baseUrl) {
   const [A, B, C] = [FREE.a, FREE.b, FREE.c];
   if (!C) throw new Error('на карте не нашлось трёх свободных клеток рядом');
   // дальняя клетка: дальше радиуса ауры от обоих Витаминов с запасом на рост радиуса с уровнем (reachMul) — и видна без сдвига карты
-  const farDist = range * (S4.levels[S4.levels.length - 1].reachMul + 0.01) + 10;
+  const farDist = range * (S4.levels[Math.min(S4.levels.length, TEST_TOP) - 1].reachMul + 0.01) + 10;
   const farList = startWindowCells()
     .filter((q) => cellDist(A, q.cell) >= farDist && cellDist(C, q.cell) >= farDist)
     .sort((u, v) => Math.hypot(u.sx - 540, u.sy - 360) - Math.hypot(v.sx - 540, v.sy - 360));
@@ -5508,6 +5844,256 @@ async function towersStealth(browser, baseUrl) {
   }
   check(`${p} Лампа подсвечивает скрытную в круге радиуса ${f1(L)}: кадров в круге ${inCircle}, подсвечена в ${inLit} (все, lightSec ${lightSec}); кадров далеко за кругом ${outCircle}, подсвечена в ${outLit} (ни в одном)`, lightSec > 0 && inCircle >= 20 && inLit === inCircle && outCircle >= 20 && outLit === 0);
   await context.close();
+}
+
+// ---------------------------------------------------------------- Плёнка (глава 2): плёнка на дорожке ослабляет снаряды
+
+/**
+ * Плёнка (вид главы 2; план docs/content-plan-2026-10-26.md, п. 1; решение владельца 3 ноября 2026, сообщение 1, п. 3): (А) идущая Плёнка оставляет плёнку раз в filmEverySec игровых секунд,
+ * радиус и срок жизни — из таблицы, плёнка исчезает через filmSec; (Б) снаряд Таблетки по Плёнке, стоящей на плёнке, снимает вдвое меньше (film.damageMul), чем вне плёнки, — сравнение
+ * снятого за один удар в той же партии (одна башня, те же ранг и узлы).
+ */
+async function typesFilm(browser, baseUrl) {
+  const p = '[бактерии: плёнка]';
+  const every = readConfigNumber('film', 'filmEverySec');
+  const sec = readConfigNumber('film', 'filmSec');
+  const radius = readConfigNumber('film', 'filmRadius');
+  const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
+  const play = async (label, { counts, cfg = [], coins = 0, place = false, timeoutMs = 150000 }) => {
+    const all = [...wavesOnly(counts), 'waves.firstDelaySec:2', ...FIXED_NO_TOWERS, 'bacteria.baseSpeed:85', `economy.startCoins:${coins}`, NO_LIFE_LOSS, ...cfg].join(',');
+    const game = await openGame(context, baseUrl, `${p} ${label}`, { query: ALL_TOWERS, speed: 4, cfg: all });
+    if (place) await game.placeTowersOf('pill', [[FREE.a[0], FREE.a[1]]]);
+    const log = [];
+    const startedAt = Date.now();
+    const end = await pollUntil(game, (st) => {
+      log.push(st);
+      return st.state === 'won' || st.state === 'lost' || Date.now() - startedAt > timeoutMs - 20000;
+    }, timeoutMs, 20);
+    await game.page.close();
+    return { log, end };
+  };
+
+  // ---- А. плёнка остаётся на дорожке: шаг, радиус, срок
+  const A = await play('плёнка на дорожке', { counts: { film: 1 } });
+  const framesA = distinctFrames(A.log);
+  const walked = Math.max(0, ...framesA.filter((s) => s.bacteria.some((b) => b.kind === 'film')).map((s) => s.elapsed)) - (framesA.find((s) => s.bacteria.some((b) => b.kind === 'film'))?.elapsed ?? 0);
+  const expect = walked / every;
+  const firstFilm = framesA.find((s) => s.films.length > 0);
+  const maxLeft = Math.max(0, ...framesA.flatMap((s) => s.films.map((f) => f.left)));
+  check(`${p} идущая Плёнка оставляет плёнку раз в ${every} с: за ${f1(walked)} с на дорожке плёнок ${A.end.filmsMade} (ждали около ${f1(expect)}, допуск ±2), радиус ${firstFilm?.films[0]?.r} (в таблице ${radius}), срок не больше ${sec} с (наибольший остаток ${f2(maxLeft)})`, A.end.filmsMade >= 2 && Math.abs(A.end.filmsMade - expect) <= 2 && firstFilm?.films[0]?.r === radius && maxLeft <= sec + 1e-6, `плёнок ${A.end.filmsMade}`);
+  // плёнки не копятся: одновременно на поле не больше, чем успевает лечь за срок жизни одной (filmSec / filmEverySec, с округлением вверх, +1 на шаг кадра)
+  const maxOnField = Math.max(0, ...framesA.map((s) => s.films.length));
+  const cap = Math.ceil(sec / every) + 1;
+  check(`${p} плёнки исчезают через ${sec} с и не копятся: одновременно на поле не больше ${maxOnField} (предел ${cap} = ${sec} / ${every} с округлением вверх + 1)`, maxOnField >= 2 && maxOnField <= cap, `больше всего на поле ${maxOnField}`);
+
+  // ---- Б. снаряд Таблетки на плёнке — ×film.damageMul
+  const mul = readConfigNumber('film', 'damageMul');
+  const B = await play('снаряд на плёнке', { counts: { film: 1 }, coins: TW.pill.price, place: true, cfg: ['types.film.hp:400', 'towers.pill.range:3000', 'towers.pill.damage:2'] });
+  const framesB = distinctFrames(B.log);
+  const on = [];
+  const off = [];
+  for (let i = 1; i < framesB.length; i++) {
+    const a = framesB[i - 1].bacteria.find((b) => b.kind === 'film');
+    const b = framesB[i].bacteria.find((x) => x.kind === 'film');
+    // удар снаряда — убыль прочности между соседними кадрами (пауза Таблетки 1 с, кадры чаще: один удар на пару кадров)
+    if (!a || !b || !(a.hp > b.hp)) continue;
+    const film = (s, x) => s.films.some((f) => Math.hypot(f.x - x.x, f.y - x.y) <= f.r);
+    const stays = film(framesB[i - 1], a) === film(framesB[i], b);
+    if (!stays) continue;
+    (film(framesB[i], b) ? on : off).push(a.hp - b.hp);
+  }
+  const med = (xs) => (xs.length ? [...xs].sort((x, y) => x - y)[Math.floor(xs.length / 2)] : NaN);
+  const ratio = med(on) / med(off);
+  check(`${p} снаряд Таблетки по Плёнке на плёнке снимает ×${mul} от удара вне плёнки: медиана на плёнке ${f2(med(on))} (${on.length} ударов), вне ${f2(med(off))} (${off.length}), отношение ${f2(ratio)}`, on.length >= 3 && off.length >= 3 && Math.abs(ratio - mul) <= 0.08, `на плёнке ${on.length}, вне ${off.length}`);
+}
+
+// ---------------------------------------------------------------- Боссы главы 2: Зубной камень, Тень, Кариес
+
+/**
+ * Боссы главы 2 (план docs/content-plan-2026-10-26.md, п. 2; docs/levels30-enemies-plan-2026-10-26.md, п. 8.4; решение владельца 3 ноября 2026, сообщение 1, пп. 3, 3.1). Уровней главы 2 в игре
+ * ещё нет: босс выпускается вызовом режима проверки `spawnBoss`. (А) Зубной камень кладёт плёнку радиуса bosses.tartar.filmRadius на filmSec; (Б) Тень раз в hideEverySec на hideSec невидима:
+ * башня с огромным радиусом в это время по ней не попадает (hits стоят), видимую — бьёт; (В) Кариес: в первой фазе кладёт плёнку, во второй — скрытен (stealth 0,6) и плёнку не кладёт,
+ * в третьей — выпускает скрытных.
+ */
+async function typesCh2Bosses(browser, baseUrl) {
+  const p = '[боссы главы 2]';
+  const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
+  const open = async (label, cfg = [], tower = false) => {
+    const all = [...wavesOnly({}), 'waves.firstDelaySec:900', ...FIXED_NO_TOWERS, 'bacteria.baseSpeed:85', `economy.startCoins:${tower ? TW.pill.price : 0}`, 'lives.start:5000', ...cfg].join(',');
+    const game = await openGame(context, baseUrl, `${p} ${label}`, { query: ALL_TOWERS, speed: 4, cfg: all });
+    if (tower) await game.placeTowersOf('pill', [[FREE.a[0], FREE.a[1]]]);
+    return game;
+  };
+  const watch = async (game, id, until, timeoutMs = 120000) => {
+    const ok = await game.page.evaluate((x) => window.__pvb.spawnBoss(x), id);
+    const log = [];
+    const startedAt = Date.now();
+    await pollUntil(game, (st) => {
+      log.push(st);
+      return until(st, log) || Date.now() - startedAt > timeoutMs - 15000;
+    }, timeoutMs, 25);
+    await game.page.close();
+    return { ok, frames: distinctFrames(log) };
+  };
+  const bossOf = (st, id) => st.bacteria.find((b) => b.boss === id);
+
+  // ---- А. Зубной камень: широкая плёнка
+  const tr = { r: readConfigNumber('tartar', 'filmRadius'), sec: readConfigNumber('tartar', 'filmSec') };
+  const A = await watch(await open('Зубной камень'), 'tartar', (st) => st.films.length >= 3);
+  const filmA = A.frames.find((st) => st.films.length > 0)?.films[0];
+  check(`${p} Зубной камень выпущен и кладёт плёнку радиуса ${filmA?.r} (в таблице ${tr.r}) сроком ≤ ${tr.sec} с (в первый миг ${f2(filmA?.left)})`, A.ok && filmA?.r === tr.r && filmA.left <= tr.sec + 1e-6 && filmA.left > tr.sec - 1, JSON.stringify(filmA ?? null));
+
+  // ---- Б. Тень: невидимость
+  const B = await watch(await open('Тень', ['towers.pill.range:3000', 'towers.pill.damage:0.01'], true), 'shadow', (st, log) => log.filter((x) => bossOf(x, 'shadow')?.hidden).length > 40 && log.filter((x) => bossOf(x, 'shadow') && !bossOf(x, 'shadow').hidden).length > 40 && (st.elapsed ?? 0) > 22);
+  let hitsHidden = 0;
+  let hitsSeen = 0;
+  for (let i = 1; i < B.frames.length; i++) {
+    const a = bossOf(B.frames[i - 1], 'shadow');
+    const b = bossOf(B.frames[i], 'shadow');
+    if (!a || !b || a.hidden !== b.hidden) continue;
+    // попадание — убыль прочности между соседними кадрами
+    const d = a.hp > b.hp ? 1 : 0;
+    if (a.hidden) hitsHidden += d;
+    else hitsSeen += d;
+  }
+  const hiddenFrames = B.frames.filter((st) => bossOf(st, 'shadow')?.hidden).length;
+  check(`${p} Тень то невидима, то видна (невидима в ${hiddenFrames} кадрах из ${B.frames.length}); невидимую башня не бьёт (попаданий ${hitsHidden}, допуск — долёт уже выпущенного снаряда ≤ 2), видимую бьёт (${hitsSeen})`, B.ok && hiddenFrames > 0 && hitsHidden <= 2 && hitsSeen > 0, `невидима ${hiddenFrames}, попаданий в невидимую ${hitsHidden}, в видимую ${hitsSeen}`);
+
+  // ---- В. Кариес: фазы
+  const C = await watch(await open('Кариес', ['bosses.caries.hp:60', 'towers.pill.range:3000', 'towers.pill.damage:0.25', 'towers.pill.cooldownMs:100'], true), 'caries', (st) => st.bacteria.filter((b) => b.kind === 'stealth' && !b.boss).length >= 3 || st.state !== 'playing', 150000);
+  const ph = (b) => (b.hp / b.maxHp > 0.66 ? 1 : b.hp / b.maxHp > 0.33 ? 2 : 3);
+  const seen = { 1: { films: 0, stealth: new Set() }, 2: { films: 0, stealth: new Set() }, 3: { films: 0, stealth: new Set() } };
+  for (let i = 1; i < C.frames.length; i++) {
+    const b = bossOf(C.frames[i], 'caries');
+    if (!b) continue;
+    const k = ph(b);
+    seen[k].stealth.add(b.stealth);
+    seen[k].films += Math.max(0, C.frames[i].filmsMade - C.frames[i - 1].filmsMade);
+  }
+  const stealthKids = Math.max(0, ...C.frames.map((st) => st.bacteria.filter((x) => x.kind === 'stealth' && !x.boss).length));
+  check(`${p} Кариес, фаза 1: кладёт плёнку (${seen[1].films}), не скрытен (${[...seen[1].stealth].join('/')})`, C.ok && seen[1].films > 0 && [...seen[1].stealth].every((x) => x === 0));
+  check(`${p} Кариес, фаза 2: скрытен (${[...seen[2].stealth].join('/')}, ждали 0.6), новой плёнки не кладёт (${seen[2].films})`, seen[2].stealth.size > 0 && [...seen[2].stealth].every((x) => x === 0.6) && seen[2].films === 0);
+  check(`${p} Кариес, фаза 3: выпускает скрытных (на поле до ${stealthKids})`, stealthKids >= 3);
+}
+
+// ---------------------------------------------------------------- Препятствия и условия главы 2: зуб, налёт, «Сладкое», «Без продажи»
+
+/**
+ * Препятствия главы 2 (план docs/content-plan-2026-10-26.md, раздел 4; решение владельца 3 ноября 2026, сообщение 1, п. 3) — на тестовой карте с `&obstacles` (три зуба, два налёта):
+ * (А) на зуб и налёт поставить башню нельзя ни тапом, ни вызовом проверки; (Б) Таблетка рядом с налётом без бактерий бьёт его, после obstacles.plaqueHits ударов налёт разбит, клетки открыты,
+ * башня на освобождённую клетку ставится; (В) пока в зоне башни есть бактерии, налёт она не бьёт; (Г) луч и свет упираются в зуб (toothCut: из соседней клетки в сторону зуба — короче клетки,
+ * в обратную — нет).
+ * Условия уровня (раздел 5): (Д) «Сладкое» — скорость бактерий ×conditions.sweet.speedMul, монеты за убитых ×rewardMul (сравнение с той же партией без условия); (Е) «Без продажи» — у карточки
+ * башни нет кнопки «Продать».
+ */
+async function typesCh2Obstacles(browser, baseUrl) {
+  const p = '[препятствия и условия главы 2]';
+  const hitsNeed = readConfigNumber('obstacles', 'plaqueHits');
+  const toothR = readConfigNumber('obstacles', 'toothRadius');
+  const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
+  const open = (label, { counts = {}, delay = 900, cfg = [], coins = 0, cond = '' } = {}) => {
+    const all = [...wavesOnly(counts), `waves.firstDelaySec:${delay}`, ...FIXED_NO_TOWERS, 'bacteria.baseSpeed:85', `economy.startCoins:${coins}`, NO_LIFE_LOSS, ...cfg].join(',');
+    return openGame(context, baseUrl, `${p} ${label}`, { query: `${ALL_TOWERS}&obstacles${cond ? `&cond=${cond}` : ''}`, speed: 4, cfg: all });
+  };
+  const cellOf = (key) => key.split(',').map(Number);
+  /** Свободная клетка из подобранных для проверок (FREE), не зуб и не налёт. */
+  const spot = (st) => Object.values(FREE).find(([c, r]) => !st.teeth.includes(`${c},${r}`) && !st.plaqueTiles.includes(`${c},${r}`));
+  /** Ставит башню вызовом проверки в первую свободную клетку рядом с налётом; возвращает клетку или null. */
+  const besidePlaque = (game, id, plaque) => game.page.evaluate(([tid, keys]) => {
+    const [c, r] = keys[0].split(',').map(Number);
+    for (const [dc, dr] of [[-1, 0], [0, -1], [0, 1], [-1, -1], [-1, 1], [keys.length, 0]]) if (window.__pvb.placeTower(tid, c + dc, r + dr, 1)) return [c + dc, r + dr];
+    return null;
+  }, [id, plaque.keys]);
+
+  // ---- А. на зуб и налёт не строится
+  const gA = await open('постройка', { coins: TW.pill.price });
+  const s0 = await gA.state();
+  check(`${p} на тестовой карте с &obstacles зубов ${s0.teeth.length} (ждали 3), налётов ${s0.plaques.length} (ждали 2), налёт закрывает клеток ${s0.plaqueTiles.length} (ждали 5)`, s0.teeth.length === 3 && s0.plaques.length === 2 && s0.plaqueTiles.length === 5, JSON.stringify({ teeth: s0.teeth, plaque: s0.plaqueTiles }));
+  await gA.selectTower('pill');
+  await gA.tapCell(...cellOf(s0.teeth[0]));
+  await gA.tapCell(...cellOf(s0.plaqueTiles[0]));
+  const sA = await gA.state();
+  const apiA = await gA.page.evaluate(([t, pl]) => [window.__pvb.placeTower('pill', ...t.split(',').map(Number), 1), window.__pvb.placeTower('pill', ...pl.split(',').map(Number), 1)], [s0.teeth[0], s0.plaqueTiles[0]]);
+  check(`${p} тап по зубу и по налёту башню не ставит и монет не тратит (башен ${sA.towers.length}, монет ${sA.coins} из ${TW.pill.price}); вызов проверки тоже отказывает (${apiA.join(', ')})`, sA.towers.length === 0 && sA.coins === TW.pill.price && apiA.every((x) => x === false));
+
+  // ---- Г. луч и свет упираются в зуб
+  const tile = MAP.tile;
+  // центр соседней слева клетки (пиксели мира): смотрит вправо — на зуб, влево — от зуба
+  const [tc, tr] = cellOf(s0.teeth[0]);
+  const cx = MAP.orgW + tile * (tc - 1 + 0.5);
+  const cy = tile * (tr + 0.5);
+  const [toward, away] = await gA.page.evaluate(([x, y, len]) => [window.__pvb.toothCut(x, y, 0, len), window.__pvb.toothCut(x, y, Math.PI, len)], [cx, cy, tile * 4]);
+  const expectCut = tile - toothR * tile;
+  check(`${p} луч и свет из соседней клетки в сторону зуба обрываются у зуба: ${f1(toward)} px (ждали ${f1(expectCut)} = клетка − радиус зуба ${toothR} клетки), в обратную сторону — во всю длину ${f1(away)} px`, Math.abs(toward - expectCut) <= 1 && away === tile * 4, `${toward} / ${away}`);
+  await gA.page.close();
+
+  // ---- Б. Таблетка разбивает налёт без бактерий
+  const gB = await open('удары по налёту', { cfg: ['towers.pill.cooldownMs:50'] });
+  const sB0 = await gB.state();
+  const plaque = sB0.plaques[0];
+  const at = await besidePlaque(gB, 'pill', plaque);
+  const endB = await pollUntil(gB, (st) => st.plaquesBroken >= 1, 60000, 50);
+  const freed = endB.plaques.length === 1 && plaque.keys.every((k) => !endB.plaqueTiles.includes(k));
+  const reuse = await gB.page.evaluate((k) => window.__pvb.placeTower('pill', ...k.split(',').map(Number), 1), plaque.keys[0]);
+  check(`${p} Таблетка рядом с налётом (клетка ${JSON.stringify(at)}) без бактерий бьёт его: ударов ${endB.plaqueStrikes} (налёт разбит после ${hitsNeed}), налёт разбит (${endB.plaquesBroken}), его клетки открыты (${freed}), башня на освобождённую клетку ставится (${reuse})`, at !== null && endB.plaquesBroken === 1 && endB.plaqueStrikes >= hitsNeed && freed && reuse === true);
+  await gB.page.close();
+
+  // ---- В. бактерии в зоне — налёт не бьётся
+  const gC = await open('бактерии в зоне', { counts: { coccus: 4 }, delay: 3, cfg: ['types.coccus.hp:100000', 'towers.pill.range:3000', 'towers.pill.damage:0.01'] });
+  const sC0 = await gC.state();
+  await besidePlaque(gC, 'pill', sC0.plaques[0]);
+  const logC = [];
+  const startedC = Date.now();
+  await pollUntil(gC, (st) => {
+    logC.push(st);
+    return (st.elapsed ?? 0) > 16 || Date.now() - startedC > 80000;
+  }, 90000, 30);
+  const framesC = distinctFrames(logC);
+  let busy = 0;
+  let busyStrikes = 0;
+  let idleStrikes = 0;
+  for (let i = 1; i < framesC.length; i++) {
+    const d = framesC[i].plaqueStrikes - framesC[i - 1].plaqueStrikes;
+    if (framesC[i - 1].bacteria.length > 0 && framesC[i].bacteria.length > 0) {
+      busy++;
+      busyStrikes += d;
+    } else idleStrikes += d;
+  }
+  check(`${p} пока в зоне Таблетки бактерии, налёт она не бьёт: ударов за ${busy} кадров с бактериями ${busyStrikes} (допуск 1 — удар в кадре выхода первой бактерии), до выхода бактерий бьёт (${idleStrikes})`, busy >= 20 && busyStrikes <= 1 && idleStrikes > 0, `кадров ${busy}, ударов ${busyStrikes}/${idleStrikes}`);
+  await gC.page.close();
+
+  // ---- Д. «Сладкое»: скорость и награда
+  const sweetSpeed = readConfigNumber('sweet', 'speedMul');
+  const sweetReward = readConfigNumber('sweet', 'rewardMul');
+  const run = async (cond) => {
+    const g = await open(cond ? '«Сладкое»' : 'без условия', { counts: { coccus: 20 }, delay: 2, coins: TW.pill.price, cond, cfg: ['bacteria.speedSpread:0', 'types.coccus.hp:1', 'towers.pill.range:3000', 'towers.pill.cooldownMs:50'] });
+    const st0 = await g.state();
+    await g.page.evaluate(([c, r]) => window.__pvb.placeTower('pill', c, r, 1), spot(st0));
+    let speed = 0;
+    const end = await pollUntil(g, (st) => {
+      const b = st.bacteria.find((x) => x.kind === 'coccus');
+      if (b) speed = b.speed;
+      return st.kills >= 20 || st.state !== 'playing';
+    }, 90000, 30);
+    await g.page.close();
+    return { speed, gain: end.coins - st0.coins, cond: st0.condition, kills: end.kills };
+  };
+  const plain = await run('');
+  const sweet = await run('sweet');
+  const speedRatio = sweet.speed / plain.speed;
+  const gainRatio = sweet.gain / plain.gain;
+  check(`${p} «Сладкое»: условие партии ${sweet.cond} (без него — ${plain.cond}); скорость кокка ${f2(sweet.speed)} против ${f2(plain.speed)} — ×${f2(speedRatio)} (в таблице ×${sweetSpeed})`, sweet.cond === 'sweet' && plain.cond === null && Math.abs(speedRatio - sweetSpeed) <= 0.005);
+  check(`${p} «Сладкое»: монет за ${sweet.kills} убитых ${sweet.gain} против ${plain.gain} за ${plain.kills} — ×${f2(gainRatio)} (в таблице ×${sweetReward}, допуск ±0,08 на округление монет)`, sweet.kills === 20 && plain.kills === 20 && plain.gain > 0 && Math.abs(gainRatio - sweetReward) <= 0.08);
+
+  // ---- Е. «Без продажи»: на карточке башни нет кнопки «Продать»
+  const gE = await open('«Без продажи»', { coins: TW.pill.price, cond: 'nosell' });
+  const cellE = spot(await gE.state());
+  await gE.selectTower('pill');
+  await gE.tapCell(...cellE);
+  await gE.tapCell(...cellE);
+  const sE = await gE.state();
+  check(`${p} «Без продажи»: условие ${sE.condition}; башня стоит (${sE.towers.length}), карточка открыта (${sE.ui.card.visible}), кнопки «Продать» нет (ширина ${sE.ui.card.sell.w}), продаж ${sE.sells}`, sE.condition === 'nosell' && sE.towers.length === 1 && sE.ui.card.visible && sE.ui.card.sell.w === 0 && sE.sells === 0);
+  await gE.page.close();
 }
 
 // ---------------------------------------------------------------- Токсин: облако после гибели
@@ -6490,6 +7076,8 @@ function readStage4Tables() {
   return { levels, mutationLevels, mutations, copyShares, sellRefund: readConfigNumber('economy', 'sellRefund') };
 }
 let S4 = null;
+/** До какого уровня сценарии слияния и мутаций растят башни (в таблице towerLevels — до VIII; строки V–VIII проверяет сценарий xp). */
+const TEST_TOP = 4;
 const prepareStage4 = () => {
   TW = towerTable();
   S4 = readStage4Tables();
@@ -6506,7 +7094,7 @@ function expectedStats(id, level, picks) {
   const b = { coneDeg: base.coneDeg ?? 0, damage: base.damage, cooldownMs: base.cooldownMs, range: base.range, blastRadius: base.blastRadius ?? 0, puddleRadius: base.puddleRadius ?? 0, slowFactor: base.slowFactor ?? 1, beamPulses: base.beamPulses ?? 0, dotPerSec: base.dotPerSec ?? 0, dotSec: base.dotSec ?? 0 };
   const s = {
     damage: b.damage * lv.damageMul,
-    cooldownMs: b.cooldownMs * lv.cooldownMul,
+    cooldownMs: b.cooldownMs * Math.max(lv.cooldownMul, base.minCooldownMul ?? 0),
     range: b.range * lv.reachMul,
     blastRadius: b.blastRadius * lv.reachMul,
     puddleRadius: b.puddleRadius * lv.reachMul,
@@ -6584,7 +7172,7 @@ function expectedStats(id, level, picks) {
   if (mutTrapDps > CAPS.dpsMul) s.trapDps *= CAPS.dpsMul / mutTrapDps;
   if (s.slowFactor < 1) s.slowFactor = Math.max(MIN_SLOW_FACTOR, s.slowFactor);
   // предел заморозки — от паузы уровня без мутаций (MASTER-0009)
-  if (s.freezeSec > 0) s.freezeSec = Math.min(s.freezeSec, ((b.cooldownMs * lv.cooldownMul) / 1000) * CAPS.freezeShareOfCooldown);
+  if (s.freezeSec > 0) s.freezeSec = Math.min(s.freezeSec, ((b.cooldownMs * Math.max(lv.cooldownMul, base.minCooldownMul ?? 0)) / 1000) * CAPS.freezeShareOfCooldown);
   if ((base.auraMul ?? 1) < 1) {
     const raw = base.auraMul - base.auraStep * (level - 1); // 1-й уровень — auraMul, дальше на auraStep меньше (улучшений вне партии в этих проверках нет)
     s.auraMul = Math.min(1, Math.max(MIN_AURA_MUL, 1 - (1 - raw) * auraBonus));
@@ -6795,12 +7383,12 @@ function cardTexts() {
     ['lampFar', 'rangeMul', (v) => ru(v)],
     ['vitaminBoost', 'auraBonusMul', (v) => ru(v)],
     ['vitaminFar', 'rangeMul', (v) => ru(v)],
-    ['vitaminStrong', 'auraBonusMul', (v) => ru(v)],
+    ['vitaminStrong', 'auraDamageMul', (v) => ru(Math.round((v - 1) * 100))],
     ['vitaminDouble', 'rangeMul', (v) => ru(v)],
     // Холод (время заморозки, частота, радиус) и Пластырь (время приклеивания, частота, урон ловушки: ×2 — «вдвое» / «twice»)
     ['frostDeep', 'freezeMul', (v) => ru(v)],
     ['frostFrequent', 'cooldownMul', rate],
-    ['frostLong', 'freezeMul', (v) => ru(v)],
+    ['frostLong', 'thawSlowSec', (v) => ru(v)],
     ['frostWide', 'rangeMul', (v) => ru(v)],
     ['patchSticky', 'trapSecMul', (v) => ru(v)],
     ['patchQuick', 'cooldownMul', rate],
@@ -7135,9 +7723,9 @@ async function mergeFlow(browser, baseUrl) {
   check(`${p} при слиянии двух Таблеток уровня 2 с разными мутациями (цель «${pickD}», источник «${sourcePicks}») у результата мутации обеих: сначала цели (по которой тапнули вторым), затем источника — picks [${td.picks.join(', ')}], уровень ${td.level}, pending ${td.pending} (выбор третьего уровня не нужен); числа ${dm.join('; ') || 'совпадают с таблицей'}`, td.level === 3 && JSON.stringify(td.picks) === JSON.stringify([pickD, pickB]) && td.pending === null && dm.length === 0 && pickB !== pickD, `picks ${td.picks}, уровень ${td.level}`);
   await game.page.close();
 
-  // ---- до высшего уровня: две Таблетки четвёртого уровня, слияние между ними невозможно
+  // ---- рост двух Таблеток до IV (числа по таблице) и две башни высшего уровня: слияние между ними невозможно
   game = await openGame(context, baseUrl, p, { query: ALL_TOWERS, speed: 1, cfg: s4Cfg() });
-  const top = S4.levels.length;
+  const top = Math.min(S4.levels.length, TEST_TOP); // слияние до высшего уровня проверяют до IV (до VIII — сценарий xp: перебор чисел и опыт)
   const pool = [C, D, E];
   const diffs = [];
   const started = Date.now();
@@ -7150,17 +7738,23 @@ async function mergeFlow(browser, baseUrl) {
   }
   s = await game.state();
   const placed = 2 * 2 ** (top - 1);
-  check(`${p} двумя башнями уровня ${top} (на каждую ушло ${2 ** (top - 1)} Таблеток и ${2 ** (top - 1) - 1} слияний; ${Math.round((Date.now() - started) / 1000)} с): башен ${s.towers.length}, слияний ${s.merges} (ждали ${2 * (2 ** (top - 1) - 1)}), монет ${s.coins} (ждали ${100000 - placed * price}: слияния бесплатны), maxTowerLevel ${s.maxTowerLevel}`, s.towers.length === 2 && s.towers.every((t) => t.level === top) && s.merges === 2 * (2 ** (top - 1) - 1) && s.coins === 100000 - placed * price && s.maxTowerLevel === top, `башен ${s.towers.length}, слияний ${s.merges}, монет ${s.coins}`);
+  check(`${p} двумя башнями уровня ${top} (на каждую ушло ${2 ** (top - 1)} Таблеток и ${2 ** (top - 1) - 1} слияний; ${Math.round((Date.now() - started) / 1000)} с): башен ${s.towers.length}, слияний ${s.merges} (ждали ${2 * (2 ** (top - 1) - 1)}), монет ${s.coins} (ждали ${100000 - placed * price}: слияния бесплатны), maxTowerLevel ${s.maxTowerLevel}`, s.towers.length === 2 && s.towers.every((t) => t.level === top) && s.merges === 2 * (2 ** (top - 1) - 1) && s.coins === 100000 - placed * price && s.maxTowerLevel === S4.levels.length, `башен ${s.towers.length}, слияний ${s.merges}, монет ${s.coins}`);
   check(`${p} на каждом уровне 1…${top} числа Таблетки совпали с таблицей towerLevels и мутаций (урон, пауза, радиус)`, diffs.length === 0, diffs.slice(0, 4).join(' | '));
+  // две башни высшего уровня (VIII, ставятся тестовым входом без слияний — до VIII растить 2 × 128 Таблеток долго) друг с другом не сливаются
+  await game.page.close();
+  game = await openGame(context, baseUrl, p, { query: ALL_TOWERS, speed: 1, cfg: s4Cfg() });
+  const maxLv = S4.levels.length;
+  const placedMax = await game.page.evaluate(([a, b, lv]) => window.__pvb.placeTower('pill', a[0], a[1], lv) && window.__pvb.placeTower('pill', b[0], b[1], lv), [A, B, maxLv]);
+  await sleep(300);
   s = await selectPlaced(game, A);
-  const blockedA = !s.ui.card.merge.enabled;
+  const blockedA = placedMax && s.towers.every((t) => t.level === maxLv) && !s.ui.card.merge.enabled;
   s = await tapCard(game, 'merge');
-  check(`${p} две башни высшего уровня друг с другом не сливаются: «Слить» недоступна у обеих, тап по ней режим не включает (mergeMode ${s.mergeMode})`, blockedA && !s.mergeMode, `merge.enabled у первой ${!blockedA}`);
+  check(`${p} две башни высшего уровня (${maxLv}) друг с другом не сливаются: «Слить» недоступна у обеих, тап по ней режим не включает (mergeMode ${s.mergeMode})`, blockedA && !s.mergeMode, `поставлены ${placedMax}, merge.enabled у первой ${!blockedA}`);
   s = await selectPlaced(game, B);
   const blockedB = !s.ui.card.merge.enabled;
   await sleep(250);
   await shot(game.page, 'merge-03-max-level');
-  check(`${p} у второй башни высшего уровня «Слить» тоже недоступна, слияний по-прежнему ${s.merges}`, blockedB && s.merges === 2 * (2 ** (top - 1) - 1));
+  check(`${p} у второй башни высшего уровня «Слить» тоже недоступна, слияний ${s.merges}`, blockedB && s.merges === 0);
   await context.close();
 }
 
@@ -7178,7 +7772,7 @@ async function mutationPass(game, id, o0, o1, main, pool) {
     if (!ok) issues.push(`${what}: ${detail}`);
   };
   const [t0, t1] = [S4.mutations[id][0][o0].id, S4.mutations[id][1][o1].id];
-  const top = S4.levels.length;
+  const top = Math.min(S4.levels.length, TEST_TOP); // слияние до высшего уровня проверяют до IV (до VIII — сценарий xp: перебор чисел и опыт)
   const [l0, l1] = S4.mutationLevels;
   const picks = []; // все мутации башни по порядку (свои и принесённые)
   let own = 0; // сколько порогов башня закрыла своим выбором
@@ -7221,7 +7815,7 @@ async function mutationsFlow(browser, baseUrl) {
     // два прохода: варианты (1-й, 1-й) и (2-й, 2-й) — так каждая из четырёх мутаций башни хотя бы раз выбрана на своём уровне
     for (const [main, o] of [[a, 0], [b, 1]]) results.push(await mutationPass(game, id, o, o, main, [c, d, e]));
     for (const r of results) {
-      check(`${p} «${id}»: выбор «${r.t0}» на уровне ${S4.mutationLevels[0]} и «${r.t1}» на уровне ${S4.mutationLevels[1]}: pending, карточка, числа (урон, пауза, радиус, взрыв, лужа, замедление, удары) совпали с towerLevels и mutations на каждом уровне 1…${S4.levels.length}; выбор окончателен`, r.issues.length === 0, r.issues.slice(0, 4).join(' | '));
+      check(`${p} «${id}»: выбор «${r.t0}» на уровне ${S4.mutationLevels[0]} и «${r.t1}» на уровне ${S4.mutationLevels[1]}: pending, карточка, числа (урон, пауза, радиус, взрыв, лужа, замедление, удары) совпали с towerLevels и mutations на каждом уровне 1…${Math.min(S4.levels.length, TEST_TOP)}; выбор окончателен`, r.issues.length === 0, r.issues.slice(0, 4).join(' | '));
     }
     const s = await game.state();
     // Выбирают и помощники (growTo выбирает им мутацию перед слиянием), а мутации каждой башни уходят в цель слияния: в итоговом списке главной башни ровно столько мутаций, сколько
@@ -7269,7 +7863,7 @@ async function sellFlow(browser, baseUrl) {
   await tapCard(game, 'sell');
 
   // ---- уровни 2…высший: возврат растёт вдвое с каждым уровнем (в башню «вложено» 2^(L−1) обычных)
-  const top = S4.levels.length;
+  const top = Math.min(S4.levels.length, TEST_TOP); // слияние до высшего уровня проверяют до IV (до VIII — сценарий xp: перебор чисел и опыт)
   await growTo(game, 'pill', top, cells[0], [cells[1], cells[2], cells[3]]);
   s = await game.state();
   const coinsTop = s.coins;
@@ -7624,6 +8218,9 @@ async function runTowers(browser, baseUrl) {
   await part('patch', '[башни: Пластырь]', () => towersPatch(browser, baseUrl));
   await part('mutant', '[бактерии: мутант]', () => typesMutant(browser, baseUrl));
   await part('parasite', '[бактерии: паразит]', () => typesParasite(browser, baseUrl));
+  await part('film', '[бактерии: плёнка]', () => typesFilm(browser, baseUrl));
+  await part('ch2bosses', '[боссы главы 2]', () => typesCh2Bosses(browser, baseUrl));
+  await part('ch2obstacles', '[препятствия и условия главы 2]', () => typesCh2Obstacles(browser, baseUrl));
 }
 
 // ================================================================== круг 14: плашки, закрытые башни, полоса кнопок, кнопка «Заново», дефляция, отдаление
@@ -8032,8 +8629,8 @@ async function runLevelWaves(browser, baseUrl) {
     totals.push(s.plannedTotal);
     hps.push(s.plannedHp);
     firsts.push(s.firstWaves);
-    // уровни 1 и 2 — новый формат (50 волн, карты «Горло» и «Нос», 200 монет), уровни 3–10 — прежний (30 волн, карта «корни»)
-    const want = level === 1 ? { waves: PLAN.length, map: 'throat' } : level === 2 ? { waves: PLAN2.length, map: 'nose' } : { waves: 30, map: 'roots' };
+    // уровни 1 и 2 — новый формат (50 волн, карты «Горло» и «Нос», 200 монет), уровни 3–10 — прежний (30 волн); карта уровней 3–4 — «Рот» (глава 2, свои входы у каждого), 5–10 — «корни»
+    const want = level === 1 ? { waves: PLAN.length, map: 'throat' } : level === 2 ? { waves: PLAN2.length, map: 'nose' } : { waves: 30, map: level === 3 ? 'mouth3' : level === 4 ? 'mouth4' : 'roots' };
     check(`${p} уровень ${level}: номер уровня в игре, ${want.waves} волн, карта «${want.map}», бактерии запланированы`, s.level === level && s.waveTotal === want.waves && s.mapId === want.map && s.plannedTotal > 0 && (level <= 2) === (s.plan !== null), `уровень ${s.level}, волн ${s.waveTotal}, карта ${s.mapId}, план ${JSON.stringify(s.plan)}, бактерий ${s.plannedTotal}`);
     if (level === 1) check(`${p} уровень 1: монет на старте ${s.coins} (ждали ${readConfigNumber('plan', 'startCoins')})`, s.coins === readConfigNumber('plan', 'startCoins'), String(s.coins));
     await game.page.close();
@@ -9859,7 +10456,8 @@ async function runTreeMock(browser, baseUrl) {
 async function runFaces(browser, baseUrl) {
   for (const deviceKey of ['desktop', 'phone']) {
     const device = VIEWPORTS[deviceKey];
-    for (const page of ['f1', 'f2', 'f3', 'l', 'l2']) {
+    // l3–l5 — свои стволы V–VIII остальных семи башен (сообщение 3 от 28 октября 2026, п. 3)
+    for (const page of ['f1', 'f2', 'f3', 'l', 'l2', 'l3', 'l4', 'l5', 'l6']) {
       const p = `[лист без лиц ${page}, ${device.label}]`;
       const context = await newDeviceContext(browser, device, 'ru');
       const tab = await context.newPage();
@@ -9874,8 +10472,9 @@ async function runFaces(browser, baseUrl) {
     }
     // с 26 октября 2026 (сообщение 6, п. 1) лиц в игре нет: поздняя сцена — одна, «стало»
     // `high` — лист V–VIII в плотной поздней сцене: Таблетки, Сиропы и Шприцы с рисунками I–VIII (сообщение 1 от 28 октября 2026, п. 6.1)
-    for (const [tag, query] of [['after', ''], ['high', '=high']]) {
-      const p = `[поздняя сцена без лиц${tag === 'high' ? ', уровни I–VIII' : ''}, ${device.label}]`;
+    // `own` — то же со своими стволами V–VIII у остальных семи башен (`&ownhigh`)
+    for (const [tag, query] of [['after', ''], ['high', '=high'], ['own', '=high&ownhigh']]) {
+      const p = `[поздняя сцена без лиц${tag === 'high' ? ', уровни I–VIII' : tag === 'own' ? ', свои стволы V–VIII' : ''}, ${device.label}]`;
       const context = await newDeviceContext(browser, device, 'ru');
       const tab = await context.newPage();
       watchConsole(tab, p);
@@ -10208,6 +10807,8 @@ try {
     if (wants(key)) await safe(`[${key}]`, () => runProfile(browser, qaServer.url, device, lang));
   }
   if (wants('rules')) await safe('[правила клеток]', () => runRules(browser, qaServer.url));
+  if (wants('names')) await safe('[имена не повторяются]', async () => runNames());
+  if (wants('ranks')) await safe('[ранги опыта]', () => runRanks(browser, qaServer.url));
   if (wants('graph')) await safe('[граф дорожек]', () => runGraph(browser, qaServer.url));
   if (wants('combat')) await safe('[бой]', () => runCombat(browser, qaServer.url));
   if (wants('dash')) await safe('[рывки палочки]', () => runDash(browser, qaServer.url));
@@ -10248,6 +10849,7 @@ try {
   if (wants('real-game')) await safe('[настоящая игра]', () => runRealGame(browser, qaServer.url));
   if (wants('dna-cap')) await safe('[предел счёта ДНК]', () => runDnaCap(browser, qaServer.url));
   if (wants('level2')) await safe('[уровень 2 «Нос»]', () => runLevel2(browser, qaServer.url));
+  if (wants('xp')) await safe('[опыт башен и уровни V–VIII]', () => runXp(browser, qaServer.url));
   if (wants('wards')) await safe('[жёсткие свойства: бегун]', () => runWards(browser, qaServer.url));
   if (wants('spiral-cap')) await safe('[«Спираль» и потолок мутаций]', () => runSpiralCap(browser, qaServer.url));
   if (wants('marks')) await safe('[макет знаков]', () => runMarks(browser, qaServer.url));

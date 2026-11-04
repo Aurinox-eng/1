@@ -19,6 +19,7 @@
  *   http://localhost:5173/?level=5       — номер уровня; работает и в игровой сборке (уровень должен быть открыт у игрока)
  *   http://localhost:5173/?qa&towers=all — открыты все башни (без узлов древа)
  *   http://localhost:5173/?qa&wave=30    — партия начинается с волны 30 (проверки боссов)
+ *   http://localhost:5173/?qa&obstacles  — на тестовой карте препятствия главы 2 (зубы, налёт); &cond=sweet|nosell — условие уровня на любом уровне
  *   http://localhost:5173/?qa&meta=lives:1,coins:2,damage:3,reward:0,dna:50 — подменяет уровни улучшений вне партии и очки ДНК (в сохранение ничего не пишется)
  *   http://localhost:5173/?lang=en       — принудительно выбирает язык (проверка переводов)
  *   http://localhost:5173/?qa&best=30,19 — лучшие волны уровней 1, 2, … (в сохранение ничего не пишется)
@@ -36,8 +37,6 @@ export const QA_MODE: boolean = QA_ENABLED && params.has('qa');
 
 /** Только режим проверки: `?qa&pilleyes=0` — Таблетки без глаз (для снимков пилота); в игровой сборке всегда false. */
 export const PILL_EYES_OFF: boolean = QA_MODE && params.get('pilleyes') === '0';
-/** `?qa&fontplan` — крупные надписи по плану MASTER-0025 (решение владельца 28 октября 2026, сообщение 2, п. 4: основной текст не меньше 22 px игры, второстепенный — не меньше 20; сначала снимки). */
-export const FONT_PLAN: boolean = QA_MODE && params.has('fontplan');
 
 /**
  * Только режим проверки (разбор удорожания отрисовки ветки стиля, замер `perf`): `?qa&noface` — бактерии без картинки лица, `?qa&nobreath` — без «дыхания» (пульсации масштаба).
@@ -50,6 +49,11 @@ export const NO_BREATH: boolean = QA_MODE && params.has('nobreath');
 export const ART_SHEET: boolean = QA_MODE && params.has('artsheet');
 /** Страница листа образцов: пусто — пилот (новое рядом с прежним), `b1`, `b2` — все 19 бактерий, `t1`, `t2` — все 10 башен по уровням, `f1` — 19 видов «было / стало» без лиц, `f2` — 10 боссов «было / стало». */
 export const ART_SHEET_PAGE: string = params.get('artsheet') ?? '';
+/**
+ * Только режим проверки: свои стволы V–VIII у остальных семи башен (вариант Б, решение владельца 28 октября 2026, сообщение 3, п. 3) — до «да» по листам видны только на листах
+ * `?qa&artsheet=l3`, `l4`, `l5` и с `&ownhigh` (например `?qa&stress=high&ownhigh` — плотная сцена). В игре у этих башен пока ствол IV со свечением цвета уровня.
+ */
+export const OWN_HIGH_PREVIEW: boolean = QA_MODE && (params.has('ownhigh') || ['l3', 'l4', 'l5', 'l6'].includes(ART_SHEET_PAGE));
 /** Только режим проверки: `?qa&treemock` — вместо игры макет радиального древа (п. 5 сообщения владельца 5 от 25 октября 2026), `&zoom=1.8` — начальный масштаб. */
 export const TREE_MOCK: boolean = QA_MODE && params.has('treemock');
 
@@ -76,6 +80,12 @@ export const ALL_TOWERS: boolean = QA_MODE && params.get('towers') === 'all';
 
 /** `?qa&wave=N` — партия начинается с волны N (предыдущие считаются пройденными, монеты — как на старте): проверкам боссов и поздних волн. Без параметра — с первой волны. */
 export const QA_START_WAVE: number = QA_MODE && Number.isFinite(Number(params.get('wave'))) && Number(params.get('wave')) > 1 ? Math.floor(Number(params.get('wave'))) : 1;
+
+/** `?qa&obstacles` — на тестовой карте «корни» препятствия главы 2 (три зуба и два налёта у дорожек): проверкам зуба и налёта до карты уровней 3–4. Без параметра препятствий нет. */
+export const QA_OBSTACLES: boolean = QA_MODE && params.has('obstacles');
+
+/** `?qa&cond=sweet|nosell` — условие уровня («Сладкое», «Без продажи») на любом уровне: проверкам условий. Без параметра — по таблице `conditions.byLevel`. */
+export const QA_CONDITION: string | null = QA_MODE ? params.get('cond') : null;
 
 /** `?qa&norender` — сцена партии не рисуется, цикл кадров идёт по таймеру: боты идут в 3–5 раз быстрее (ответ владельца 12, сверка с рисованием 19 октября 2026 — docs/process-speedup-2026-10-18.md, раздел 4.3). */
 export const QA_NORENDER: boolean = QA_MODE && params.has('norender');
@@ -146,6 +156,11 @@ export interface DebugSnapshot {
   leaps: number;
   /** Сколько облаков оставили токсины за партию. */
   cloudsMade: number;
+  filmsMade: number;
+  /** Удары башен по налёту и сколько налётов разбито (глава 2); условие партии («Сладкое», «Без продажи» или null). */
+  plaqueStrikes: number;
+  plaquesBroken: number;
+  condition: string | null;
   /** Сколько раз Холод замораживал, сколько ловушек положил Пластырь и сколько раз паразит присосался к башне (за партию). */
   freezes: number;
   trapsMade: number;
@@ -201,7 +216,8 @@ export interface DebugSnapshot {
   /** Разбивка очков ДНК за партию на экране конца уровня (волны, победа, новые звёзды) и строка, которую видит игрок. */
   dnaParts: { waves: number; win: number; coins: number; bosses: number; flawless: number; floor: number; stars: number };
   /** Уровень нового формата: сколько волн, монет на старте и пауза между волнами (null — прежний формат); id карты; побеждённые за партию боссы (биты); «Лихорадка»; строка «не хватает N ДНК»; фаза волн и её таймер. */
-  plan: { waves: number; startCoins: number; pauseSec: number } | null;
+  /** План волн уровня нового формата: число волн, монеты, пауза; `firstWave` — первая волна каждого вида (`runner: 15`). */
+  plan: { waves: number; startCoins: number; pauseSec: number; firstWave: Record<string, number> } | null;
   mapId: string;
   bossBits: number;
   fever: { owned: boolean; left: number; wait: number; uses: number };
@@ -235,6 +251,10 @@ export interface DebugSnapshot {
     level: number;
     picks: string[];
     pending: number | null;
+    /** Опыт башни в партии (очки за бактерий, погибших в её зоне; Витамин — доля опыта башен в ауре). */
+    xp: number;
+    /** Ранг опыта ★0–★8 (с учётом предела уровня игры). */
+    rank: number;
     /** Стоит ли башня в облаке токсина (не стреляет) и множитель паузы от ауры Витамина рядом (1 — нет). */
     suppressed: boolean;
     auraMul: number;
@@ -258,6 +278,11 @@ export interface DebugSnapshot {
   puddles: { x: number; y: number; r: number; left: number }[];
   /** Облака токсина: центр, радиус и сколько секунд ещё живут. */
   clouds: { x: number; y: number; r: number; left: number }[];
+  films: { x: number; y: number; r: number; left: number }[];
+  /** Налёт (целый): центр, удары, клетки; клетки, которые он ещё закрывает; клетки с зубом. */
+  plaques: { x: number; y: number; hits: number; keys: string[] }[];
+  plaqueTiles: string[];
+  teeth: string[];
   /** Ловушки Пластыря: где приклеена бактерия и сколько секунд ещё держит. */
   traps: { x: number; y: number; left: number }[];
   /** Накопленный, но ещё не списанный урон по жизням от «дробных» бактерий (рой: 0,25 за штуку); при 1 списывается целая жизнь. */
@@ -290,6 +315,8 @@ export interface DebugSnapshot {
     freezeLeft: number;
     trapLeft: number;
     memory: string | null;
+    /** Скорость без замедлений и рывков, пикселей в секунду (с условием уровня «Сладкое»). */
+    speed: number;
     latchedTo: { col: number; row: number } | null;
   }[];
   /** Снаряды, капли сиропа и очереди луча в полёте. */
@@ -354,11 +381,17 @@ export interface DebugApi {
   cellToClient: (col: number, row: number) => { x: number; y: number };
   /** Сдвинуть список башен в нижней панели так, чтобы карточка этой башни была видна (проверки и бот нажимают на карточки по координатам). */
   revealTower: (id: string) => void;
-  /** Поставить башню вида `id` уровня `level` (1–4) в свободную клетку без оплаты и слияний — для снимков (qa/art-shots.mjs); false — клетка занята, закрыта или на дорожке. */
+  /** Поставить башню вида `id` уровня `level` (1–8) в свободную клетку без оплаты и слияний — для снимков (qa/art-shots.mjs); false — клетка занята, закрыта или на дорожке. */
   placeTower: (id: string, col: number, row: number, level: number) => boolean;
   /** Сколько картинок нарисовано и сколько памяти они занимают (ширина × высота × 4 байта); prefix — только ключи, начинающиеся с него (qa/art-shots.mjs). */
   getArtStats: (prefix?: string) => { count: number; bytes: number; keys: Record<string, [number, number]> };
   /** Только проверки: поднять башню в клетке на уровень выше и добавить ей мутации `picks` (как при слиянии, когда мутации сливаемой башни переходят к новой). */
+  /** Опыт башни в клетке — ранг пересчитывается сразу (предел — уровень игры); только режим проверки. */
+  setTowerXp: (col: number, row: number, xp: number) => boolean;
+  /** Выпустить босса таблицы `bosses` сейчас (режим проверки); false — нет такого. */
+  spawnBoss: (id: string) => boolean;
+  /** На каком расстоянии от точки (x, y) по направлению angle луч или свет упирается в зуб (не дальше length), пикселей (глава 2; режим проверки). */
+  toothCut: (x: number, y: number, angle: number, length: number) => number;
   upgradeTower: (col: number, row: number, picks: string[]) => boolean;
   /** Замер скорости с последнего сброса (reset — начать заново) и сколько объектов сейчас рисуется. */
   /** Журнал событий игры (с номера `from`): см. QaEvent. Сбрасывается при перезапуске уровня. */

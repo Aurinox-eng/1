@@ -1,6 +1,6 @@
 import { CONFIG } from './config';
-import { LEVEL_WAVES } from './debug';
-import { buildEdge, tileCenter, type Edge } from './pathing';
+import { LEVEL_WAVES, QA_OBSTACLES } from './debug';
+import { buildEdge, tileCenter, unitCenter, type Edge } from './pathing';
 
 /** Сеть дорожек карты: узлы — точки (колонка, ряд) в единицах `map.pathUnit` (103 px), не в клетках под башню; колонка ≈ 18 — за правым краем (вход), около −1 — уже в организме (выход).
  *  Ребро — плавная кривая от узла к узлу; бактерии идут по рёбрам только влево, а на каждой развилке (узле, из которого выходит несколько рёбер) выбирают ребро случайно и поровну.
@@ -11,7 +11,27 @@ export interface MapSpec {
   nodes: Record<string, readonly [number, number]>;
   edges: ReadonlyArray<readonly [string, string]>;
   startCenter: readonly [number, number];
+  /** Зубы (глава 2) — непроходимые препятствия: клетки (колонка, ряд) сетки под башни. */
+  teeth?: ReadonlyArray<readonly [number, number]>;
+  /** Налёт (главы 2 и 7) — разрушаемые препятствия: у каждого 2–3 клетки (колонка, ряд) подряд. */
+  plaque?: ReadonlyArray<PlaqueSpec>;
 }
+/** Один налёт на карте: клетки, которые он закрывает. */
+export interface PlaqueSpec {
+  cells: ReadonlyArray<readonly [number, number]>;
+}
+
+/** Узлы карты «Рот» (уровни 3–4): входы (A, E, B), развилка у губ (L), челюсти (U — верхняя, D — нижняя), язык (M), глотка (T) и выход (X). */
+const MOUTH_NODES: Record<string, readonly [number, number]> = {
+  A: [18.6, 2.2], E: [18.6, 7.0], B: [18.6, 11.8],
+  L: [15.6, 7.0],
+  U1: [12.6, 2.6], M1: [12.2, 7.0], D1: [12.6, 11.4],
+  U2: [7.2, 2.4], M2: [7.4, 7.0], D2: [7.2, 11.6],
+  T: [3.0, 7.0],
+  X: [-1, 7.0],
+};
+/** Зубы карты «Рот»: две дуги по четыре — между верхней челюстью и языком и между языком и нижней челюстью (клетки сетки под башни). */
+const MOUTH_TEETH: ReadonlyArray<readonly [number, number]> = [[10, 6], [12, 5], [14, 5], [16, 6], [10, 12], [12, 13], [14, 13], [16, 12]];
 
 /** Перевод точки макета карт (docs/mockups/maps-levels-1-4.html: колонка и ряд клеток 77,25 px, колонка от края организма) в единицы `map.pathUnit`. */
 const fromMockup = (col: number, row: number): readonly [number, number] => [col * 0.75 - 0.5, (row + 0.5) * 0.75 - 0.5];
@@ -22,7 +42,7 @@ const fromMockup = (col: number, row: number): readonly [number, number] => [col
  *  throat — «Горло» уровня 1 (документ дизайна docs/redesign-2026-10-19.md, раздел 8; макет `?map=1`): два входа сходятся в одно горло, длинная S-кривая, у организма развилка на два выхода.
  *  nose — «Нос» уровня 2 (план docs/level2-plan-2026-10-23.md, раздел 2.5; макет `?map=2`): два входа, два канала до организма, перемычка из верхнего канала в нижний; три маршрута, верхний канал получает 25 % бактерий, нижний — 75 %.
  */
-export const MAPS: Record<'roots' | 'throat' | 'nose', MapSpec> = {
+export const MAPS: Record<'roots' | 'throat' | 'nose' | 'mouth3' | 'mouth4', MapSpec> = {
   roots: {
     cols: 24,
     rows: 19,
@@ -74,13 +94,36 @@ export const MAPS: Record<'roots' | 'throat' | 'nose', MapSpec> = {
     /** У концов каналов: в окне и оба конца каналов, и выход. */
     startCenter: [6.5, 7.0],
   },
+  /** «Рот» уровня 3 (глава 2 «Рот и зубы»): один вход посередине (губы), за ним развилка на три пути — вдоль верхней челюсти, по языку и вдоль нижней челюсти; у глотки пути сходятся в один выход.
+   *  Зубы — две дуги между путями (луч и свет через зуб не проходят), налёт — у дуг. */
+  mouth3: {
+    cols: 24,
+    rows: 19,
+    nodes: MOUTH_NODES,
+    edges: [['E', 'L'], ['L', 'U1'], ['L', 'M1'], ['L', 'D1'], ['U1', 'U2'], ['M1', 'M2'], ['D1', 'D2'], ['U2', 'T'], ['M2', 'T'], ['D2', 'T'], ['T', 'X']],
+    startCenter: [6.5, 7.0],
+    teeth: MOUTH_TEETH,
+    /** Налёт: у глотки над языком (3 клетки) и у нижней дуги зубов (2 клетки). */
+    plaque: [{ cells: [[2, 7], [3, 7], [4, 7]] }, { cells: [[12, 11], [13, 11]] }],
+  },
+  /** «Рот» уровня 4: та же карта, но входов два — сверху и снизу справа (по челюстям); с каждой челюсти есть съезд на язык. Средний вход закрыт. */
+  mouth4: {
+    cols: 24,
+    rows: 19,
+    nodes: MOUTH_NODES,
+    edges: [['A', 'U1'], ['B', 'D1'], ['U1', 'U2'], ['U1', 'M1'], ['D1', 'M1'], ['D1', 'D2'], ['M1', 'M2'], ['U2', 'T'], ['M2', 'T'], ['D2', 'T'], ['T', 'X']],
+    startCenter: [6.5, 7.0],
+    teeth: MOUTH_TEETH,
+    /** Налёт: у глотки под языком (3 клетки) и у верхней дуги зубов (2 клетки) — зеркально уровню 3. */
+    plaque: [{ cells: [[2, 11], [3, 11], [4, 11]] }, { cells: [[12, 7], [13, 7]] }],
+  },
 };
 
-/** Какая карта у уровня: уровень 1 — «Горло», уровень 2 — «Нос», остальные пока «корни» (свои карты уровней 3–4 — после макетов, решение владельца 18 октября 2026).
+/** Какая карта у уровня: уровень 1 — «Горло», уровень 2 — «Нос», уровни 3–4 — «Рот», остальные пока «корни» (свои карты уровней 3–4 — после макетов, решение владельца 18 октября 2026).
  *  В режиме проверки без `&levelwaves` — всегда «корни»: прежний тестовый уровень, на котором построены проверки механик. */
 export function mapOfLevel(level: number): keyof typeof MAPS {
   if (!LEVEL_WAVES) return 'roots';
-  return level === 1 ? 'throat' : level === 2 ? 'nose' : 'roots';
+  return level === 1 ? 'throat' : level === 2 ? 'nose' : level === 3 ? 'mouth3' : level === 4 ? 'mouth4' : 'roots';
 }
 
 /** Карта, по которой сейчас идёт партия (меняется `useLevelMap` перед стартом уровня); все таблицы ниже пересчитываются вместе с ней. */
@@ -132,6 +175,13 @@ export let PATH_TILES: ReadonlySet<string> = new Set();
  */
 export let BLOCKED_TILES: ReadonlySet<string> = new Set();
 
+/** Клетки с зубом (`MapSpec.teeth`): строить нельзя, луч и свет через зуб не проходят. */
+export let TOOTH_TILES: ReadonlySet<string> = new Set();
+/** Центры зубов, пикселей мира (для луча и света). */
+export let TOOTH_CENTERS: ReadonlyArray<{ x: number; y: number }> = [];
+/** Налёт на карте (`MapSpec.plaque`); какой ещё цел — знает сцена. */
+export let PLAQUES: ReadonlyArray<PlaqueSpec> = [];
+
 /** Переключает карту на карту уровня `level` и пересчитывает рёбра, входы, расстояния до организма и закрытые клетки (если карта та же — ничего не делает). */
 export function useLevelMap(level: number): void {
   const id = mapOfLevel(level);
@@ -170,7 +220,63 @@ export function useLevelMap(level: number): void {
     }
   }
   PATH_TILES = path;
+  const obstacles = QA_OBSTACLES && id === 'roots' ? qaObstacles(path, blocked) : { teeth: LEVEL.teeth ?? [], plaque: LEVEL.plaque ?? [] };
+  // клетка с препятствием рисуется самим препятствием, а не штриховкой закрытой клетки
+  for (const [c, r] of [...obstacles.teeth, ...obstacles.plaque.flatMap((p) => p.cells)]) blocked.delete(cellKey(c, r));
   BLOCKED_TILES = blocked;
+  TOOTH_TILES = new Set(obstacles.teeth.map(([c, r]) => cellKey(c, r)));
+  TOOTH_CENTERS = obstacles.teeth.map(([c, r]) => tileCenter(c, r));
+  PLAQUES = obstacles.plaque;
+}
+
+/**
+ * Только режим проверки (`?qa&obstacles`): препятствия главы 2 на тестовой карте «корни» — три зуба (свободные клетки, ближайшие к узлам Nu, Nl и K2) и два налёта
+ * (3 и 2 клетки в ряд, ближайшие к узлам Mu и Rl). Клетки подбираются по свободным, поэтому не попадают на дорожку.
+ */
+function qaObstacles(path: ReadonlySet<string>, blocked: ReadonlySet<string>): { teeth: [number, number][]; plaque: PlaqueSpec[] } {
+  const taken = new Set<string>();
+  const free = (c: number, r: number): boolean => c >= 0 && r >= 0 && c < LEVEL.cols && r < LEVEL.rows && !path.has(cellKey(c, r)) && !blocked.has(cellKey(c, r)) && !taken.has(cellKey(c, r));
+  const run = (node: string, len: number): [number, number][] => {
+    const at = unitCenter(LEVEL.nodes[node][0], LEVEL.nodes[node][1]);
+    let best: [number, number][] = [];
+    let bestD = Infinity;
+    for (let c = 0; c + len <= LEVEL.cols; c++) {
+      for (let r = 0; r < LEVEL.rows; r++) {
+        const cells: [number, number][] = Array.from({ length: len }, (_, i) => [c + i, r]);
+        if (!cells.every(([cc, rr]) => free(cc, rr))) continue;
+        const mid = tileCenter(c + (len - 1) / 2, r);
+        const d = Math.hypot(mid.x - at.x, mid.y - at.y);
+        if (d < bestD) [best, bestD] = [cells, d];
+      }
+    }
+    for (const [c, r] of best) taken.add(cellKey(c, r));
+    return best;
+  };
+  const teeth = ['Nu', 'Nl', 'K2'].map((node) => run(node, 1)[0]).filter((cell) => cell !== undefined);
+  return { teeth, plaque: [{ cells: run('Mu', 3) }, { cells: run('Rl', 2) }] };
+}
+
+/** На каком расстоянии от точки (x, y) в направлении angle луч упирается в зуб (не дальше length), пикселей. */
+export function toothCut(x: number, y: number, angle: number, length: number): number {
+  const r = CONFIG.obstacles.toothRadius * CONFIG.map.tile;
+  const ux = Math.cos(angle);
+  const uy = Math.sin(angle);
+  let cut = length;
+  for (const t of TOOTH_CENTERS) {
+    const along = (t.x - x) * ux + (t.y - y) * uy;
+    if (along < 0) continue;
+    const off = Math.abs(-(t.x - x) * uy + (t.y - y) * ux);
+    if (off >= r) continue;
+    cut = Math.min(cut, Math.max(0, along - Math.sqrt(r * r - off * off)));
+  }
+  return cut;
+}
+
+/** Закрывает ли зуб прямую от (x0, y0) до (x1, y1): свет Лампы до бактерии за зубом не доходит. */
+export function toothBlocks(x0: number, y0: number, x1: number, y1: number): boolean {
+  if (TOOTH_CENTERS.length === 0) return false;
+  const len = Math.hypot(x1 - x0, y1 - y0);
+  return len > 0 && toothCut(x0, y0, Math.atan2(y1 - y0, x1 - x0), len) < len;
 }
 
 useLevelMap(1);

@@ -28,7 +28,7 @@ import { applyConfigOverrides } from './debug';
 /** Как башня бьёт (см. таблицу башен ниже). */
 export type Targeting = 'radius' | 'area' | 'puddle' | 'beam' | 'snipe' | 'poison' | 'cone' | 'aura' | 'freeze' | 'trap';
 /** Все типы бактерий (ключи таблицы `types`; нужен для таблицы волн — она описана раньше, чем сам список типов). */
-export type KindId = 'coccus' | 'rod' | 'splitter' | 'armored' | 'spore' | 'swarm' | 'runner' | 'healer' | 'slick' | 'regen' | 'commander' | 'brood' | 'giant' | 'leaper' | 'phago' | 'stealth' | 'toxin' | 'mutant' | 'parasite';
+export type KindId = 'coccus' | 'rod' | 'splitter' | 'armored' | 'spore' | 'swarm' | 'runner' | 'healer' | 'slick' | 'regen' | 'commander' | 'brood' | 'giant' | 'leaper' | 'phago' | 'stealth' | 'toxin' | 'mutant' | 'parasite' | 'film';
 /** Строка таблицы уровней (`levels.specs`): что отличает уровень от уровня 1. Все поля необязательные; подробности — в комментарии к таблице. */
 export interface LevelSpec {
   count?: number;
@@ -41,7 +41,31 @@ export interface LevelSpec {
   plan?: LevelPlan;
 }
 /** Босс или мини-босс (docs/redesign-2026-10-19.md, раздел 7): одна особая бактерия; рисуется как вид-основа `base`, крупнее и с кольцом своего цвета. */
-export type BossId = 'colony' | 'rodLeader' | 'armadillo' | 'swarmQueen' | 'giantColony' | 'sporeling' | 'shaman' | 'hopper' | 'sporeMother' | 'silencer';
+export type BossId = 'colony' | 'rodLeader' | 'armadillo' | 'swarmQueen' | 'giantColony' | 'sporeling' | 'shaman' | 'hopper' | 'sporeMother' | 'silencer' | 'tartar' | 'shadow' | 'caries';
+/** Действие одного ранга опыта (таблица `ranks.byTower`): множители (*Mul) и прибавки (*Add) к числам башни, умения ★4/★8. */
+export interface RankEffect {
+  rangeMul?: number;
+  cooldownMul?: number;
+  damageMul?: number;
+  dotPerSecMul?: number;
+  dotSecMul?: number;
+  puddleSecMul?: number;
+  slowSecAdd?: number;
+  beamWidthMul?: number;
+  blastMul?: number;
+  trapSecMul?: number;
+  trapDpsMul?: number;
+  xpShareAdd?: number;
+  nthShot?: number;
+  nthMul?: number;
+  centerMul?: number;
+  firstHitMul?: number;
+  lastHitMul?: number;
+  bossMul?: number;
+  auraXpMul?: number;
+  noHealFrozen?: number;
+}
+
 /** Волна уровня нового формата: обычные бактерии (`mix`, выходят вперемешку), стена — пачка одного вида одним блоком (`wall`: вид и сколько), босс волны (`boss`). */
 export interface PlanWave {
   mix: Partial<Record<KindId, number>>;
@@ -106,6 +130,10 @@ export interface BossPhase {
   spawnKind?: KindId;
   spawnEverySec?: number;
   spawnCount?: number;
+  filmEverySec?: number;
+  filmSec?: number;
+  filmRadius?: number;
+  stealth?: number;
 }
 /**
  * Строка таблицы боссов (`bosses`). Обязательные поля: вид-основа (как рисуется), прочность (HP, без множителя волны), скорость (к `bacteria.baseSpeed`), броня (без роста по волнам),
@@ -114,7 +142,9 @@ export interface BossPhase {
  *  dashEverySec, dashSec, dashFactor — рывки; rallyRadius, rallyDashMul — палочки ближе rallyRadius делают рывки в rallyDashMul раз чаще; slowFloor — замедление не сильнее этого множителя;
  *  spawnKind, spawnEverySec, spawnCount — раз в spawnEverySec выпускает spawnCount бактерий; capsuleEverySec, capsuleSec — через capsuleEverySec секунд без капсулы становится неуязвимым на capsuleSec
  *  (часы стоят, пока капсула держится: цикл capsuleEverySec + capsuleSec; находка аудита MASTER-0051, поведение оставлено решением владельца 28 октября 2026, сообщение 2, п. 5);
- *  regenShare — самолечение (доля прочности в секунду); phases — фазы по доле прочности (`BossPhase`).
+ *  regenShare — самолечение (доля прочности в секунду); phases — фазы по доле прочности (`BossPhase`);
+ *  filmEverySec, filmSec, filmRadius, filmWide — плёнка на дорожке, как у вида «Плёнка» (раз в filmEverySec секунд, на filmSec секунд, радиус filmRadius; filmWide — широкая жёлто-серая, Зубной камень);
+ *  stealth — скрытность, как у вида (доля радиуса башни, на которой босс виден; 0 — виден всегда); hideEverySec, hideSec — раз в hideEverySec секунд на hideSec секунд невидим: башни его не выбирают целью.
  */
 export interface BossSpec {
   base: KindId;
@@ -140,6 +170,13 @@ export interface BossSpec {
   capsuleSec?: number;
   regenShare?: number;
   phases?: BossPhase[];
+  filmEverySec?: number;
+  filmSec?: number;
+  filmRadius?: number;
+  filmWide?: boolean;
+  stealth?: number;
+  hideEverySec?: number;
+  hideSec?: number;
 }
 /**
  * Мутация башни (выбор на уровнях 2 и 4): заплатка к числам башни. Все поля необязательны, пропущенное — «не меняет».
@@ -153,7 +190,9 @@ export interface BossSpec {
  *  dotSecMul, dotDpsMul — множители времени и силы (HP/с) яда башни с ядом ('poison');
  *  coneMul — множитель угла конуса башни с конусом ('cone'); rangeMul — множитель радиуса стрельбы (у Лампы — длины конуса, у Витамина — радиуса ауры);
  *  auraBonusMul — множитель прибавки ауры Витамина ('aura'): прибавка = 1 − множитель паузы (0,8 → 0,2; ×1,5 → 0,3, то есть пауза ×0,7);
- *  freezeMul — множитель времени заморозки башни с заморозкой ('freeze'); trapSecMul, trapDpsMul — множители времени приклеивания и урона в секунду ловушки башни с ловушкой ('trap').
+ *  freezeMul — множитель времени заморозки башни с заморозкой ('freeze'); trapSecMul, trapDpsMul — множители времени приклеивания и урона в секунду ловушки башни с ловушкой ('trap');
+ *  thawSlowSec, thawSlowFactor — после оттаивания бактерия ещё thawSlowSec секунд идёт в thawSlowFactor раз медленнее (жёсткое свойство бегуна это замедление не снимает: только лужа Сиропа);
+ *  auraDamageMul — башни в ауре Витамина бьют сильнее во столько раз (между Витаминами не складывается: берётся наибольшее; исключения — как у ауры).
  */
 export interface MutationSpec {
   id: string;
@@ -182,6 +221,9 @@ export interface MutationSpec {
   freezeMul?: number;
   trapSecMul?: number;
   trapDpsMul?: number;
+  thawSlowSec?: number;
+  thawSlowFactor?: number;
+  auraDamageMul?: number;
 }
 /**
  * Что делает улучшение вне партии (колонка `effect` таблицы `meta.upgrades`, docs/upgrades.md):
@@ -366,8 +408,9 @@ export const CONFIG = {
           incomePerWave: 7,
           incomeMiniBoss: 60,
           /** Прочность одной бактерии: HP вида × hpScale × (n/8)^1,75 с 9-й по 30-ю волну (×2,03 на 12-й, ×10,1 на 30-й), с 31-й — по hpLateExp (×16,8 на 50-й).
-           *  hpScale 1 — урон на монету e «одной Таблетки» по её первой попытке (19 октября 2026, сообщение владельца 3, п. 2.1): 0,0213 против опорных 0,022 (в пределах разброса). */
-          hpScale: 1,
+           *  hpScale 1,45 — решение владельца 1 ноября 2026 (сообщение 1, п. 1, вариант А): пробы ×1,3 / ×1,45 / ×1,6 / ×1,75 на правке 2 образца (`b7ebe99`), только ×1,45 выполняет цель уровня 1 —
+           *  медиана первой победы 8 попыток, все дорожки 8–9-я, на одной стене не больше 3 попыток подряд (`docs/balance-history.md`). Прежнее значение — 1 (урон на монету «одной Таблетки», 19 октября 2026). */
+          hpScale: 1.45,
           hpFlatUntil: 8,
           hpExp: 1.75,
           /** С 31-й волны рост прочности — (n / 30)^hpLateExp от прочности 30-й волны: 1,0 — прямой рост (×1,67 к 30-й на 50-й волне; при 1,75, как у волн 9–30, было ×2,45).
@@ -419,7 +462,7 @@ export const CONFIG = {
         { mix: { coccus: 36, rod: 18, swarm: 24, runner: 14, splitter: 9, armored: 4, slick: 5 } }, // 37
         { mix: { coccus: 36, rod: 18, swarm: 24, runner: 14, splitter: 9, armored: 4, slick: 5 } }, // 38
         { mix: { coccus: 36, rod: 18, swarm: 24, runner: 14, splitter: 9, armored: 4, slick: 5 } }, // 39
-        { mix: { coccus: 42, rod: 21, swarm: 36, runner: 16, splitter: 11, armored: 4, slick: 6 }, boss: 'swarmQueen' }, // 40 Матка роя 6891 HP
+        { mix: { coccus: 42, rod: 21, swarm: 36, runner: 16, splitter: 11, armored: 4, slick: 6 }, boss: 'swarmQueen' }, // 40 Матка роя 4479 HP
         { mix: { coccus: 39, rod: 19, swarm: 24, runner: 14, splitter: 10, armored: 4, slick: 6 } }, // 41
         { mix: { coccus: 39, rod: 19, swarm: 24, runner: 14, splitter: 10, armored: 4, slick: 6 } }, // 42
         { mix: { coccus: 39, rod: 19, swarm: 24, runner: 15, splitter: 10, armored: 4, slick: 6 }, wall: ['armored', 6] }, // 43
@@ -861,6 +904,8 @@ export const CONFIG = {
       blastFullTargets: 0,
       blastRestMul: 1,
       lightSec: 0,
+      /** Множитель паузы уровня не ниже этого числа (0,75 — пауза Холода на VII–VIII не короче, чем на VI: 6,0 с; иначе заморозка, не дольше половины паузы, на VII–VIII короче, чем на VI; план, раздел 1.1). */
+      minCooldownMul: 0.75,
     },
     /** Пластырь — ловушка: раз в 14 с, когда в радиусе есть бактерия, кладёт на дорожку под первую (ближайшую к организму) пластырь: бактерия приклеивается к месту на 3 с и теряет 2 HP/с (≈ 6 HP; броню
      *  не учитывает). Прыгун и слизень не липнут (`types.*.trapImmune`). Держит самую опасную бактерию, пока подходят остальные. Первое приближение (docs/stage-7-plan.md). Открывается на уровне 9. */
@@ -913,6 +958,11 @@ export const CONFIG = {
     { damageMul: 1.9, cooldownMul: 0.95, reachMul: 1.04, pulsesAdd: 0, slowPower: 1.15, puddleSecMul: 1.15 },
     { damageMul: 3.6, cooldownMul: 0.9, reachMul: 1.08, pulsesAdd: 0, slowPower: 1.3, puddleSecMul: 1.3 },
     { damageMul: 6.4, cooldownMul: 0.85, reachMul: 1.12, pulsesAdd: 1, slowPower: 1.45, puddleSecMul: 1.45 },
+    // V–VIII (план docs/tower-levels-xp-plan-2026-10-24.md, раздел 1; решение владельца 25 октября 2026, п. 6, 9): урон ×1,75 за уровень, пауза −0,05, радиус +0,04, замедление и время лужи +0,15
+    { damageMul: 11.2, cooldownMul: 0.8, reachMul: 1.16, pulsesAdd: 1, slowPower: 1.6, puddleSecMul: 1.6 },
+    { damageMul: 19.6, cooldownMul: 0.75, reachMul: 1.2, pulsesAdd: 2, slowPower: 1.75, puddleSecMul: 1.75 },
+    { damageMul: 34.3, cooldownMul: 0.7, reachMul: 1.24, pulsesAdd: 2, slowPower: 1.9, puddleSecMul: 1.9 },
+    { damageMul: 60, cooldownMul: 0.65, reachMul: 1.28, pulsesAdd: 2, slowPower: 2.05, puddleSecMul: 2.05 },
   ],
   /** Пределы роста по уровням игры (решение владельца 26 октября 2026, сообщение 4, п. 3: п. 5 плана `docs/levels30-enemies-plan-2026-10-26.md` принят): с уровня игры `fromLevel` —
    *  наибольший уровень слияния `merge` (не выше числа строк `towerLevels`) и ранг опыта `rank` (звёзды ранга; действует вместе с рангами опыта). Строки — по возрастанию `fromLevel`.
@@ -924,6 +974,35 @@ export const CONFIG = {
     { fromLevel: 13, merge: 7, rank: 7 },
     { fromLevel: 15, merge: 8, rank: 8 },
   ] as { fromLevel: number; merge: number; rank: number }[],
+  /** Опыт башен в партии (план docs/tower-levels-xp-plan-2026-10-24.md, раздел 2): vitaminShare — доля опыта, начисленного башне в ауре Витамина, которую получает сам Витамин (доля от 0 до 1). Опыт нужен замеру (qa/bot.mjs), рангов и улучшений от него пока нет. */
+  xp: { vitaminShare: 0.25 },
+  /**
+   * Ранги опыта ★1–★8 (план `docs/tower-levels-xp-plan-2026-10-24.md`, раздел 3; решение владельца 29 октября 2026, сообщение 1, пп. 1–2). Ранг — сколько порогов `thresholds`
+   * (очки опыта) башня прошла, но не выше предела ранга уровня игры (`growthLimits.rank`). ★1–★4 — окончательно, ★5–★8 — предварительно (перепроверить на уровнях 5 и 15).
+   * `byTower` — что даёт каждый ранг ★1…★8 этой башни (по порядку), действия складываются: *Mul — множитель (×), *Add — прибавка; лестница вида: ★1 дальность, ★2 скорострельность,
+   * ★3 сила, ★4 особое умение, ★5 сила, ★6 скорострельность, ★7 дальность, ★8 второе умение (раздел 3.1 — где параметр упирается в потолок, ранг даёт другой; раздел 3.2 — умения).
+   *   rangeMul — радиус (у Лампы — конуса, у Витамина — ауры); cooldownMul — пауза; damageMul — урон (у Шипучки — взрыва, у Лампы — за тик); dotPerSecMul, dotSecMul — сила и время яда;
+   *   puddleSecMul — время лужи; slowSecAdd — замедление после выхода из лужи держится дольше, с; beamWidthMul — ширина луча Шприца; blastMul — радиус взрыва; trapSecMul, trapDpsMul — ловушка;
+   *   xpShareAdd — доля опыта соседей у Витамина (к `xp.vitaminShare`); nthShot / nthMul — каждый N-й выстрел Таблетки сильнее (×; ★8 заменяет число ★4); centerMul — цель в центре взрыва;
+   *   firstHitMul / lastHitMul — первый / последний удар очереди Шприца; bossMul — урон Ампулы по мини-боссам и боссу (★8 заменяет ★4); auraXpMul — башни в ауре получают больше опыта;
+   *   noHealFrozen — замороженная бактерия не лечится (1 — да). `dpsCap` — урон в секунду от рангов не выше этого множителя к башне без рангов (раздел 4).
+   */
+  ranks: {
+    thresholds: [30, 90, 250, 550, 1000, 1600, 2500, 3800] as number[],
+    dpsCap: 1.5,
+    byTower: {
+      pill: [{ rangeMul: 1.06 }, { cooldownMul: 0.95 }, { damageMul: 1.1 }, { nthShot: 5, nthMul: 1.2 }, { damageMul: 1.1 }, { cooldownMul: 0.95 }, { rangeMul: 1.06 }, { nthMul: 1.4 }],
+      syrup: [{ rangeMul: 1.06 }, { cooldownMul: 0.95 }, { puddleSecMul: 1.1 }, { puddleSecMul: 1.15 }, { puddleSecMul: 1.1 }, { cooldownMul: 0.95 }, { rangeMul: 1.06 }, { slowSecAdd: 0.5 }],
+      fizz: [{ rangeMul: 1.06 }, { cooldownMul: 0.95 }, { damageMul: 1.1 }, { blastMul: 1.12 }, { damageMul: 1.1 }, { cooldownMul: 0.95 }, { rangeMul: 1.06 }, { centerMul: 1.25 }],
+      syringe: [{ beamWidthMul: 1.1 }, { cooldownMul: 0.95 }, { damageMul: 1.1 }, { firstHitMul: 1.25 }, { damageMul: 1.1 }, { cooldownMul: 0.95 }, { beamWidthMul: 1.1 }, { lastHitMul: 1.25 }],
+      ampule: [{ rangeMul: 1.06 }, { cooldownMul: 0.95 }, { damageMul: 1.1 }, { bossMul: 1.15 }, { damageMul: 1.1 }, { cooldownMul: 0.95 }, { rangeMul: 1.06 }, { bossMul: 1.3 }],
+      antibiotic: [{ rangeMul: 1.06 }, { cooldownMul: 0.95 }, { dotPerSecMul: 1.1 }, { dotSecMul: 1.25 }, { dotPerSecMul: 1.1 }, { cooldownMul: 0.95 }, { rangeMul: 1.06 }, { dotPerSecMul: 1.15 }],
+      lamp: [{ rangeMul: 1.06 }, { cooldownMul: 0.95 }, { damageMul: 1.1 }, { damageMul: 1.1 }, { damageMul: 1.1 }, { cooldownMul: 0.95 }, { rangeMul: 1.06 }, { rangeMul: 1.12 }],
+      vitamin: [{ rangeMul: 1.06 }, { rangeMul: 1.06 }, { xpShareAdd: 0.05 }, { rangeMul: 1.12 }, { xpShareAdd: 0.05 }, { rangeMul: 1.06 }, { rangeMul: 1.06 }, { auraXpMul: 1.05 }],
+      frost: [{ rangeMul: 1.06 }, { rangeMul: 1.06 }, { rangeMul: 1.08 }, { rangeMul: 1.12 }, { rangeMul: 1.08 }, { rangeMul: 1.06 }, { rangeMul: 1.06 }, { noHealFrozen: 1 }],
+      patch: [{ rangeMul: 1.06 }, { cooldownMul: 0.95 }, { trapDpsMul: 1.1 }, { trapSecMul: 1.2 }, { trapDpsMul: 1.1 }, { cooldownMul: 0.95 }, { rangeMul: 1.06 }, { rangeMul: 1.15 }],
+    } as Record<string, RankEffect[]>,
+  },
   /** Рост времени заморозки Холода с уровнем башни: время × (damageMul уровня) ^ это число (0,25: уровень 2 — ×1,17, 3 — ×1,38, 4 — ×1,59; у Холода своего урона нет). Время приклеивания Пластыря с уровнем не растёт, его урон в секунду растёт как урон (damageMul). */
   freezeLevelPower: 0.25,
   /** Уровни, на которых башня получает выбор мутации (по одному выбору на каждый порог; выбор бесплатный и окончательный). */
@@ -974,11 +1053,13 @@ export const CONFIG = {
     ],
     vitamin: [
       [{ id: 'vitaminBoost', auraBonusMul: 1.5 }, { id: 'vitaminFar', rangeMul: 1.3 }],
-      [{ id: 'vitaminStrong', auraBonusMul: 1.5 }, { id: 'vitaminDouble', rangeMul: 1.3 }],
+      // «Сильное усиление»: башни рядом бьют на 10 % сильнее (решение владельца 28 октября 2026, сообщение 3, п. 5; было auraBonusMul 1,5 — на IV упиралось в предел ×0,6, MASTER-0010)
+      [{ id: 'vitaminStrong', auraDamageMul: 1.1 }, { id: 'vitaminDouble', rangeMul: 1.3 }],
     ],
     frost: [
       [{ id: 'frostDeep', freezeMul: 1.5 }, { id: 'frostFrequent', cooldownMul: 0.7 }],
-      [{ id: 'frostLong', freezeMul: 1.5 }, { id: 'frostWide', rangeMul: 1.4 }],
+      // «Долгий мороз»: после льда бактерия ещё 2 с идёт в 0,6 раза медленнее (решение владельца 28 октября 2026, сообщение 3, п. 4; было freezeMul 1,5 — на IV упиралось в предел 0,5 паузы, MASTER-0008)
+      [{ id: 'frostLong', thawSlowSec: 2, thawSlowFactor: 0.6 }, { id: 'frostWide', rangeMul: 1.4 }],
     ],
     patch: [
       [{ id: 'patchSticky', trapSecMul: 1.5 }, { id: 'patchQuick', cooldownMul: 0.65 }],
@@ -1020,47 +1101,53 @@ export const CONFIG = {
   //   latchRadius, latchMul             — ПРИСОСКА (Паразит): подойдя к башне ближе latchRadius пикселей, присасывается к ближайшей: пока паразит жив и не дошёл до организма, пауза этой башни ×latchMul
   //                                       (несколько паразитов на одной башне не складываются); у Витамина во столько же раз слабее прибавка ауры; 0 — нет присоски
   //   freezeImmune, trapImmune          — 1: бактерия не замерзает от Холода / не прилипает к ловушке Пластыря
+  //   filmEverySec, filmSec, filmRadius — ПЛЁНКА (вид «Плёнка», глава 2): раз в filmEverySec секунд оставляет под собой на дорожке плёнку радиуса filmRadius пикселей на filmSec секунд;
+  //                                       бактерии на плёнке получают от снарядов (`film.towers`) урон ×`film.damageMul`; взрыв, луч и конус бьют полностью; 0 — плёнки нет
   types: {
     /** Кокк — зелёный круг. Базовый: 3 HP (было 2; документ дизайна docs/redesign-2026-10-19.md, раздел 3), медленный. */
-    coccus: { hp: 3, speedFactor: 0.8, reward: 5, lifeDamage: 1, radius: 30, length: 0, armor: 0, dashEverySec: 0, dashSec: 0, dashFactor: 1, splitCount: 0, splitGapPx: 0, disableSec: 0, disableRadius: 0, healRadius: 0, healShare: 0, spawnGapSec: 0, regenShare: 0, hasteRadius: 0, hasteFactor: 1, slowImmune: 0, brewEverySec: 0, brewCount: 0, leapEverySec: 0, leapPx: 0, absorbEvery: 0, stealth: 0, cloudRadius: 0, cloudSec: 0, memoryMul: 0, latchRadius: 0, latchMul: 0, freezeImmune: 0, trapImmune: 0 },
+    coccus: { hp: 3, speedFactor: 0.8, reward: 5, lifeDamage: 1, radius: 30, length: 0, armor: 0, dashEverySec: 0, dashSec: 0, dashFactor: 1, splitCount: 0, splitGapPx: 0, disableSec: 0, disableRadius: 0, healRadius: 0, healShare: 0, spawnGapSec: 0, regenShare: 0, hasteRadius: 0, hasteFactor: 1, slowImmune: 0, brewEverySec: 0, brewCount: 0, leapEverySec: 0, leapPx: 0, absorbEvery: 0, stealth: 0, cloudRadius: 0, cloudSec: 0, memoryMul: 0, latchRadius: 0, latchMul: 0, freezeImmune: 0, trapImmune: 0, filmEverySec: 0, filmSec: 0, filmRadius: 0 },
     /** Палочка — синяя вытянутая капсула. 10 HP (было 5), идёт быстрее кокка и делает рывки; на уровне 1 создаёт стены пачками. */
-    rod: { hp: 10, speedFactor: 1, reward: 6, lifeDamage: 1, radius: 22, length: 104, armor: 0, dashEverySec: 3, dashSec: 1, dashFactor: 2.5, splitCount: 0, splitGapPx: 0, disableSec: 0, disableRadius: 0, healRadius: 0, healShare: 0, spawnGapSec: 0, regenShare: 0, hasteRadius: 0, hasteFactor: 1, slowImmune: 0, brewEverySec: 0, brewCount: 0, leapEverySec: 0, leapPx: 0, absorbEvery: 0, stealth: 0, cloudRadius: 0, cloudSec: 0, memoryMul: 0, latchRadius: 0, latchMul: 0, freezeImmune: 0, trapImmune: 0 },
+    rod: { hp: 10, speedFactor: 1, reward: 6, lifeDamage: 1, radius: 22, length: 104, armor: 0, dashEverySec: 3, dashSec: 1, dashFactor: 2.5, splitCount: 0, splitGapPx: 0, disableSec: 0, disableRadius: 0, healRadius: 0, healShare: 0, spawnGapSec: 0, regenShare: 0, hasteRadius: 0, hasteFactor: 1, slowImmune: 0, brewEverySec: 0, brewCount: 0, leapEverySec: 0, leapPx: 0, absorbEvery: 0, stealth: 0, cloudRadius: 0, cloudSec: 0, memoryMul: 0, latchRadius: 0, latchMul: 0, freezeImmune: 0, trapImmune: 0, filmEverySec: 0, filmSec: 0, filmRadius: 0 },
     /** Делящаяся — ярко-оранжевая, с перетяжкой посередине. 8 HP (было 4). Уничтожена — на этом месте появляются три кокка (было два). */
-    splitter: { hp: 8, speedFactor: 0.9, reward: 8, lifeDamage: 1, radius: 27, length: 0, armor: 0, dashEverySec: 0, dashSec: 0, dashFactor: 1, splitCount: 3, splitGapPx: 64, disableSec: 0, disableRadius: 0, healRadius: 0, healShare: 0, spawnGapSec: 0, regenShare: 0, hasteRadius: 0, hasteFactor: 1, slowImmune: 0, brewEverySec: 0, brewCount: 0, leapEverySec: 0, leapPx: 0, absorbEvery: 0, stealth: 0, cloudRadius: 0, cloudSec: 0, memoryMul: 0, latchRadius: 0, latchMul: 0, freezeImmune: 0, trapImmune: 0 },
+    splitter: { hp: 8, speedFactor: 0.9, reward: 8, lifeDamage: 1, radius: 27, length: 0, armor: 0, dashEverySec: 0, dashSec: 0, dashFactor: 1, splitCount: 3, splitGapPx: 64, disableSec: 0, disableRadius: 0, healRadius: 0, healShare: 0, spawnGapSec: 0, regenShare: 0, hasteRadius: 0, hasteFactor: 1, slowImmune: 0, brewEverySec: 0, brewCount: 0, leapEverySec: 0, leapPx: 0, absorbEvery: 0, stealth: 0, cloudRadius: 0, cloudSec: 0, memoryMul: 0, latchRadius: 0, latchMul: 0, freezeImmune: 0, trapImmune: 0, filmEverySec: 0, filmSec: 0, filmRadius: 0 },
     /** Бронированная — фиолетовая, с толстой оболочкой. 30 HP (было 20), броня 3 (было 2; растёт с волной), скорость ×0,55 (было 0,6), отнимает 2 жизни. Таблетка (урон 1) почти не берёт — нужен сильный удар. */
-    armored: { hp: 30, speedFactor: 0.55, reward: 20, lifeDamage: 2, radius: 48, length: 0, armor: 3, dashEverySec: 0, dashSec: 0, dashFactor: 1, splitCount: 0, splitGapPx: 0, disableSec: 0, disableRadius: 0, healRadius: 0, healShare: 0, spawnGapSec: 0, regenShare: 0, hasteRadius: 0, hasteFactor: 1, slowImmune: 0, brewEverySec: 0, brewCount: 0, leapEverySec: 0, leapPx: 0, absorbEvery: 0, stealth: 0, cloudRadius: 0, cloudSec: 0, memoryMul: 0, latchRadius: 0, latchMul: 0, freezeImmune: 0, trapImmune: 0 },
+    armored: { hp: 30, speedFactor: 0.55, reward: 20, lifeDamage: 2, radius: 48, length: 0, armor: 3, dashEverySec: 0, dashSec: 0, dashFactor: 1, splitCount: 0, splitGapPx: 0, disableSec: 0, disableRadius: 0, healRadius: 0, healShare: 0, spawnGapSec: 0, regenShare: 0, hasteRadius: 0, hasteFactor: 1, slowImmune: 0, brewEverySec: 0, brewCount: 0, leapEverySec: 0, leapPx: 0, absorbEvery: 0, stealth: 0, cloudRadius: 0, cloudSec: 0, memoryMul: 0, latchRadius: 0, latchMul: 0, freezeImmune: 0, trapImmune: 0, filmEverySec: 0, filmSec: 0, filmRadius: 0 },
     /** Спора — маленькая красная. 3 HP, быстрая (×1,6, было 1,4); проходя рядом с башней, глушит её на 3 секунды. */
-    spore: { hp: 3, speedFactor: 1.6, reward: 12, lifeDamage: 1, radius: 18, length: 0, armor: 0, dashEverySec: 0, dashSec: 0, dashFactor: 1, splitCount: 0, splitGapPx: 0, disableSec: 3, disableRadius: 150, healRadius: 0, healShare: 0, spawnGapSec: 0, regenShare: 0, hasteRadius: 0, hasteFactor: 1, slowImmune: 0, brewEverySec: 0, brewCount: 0, leapEverySec: 0, leapPx: 0, absorbEvery: 0, stealth: 0, cloudRadius: 0, cloudSec: 0, memoryMul: 0, latchRadius: 0, latchMul: 0, freezeImmune: 0, trapImmune: 0 },
+    spore: { hp: 3, speedFactor: 1.6, reward: 12, lifeDamage: 1, radius: 18, length: 0, armor: 0, dashEverySec: 0, dashSec: 0, dashFactor: 1, splitCount: 0, splitGapPx: 0, disableSec: 3, disableRadius: 150, healRadius: 0, healShare: 0, spawnGapSec: 0, regenShare: 0, hasteRadius: 0, hasteFactor: 1, slowImmune: 0, brewEverySec: 0, brewCount: 0, leapEverySec: 0, leapPx: 0, absorbEvery: 0, stealth: 0, cloudRadius: 0, cloudSec: 0, memoryMul: 0, latchRadius: 0, latchMul: 0, freezeImmune: 0, trapImmune: 0, filmEverySec: 0, filmSec: 0, filmRadius: 0 },
     /** Рой — крошечные бирюзовые, быстрые (×1,4, было 1,3), выходят плотной пачкой по одному входу. 1 HP (было 2). Против кучи — Шипучка. */
-    swarm: { hp: 1, speedFactor: 1.4, reward: 2, lifeDamage: 0.25, radius: 14, length: 0, armor: 0, dashEverySec: 0, dashSec: 0, dashFactor: 1, splitCount: 0, splitGapPx: 0, disableSec: 0, disableRadius: 0, healRadius: 0, healShare: 0, spawnGapSec: 0.15, regenShare: 0, hasteRadius: 0, hasteFactor: 1, slowImmune: 0, brewEverySec: 0, brewCount: 0, leapEverySec: 0, leapPx: 0, absorbEvery: 0, stealth: 0, cloudRadius: 0, cloudSec: 0, memoryMul: 0, latchRadius: 0, latchMul: 0, freezeImmune: 0, trapImmune: 0 },
+    swarm: { hp: 1, speedFactor: 1.4, reward: 2, lifeDamage: 0.25, radius: 14, length: 0, armor: 0, dashEverySec: 0, dashSec: 0, dashFactor: 1, splitCount: 0, splitGapPx: 0, disableSec: 0, disableRadius: 0, healRadius: 0, healShare: 0, spawnGapSec: 0.15, regenShare: 0, hasteRadius: 0, hasteFactor: 1, slowImmune: 0, brewEverySec: 0, brewCount: 0, leapEverySec: 0, leapPx: 0, absorbEvery: 0, stealth: 0, cloudRadius: 0, cloudSec: 0, memoryMul: 0, latchRadius: 0, latchMul: 0, freezeImmune: 0, trapImmune: 0, filmEverySec: 0, filmSec: 0, filmRadius: 0 },
     /** Бегун — малиновая «капля» со следом, очень быстрый (×2,4, было 2,2). 5 HP (было 4). Башни не успевают — нужна лужа Сиропа. */
-    runner: { hp: 5, speedFactor: 2.4, reward: 8, lifeDamage: 1, radius: 20, length: 52, armor: 0, dashEverySec: 0, dashSec: 0, dashFactor: 1, splitCount: 0, splitGapPx: 0, disableSec: 0, disableRadius: 0, healRadius: 0, healShare: 0, spawnGapSec: 0, regenShare: 0, hasteRadius: 0, hasteFactor: 1, slowImmune: 0, brewEverySec: 0, brewCount: 0, leapEverySec: 0, leapPx: 0, absorbEvery: 0, stealth: 0, cloudRadius: 0, cloudSec: 0, memoryMul: 0, latchRadius: 0, latchMul: 0, freezeImmune: 0, trapImmune: 0 },
+    runner: { hp: 5, speedFactor: 2.4, reward: 8, lifeDamage: 1, radius: 20, length: 52, armor: 0, dashEverySec: 0, dashSec: 0, dashFactor: 1, splitCount: 0, splitGapPx: 0, disableSec: 0, disableRadius: 0, healRadius: 0, healShare: 0, spawnGapSec: 0, regenShare: 0, hasteRadius: 0, hasteFactor: 1, slowImmune: 0, brewEverySec: 0, brewCount: 0, leapEverySec: 0, leapPx: 0, absorbEvery: 0, stealth: 0, cloudRadius: 0, cloudSec: 0, memoryMul: 0, latchRadius: 0, latchMul: 0, freezeImmune: 0, trapImmune: 0, filmEverySec: 0, filmSec: 0, filmRadius: 0 },
     /** Лекарь — белый с розовым крестом и кольцом-аурой. 8 HP (было 6); пока жив, лечит всех рядом на 2 % их прочности в секунду (было 0,8 HP/с) — одиночные Таблетки не справляются. Против него — линия Шприца и взрыв Шипучки. */
-    healer: { hp: 8, speedFactor: 0.9, reward: 14, lifeDamage: 1, radius: 24, length: 0, armor: 0, dashEverySec: 0, dashSec: 0, dashFactor: 1, splitCount: 0, splitGapPx: 0, disableSec: 0, disableRadius: 0, healRadius: 140, healShare: 0.02, spawnGapSec: 0, regenShare: 0, hasteRadius: 0, hasteFactor: 1, slowImmune: 0, brewEverySec: 0, brewCount: 0, leapEverySec: 0, leapPx: 0, absorbEvery: 0, stealth: 0, cloudRadius: 0, cloudSec: 0, memoryMul: 0, latchRadius: 0, latchMul: 0, freezeImmune: 0, trapImmune: 0 },
+    healer: { hp: 8, speedFactor: 0.9, reward: 14, lifeDamage: 1, radius: 24, length: 0, armor: 0, dashEverySec: 0, dashSec: 0, dashFactor: 1, splitCount: 0, splitGapPx: 0, disableSec: 0, disableRadius: 0, healRadius: 140, healShare: 0.02, spawnGapSec: 0, regenShare: 0, hasteRadius: 0, hasteFactor: 1, slowImmune: 0, brewEverySec: 0, brewCount: 0, leapEverySec: 0, leapPx: 0, absorbEvery: 0, stealth: 0, cloudRadius: 0, cloudSec: 0, memoryMul: 0, latchRadius: 0, latchMul: 0, freezeImmune: 0, trapImmune: 0, filmEverySec: 0, filmSec: 0, filmRadius: 0 },
     /** Слизень — лаймовый, скользкий: лужа Сиропа на него не действует (slowImmune). 16 HP (было 12). Нужен чистый урон — поэтому Сироп против него бесполезен. */
-    slick: { hp: 16, speedFactor: 0.9, reward: 12, lifeDamage: 1, radius: 28, length: 0, armor: 0, dashEverySec: 0, dashSec: 0, dashFactor: 1, splitCount: 0, splitGapPx: 0, disableSec: 0, disableRadius: 0, healRadius: 0, healShare: 0, spawnGapSec: 0, regenShare: 0, hasteRadius: 0, hasteFactor: 1, slowImmune: 1, brewEverySec: 0, brewCount: 0, leapEverySec: 0, leapPx: 0, absorbEvery: 0, stealth: 0, cloudRadius: 0, cloudSec: 0, memoryMul: 0, latchRadius: 0, latchMul: 0, freezeImmune: 1, trapImmune: 1 },
+    slick: { hp: 16, speedFactor: 0.9, reward: 12, lifeDamage: 1, radius: 28, length: 0, armor: 0, dashEverySec: 0, dashSec: 0, dashFactor: 1, splitCount: 0, splitGapPx: 0, disableSec: 0, disableRadius: 0, healRadius: 0, healShare: 0, spawnGapSec: 0, regenShare: 0, hasteRadius: 0, hasteFactor: 1, slowImmune: 1, brewEverySec: 0, brewCount: 0, leapEverySec: 0, leapPx: 0, absorbEvery: 0, stealth: 0, cloudRadius: 0, cloudSec: 0, memoryMul: 0, latchRadius: 0, latchMul: 0, freezeImmune: 1, trapImmune: 1, filmEverySec: 0, filmSec: 0, filmRadius: 0 },
     /** Регенератор — тёмно-зелёный с белой стрелкой-кольцом. 14 HP (было 10), сам лечится на 1,5 % прочности в секунду (было 1,5 HP/с): слабые одиночные удары не добивают, нужен сильный урон разом. */
-    regen: { hp: 14, speedFactor: 0.85, reward: 14, lifeDamage: 1, radius: 30, length: 0, armor: 0, dashEverySec: 0, dashSec: 0, dashFactor: 1, splitCount: 0, splitGapPx: 0, disableSec: 0, disableRadius: 0, healRadius: 0, healShare: 0, spawnGapSec: 0, regenShare: 0.015, hasteRadius: 0, hasteFactor: 1, slowImmune: 0, brewEverySec: 0, brewCount: 0, leapEverySec: 0, leapPx: 0, absorbEvery: 0, stealth: 0, cloudRadius: 0, cloudSec: 0, memoryMul: 0, latchRadius: 0, latchMul: 0, freezeImmune: 0, trapImmune: 0 },
+    regen: { hp: 14, speedFactor: 0.85, reward: 14, lifeDamage: 1, radius: 30, length: 0, armor: 0, dashEverySec: 0, dashSec: 0, dashFactor: 1, splitCount: 0, splitGapPx: 0, disableSec: 0, disableRadius: 0, healRadius: 0, healShare: 0, spawnGapSec: 0, regenShare: 0.015, hasteRadius: 0, hasteFactor: 1, slowImmune: 0, brewEverySec: 0, brewCount: 0, leapEverySec: 0, leapPx: 0, absorbEvery: 0, stealth: 0, cloudRadius: 0, cloudSec: 0, memoryMul: 0, latchRadius: 0, latchMul: 0, freezeImmune: 0, trapImmune: 0, filmEverySec: 0, filmSec: 0, filmRadius: 0 },
     /** Командир — тёмно-синий с золотой звездой и красным кольцом. 10 HP (было 8); все бактерии в кольце радиуса 150 идут в 1,4 раза быстрее (было 1,5). Убить первым или замедлить лужей. */
-    commander: { hp: 10, speedFactor: 0.9, reward: 16, lifeDamage: 1, radius: 26, length: 0, armor: 0, dashEverySec: 0, dashSec: 0, dashFactor: 1, splitCount: 0, splitGapPx: 0, disableSec: 0, disableRadius: 0, healRadius: 0, healShare: 0, spawnGapSec: 0, regenShare: 0, hasteRadius: 150, hasteFactor: 1.4, slowImmune: 0, brewEverySec: 0, brewCount: 0, leapEverySec: 0, leapPx: 0, absorbEvery: 0, stealth: 0, cloudRadius: 0, cloudSec: 0, memoryMul: 0, latchRadius: 0, latchMul: 0, freezeImmune: 0, trapImmune: 0 },
+    commander: { hp: 10, speedFactor: 0.9, reward: 16, lifeDamage: 1, radius: 26, length: 0, armor: 0, dashEverySec: 0, dashSec: 0, dashFactor: 1, splitCount: 0, splitGapPx: 0, disableSec: 0, disableRadius: 0, healRadius: 0, healShare: 0, spawnGapSec: 0, regenShare: 0, hasteRadius: 150, hasteFactor: 1.4, slowImmune: 0, brewEverySec: 0, brewCount: 0, leapEverySec: 0, leapPx: 0, absorbEvery: 0, stealth: 0, cloudRadius: 0, cloudSec: 0, memoryMul: 0, latchRadius: 0, latchMul: 0, freezeImmune: 0, trapImmune: 0, filmEverySec: 0, filmSec: 0, filmRadius: 0 },
     /** Матка — бежевая, в яйцах. 26 HP (было 24), броня 1, медленная; каждые 4 с рожает на ходу двух бактерий роя. Убить быстро (луч Шприца), детей — взрывом Шипучки. */
-    brood: { hp: 26, speedFactor: 0.7, reward: 18, lifeDamage: 1, radius: 38, length: 0, armor: 1, dashEverySec: 0, dashSec: 0, dashFactor: 1, splitCount: 0, splitGapPx: 0, disableSec: 0, disableRadius: 0, healRadius: 0, healShare: 0, spawnGapSec: 0, regenShare: 0, hasteRadius: 0, hasteFactor: 1, slowImmune: 0, brewEverySec: 4, brewCount: 2, leapEverySec: 0, leapPx: 0, absorbEvery: 0, stealth: 0, cloudRadius: 0, cloudSec: 0, memoryMul: 0, latchRadius: 0, latchMul: 0, freezeImmune: 0, trapImmune: 0 },
+    brood: { hp: 26, speedFactor: 0.7, reward: 18, lifeDamage: 1, radius: 38, length: 0, armor: 1, dashEverySec: 0, dashSec: 0, dashFactor: 1, splitCount: 0, splitGapPx: 0, disableSec: 0, disableRadius: 0, healRadius: 0, healShare: 0, spawnGapSec: 0, regenShare: 0, hasteRadius: 0, hasteFactor: 1, slowImmune: 0, brewEverySec: 4, brewCount: 2, leapEverySec: 0, leapPx: 0, absorbEvery: 0, stealth: 0, cloudRadius: 0, cloudSec: 0, memoryMul: 0, latchRadius: 0, latchMul: 0, freezeImmune: 0, trapImmune: 0, filmEverySec: 0, filmSec: 0, filmRadius: 0 },
     /** Гигант — огромный, тёмно-бордовый, в шипах. 100 HP, броня 2 (было 1), очень медленный; дошёл — отнимает 3 жизни. Выходит редко (уровни 8–10). */
-    giant: { hp: 100, speedFactor: 0.5, reward: 80, lifeDamage: 3, radius: 66, length: 0, armor: 2, dashEverySec: 0, dashSec: 0, dashFactor: 1, splitCount: 0, splitGapPx: 0, disableSec: 0, disableRadius: 0, healRadius: 0, healShare: 0, spawnGapSec: 0, regenShare: 0, hasteRadius: 0, hasteFactor: 1, slowImmune: 0, brewEverySec: 0, brewCount: 0, leapEverySec: 0, leapPx: 0, absorbEvery: 0, stealth: 0, cloudRadius: 0, cloudSec: 0, memoryMul: 0, latchRadius: 0, latchMul: 0, freezeImmune: 1, trapImmune: 0 },
+    giant: { hp: 100, speedFactor: 0.5, reward: 80, lifeDamage: 3, radius: 66, length: 0, armor: 2, dashEverySec: 0, dashSec: 0, dashFactor: 1, splitCount: 0, splitGapPx: 0, disableSec: 0, disableRadius: 0, healRadius: 0, healShare: 0, spawnGapSec: 0, regenShare: 0, hasteRadius: 0, hasteFactor: 1, slowImmune: 0, brewEverySec: 0, brewCount: 0, leapEverySec: 0, leapPx: 0, absorbEvery: 0, stealth: 0, cloudRadius: 0, cloudSec: 0, memoryMul: 0, latchRadius: 0, latchMul: 0, freezeImmune: 1, trapImmune: 0, filmEverySec: 0, filmSec: 0, filmRadius: 0 },
     /** Прыгун — лимонно-жёлтый, с «пружинкой». 6 HP; раз в 4 с мгновенно прыгает вперёд на 130 px; на замедление не реагирует (лужа Сиропа бессильна). Бить прямым уроном. Выходит с уровня 4. */
-    leaper: { hp: 6, speedFactor: 1, reward: 12, lifeDamage: 1, radius: 22, length: 0, armor: 0, dashEverySec: 0, dashSec: 0, dashFactor: 1, splitCount: 0, splitGapPx: 0, disableSec: 0, disableRadius: 0, healRadius: 0, healShare: 0, spawnGapSec: 0, regenShare: 0, hasteRadius: 0, hasteFactor: 1, slowImmune: 1, brewEverySec: 0, brewCount: 0, leapEverySec: 4, leapPx: 130, absorbEvery: 0, stealth: 0, cloudRadius: 0, cloudSec: 0, memoryMul: 0, latchRadius: 0, latchMul: 0, freezeImmune: 0, trapImmune: 1 },
+    leaper: { hp: 6, speedFactor: 1, reward: 12, lifeDamage: 1, radius: 22, length: 0, armor: 0, dashEverySec: 0, dashSec: 0, dashFactor: 1, splitCount: 0, splitGapPx: 0, disableSec: 0, disableRadius: 0, healRadius: 0, healShare: 0, spawnGapSec: 0, regenShare: 0, hasteRadius: 0, hasteFactor: 1, slowImmune: 1, brewEverySec: 0, brewCount: 0, leapEverySec: 4, leapPx: 130, absorbEvery: 0, stealth: 0, cloudRadius: 0, cloudSec: 0, memoryMul: 0, latchRadius: 0, latchMul: 0, freezeImmune: 0, trapImmune: 1, filmEverySec: 0, filmSec: 0, filmRadius: 0 },
     /** Фагоцит — светло-розовый, с тёмным «ртом». 22 HP (было 20), медленный; поглощает каждый третий удар по нему (3, 6, 9…). Против него — площадь, луч и яд. Выходит с уровня 6. */
-    phago: { hp: 22, speedFactor: 0.8, reward: 16, lifeDamage: 1, radius: 32, length: 0, armor: 0, dashEverySec: 0, dashSec: 0, dashFactor: 1, splitCount: 0, splitGapPx: 0, disableSec: 0, disableRadius: 0, healRadius: 0, healShare: 0, spawnGapSec: 0, regenShare: 0, hasteRadius: 0, hasteFactor: 1, slowImmune: 0, brewEverySec: 0, brewCount: 0, leapEverySec: 0, leapPx: 0, absorbEvery: 3, stealth: 0, cloudRadius: 0, cloudSec: 0, memoryMul: 0, latchRadius: 0, latchMul: 0, freezeImmune: 0, trapImmune: 0 },
+    phago: { hp: 22, speedFactor: 0.8, reward: 16, lifeDamage: 1, radius: 32, length: 0, armor: 0, dashEverySec: 0, dashSec: 0, dashFactor: 1, splitCount: 0, splitGapPx: 0, disableSec: 0, disableRadius: 0, healRadius: 0, healShare: 0, spawnGapSec: 0, regenShare: 0, hasteRadius: 0, hasteFactor: 1, slowImmune: 0, brewEverySec: 0, brewCount: 0, leapEverySec: 0, leapPx: 0, absorbEvery: 3, stealth: 0, cloudRadius: 0, cloudSec: 0, memoryMul: 0, latchRadius: 0, latchMul: 0, freezeImmune: 0, trapImmune: 0, filmEverySec: 0, filmSec: 0, filmRadius: 0 },
     /** Скрытная — тёмно-серая, полупрозрачная, с бледным ободком. 9 HP; башни видят её только на 60 % своего радиуса (цель выбирается и снаряд летит, только если она ближе 0,6 радиуса). Конус Лампы и луч Шприца видят её полностью; Ампуле хватает и 60 % её огромного радиуса. Выходит с уровня 5. */
-    stealth: { hp: 9, speedFactor: 1, reward: 14, lifeDamage: 1, radius: 24, length: 0, armor: 0, dashEverySec: 0, dashSec: 0, dashFactor: 1, splitCount: 0, splitGapPx: 0, disableSec: 0, disableRadius: 0, healRadius: 0, healShare: 0, spawnGapSec: 0, regenShare: 0, hasteRadius: 0, hasteFactor: 1, slowImmune: 0, brewEverySec: 0, brewCount: 0, leapEverySec: 0, leapPx: 0, absorbEvery: 0, stealth: 0.6, cloudRadius: 0, cloudSec: 0, memoryMul: 0, latchRadius: 0, latchMul: 0, freezeImmune: 0, trapImmune: 0 },
+    stealth: { hp: 9, speedFactor: 1, reward: 14, lifeDamage: 1, radius: 24, length: 0, armor: 0, dashEverySec: 0, dashSec: 0, dashFactor: 1, splitCount: 0, splitGapPx: 0, disableSec: 0, disableRadius: 0, healRadius: 0, healShare: 0, spawnGapSec: 0, regenShare: 0, hasteRadius: 0, hasteFactor: 1, slowImmune: 0, brewEverySec: 0, brewCount: 0, leapEverySec: 0, leapPx: 0, absorbEvery: 0, stealth: 0.6, cloudRadius: 0, cloudSec: 0, memoryMul: 0, latchRadius: 0, latchMul: 0, freezeImmune: 0, trapImmune: 0, filmEverySec: 0, filmSec: 0, filmRadius: 0 },
     /** Токсин — болотно-зелёный с жёлтыми пузырями. 14 HP; после гибели оставляет облако радиуса 130 px на 3 с: башни в облаке не стреляют (Витамин не усиливает). Убивать вдали от башен (Ампула, Шприц). Выходит с уровня 7. */
-    toxin: { hp: 14, speedFactor: 0.9, reward: 16, lifeDamage: 1, radius: 28, length: 0, armor: 0, dashEverySec: 0, dashSec: 0, dashFactor: 1, splitCount: 0, splitGapPx: 0, disableSec: 0, disableRadius: 0, healRadius: 0, healShare: 0, spawnGapSec: 0, regenShare: 0, hasteRadius: 0, hasteFactor: 1, slowImmune: 0, brewEverySec: 0, brewCount: 0, leapEverySec: 0, leapPx: 0, absorbEvery: 0, stealth: 0, cloudRadius: 130, cloudSec: 3, memoryMul: 0, latchRadius: 0, latchMul: 0, freezeImmune: 0, trapImmune: 0 },
+    toxin: { hp: 14, speedFactor: 0.9, reward: 16, lifeDamage: 1, radius: 28, length: 0, armor: 0, dashEverySec: 0, dashSec: 0, dashFactor: 1, splitCount: 0, splitGapPx: 0, disableSec: 0, disableRadius: 0, healRadius: 0, healShare: 0, spawnGapSec: 0, regenShare: 0, hasteRadius: 0, hasteFactor: 1, slowImmune: 0, brewEverySec: 0, brewCount: 0, leapEverySec: 0, leapPx: 0, absorbEvery: 0, stealth: 0, cloudRadius: 130, cloudSec: 3, memoryMul: 0, latchRadius: 0, latchMul: 0, freezeImmune: 0, trapImmune: 0, filmEverySec: 0, filmSec: 0, filmRadius: 0 },
     /** Мутант — фиолетовый, с переливами. 30 HP, чуть медленнее базовой; запоминает вид башни, которая ударила последней: следующий удар башни того же вида наносит вдвое меньше (×0,5),
      *  а удар башни другого вида штрафа не получает и запоминается (метка вида видна рядом с полоской прочности). Бить башнями разных видов по очереди. Выходит с уровня 9. */
-    mutant: { hp: 30, speedFactor: 0.9, reward: 22, lifeDamage: 1, radius: 30, length: 0, armor: 0, dashEverySec: 0, dashSec: 0, dashFactor: 1, splitCount: 0, splitGapPx: 0, disableSec: 0, disableRadius: 0, healRadius: 0, healShare: 0, spawnGapSec: 0, regenShare: 0, hasteRadius: 0, hasteFactor: 1, slowImmune: 0, brewEverySec: 0, brewCount: 0, leapEverySec: 0, leapPx: 0, absorbEvery: 0, stealth: 0, cloudRadius: 0, cloudSec: 0, memoryMul: 0.5, latchRadius: 0, latchMul: 0, freezeImmune: 0, trapImmune: 0 },
+    mutant: { hp: 30, speedFactor: 0.9, reward: 22, lifeDamage: 1, radius: 30, length: 0, armor: 0, dashEverySec: 0, dashSec: 0, dashFactor: 1, splitCount: 0, splitGapPx: 0, disableSec: 0, disableRadius: 0, healRadius: 0, healShare: 0, spawnGapSec: 0, regenShare: 0, hasteRadius: 0, hasteFactor: 1, slowImmune: 0, brewEverySec: 0, brewCount: 0, leapEverySec: 0, leapPx: 0, absorbEvery: 0, stealth: 0, cloudRadius: 0, cloudSec: 0, memoryMul: 0.5, latchRadius: 0, latchMul: 0, freezeImmune: 0, trapImmune: 0, filmEverySec: 0, filmSec: 0, filmRadius: 0 },
     /** Паразит — болотно-коричневый, с присоской-щупальцем. 12 HP, чуть быстрее базовой; подойдя ближе 140 px к башне, присасывается к ближайшей: её пауза ×1,5, пока паразит жив и не дошёл до организма
      *  (несколько паразитов на одну башню не складываются). Убить быстро или заморозить Холодом. Выходит с уровня 8. */
-    parasite: { hp: 12, speedFactor: 1.1, reward: 14, lifeDamage: 1, radius: 22, length: 0, armor: 0, dashEverySec: 0, dashSec: 0, dashFactor: 1, splitCount: 0, splitGapPx: 0, disableSec: 0, disableRadius: 0, healRadius: 0, healShare: 0, spawnGapSec: 0, regenShare: 0, hasteRadius: 0, hasteFactor: 1, slowImmune: 0, brewEverySec: 0, brewCount: 0, leapEverySec: 0, leapPx: 0, absorbEvery: 0, stealth: 0, cloudRadius: 0, cloudSec: 0, memoryMul: 0, latchRadius: 140, latchMul: 1.5, freezeImmune: 0, trapImmune: 0 },
+    parasite: { hp: 12, speedFactor: 1.1, reward: 14, lifeDamage: 1, radius: 22, length: 0, armor: 0, dashEverySec: 0, dashSec: 0, dashFactor: 1, splitCount: 0, splitGapPx: 0, disableSec: 0, disableRadius: 0, healRadius: 0, healShare: 0, spawnGapSec: 0, regenShare: 0, hasteRadius: 0, hasteFactor: 1, slowImmune: 0, brewEverySec: 0, brewCount: 0, leapEverySec: 0, leapPx: 0, absorbEvery: 0, stealth: 0, cloudRadius: 0, cloudSec: 0, memoryMul: 0, latchRadius: 140, latchMul: 1.5, freezeImmune: 0, trapImmune: 0, filmEverySec: 0, filmSec: 0, filmRadius: 0 },
+    /** Плёнка — молочно-бирюзовая с прозрачной волнистой каймой (глава 2 «Рот и зубы»; план docs/content-plan-2026-10-26.md, п. 1; лист главы 2 принят 3 ноября 2026, сообщение 1, п. 3).
+     *  12 HP, чуть медленнее базовой; раз в 1,5 с оставляет на дорожке плёнку радиуса 60 px на 4 с: бактерии на плёнке получают вдвое меньше урона от снарядов (Таблетка, Ампула, Антибиотик);
+     *  взрыв Шипучки, луч Шприца и конус Лампы бьют полностью. Числа — начальные, для замера (уровни 3–4 — после «да» владельца по карте и волнам). */
+    film: { hp: 12, speedFactor: 0.9, reward: 14, lifeDamage: 1, radius: 26, length: 0, armor: 0, dashEverySec: 0, dashSec: 0, dashFactor: 1, splitCount: 0, splitGapPx: 0, disableSec: 0, disableRadius: 0, healRadius: 0, healShare: 0, spawnGapSec: 0, regenShare: 0, hasteRadius: 0, hasteFactor: 1, slowImmune: 0, brewEverySec: 0, brewCount: 0, leapEverySec: 0, leapPx: 0, absorbEvery: 0, stealth: 0, cloudRadius: 0, cloudSec: 0, memoryMul: 0, latchRadius: 0, latchMul: 0, freezeImmune: 0, trapImmune: 0, filmEverySec: 1.5, filmSec: 4, filmRadius: 60 },
   },
   // ------------------------------------------------------------
   //  БОССЫ И МИНИ-БОССЫ (документ дизайна docs/redesign-2026-10-19.md, раздел 7.2; колонки — у типа `BossSpec`)
@@ -1074,8 +1161,10 @@ export const CONFIG = {
     rodLeader: { base: 'rod', hp: 200, speedFactor: 1, armor: 0, lifeDamage: 5, color: 0x5aa8ff, dashEverySec: 2, dashSec: 1, dashFactor: 2.5, rallyRadius: 150, rallyDashMul: 2, slowFloor: 0.6 },
     /** Броненосец (30-я волна): броня 13; на половине прочности сбрасывает панцирь — броня 0, скорость ×1,5. */
     armadillo: { base: 'armored', hp: 1530, speedFactor: 0.55, armor: 13, lifeDamage: 5, color: 0xb88cff, phases: [{ below: 0.5, armor: 0, speedMul: 1.5 }] },
-    /** Матка роя (40-я волна): раз в 3 с выпускает 6 роёв; каждые 15 с — капсула на 3 с (неуязвима, видна как пузырь). */
-    swarmQueen: { base: 'brood', hp: 6891, speedFactor: 0.7, armor: 0, lifeDamage: 5, color: 0x5fe0d0, spawnKind: 'swarm', spawnEverySec: 3, spawnCount: 6, capsuleEverySec: 15, capsuleSec: 3 },
+    /** Матка роя (40-я волна): раз в 3 с выпускает 6 роёв; каждые 15 с — капсула на 3 с (неуязвима, видна как пузырь).
+     *  Прочность 4479 (×0,65 от прежних 6891) — решение владельца 4 ноября 2026 (сообщение 1, п. 1, вариант А): пробы ×0,8 и ×0,65 (`docs/balance-history.md`), только ×0,65 выполняет условие —
+     *  образец в цели уровня 1 (медиана 8), эксперт не больше 3 попыток подряд на одной волне (медиана 14 из 20). Строка общая: сейчас Матка только на уровне 1; на уровне 4 прочность — с калибровкой уровня. */
+    swarmQueen: { base: 'brood', hp: 4479, speedFactor: 0.7, armor: 0, lifeDamage: 5, color: 0x5fe0d0, spawnKind: 'swarm', spawnEverySec: 3, spawnCount: 6, capsuleEverySec: 15, capsuleSec: 3 },
     /** Гигантская колония (50-я волна; прочность 4 000 — решение владельца 22 октября 2026, п. 1: эксперт побеждает в первой партии, дошедшей до 50-й волны, первая победа на 9–10-й попытке;
      *  условие, что босс уровня 1 без «Лихорадки» сильнейшей стратегией не проходится (19 октября 2026, сводное сообщение, п. 3.2), для уровня 1 снято): три фазы — 100–66 % медленно и выпускает кокков; 66–33 % броня 6 и палочки пачками; 33–0 % скорость ×1,6 и самолечение 1 % прочности в секунду. */
     giantColony: {
@@ -1098,7 +1187,48 @@ export const CONFIG = {
       base: 'spore', hp: 19226, speedFactor: 0.4, armor: 0, lifeDamage: -1, color: 0x8a5fff, spawnKind: 'spore', spawnEverySec: 4, spawnCount: 4,
       phases: [{ below: 0.66, armor: 6, spawnKind: 'healer', spawnEverySec: 5, spawnCount: 2 }, { below: 0.33, armor: 0, speedMul: 1.6, regenShare: 0.01, spawnCount: 0 }],
     },
+    // Глава 2 «Рот и зубы» (план docs/content-plan-2026-10-26.md, п. 2; docs/levels30-enemies-plan-2026-10-26.md, п. 8.4; лист главы принят 3 ноября 2026, сообщение 1, п. 3).
+    // Прочность — начальная, для замера: калибровка — с волнами уровней 3–4 после «да» владельца по карте и волнам.
+    /** Зубной камень (мини-босс Плёнки; было «Налёт» — отменено 2 ноября 2026): медленный (×0,5); плёнка шире (радиус 90 px) и держится 8 с, раз в 1,5 с. */
+    tartar: { base: 'film', hp: 600, speedFactor: 0.5, armor: 0, lifeDamage: 5, color: 0xe8dc8a, filmEverySec: 1.5, filmSec: 8, filmRadius: 90, filmWide: true },
+    /** Тень (мини-босс Скрытной): скрытна, как вид (башни видят её на 60 % радиуса); раз в 8 с на 2 с невидима совсем — башни её не выбирают целью. */
+    shadow: { base: 'stealth', hp: 600, speedFactor: 0.8, armor: 0, lifeDamage: 5, color: 0xc9b6ff, hideEverySec: 8, hideSec: 2 },
+    /** Кариес (финальный босс главы 2): три фазы — 100–66 % кладёт плёнку по всему пути (раз в 1 с, радиус 90 px, 6 с); 66–33 % невидим дальше 0,6 радиуса башни;
+     *  33–0 % раз в 4 с выпускает 3 скрытных. Дошёл — поражение. */
+    caries: {
+      base: 'film', hp: 20000, speedFactor: 0.4, armor: 0, lifeDamage: -1, color: 0xe0a04a, filmEverySec: 1, filmSec: 6, filmRadius: 90,
+      phases: [{ below: 0.66, filmEverySec: 0, stealth: 0.6 }, { below: 0.33, filmEverySec: 0, stealth: 0, spawnKind: 'stealth', spawnEverySec: 4, spawnCount: 3 }],
+    },
   } as Record<BossId, BossSpec>,
+  /** Плёнка на дорожке (вид «Плёнка» и мини-босс «Зубной камень», глава 2): бактерия, стоящая на плёнке (центр в круге плёнки), получает от снарядов этих башен урон ×damageMul;
+   *  взрыв, луч, конус, лужа и ловушка бьют полностью (план docs/content-plan-2026-10-26.md, п. 1). */
+  film: {
+    /** Множитель урона снаряда по бактерии на плёнке (0,5 — вдвое меньше). */
+    damageMul: 0.5,
+    /** Башни-«снаряды», чей урон плёнка ослабляет. */
+    towers: ['pill', 'ampule', 'antibiotic'] as string[],
+  },
+  /**
+   * Препятствия на картах (план docs/content-plan-2026-10-26.md, раздел 4; глава 2 «Рот и зубы» — решение владельца 3 ноября 2026, сообщение 1, п. 3). Где стоят — в таблице карты (`src/level.ts`).
+   *  Зуб — непроходимый: на нём строить нельзя, луч Шприца и свет Лампы через него не проходят. Налёт — разрушаемый: закрывает 2–3 клетки под постройку; башня бьёт его, только когда
+   *  в её зоне нет бактерий; разбит — клетки открываются.
+   */
+  obstacles: {
+    /** Сколько ударов башен разбивает налёт (удар — один выстрел, один удар луча или тик Лампы), ударов. */
+    plaqueHits: 60,
+    /** Радиус зуба, в долях клетки: луч и свет, прошедшие ближе к центру зуба, обрываются. */
+    toothRadius: 0.42,
+  },
+  /**
+   * Особое условие уровня (план docs/content-plan-2026-10-26.md, раздел 5): одно на уровень с 3-го; на экране выбора уровня — значок и строка, в бою — значок без текста.
+   *  Числа — по плану, начальные: калибровка — лестницами уровней 3–4 (после «да» владельца на карту и волны).
+   */
+  conditions: {
+    /** Какое условие у уровня: номер уровня → условие. */
+    byLevel: { 3: 'sweet', 4: 'nosell' } as Record<number, 'sweet' | 'nosell'>,
+    /** «Сладкое» (уровень 3): бактерии быстрее (×, к скорости), награда больше (×, к монетам за бактерию). */
+    sweet: { speedMul: 1.1, rewardMul: 1.2 },
+  },
   bossRules: {
     /** Во сколько раз босс крупнее своего вида-основы (рисунок и радиус попадания). */
     scale: 2.5,

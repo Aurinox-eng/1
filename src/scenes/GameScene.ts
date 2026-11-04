@@ -8,7 +8,7 @@ import { drawStar, setScreenInfo } from '../screens';
 import { attemptNumber, autoWaveOwned, awardDna, boughtSinceLast, dnaParts, coinsBonus, exposeMetaDebug, feverOwned, finishAttempt, HIDDEN_SCREEN, isLevelBeaten, isLevelOpen, livesBonus, markSeen, wasMet, metaDna, metaLevels, nextBigNode, recordResult, refundBonus, rewardMul, shieldCharges, starsForLoss, waveCoinsBonus, type DnaInput, type DnaParts } from '../meta';
 import { attemptLine, copyText } from '../attempt';
 import { num, t, type TextKey } from '../i18n';
-import { aimAngle, BLOCKED_TILES, EDGES, ENTRANCE_EDGES, LEVEL, PATH_TILES, WORLD, cellKey, useLevelMap, worldToCell } from '../level';
+import { aimAngle, BLOCKED_TILES, EDGES, ENTRANCE_EDGES, LEVEL, PATH_TILES, PLAQUES, TOOTH_TILES, WORLD, cellKey, toothCut, useLevelMap, worldToCell } from '../level';
 import { isPortraitPhone } from '../orientation';
 import { currentLevel, isTowerOpen, levelParams, setCurrentLevel, setLastBuilt, type LevelParams } from '../progress';
 import { addMap } from '../mapArt';
@@ -17,6 +17,10 @@ import { Bacterium, type BacteriumExtra, type BacteriumKind } from '../objects/B
 import { GroundShot } from '../objects/GroundShot';
 import { Projectile } from '../objects/Projectile';
 import { Cloud } from '../objects/Cloud';
+import { FilmPatch } from '../objects/FilmPatch';
+import { Plaque } from '../objects/Plaque';
+import { activeCondition, canSell, conditionRewardMul, levelCondition, setActiveCondition } from '../conditions';
+import { conditionIconImage, toothImage } from '../objects/chapter2Art';
 import { Trap } from '../objects/Trap';
 import { Puddle } from '../objects/Puddle';
 import { beamReach, createTowerArt, defaultAim, drawAimLine, Tower, type TowerId } from '../objects/Tower';
@@ -25,7 +29,7 @@ import { pointAt, tileCenter, unitCenter, type Edge } from '../pathing';
 import { gameplay } from '../sdk';
 import { sfx } from '../sound';
 import { wardBlocks } from '../ward';
-import { computeStats, MAX_TOWER_LEVEL, mergeCap, mutationById, mutationOptions, mutationStacks, towerPrice, type TowerStats } from '../towerStats';
+import { computeStats, MAX_TOWER_LEVEL, mergeCap, rankCap, mutationById, mutationOptions, mutationStacks, towerPrice, type TowerStats } from '../towerStats';
 import { COLORS, FONT, TEXT_COLORS, fs } from '../theme';
 import { FPS_ENABLED, FpsMeter, frameReport, installFrameStats } from '../perf';
 import { Panel, TOP_H, VIEW } from '../ui/Panel';
@@ -40,6 +44,10 @@ const DAMAGE_COLORS: Record<TowerStats['targeting'], number> = { radius: 0xfffff
 const hitNum = (x: number): string => num(x < 1 ? Math.round(x * 100) / 100 : Math.round(x * 10) / 10);
 /** Цвет числа урона, когда удар ослаблен памятью мутанта (башня того же вида, что и прошлая). */
 const RESIST_COLOR = 0x9aa6bd;
+/** Плёнок на поле не больше (старые исчезают раньше): защита кадра при толпе Плёнок, на баланс не влияет — плёнки лежат на пути толпы с перекрытием. */
+const FILM_MAX = 40;
+/** Какие башни бьют налёт (глава 2): снаряд, снайпер, яд, взрыв, луч и свет; лужа, аура, Холод и Пластырь — нет. */
+const PLAQUE_HITTERS = new Set(['radius', 'snipe', 'poison', 'area', 'beam', 'cone']);
 /** Цвет облачка у дула по башне (вид, не баланс). */
 const MUZZLE_PUFF: Partial<Record<string, number>> = { pill: 0xffffff, syrup: COLORS.syrup, fizz: COLORS.acid, syringe: COLORS.needle, ampule: 0x9fdcff, antibiotic: COLORS.antibiotic };
 /** Защита от «прыжков» после сворачивания вкладки: один кадр не длиннее 50 мс. */
@@ -153,6 +161,15 @@ export class GameScene extends Phaser.Scene {
   private puddles: Puddle[] = [];
   /** Облака токсина на поле. */
   private clouds: Cloud[] = [];
+  /** Плёнка на дорожке (вид «Плёнка», глава 2): ослабляет урон снарядов по бактериям на ней. */
+  private films: FilmPatch[] = [];
+  private filmsMade = 0;
+  /** Налёт на карте (глава 2) и клетки, которые он ещё закрывает; часы ударов башен по налёту (секунды с прошлого удара); счётчики для проверок. */
+  private plaques: Plaque[] = [];
+  private plaqueTiles = new Set<string>();
+  private plaqueClock = new Map<Tower, number>();
+  private plaqueStrikes = 0;
+  private plaquesBroken = 0;
   /** Ловушки Пластыря на дорожках и нити паразитов к башням (одна картинка-линия на всех). */
   private traps: Trap[] = [];
   private threads!: Phaser.GameObjects.Graphics;
@@ -272,6 +289,7 @@ export class GameScene extends Phaser.Scene {
     if (data?.level && (QA_ENABLED || isLevelOpen(data.level))) setCurrentLevel(data.level);
     this.params = levelParams(currentLevel());
     useLevelMap(currentLevel());
+    setActiveCondition(levelCondition(currentLevel()));
   }
 
   create(): void {
@@ -299,6 +317,7 @@ export class GameScene extends Phaser.Scene {
     this.absorbs = 0;
     this.leaps = 0;
     this.cloudsMade = 0;
+    this.filmsMade = 0;
     this.freezes = 0;
     this.trapsMade = 0;
     this.latches = 0;
@@ -344,6 +363,12 @@ export class GameScene extends Phaser.Scene {
     this.groundShots = [];
     this.puddles = [];
     this.clouds = [];
+    this.films = [];
+    this.plaques = [];
+    this.plaqueTiles = new Set();
+    this.plaqueClock = new Map();
+    this.plaqueStrikes = 0;
+    this.plaquesBroken = 0;
     this.traps = [];
     this.bursts = [];
     this.chains = [];
@@ -399,6 +424,17 @@ export class GameScene extends Phaser.Scene {
     this.fxLayer = this.add.container(0, 0);
     this.world.add([mapLayer, this.puddleLayer, this.ghostLayer, this.towerLayer, this.bacteriaLayer, this.projectileLayer, this.fxLayer]);
     addMap(this, mapLayer);
+    // Препятствия главы 2: зубы (рисунок один на размер) и налёт
+    for (const key of TOOTH_TILES) {
+      const [c, r] = key.split(',').map(Number);
+      const at = tileCenter(c, r);
+      mapLayer.add(toothImage(this, CONFIG.map.tile - 6).setPosition(at.x, at.y));
+    }
+    for (const spec of PLAQUES) {
+      const plaque = new Plaque(this, mapLayer, spec.cells);
+      this.plaques.push(plaque);
+      for (const key of plaque.keys) this.plaqueTiles.add(key);
+    }
 
     this.rig = new CameraRig(this.world, VIEW, WORLD, { min: ZOOM_MIN, max: CONFIG.camera.zoomMax });
     const start = unitCenter(LEVEL.startCenter[0], LEVEL.startCenter[1]);
@@ -410,6 +446,9 @@ export class GameScene extends Phaser.Scene {
     this.bossBarGfx = this.add.graphics().setDepth(99).setVisible(false);
     this.bossBarText = this.add.text(BOSS_BAR.x, BOSS_BAR.y - BOSS_BAR.h / 2 - 2, '', this.textStyle(fs(18, 22))).setOrigin(0.5, 1).setDepth(99).setVisible(false);
     if (feverOwned()) this.buildFeverButton();
+    // Особое условие уровня: в бою — только значок, без текста (план docs/content-plan-2026-10-26.md, раздел 5)
+    const cond = activeCondition();
+    if (cond) conditionIconImage(this, cond, 20).setPosition(W - 40, TOP_H + 34).setDepth(98);
     this.buildGhost();
     this.userSpeed = this.loadSpeed();
     this.panel = new Panel(this, {
@@ -452,7 +491,8 @@ export class GameScene extends Phaser.Scene {
         edges: EDGES.map((e) => ({ id: e.id, from: e.from, to: e.to, length: e.length, pts: e.pts.map((p): [number, number] => [p.x, p.y]) })),
         entrances: ENTRANCE_EDGES.map((e) => e.id),
         exits: Object.keys(LEVEL.nodes).filter((n) => !EDGES.some((e) => e.from === n)),
-        blockedCells: [...BLOCKED_TILES].map((key): [number, number] => {
+        // закрытые клетки, зубы и налёт (глава 2; разбитый налёт бот не занимает — проще и надёжнее)
+        blockedCells: [...BLOCKED_TILES, ...TOOTH_TILES, ...PLAQUES.flatMap((p) => p.cells.map(([c, r]) => cellKey(c, r)))].map((key): [number, number] => {
           const [col, row] = key.split(',').map(Number);
           return [col, row];
         }),
@@ -493,6 +533,22 @@ export class GameScene extends Phaser.Scene {
         return this.gameToClient(s.x, s.y);
       },
       revealTower: (id) => this.panel.revealTower(id as TowerId),
+      spawnBoss: (id) => {
+        // режим проверки: выпускает босса таблицы `bosses` сейчас (боссы глав, чьих уровней ещё нет в игре); ход волн не меняется
+        if (!(id in CONFIG.bosses)) return false;
+        const bossId = id as BossId;
+        this.spawnBacterium({ kind: CONFIG.bosses[bossId].base, edge: null, gapSec: 0, boss: bossId });
+        return true;
+      },
+      toothCut: (x, y, angle, length) => toothCut(x, y, angle, length),
+      setTowerXp: (col, row, xp) => {
+        const tower = this.towers.find((tw) => tw.col === col && tw.row === row);
+        if (!tower) return false;
+        tower.xp = xp;
+        tower.updateRank(rankCap(currentLevel()));
+        if (this.selectedTower === tower) this.refreshCard();
+        return true;
+      },
       upgradeTower: (col, row, picks) => {
         const tower = this.towers.find((tw) => tw.col === col && tw.row === row);
         if (!tower) return false;
@@ -545,6 +601,7 @@ export class GameScene extends Phaser.Scene {
     this.applyPoison(dt);
     this.applyTraps(dt);
     this.updateBrood(dt);
+    this.updateFilms(dt);
     // защита от глушения спорами — по Витаминам, стоящим сейчас (а не по прошлому шагу): находки аудита MASTER-0061, 0062
     this.refreshImmunity();
     this.applySpores();
@@ -553,6 +610,7 @@ export class GameScene extends Phaser.Scene {
     this.applyAuras();
     this.applyLamps();
     for (const tower of this.towers) tower.update(dt, this.bacteria, (target, x, y) => this.fire(tower, target, x, y));
+    this.hitPlaques(dt);
     this.updateProjectiles(dt);
     this.updateGroundShots(dt);
     this.updateBursts(dt);
@@ -860,7 +918,7 @@ export class GameScene extends Phaser.Scene {
    * Числа берутся из `tower.stats` (уровень и мутации уже учтены).
    */
   private fire(tower: Tower, target: Bacterium, muzzleX: number, muzzleY: number): boolean {
-    const st = tower.stats;
+    const st = tower.fireStats;
     if (st.targeting === 'cone') {
       // Лампа: башня отдаёт тики конуса; каждый тик — урон (броня вычитается из каждого) всем, кто сейчас в конусе, без вспышек и звуков попаданий
       const ticks = tower.coneTicks;
@@ -877,7 +935,7 @@ export class GameScene extends Phaser.Scene {
       // Холод: замерзают все в радиусе, кто может (вид замерзает, не заморожен, окно после оттаивания прошло); с ключом «Хрупкость» по замёрзшим удары сильнее
       const frozen = tower.inRange(this.bacteria).filter((b) => b.freezable);
       if (frozen.length === 0) return false;
-      for (const bacterium of frozen) bacterium.freeze(st.freezeSec, st.brittle);
+      for (const bacterium of frozen) bacterium.freeze(st.freezeSec, st.brittle, st.thawSlowSec, st.thawSlowFactor, st.noHealFrozen);
       this.freezes++;
       this.effects.frost(tower.x, tower.y, st.range);
     } else if (st.targeting === 'trap') {
@@ -901,7 +959,13 @@ export class GameScene extends Phaser.Scene {
     } else if (st.targeting === 'beam') {
       this.bursts.push({ tower, left: st.beamPulses, timer: 0, index: 0 });
     } else {
-      this.projectiles.push(new Projectile(this, this.projectileLayer, muzzleX, muzzleY, target, tower.id, st.projectileSpeed, st));
+      // умение ранга Таблетки: каждый `nthShot`-й выстрел сильнее (×`nthMul`)
+      let shotStats = st;
+      if (st.nthShot > 0) {
+        tower.shotCount++;
+        if (tower.shotCount % st.nthShot === 0) shotStats = { ...st, damage: st.damage * st.nthMul };
+      }
+      this.projectiles.push(new Projectile(this, this.projectileLayer, muzzleX, muzzleY, target, tower.id, st.projectileSpeed, shotStats));
     }
     this.shots++;
     sfx.shoot(tower.id);
@@ -971,7 +1035,7 @@ export class GameScene extends Phaser.Scene {
         }
         if (CONFIG.types[bacterium.kind].slowImmune > 0) continue;
         if (!bacterium.slowed) this.slows++;
-        bacterium.slow(puddle.slowFactor, puddle.slowSec);
+        bacterium.slow(puddle.slowFactor, puddle.slowSec, true);
       }
     }
     this.puddles = this.puddles.filter((puddle) => {
@@ -1008,17 +1072,21 @@ export class GameScene extends Phaser.Scene {
     for (const tower of this.towers) {
       let mul = 1;
       let immune = false;
+      let dmg = 1;
       for (const vitamin of vitamins) {
         if (vitamin === tower || Math.hypot(vitamin.x - tower.x, vitamin.y - tower.y) > vitamin.stats.range) continue;
         if (vitamin.stats.immunity) immune = true;
         // Аура не действует на Лампу, Витамин, Сироп, Холод и Пластырь (документ дизайна, п. 4.2)
         if (excluded.includes(tower.id)) continue;
+        // «Сильное усиление»: урон сильнее, между Витаминами не складывается — наибольшее (сообщение 3 от 28 октября 2026, п. 5)
+        dmg = Math.max(dmg, vitamin.stats.auraDamageMul);
         // Присосавшийся к Витамину паразит ослабляет его прибавку в latchMul раз (пауза соседей ближе к 1)
         const aura = vitamin.latchMul > 1 ? 1 - (1 - vitamin.stats.auraMul) / vitamin.latchMul : vitamin.stats.auraMul;
         mul = Math.min(mul, aura);
       }
       tower.auraMul = mul * fever;
       tower.immune = immune;
+      tower.auraDamageMul = dmg;
     }
     // Карточка выбранной башни показывает урон в секунду с учётом ауры: перерисовать, когда она изменилась
     if (this.selectedTower && this.selectedTower.auraMul !== this.cardAura) this.refreshCard();
@@ -1144,6 +1212,102 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  /** Плёнка: вид «Плёнка», Зубной камень и Кариес (в первой фазе) раз в filmEverySec секунд оставляют под собой плёнку на filmSec секунд (план главы 2); старые плёнки бледнеют и исчезают.
+   *  Плёнок на поле не больше FILM_MAX. Здесь же — шаг невидимости Тени. */
+  private updateFilms(dt: number): void {
+    if (this.films.length > 0) {
+      this.films = this.films.filter((film) => {
+        if (film.update(dt)) return true;
+        film.destroy();
+        return false;
+      });
+    }
+    for (const b of this.bacteria) {
+      b.stepHide(dt);
+      const plan = b.hp > 0 ? b.filmPlan : null;
+      if (!plan) continue;
+      b.filmClock += dt;
+      if (b.filmClock < plan.everySec) continue;
+      b.filmClock -= plan.everySec;
+      this.films.push(new FilmPatch(this, this.puddleLayer, b.x, b.y, pointAt(b.edge, b.s).angle, plan.radius, plan.sec, plan.wide));
+      this.filmsMade++;
+      if (this.films.length > FILM_MAX) this.films.shift()?.destroy();
+    }
+  }
+
+  /**
+   * Налёт (глава 2): башня, у которой в зоне нет бактерий, бьёт налёт в своём радиусе (Шприц — налёт на линии луча) раз в свою паузу; после `obstacles.plaqueHits` ударов налёт разбит
+   * и клетки открываются. Лужа Сиропа, аура Витамина, Холод и Пластырь налёт не бьют. Заглушённая и в облаке токсина башня не бьёт.
+   */
+  private hitPlaques(dt: number): void {
+    if (this.plaques.length === 0) return;
+    for (const tower of this.towers) {
+      const target = PLAQUE_HITTERS.has(tower.stats.targeting) && !tower.isDisabled && !tower.isSuppressed && this.zoneEmpty(tower) ? this.plaqueFor(tower) : null;
+      if (!target) {
+        this.plaqueClock.delete(tower);
+        continue;
+      }
+      const period = Math.max(0.05, tower.stats.cooldownMs / 1000);
+      let clock = (this.plaqueClock.get(tower) ?? 0) + dt / tower.auraMul;
+      tower.faceTo(target.x, target.y);
+      while (clock >= period && !target.broken) {
+        clock -= period;
+        this.strikePlaque(tower, target);
+      }
+      this.plaqueClock.set(tower, clock);
+    }
+    if (this.plaques.some((p) => p.broken)) this.plaques = this.plaques.filter((p) => !p.broken);
+  }
+
+  /** Нет ли бактерий в зоне башни (у Шприца — на линии луча). */
+  private zoneEmpty(tower: Tower): boolean {
+    return tower.isBeam ? tower.beamHits(this.bacteria).length === 0 : tower.inRange(this.bacteria).length === 0;
+  }
+
+  /** Какой налёт башня может бить: ближайший целый в радиусе; у Шприца — первый на линии луча (до зуба). */
+  private plaqueFor(tower: Tower): Plaque | null {
+    let best: Plaque | null = null;
+    let bestD = Infinity;
+    if (tower.isBeam) {
+      for (const dir of tower.beamDirections()) {
+        const angle = aimAngle(dir);
+        const reach = beamReach(tower.x, tower.y, angle, tower.stats.beamLengthPx);
+        for (const plaque of this.plaques) {
+          if (plaque.broken) continue;
+          for (let d = 0; d <= reach && d < bestD; d += 12) {
+            if (plaque.distanceTo(tower.x + Math.cos(angle) * d, tower.y + Math.sin(angle) * d) <= tower.stats.beamHalfWidthPx) {
+              [best, bestD] = [plaque, d];
+              break;
+            }
+          }
+        }
+      }
+      return best;
+    }
+    for (const plaque of this.plaques) {
+      if (plaque.broken) continue;
+      const d = plaque.distanceTo(tower.x, tower.y);
+      if (d <= tower.stats.range && d < bestD) [best, bestD] = [plaque, d];
+    }
+    return best;
+  }
+
+  /** Один удар башни по налёту: отдача ствола, вспышка на налёте; разбит — клетки открываются. */
+  private strikePlaque(tower: Tower, plaque: Plaque): void {
+    this.plaqueStrikes++;
+    tower.kick();
+    this.effects.flash(plaque.x, plaque.y, 14);
+    if (!plaque.hit()) return;
+    this.plaquesBroken++;
+    for (const key of plaque.keys) this.plaqueTiles.delete(key);
+    this.effects.placed(plaque.x, plaque.y);
+  }
+
+  /** Стоит ли бактерия на плёнке (центр — в круге плёнки). */
+  private onFilm(b: Bacterium): boolean {
+    return this.films.some((film) => film.covers(b.x, b.y));
+  }
+
   /** Матка: раз в brewEverySec секунд рожает brewCount бактерий роя на своём месте (чуть друг за другом). Рождённые в «вышло за волну» не считаются. */
   private updateBrood(dt: number): void {
     for (const mother of [...this.bacteria]) {
@@ -1179,14 +1343,17 @@ export class GameScene extends Phaser.Scene {
 
   /** Один удар луча (номер в очереди — index): линия (две, если «Второй луч») вспыхивает, каждая бактерия на ней получает урон башни («Спираль» — сильнее с каждым ударом). */
   private beamPulse(tower: Tower, index: number): void {
-    const st = tower.stats;
+    const st = tower.fireStats;
     for (const dir of tower.beamDirections()) {
       const angle = aimAngle(dir);
       const reach = beamReach(tower.x, tower.y, angle, st.beamLengthPx);
       this.effects.beam(tower.x + Math.cos(angle) * BEAM_START_PX, tower.y + Math.sin(angle) * BEAM_START_PX, angle, Math.max(0, reach - BEAM_START_PX));
     }
     sfx.zap();
-    const damage = st.damage + index * st.spiral * CONFIG.towerLevels[Math.min(tower.level, CONFIG.towerLevels.length) - 1].damageMul;
+    let damage = st.damage + index * st.spiral * CONFIG.towerLevels[Math.min(tower.level, CONFIG.towerLevels.length) - 1].damageMul;
+    // умения ранга Шприца: первый удар очереди (★4) и последний (★8) сильнее
+    if (index === 0) damage *= st.firstHitMul;
+    if (index === st.beamPulses - 1) damage *= st.lastHitMul;
     const hits = tower.beamHits(this.bacteria);
     const killsBefore = this.kills;
     // Ключ «Сквозной разряд»: первая бактерия на линии (ближайшая к башне) теряет броню до удара
@@ -1218,6 +1385,10 @@ export class GameScene extends Phaser.Scene {
       return false;
     }
     if (bacterium.ward === 'memory') bacterium.remember(st.towerId);
+    // умения ранга Ампулы: по мини-боссам и боссу удар сильнее (жёсткое свойство уровня проверено выше — неуязвимую фазу умение не пробивает)
+    if (st.bossMul !== 1 && bacterium.bossId) damage *= st.bossMul;
+    // плёнка на дорожке (глава 2): снаряд Таблетки, Ампулы и Антибиотика по бактерии на плёнке слабее; взрыв, луч и конус — полностью
+    if (this.films.length > 0 && CONFIG.film.towers.includes(st.towerId) && this.onFilm(bacterium)) damage *= CONFIG.film.damageMul;
     // Мутант помнит вид башни, ударившей последней: удар башни того же вида слабее; удар другого вида штрафа не получает и запоминается
     const memoryMul = CONFIG.types[bacterium.kind].memoryMul;
     const resisted = memoryMul > 0 && bacterium.memory === st.towerId;
@@ -1293,7 +1464,9 @@ export class GameScene extends Phaser.Scene {
       }
       if (i < fullLimit) {
         full++;
-        if (this.damageBacterium(bacterium, st, true, st.damage * damageMul)) acid++;
+        // умение ★8 Шипучки: цель в центре взрыва (ближайшая к нему из тех, кого удар ранит) получает больше
+        const center = i === 0 && !blocked(bacterium) ? st.centerMul : 1;
+        if (this.damageBacterium(bacterium, st, true, st.damage * damageMul * center)) acid++;
         if (QA_MODE) fullDealt.push(bacterium.lastDealt);
       } else {
         rest++;
@@ -1346,11 +1519,42 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
+  /**
+   * Опыт за погибшую бактерию: её `lifeDamage` (финальный босс с отрицательным — 0) каждой башне, в зоне которой она была; Витамин получает долю опыта башен в своей ауре
+   * (`config.xp.vitaminShare`, ранги ★3 и ★5 Витамина её поднимают — `stats.xpShare`); башня в ауре Витамина с умением ★8 получает больше опыта (`stats.auraXpMul`, берётся наибольший).
+   * После начисления — ранги (предел уровня игры `growthLimits.rank`).
+   */
+  private awardXp(bacterium: Bacterium): void {
+    const points = Math.max(0, bacterium.lifeDamage);
+    if (points <= 0) return;
+    for (const tower of this.towers) {
+      if (!tower.inXpZone(bacterium)) continue;
+      let boost = 1;
+      for (const aura of this.towers) {
+        if (aura.isAura && aura !== tower && Math.hypot(aura.x - tower.x, aura.y - tower.y) <= aura.stats.range) boost = Math.max(boost, aura.stats.auraXpMul);
+      }
+      tower.xp += points * boost;
+      for (const aura of this.towers) {
+        if (aura.isAura && Math.hypot(aura.x - tower.x, aura.y - tower.y) <= aura.stats.range) aura.xp += points * aura.stats.xpShare;
+      }
+    }
+    this.updateRanks();
+  }
+
+  /** Ранги всех башен по их опыту (предел ранга — уровень игры): при новом ранге числа башни пересчитываются, знак ★ меняется. */
+  private updateRanks(): void {
+    const cap = rankCap(currentLevel());
+    for (const tower of this.towers) {
+      if (tower.updateRank(cap) && tower === this.selectedTower) this.refreshCard();
+    }
+  }
+
   private killBacterium(bacterium: Bacterium, by?: TowerStats): void {
+    this.awardXp(bacterium);
     this.kills++;
     // «Дефляция»: уровень нового формата — доля дохода волны (уже в награде бактерии); прежний — номинал × economy.rewardMul × множитель волны из economy.rewardCurve; дробная часть копится до целой монеты
     const curve = this.params.plan ? 1 : CONFIG.economy.rewardMul * this.rewardFactor();
-    this.rewardPool += bacterium.reward * curve * rewardMul();
+    this.rewardPool += bacterium.reward * curve * rewardMul() * conditionRewardMul();
     const gain = Math.floor(this.rewardPool + 1e-9);
     this.rewardPool -= gain;
     this.coins += gain;
@@ -1688,8 +1892,10 @@ export class GameScene extends Phaser.Scene {
     this.merges++;
     this.cancelMerge(false);
     const carried = [...source.picks];
+    const carriedXp = source.xp;
     this.removeTower(source);
-    target.upgrade(carried);
+    target.upgrade(carried, carriedXp);
+    target.updateRank(rankCap(currentLevel()));
     this.effects.merged(target.x, target.y);
     sfx.merge();
     this.selectedTower = null;
@@ -1714,7 +1920,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   private sellSelected(): void {
-    if (this.state !== 'playing' || !this.selectedTower) return;
+    if (this.state !== 'playing' || !this.selectedTower || !canSell()) return;
     const tower = this.selectedTower;
     const value = this.sellValue(tower);
     this.cancelMerge(false);
@@ -1777,6 +1983,8 @@ export class GameScene extends Phaser.Scene {
       ['chgRange', a.range, b.range, (x) => String(Math.round(x))],
       ['chgAura', a.auraMul, b.auraMul, n2],
       ['chgFreeze', a.freezeSec, b.freezeSec, n],
+      ['chgThawSlow', a.thawSlowSec, b.thawSlowSec, n],
+      ['chgAuraDamage', a.auraDamageMul, b.auraDamageMul, n2],
       ['chgTrap', a.trapSec, b.trapSec, n],
       ['chgTrapHp', a.trapDps * a.trapSec, b.trapDps * b.trapSec, n],
       // «Включатели» (бронебойность, самая прочная цель, цепной взрыв) числами не видны — «нет → да»
@@ -1870,16 +2078,21 @@ export class GameScene extends Phaser.Scene {
       }),
       beam: tower.isBeam,
       merge,
-      sell: this.sellValue(tower),
+      sell: canSell() ? this.sellValue(tower) : null,
       mergeHint: null,
     });
+  }
+
+  /** Можно ли строить в клетке: не дорожка, не закрытая клетка, не башня, не зуб и не целый налёт. */
+  private cellFree(key: string): boolean {
+    return !PATH_TILES.has(key) && !BLOCKED_TILES.has(key) && !this.occupied.has(key) && !TOOTH_TILES.has(key) && !this.plaqueTiles.has(key);
   }
 
   private tryPlace(id: TowerId, col: number, row: number): void {
     if (!isTowerOpen(id)) return;
     const price = towerPrice(id);
     const key = cellKey(col, row);
-    if (PATH_TILES.has(key) || BLOCKED_TILES.has(key) || this.occupied.has(key)) {
+    if (!this.cellFree(key)) {
       this.deny(t('hintCantBuild'));
       return;
     }
@@ -1910,7 +2123,7 @@ export class GameScene extends Phaser.Scene {
   private onHover(sx: number, sy: number): void {
     const world = this.rig.screenToWorld(sx, sy);
     const cell = this.selected ? worldToCell(world.x, world.y) : null;
-    if (!this.selected || !cell || PATH_TILES.has(cellKey(cell[0], cell[1])) || BLOCKED_TILES.has(cellKey(cell[0], cell[1])) || this.occupied.has(cellKey(cell[0], cell[1]))) {
+    if (!this.selected || !cell || !this.cellFree(cellKey(cell[0], cell[1]))) {
       this.ghost.setVisible(false);
       return;
     }

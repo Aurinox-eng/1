@@ -7,6 +7,9 @@ import { artImage, bakeArt, squareBox } from '../art';
  * Тело окрашивается своим цветом (`BOSS_TINT`, умножение цвета картинки тела), поверх — свой отличительный элемент (`drawBossDecor`): лист образцов `?qa&artsheet=f3` и бой
  * («да» владельца 28 октября 2026, сообщение 1, п. 2; в бою — готовая картинка `bossDecorImage`). Размеры — в долях радиуса вида-основы `r` (босс крупнее в `bossRules.scale` раз: рисунок масштабируется вместе с телом).
  */
+/** Боссы главы 2 со своим рисунком тела по листу главы (`chapter2Art.ts`): вместо тела вида-основы. */
+export const CH2_BOSS_ART: Partial<Record<BossId, 'tartar' | 'shadow' | 'caries'>> = { tartar: 'tartar', shadow: 'shadow', caries: 'caries' };
+
 export const BOSS_TINT: Partial<Record<BossId, number>> = {
   swarmQueen: 0xb8f4ec,
   sporeMother: 0xf6c2e2,

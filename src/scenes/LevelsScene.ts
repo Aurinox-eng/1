@@ -1,5 +1,7 @@
 import Phaser from 'phaser';
 import { CONFIG } from '../config';
+import { conditionLine, levelCondition } from '../conditions';
+import { conditionIconImage } from '../objects/chapter2Art';
 import { t, type TextKey } from '../i18n';
 import { isLevelOpen, isLevelReady, levelBest, levelStars } from '../meta';
 import { META_KEY } from '../save';
@@ -74,11 +76,14 @@ export class LevelsScene extends Phaser.Scene {
       const lowerTop = showBest ? y0 + CARD.h - 84 : y0 + CARD.h - 62;
       const limit = lowerTop - 6;
       // строки «Новая: …» нет: она называла бактерий до встречи, а Альманах и игра показывают только встреченное (находка аудита MASTER-0108, решение владельца 28 октября 2026, сообщение 2, п. 5.4)
-      const parts: string[] = [];
+      // особое условие уровня (с 3-го; план docs/content-plan-2026-10-26.md, раздел 5): значок и строка
+      const cond = levelCondition(level);
+      if (cond) conditionIconImage(this, cond, 18).setPosition(cx, y0 + 116);
+      const parts: string[] = cond ? [conditionLine(cond)] : [];
       const objs = parts.map((text) => add(0, text, fs(20, 22), TEXT_COLORS.soft, true));
       let size = fs(20, 22);
       const place = (): number => {
-        let y = y0 + 96;
+        let y = y0 + (cond ? 142 : 96);
         for (const obj of objs) {
           obj.setFontSize(size);
           obj.setPosition(cx, y);

@@ -8,7 +8,7 @@
   {
     "group": "Экран на английском, клетки, граф (desktop-en, phone-en, rules, graph)",
     "key": "screen-en",
-    "scenarios": "desktop-en phone-en rules graph",
+    "scenarios": "desktop-en phone-en rules graph names ranks",
     "towers_only": ""
   },
   {
@@ -24,10 +24,10 @@
     "towers_only": "texts,panel,controls,prices,syrup,fizz,syringe,pill,ampule,antibiotic"
   },
   {
-    "group": "Башни и бактерии: Лампа, Витамин, все вместе, виды бактерий, Холод, Пластырь (towers, часть 2)",
+    "group": "Башни и бактерии: Лампа, Витамин, все вместе, виды бактерий, Холод, Пластырь (towers, часть 2; плёнка)",
     "key": "towers-b",
     "scenarios": "towers",
-    "towers_only": "lamp,vitamin,mixed,swarm,runner,healer,regen,commander,brood,giant,leaper,phago,stealth,toxin,frost,patch,mutant,parasite"
+    "towers_only": "lamp,vitamin,mixed,swarm,runner,healer,regen,commander,brood,giant,leaper,phago,stealth,toxin,frost,patch,mutant,parasite,film,ch2bosses,ch2obstacles"
   },
   {
     "group": "Карточка, слияние, мутации, «Продолжить» в режиме постройки (card, merge, mutations, sell, special, strip, sell-gap, resume-tap)",
@@ -42,9 +42,9 @@
     "towers_only": ""
   },
   {
-    "group": "Конец уровня, экономика, игровая сборка (lose, win, restart-button, deflation, camera-fit, colors, locked, production, bosses, level2, wards, spiral-cap, marks, real-game)",
+    "group": "Конец уровня, экономика, игровая сборка (lose, win, restart-button, deflation, camera-fit, colors, locked, production, bosses, level2, wards, spiral-cap, marks, real-game, xp)",
     "key": "end",
-    "scenarios": "lose-ru lose-en win-ru win-en restart-button deflation camera-fit colors locked production bosses level2 wards spiral-cap marks real-game",
+    "scenarios": "lose-ru lose-en win-ru win-en restart-button deflation camera-fit colors locked production bosses level2 wards spiral-cap marks real-game xp",
     "towers_only": ""
   },
   {

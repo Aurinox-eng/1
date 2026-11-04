@@ -64,7 +64,7 @@ export function attemptLine(r: AttemptRecord): string {
   // башни: вид, число, сколько каждого уровня — «Таблетка 9 (ур. 1×3, 2×4, 3×2)»
   const byKind = new Map<TowerId, number[]>();
   for (const tower of r.towers) {
-    const levels = byKind.get(tower.id) ?? [0, 0, 0, 0];
+    const levels = byKind.get(tower.id) ?? [0, 0, 0, 0, 0, 0, 0, 0];
     levels[tower.level - 1]++;
     byKind.set(tower.id, levels);
   }

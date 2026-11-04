@@ -9,7 +9,8 @@ import type { TowerStats } from './towerStats';
 
 export function wardBlocks(bacterium: Bacterium, st: TowerStats): boolean {
   switch (bacterium.ward) {
-    case 'slow': return !bacterium.slowed;
+    // бегуна ранит только замедленный лужей Сиропа (не льдом: решение владельца 28 октября 2026, сообщение 3, п. 4)
+    case 'slow': return !bacterium.puddleSlowed;
     case 'pierce': return !st.armorPierce && bacterium.armor > 0;
     case 'beam': return st.targeting === 'beam';
     case 'memory': return bacterium.memory === st.towerId;

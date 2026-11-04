@@ -37,6 +37,8 @@ export interface TowerRow {
   blastRestMul: number;
   /** Подсветка скрытных (Лампа): секунд подсветки после выхода бактерии из круга range; 0 — не подсвечивает. */
   lightSec: number;
+  /** Множитель паузы уровня не ниже этого числа (только у Холода; нет — без нижней границы). */
+  minCooldownMul?: number;
 }
 
 /** Потолок мутаций и улучшений (документ дизайна, п. 4.2), в который упёрлись числа башни: урон в секунду от мутаций (`mutationCaps.dpsMul`), лишние цели, удары очереди луча, угол конуса,
@@ -67,6 +69,25 @@ export interface TowerStats extends TowerRow {
   spotlight: number;
   immunity: boolean;
   brittle: number;
+  /** «Долгий мороз»: замедление после оттаивания — секунд (0 — нет) и во сколько раз медленнее. «Сильное усиление»: башни в ауре бьют сильнее во столько раз (1 — нет). */
+  thawSlowSec: number;
+  thawSlowFactor: number;
+  auraDamageMul: number;
+  /**
+   * Ранг опыта ★0–★8 и его умения (`ranks.byTower`; план, разделы 3.1–3.2): доля опыта соседей у Витамина; каждый `nthShot`-й выстрел Таблетки × `nthMul` (0 — нет);
+   * цель в центре взрыва Шипучки × `centerMul`; первый / последний удар очереди Шприца × `firstHitMul` / `lastHitMul`; урон Ампулы по мини-боссам и боссу × `bossMul`;
+   * башни в ауре Витамина получают × `auraXpMul` опыта; `noHealFrozen` — замороженная Холодом бактерия не лечится.
+   */
+  rank: number;
+  xpShare: number;
+  nthShot: number;
+  nthMul: number;
+  centerMul: number;
+  firstHitMul: number;
+  lastHitMul: number;
+  bossMul: number;
+  auraXpMul: number;
+  noHealFrozen: boolean;
   /** Потолки, в которые упёрлись числа (для карточки выбора мутации: «достигнутый потолок»). */
   caps: MutationCap[];
 }
@@ -142,7 +163,7 @@ export function unlockedTiers(level: number): number {
  * Числа башни: уровень (таблица `towerLevels`) и мутации `picks` (id по порядку порогов).
  * Урон, пауза, радиусы, лужа и очередь луча считаются здесь один раз; сцена и башня читают готовое.
  */
-export function computeStats(id: TowerKey, level: number, picks: readonly string[]): TowerStats {
+export function computeStats(id: TowerKey, level: number, picks: readonly string[], rank = 0): TowerStats {
   const base: TowerRow = CONFIG.towers[id];
   const lv = CONFIG.towerLevels[Math.min(Math.max(1, level), MAX_TOWER_LEVEL) - 1];
   let auraBonus = 1;
@@ -167,6 +188,19 @@ export function computeStats(id: TowerKey, level: number, picks: readonly string
     spotlight: 1,
     immunity: false,
     brittle: 1,
+    thawSlowSec: 0,
+    thawSlowFactor: 1,
+    auraDamageMul: 1,
+    rank: 0,
+    xpShare: CONFIG.xp.vitaminShare,
+    nthShot: 0,
+    nthMul: 1,
+    centerMul: 1,
+    firstHitMul: 1,
+    lastHitMul: 1,
+    bossMul: 1,
+    auraXpMul: 1,
+    noHealFrozen: false,
     caps: [],
   };
   const caps = CONFIG.mutationCaps;
@@ -181,7 +215,7 @@ export function computeStats(id: TowerKey, level: number, picks: readonly string
   s.dotPerSec = base.dotPerSec * lv.damageMul;
   s.trapDps = base.trapDps * lv.damageMul;
   s.freezeSec = base.freezeSec * Math.pow(lv.damageMul, CONFIG.freezeLevelPower);
-  s.cooldownMs = base.cooldownMs * lv.cooldownMul;
+  s.cooldownMs = base.cooldownMs * Math.max(lv.cooldownMul, base.minCooldownMul ?? 0);
   s.range = base.range * lv.reachMul;
   s.blastRadius = base.blastRadius * lv.reachMul;
   s.puddleRadius = base.puddleRadius * lv.reachMul;
@@ -238,6 +272,11 @@ export function computeStats(id: TowerKey, level: number, picks: readonly string
     if (spec.auraBonusMul) auraBonus *= scaled(spec.auraBonusMul);
     if (spec.freezeMul) s.freezeSec *= scaled(spec.freezeMul);
     if (spec.trapSecMul) s.trapSec *= scaled(spec.trapSecMul);
+    if (spec.thawSlowSec && share > 0) {
+      s.thawSlowSec += spec.thawSlowSec * share;
+      s.thawSlowFactor = Math.min(s.thawSlowFactor, spec.thawSlowFactor ?? 1);
+    }
+    if (spec.auraDamageMul) s.auraDamageMul *= scaled(spec.auraDamageMul);
     if (spec.trapDpsMul) {
       s.trapDps *= scaled(spec.trapDpsMul);
       mutTrap *= scaled(spec.trapDpsMul);
@@ -300,7 +339,7 @@ export function computeStats(id: TowerKey, level: number, picks: readonly string
   s.freezeSec *= 1 + bonus('freezeTime');
   // Заморозка Холода — не дольше доли паузы уровня без мутаций (иначе бактерия в радиусе не оттаивала бы); от паузы без мутаций — слияние не укорачивает заморозку
   // (находка аудита MASTER-0009, решение владельца 28 октября 2026, сообщение 2, п. 5)
-  const freezeCap = ((base.cooldownMs * lv.cooldownMul * (1 + bonus('cooldown'))) / 1000) * caps.freezeShareOfCooldown;
+  const freezeCap = ((base.cooldownMs * Math.max(lv.cooldownMul, base.minCooldownMul ?? 0) * (1 + bonus('cooldown'))) / 1000) * caps.freezeShareOfCooldown;
   if (s.freezeSec > freezeCap + 1e-9) hit.add('freeze');
   if (s.freezeSec > 0) s.freezeSec = Math.min(s.freezeSec, freezeCap);
   // Ключевой узел ветки этой башни (документ дизайна, раздел 5.2)
@@ -320,6 +359,56 @@ export function computeStats(id: TowerKey, level: number, picks: readonly string
       s.extraTargets = Math.min(caps.extraTargetsMax, s.extraTargets + k.patch.extraTargets);
     }
   }
+  applyRank(s, id, rank);
   s.caps = [...hit];
   return s;
+}
+
+/** Ранг опыта по очкам `xp`: сколько порогов `ranks.thresholds` пройдено, не выше `cap` (предел ранга уровня игры, `rankCap`). */
+export function rankOf(xp: number, cap: number): number {
+  let r = 0;
+  for (const need of CONFIG.ranks.thresholds) if (xp + 1e-9 >= need) r++;
+  return Math.max(0, Math.min(cap, r));
+}
+
+/**
+ * Улучшения рангов ★1…★rank (`ranks.byTower`; план, разделы 3.1–3.2) — после мутаций, улучшений древа и потолков мутаций: множители складываются, умения ★8, которые заменяют
+ * умение ★4 (`nthMul`, `bossMul`), записываются поверх. Урон в секунду от рангов — не выше `ranks.dpsCap` к той же башне без рангов (раздел 4).
+ */
+function applyRank(s: TowerStats, id: TowerKey, rank: number): void {
+  const steps = CONFIG.ranks.byTower[id] ?? [];
+  const r = Math.max(0, Math.min(steps.length, Math.floor(rank)));
+  s.rank = r;
+  let dmg = 1;
+  let rate = 1;
+  for (const e of steps.slice(0, r)) {
+    if (e.rangeMul) {
+      s.range *= e.rangeMul;
+      if (s.targeting === 'puddle') s.puddleRadius *= e.rangeMul; // у Сиропа дальность ранга — радиус стрельбы и лужи
+    }
+    if (e.cooldownMul) rate *= e.cooldownMul;
+    if (e.damageMul) dmg *= e.damageMul;
+    if (e.dotPerSecMul) s.dotPerSec *= e.dotPerSecMul;
+    if (e.dotSecMul) s.dotSec *= e.dotSecMul;
+    if (e.puddleSecMul) s.puddleSec *= e.puddleSecMul;
+    if (e.slowSecAdd) s.slowSec += e.slowSecAdd;
+    if (e.beamWidthMul) s.beamHalfWidthPx *= e.beamWidthMul;
+    if (e.blastMul) s.blastRadius *= e.blastMul;
+    if (e.trapSecMul) s.trapSec *= e.trapSecMul;
+    if (e.trapDpsMul) s.trapDps *= e.trapDpsMul;
+    if (e.xpShareAdd) s.xpShare += e.xpShareAdd;
+    if (e.nthShot) s.nthShot = e.nthShot;
+    if (e.nthMul) s.nthMul = e.nthMul;
+    if (e.centerMul) s.centerMul = e.centerMul;
+    if (e.firstHitMul) s.firstHitMul = e.firstHitMul;
+    if (e.lastHitMul) s.lastHitMul = e.lastHitMul;
+    if (e.bossMul) s.bossMul = e.bossMul;
+    if (e.auraXpMul) s.auraXpMul = e.auraXpMul;
+    if (e.noHealFrozen) s.noHealFrozen = true;
+  }
+  // потолок урона в секунду от рангов: прибавка урона урезается, пауза — нет
+  const cap = CONFIG.ranks.dpsCap;
+  if (dmg / rate > cap) dmg = cap * rate;
+  s.damage *= dmg;
+  if (s.cooldownMs > 0) s.cooldownMs *= rate;
 }

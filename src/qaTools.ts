@@ -9,7 +9,8 @@ import Phaser from 'phaser';
 import { CONFIG } from './config';
 import { QA_EVENTS_MAX, QA_MODE, STRESS_FIZZ, STRESS_HIGH, type DebugSnapshot, type QaEvent } from './debug';
 import { refundBonus } from './meta';
-import { BLOCKED_TILES, EDGES, LEVEL, MAP_ID, PATH_TILES, WORLD, cellKey } from './level';
+import { BLOCKED_TILES, EDGES, LEVEL, MAP_ID, PATH_TILES, TOOTH_TILES, WORLD, cellKey } from './level';
+import { activeCondition } from './conditions';
 import { Bacterium, type BacteriumKind } from './objects/Bacterium';
 import { Tower, type TowerId } from './objects/Tower';
 import { pointAt, tileCenter } from './pathing';
@@ -72,6 +73,10 @@ export function qaSnapshot(s: GameSceneInternals): DebugSnapshot {
     absorbs: s.absorbs,
     leaps: s.leaps,
     cloudsMade: s.cloudsMade,
+    filmsMade: s.filmsMade,
+    plaqueStrikes: s.plaqueStrikes,
+    plaquesBroken: s.plaquesBroken,
+    condition: activeCondition(),
     freezes: s.freezes,
     trapsMade: s.trapsMade,
     latches: s.latches,
@@ -132,6 +137,8 @@ export function qaSnapshot(s: GameSceneInternals): DebugSnapshot {
       level: tw.level,
       picks: [...tw.picks],
       pending: tw.pendingTier,
+      xp: tw.xp,
+      rank: tw.rank,
       suppressed: tw.isSuppressed,
       auraMul: tw.auraMul,
       latchMul: tw.latchMul,
@@ -155,6 +162,17 @@ export function qaSnapshot(s: GameSceneInternals): DebugSnapshot {
         trapSec: tw.stats.trapSec,
         trapDps: tw.stats.trapDps,
         spiral: tw.stats.spiral,
+        // ранг опыта и его умения (план docs/tower-levels-xp-plan-2026-10-24.md, разделы 3.1–3.2)
+        slowSec: tw.stats.slowSec,
+        nthShot: tw.stats.nthShot,
+        nthMul: tw.stats.nthMul,
+        centerMul: tw.stats.centerMul,
+        firstHitMul: tw.stats.firstHitMul,
+        lastHitMul: tw.stats.lastHitMul,
+        bossMul: tw.stats.bossMul,
+        xpShare: tw.stats.xpShare,
+        auraXpMul: tw.stats.auraXpMul,
+        noHealFrozen: tw.stats.noHealFrozen,
       },
     })),
     selectedTower: s.selectedTower ? { col: s.selectedTower.col, row: s.selectedTower.row } : null,
@@ -168,6 +186,10 @@ export function qaSnapshot(s: GameSceneInternals): DebugSnapshot {
     mutationsPicked: s.mutationsPicked,
     puddles: s.puddles.map((p: any) => ({ x: p.x, y: p.y, r: p.radius, left: p.left })),
     clouds: s.clouds.map((c: any) => ({ x: c.x, y: c.y, r: c.radius, left: c.left })),
+    films: s.films.map((f: any) => ({ x: f.x, y: f.y, r: f.radius, left: f.left })),
+    plaques: s.plaques.map((p: any) => ({ x: p.x, y: p.y, hits: p.hits, keys: p.keys })),
+    plaqueTiles: [...s.plaqueTiles],
+    teeth: [...TOOTH_TILES],
     traps: s.traps.map((tr: any) => ({ x: tr.target.x, y: tr.target.y, left: tr.target.trapLeft })),
     lifePool: s.lifePool,
     bacteria: s.bacteria.map((b: any) => ({
@@ -181,6 +203,7 @@ export function qaSnapshot(s: GameSceneInternals): DebugSnapshot {
       decor: b.decorated,
       edge: b.edge.id,
       s: b.s,
+      speed: b.baseSpeed,
       dashing: b.dashing,
       slowed: b.slowed,
       lit: b.lit,
@@ -195,12 +218,14 @@ export function qaSnapshot(s: GameSceneInternals): DebugSnapshot {
       memory: b.memory,
       latchedTo: b.latchedTo ? { col: b.latchedTo.col, row: b.latchedTo.row } : null,
       boss: b.bossId,
+      hidden: b.hidden,
+      stealth: b.stealth,
       armor: b.armor,
       reward: b.reward,
       shielded: b.shielded,
       phase: b.phaseIndex,
     })),
-    plan: s.params.plan ? { waves: s.params.plan.waves.length, startCoins: s.params.plan.startCoins, pauseSec: s.params.plan.pauseSec } : null,
+    plan: s.params.plan ? { waves: s.params.plan.waves.length, startCoins: s.params.plan.startCoins, pauseSec: s.params.plan.pauseSec, firstWave: firstWaveOf(s.params.plan.waves) } : null,
     mapId: MAP_ID,
     bossBits: s.bossBits,
     fever: { owned: s.feverGfx !== null, left: s.feverLeft, wait: s.feverWait, uses: s.feverUses },
@@ -229,9 +254,19 @@ export function qaSnapshot(s: GameSceneInternals): DebugSnapshot {
 }
 
 /** Ставит одну башню нужного вида и уровня без оплаты (снимки qa/art-shots.mjs); клетка должна быть свободной, не дорожкой и не закрытой. */
+/** Первая волна плана, где выходит каждый вид (обычные и стена): `{ runner: 15, … }` — для бота (образец строит Сироп до выхода бегунов). */
+function firstWaveOf(waves: readonly { mix?: Record<string, number>; wall?: readonly [string, number] }[]): Record<string, number> {
+  const out: Record<string, number> = {};
+  waves.forEach((w, i) => {
+    const kinds = [...Object.keys(w.mix ?? {}).filter((k) => (w.mix?.[k] ?? 0) > 0), ...(w.wall ? [w.wall[0]] : [])];
+    for (const k of kinds) if (out[k] === undefined) out[k] = i + 1;
+  });
+  return out;
+}
+
 export function placeTowerQa(s: GameSceneInternals, id: TowerId, col: number, row: number, level: number): boolean {
   const key = cellKey(col, row);
-  if (!(id in CONFIG.towers) || PATH_TILES.has(key) || BLOCKED_TILES.has(key) || s.occupied.has(key)) return false;
+  if (!(id in CONFIG.towers) || PATH_TILES.has(key) || BLOCKED_TILES.has(key) || s.occupied.has(key) || TOOTH_TILES.has(key) || s.plaqueTiles.has(key)) return false;
   const center = tileCenter(col, row);
   const tower = new Tower(s, s.towerLayer, id, col, row, center.x, center.y);
   for (let lv = 1; lv < Math.min(level, MAX_TOWER_LEVEL); lv++) tower.upgrade();
@@ -265,7 +300,7 @@ export function setupStress(s: GameSceneInternals): void {
     const [col, row] = free[Math.floor((i * free.length) / count)];
     const center = tileCenter(col, row);
     const tower = new Tower(s, s.towerLayer, ids[i % ids.length], col, row, center.x, center.y);
-    for (let level = 1; level < 1 + (Math.floor(i / ids.length) % MAX_TOWER_LEVEL); level++) tower.upgrade();
+    for (let level = 1; level < 1 + (Math.floor(i / ids.length) % 4); level++) tower.upgrade(); // стресс-сценарий: уровни I–IV, как до слияния до VIII (замеры скорости сравнимы)
     while (tower.pendingTier !== null) tower.pickMutation(i % 2);
     // `stress=high`: рисунки уровней I–VIII по кругу (числа башни — до IV)
     if (STRESS_HIGH) tower.qaShowArtLevel(1 + (Math.floor(i / ids.length) % 8));
