@@ -2491,7 +2491,8 @@ export class GameScene extends Phaser.Scene {
     if (this.dnaParts.bosses > 0) pieces.push(t('dnaPartBosses', { n: this.dnaParts.bosses }));
     if (this.dnaParts.flawless > 0) pieces.push(t('dnaPartFlawless', { n: this.dnaParts.flawless }));
     if (this.dnaParts.stars > 0) pieces.push(t('dnaPartStars', { n: this.dnaParts.stars }));
-    const total = this.dnaParts.waves + this.dnaParts.win + this.dnaParts.coins + this.dnaParts.bosses + this.dnaParts.flawless + this.dnaParts.floor + this.dnaParts.stars;
+    // итог — фактически начисленное (на пределе счёта ДНК начисление меньше суммы частей: `underCap` в meta.ts), а не сумма частей (отзыв эксперта, решение владельца 4 ноября 2026, сообщение 2, п. 2.1)
+    const total = this.dnaGained + this.dnaParts.stars;
     const rows: { row: number; text: string }[] = [
       { row: 0, text: t('dnaTotal', { sum: total, total: metaDna() }) },
       { row: 1, text: pieces.join(' + ') },
