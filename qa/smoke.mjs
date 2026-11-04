@@ -8702,6 +8702,20 @@ async function runDnaCap(browser, baseUrl) {
     check(`${p} за ${cleared} волн полагалось бы ${full} ДНК, начислено до предела: ${m0.dna} → ${m1.dna} (предел ${m1.dnaCap}), счёт на пределе — серый`, full > 3 && m1.dna === m1.dnaCap && m1.dna === cap0 && m1.atCap === true && m0.atCap === false, JSON.stringify({ dna0: m0.dna, dna1: m1.dna, cap: m1.dnaCap, full, atCap: [m0.atCap, m1.atCap] }));
     await game.page.close();
   }
+  // ---- экран конца попытки на пределе: «Очки ДНК: +N» — фактически начисленное (до предела), а не сумма частей (отзыв эксперта; решение владельца 4 ноября 2026, сообщение 2, п. 2.1)
+  {
+    const cfg = 'waves.firstDelaySec:1,waves.pauseSec:1,waves.newTypePauseSec:0,waves.intervalStartSec:0.3,waves.intervalEndSec:0.3,lives.start:4';
+    const game = await openGame(context, baseUrl, `${p} экран конца`, { realMeta: true, speed: 4, cfg, query: `&meta=dna:${cap0 - 1}` });
+    const m0 = await metaOf(game.page);
+    await waitForGame(game.page, (x) => x.state === 'lost' && x.endDnaLines.length > 0, 'проигрыш', { gameSec: 300 });
+    await sleep(300);
+    const s = await game.state();
+    const m1 = await metaOf(game.page);
+    const gained = m1.dna - m0.dna;
+    const sum = Object.values(s.dnaParts).reduce((a, b) => a + b, 0);
+    check(`${p} экран конца попытки на пределе: по частям полагалось ${sum} ДНК, начислено ${gained} (счёт ${m0.dna} → ${m1.dna}, предел ${m1.dnaCap}); первая строка «${s.endDnaLines[0]}» — с начисленным +${gained}`, sum > gained && gained === s.dnaGained + (s.dnaParts.stars ?? 0) && s.endDnaLines[0].startsWith(totalPrefix(gained)), JSON.stringify({ parts: s.dnaParts, gained, lines: s.endDnaLines }));
+    await game.page.close();
+  }
   // ---- сброс сети: возврат ДНК и рост предела на ту же сумму
   {
     const app = await openMenu(context, baseUrl, `${p} сброс`, { query: '&meta=dna:0,damage:2' });
@@ -10029,6 +10043,10 @@ function readKindTowerParts() {
 const KIND_TOWER_PARTS = readKindTowerParts();
 /** Строки жёстких свойств (AlmanacScene.ts, WARD_LINES): вид, ключ, башня, без которой строка не выводится (null — строка башню не называет); все свойства включены на уровне 1. */
 const WARD_NOTES = [['runner', 'almWardRunner', 'syrup'], ['armored', 'almWardArmored', null], ['slick', 'almWardSlick', 'syringe']];
+/** Строка свойства без имени башни, пока башня не куплена (решение владельца 4 ноября 2026, сообщение 2, п. 2.3): у Бегуна до покупки Сиропа — almWardRunnerAny. */
+const WARD_NOTES_NO_TOWER = { almWardRunner: 'almWardRunnerAny' };
+/** Примечание под строкой босса (там же, п. 2.2): Гигантская колония — только когда куплены Шипучка и Шприц. */
+const BOSS_NOTES = { giantColony: ['almBossAreaNote', ['fizz', 'syringe']] };
 
 /**
  * Строки альманаха, которые должна показать игра (решения владельца 25 октября 2026, сообщение 5, п. 2, и 26 октября 2026, сообщение 1, п. 2): открытая башня — «Название: описание»,
@@ -10040,7 +10058,10 @@ function almanacRows(tab, li, open = () => true, owned = () => true) {
   const closed = readI18n('almBacClosed')[li];
   return ids.map((id) => {
     if (!open(id)) return closed;
-    if (tab === 'bosses') return `${readI18n(`boss${capId(id)}`)[li]}: ${readI18n(`almBoss${capId(id)}`)[li]}`;
+    if (tab === 'bosses') {
+      const note = BOSS_NOTES[id] && BOSS_NOTES[id][1].every((tw) => owned(tw)) ? ` | ${readI18n(BOSS_NOTES[id][0])[li]}` : '';
+      return `${readI18n(`boss${capId(id)}`)[li]}: ${readI18n(`almBoss${capId(id)}`)[li]}${note}`;
+    }
     if (tab === 'towers' && id === 'vitamin') {
       // башни-исключения ауры — только купленные (решение владельца 28 октября 2026, сообщение 2, п. 5.3)
       const names = ['lamp', 'syrup', 'frost', 'patch'].filter((tw) => owned(tw)).map((tw) => readI18n(`almExcept${capId(tw)}`)[li]);
@@ -10050,7 +10071,7 @@ function almanacRows(tab, li, open = () => true, owned = () => true) {
     if (tab === 'towers') return `${readI18n(`tower${capId(id)}`)[li]}: ${readI18n(`almTower${capId(id)}`)[li]}`;
     const name = readI18n(`bacName${capId(id)}`)[li];
     const parts = [readI18n(`almBac${capId(id)}`)[li], ...(KIND_TOWER_PARTS[id] ?? []).filter(([tw]) => owned(tw)).map(([, key]) => readI18n(key)[li])].filter((x) => x.length > 0);
-    const notes = WARD_NOTES.filter(([kind, , tw]) => kind === id && (tw === null || owned(tw))).map(([, key]) => readI18n(key)[li]);
+    const notes = WARD_NOTES.filter(([kind]) => kind === id).map(([, key, tw]) => (tw === null || owned(tw) ? key : WARD_NOTES_NO_TOWER[key])).filter(Boolean).map((key) => readI18n(key)[li]);
     return `${parts.length ? `${name}: ${parts.join('. ')}` : name}${notes.map((n) => ` | ${n}`).join('')}`;
   });
 }
