@@ -299,17 +299,14 @@ const REVIEW_GROUPS = {
 /**
  * Образец на других картах (вариант Б, решение владельца 5 ноября 2026, сообщение 1, п. 1: «образец, переписанный под карту»). Группы — те же, что на «Горле» (те же мутации, очередь REVIEW_STEPS
  * и слияние внутри группы), меняются только клетки и направление луча Шприца `aim` (0 — вправо, 2 — вниз, 4 — влево, 6 — вверх; луч бьёт через всю карту).
- *  nose («Нос», уровень 2): два канала — верхний (≈ 25 % бактерий) и нижний (≈ 75 %, к нему же перемычка) — сходятся только у организма. Клетки у схождения ((3,9)) держат под огнём
- *    лишь ≈ 196 px каждого пути (на «Горле» клетка Таблеток — ≈ 680 px), поэтому Таблетки и Шипучки — двумя парами у спуска каждого канала к организму: нижний (5,13) и (4,12) —
- *    по ≈ 468 и 402 px обоих нижних путей, верхний (5,6) и (4,7) — 468 и 402 px верхнего (замер покрытия по графу карты, радиус 220 px; лестница `42065675833`: с одной Таблеткой
- *    у организма все дорожки гибнут на 7-й волне). Первые Таблетки — по две в каждую пару (REVIEW_FIRST_BY_MAP). Шприцы — вдоль каналов (нижний — первый), Сиропы — у входов справа
- *    и у спуска нижнего канала.
+ *  nose («Нос», уровень 2): два канала — верхний (≈ 25 % бактерий) и нижний (≈ 75 %, к нему же перемычка) — сходятся только у организма. Таблетки и Шипучки — у схождения у организма
+ *    (обе ветки), Шприцы — вдоль каналов (нижний — первый), Сиропы — у нижнего канала справа, у верхнего справа и у спуска нижнего к организму.
  *  mouth3 («Рот», уровень 3): вход посередине, три пути (верхняя челюсть, язык, нижняя челюсть), у глотки — схождение. Шприцы — сверху вниз и снизу вверх по столбцам 13 и 11
  *    (поперёк всех трёх путей, мимо зубов), Сироп — у входа и у языка, Таблетки и Шипучки — у глотки и у языка.
  *  mouth4 («Рот», уровень 4): входы сверху и снизу справа (по челюстям), средний закрыт. Как mouth3, но Сиропы — у обоих входов.
  */
 const REVIEW_MAP_CELLS = {
-  nose: { syringeA: [[2, 15], 0], syringeB: [[2, 4], 0], syrupA: [16, 14], syrupB: [17, 5], syrupC: [6, 13], fizzA: [4, 12], fizzB: [4, 7], fizzC: [8, 13], fizzD: [12, 12], fizzE: [13, 6], pillA: [5, 13], pillB: [5, 6] },
+  nose: { syringeA: [[2, 15], 0], syringeB: [[2, 4], 0], syrupA: [16, 14], syrupB: [17, 5], syrupC: [5, 13], fizzA: [4, 12], fizzB: [5, 6], fizzC: [8, 13], fizzD: [12, 12], fizzE: [13, 6], pillA: [3, 9], pillB: [4, 10] },
   mouth3: { syringeA: [[13, 1], 2], syringeB: [[11, 17], 6], syrupA: [21, 8], syrupB: [10, 8], syrupC: [8, 12], fizzA: [8, 8], fizzB: [8, 11], fizzC: [3, 11], fizzD: [9, 8], fizzE: [9, 11], pillA: [4, 8], pillB: [4, 11] },
   mouth4: { syringeA: [[13, 1], 2], syringeB: [[11, 17], 6], syrupA: [20, 2], syrupB: [20, 17], syrupC: [8, 12], fizzA: [8, 8], fizzB: [8, 11], fizzC: [3, 8], fizzD: [9, 8], fizzE: [9, 11], pillA: [4, 8], pillB: [4, 12] },
 };
@@ -345,8 +342,6 @@ const REVIEW_EARLY_WAVE = 10;
 const REVIEW_EARLY_PILLS = 8;
 const REVIEW_FIRST_PILLS = 4;
 const REVIEW_SYRUP_LEAD = 2;
-/** Первые Таблетки по картам: [группа, сколько обычных башен] — до всего остального, по порядку; карты без строки — REVIEW_FIRST_PILLS в pillA (как на «Горле»). */
-const REVIEW_FIRST_BY_MAP = { nose: [['pillA', 2], ['pillB', 2]] };
 /** Покупки очков ДНК по отчёту (с. 71): узел и уровень, до которого он покупается, в порядке покупок за попытки 1–5. */
 const REVIEW_BUYS = [['towerSyrup', 1], ['towerFizz', 1], ['towerSyringe', 1], ['damage', 1], ['coins', 3], ['syringePower', 1], ['syrupPower', 1]];
 const listArg = (name) => (args[name] === undefined || args[name] === true ? null : String(args[name]).split(',').map((x) => x.trim()).filter(Boolean));
@@ -1050,7 +1045,6 @@ function makePlayer({ world, rng, buttons, forced = null, mapId = null }) {
   /** Группы образца на этой карте (`reviewGroupsFor`); у других стратегий не нужны. */
   // неизвестная карта (например, тестовая «корни»): клетки «Горла», как было до образца по картам
   const RG = (REVIEW ? reviewGroupsFor(mapId) : null) ?? REVIEW_GROUPS;
-  const REVIEW_FIRST = REVIEW_FIRST_BY_MAP[mapId] ?? [['pillA', REVIEW_FIRST_PILLS]];
   if (REVIEW && !reviewGroupsFor(mapId)) console.log(`  образец: карты «${mapId}» нет в REVIEW_MAP_CELLS — клетки «Горла»`);
   const zone = STRATEGY === 'zone'; // «всё у Z»: только Таблетки и один Сироп, клетки — ближайшие к последней развилке у организма
   const available = (id) => TABLE[id] && buttons.includes(id) && !EXCLUDE.has(id) && (!SOLO_ALLOWED || SOLO_ALLOWED.has(id)) && (!zone || ZONE_TOWERS.has(id)) && (!REVIEW || REVIEW_TOWERS.has(id));
@@ -1178,10 +1172,10 @@ function makePlayer({ world, rng, buttons, forced = null, mapId = null }) {
     // уровень без бегунов или без плана волн — Сироп в прежнем порядке
     const runnerWave = view.s.plan?.firstWave?.runner;
     const syrupOpen = runnerWave === undefined || wave >= runnerWave - REVIEW_SYRUP_LEAD;
-    const firstLeft = REVIEW_FIRST.filter(([key, target]) => available(RG[key].type) && !reviewGaveUp.has(key) && reviewUnits(view, key) < target);
-    for (const [key, target] of firstLeft.length ? firstLeft : FX.has('v') ? [...REVIEW_STEPS, ...REVIEW_V_STEPS] : REVIEW_STEPS) {
+    for (const [key, target] of FX.has('v') ? [...REVIEW_STEPS, ...REVIEW_V_STEPS] : REVIEW_STEPS) {
       const g = RG[key];
       if (!available(g.type) || reviewGaveUp.has(key) || reviewUnits(view, key) >= target) continue;
+      if (reviewUnits(view, 'pillA') < REVIEW_FIRST_PILLS && g.type !== 'pill') continue;
       if (early && g.type === 'fizz') continue;
       if (g.type === 'syrup' && (!syrupOpen || syrups + 1 > fighting)) continue;
       const cell = reviewCell(view, key);
