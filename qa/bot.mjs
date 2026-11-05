@@ -2215,6 +2215,42 @@ async function ladderLane(profile, run) {
     const rec = prevRec && prevRec.level === level && !prevRec.firstWin ? prevRec : { level, games: 0, firstWin: null, waves: [], results: [], stars: 0, dnaIn: lane.dna, levelsIn: { ...lane.levels }, bought: [], dnaGained: [], treeLeftIn: treeLeft(lane.levels), treeLeftAfter: [] };
     if (rec !== prevRec) lane.perLevel.push(rec);
     lane.resume = null;
+    if (REPLAYS.value > 0 && level > 1 && rec.games === 0 && !rec.replays && (lane.stars[level - 2] ?? 0) > 0) {
+      // «replays:N»: перед первой попыткой уровня — N повторов пройденного уровня level − 1 (каждая задача лестницы играет один уровень, поэтому повторы — здесь, а не после победы);
+      // ДНК повтора — по правилу игры (× replayFactor), после каждого — покупки; уровень level − 1 пройден: звёзды уровней 1…level − 1 заданы адресом
+      const prev = level - 1;
+      rec.replays = [];
+      const starsQ = `&stars=${Array(prev).fill(1).join(',')}`;
+      for (let r = 1; r <= REPLAYS.value; r++) {
+        if (stopRequested) return true;
+        let rg;
+        try {
+          rg = await playGame(browser, server.url, run, lane.levels, `:L${prev}:rep${r}`, prev, starsQ);
+        } catch (error) {
+          if (error instanceof FatalConsole) {
+            fatal = `Остановлено: дорожка «${tag}», повтор ${r} уровня ${prev}, консоль игры сообщила о проблеме.\n   ${error.message}`;
+            return false;
+          }
+          console.log(`   ⚠ [${tag}, уровень ${prev}] повтор ${r} не удался: ${error.message.split('\n')[0]}`);
+          break;
+        }
+        Object.assign(rg, { ladderLevel: prev, ladderGame: 0, replay: r, metaLevels: { ...lane.levels }, dnaBefore: lane.dna });
+        games.push(rg);
+        if (rg.result === 'error') break;
+        const capRep = dnaCapOf(META, lane.levels, openRingsAt(META, level));
+        const gainedRep = Math.max(0, Math.min(dnaForGame(rg, true, lane.progress, prev), capRep - lane.dna));
+        lane.dna += gainedRep;
+        const buyRep = buyUpgrades(lane.levels, lane.dna, lane.best[prev - 1] ?? 0, rg.towers);
+        lane.levels = buyRep.levels;
+        lane.dna = buyRep.dna;
+        rec.replays.push({ level: prev, result: rg.result, wave: rg.wave, dna: gainedRep, bought: buyRep.bought, gameSec: rg.gameSec, realSec: rg.realSec });
+        console.log(`[${tag}, уровень ${prev}] повтор ${r}/${REPLAYS.value} перед уровнем ${level}: ${RESULT_RU[rg.result]} · волна ${rg.wave}/${rg.waveTotal} · очков ДНК +${gainedRep} (остаток ${lane.dna}) · куплено ${buyRep.bought.length ? buyRep.bought.join(', ') : '—'} · реал. ${rg.realSec} с`);
+        saveResults();
+      }
+      rec.dnaIn = lane.dna;
+      rec.levelsIn = { ...lane.levels };
+      rec.treeLeftIn = treeLeft(lane.levels);
+    }
     const firstN = rec.games + 1;
     const lastN = Math.min(LADDER_TOTAL, rec.games + LADDER);
     for (let n = firstN; n <= lastN; n++) {
@@ -2280,36 +2316,6 @@ async function ladderLane(profile, run) {
       if (game.result === 'won') {
         rec.firstWin = n;
         rec.stars = lane.stars[level - 1];
-        if (REPLAYS.value > 0 && level < LADDER_TO) {
-          // N повторов этого уровня (он уже пройден: звёзды уровней 1…level заданы адресом), ДНК — по правилу повтора, после каждого — покупки; затем следующий уровень
-          rec.replays = [];
-          const starsQ = `&stars=${Array(level).fill(1).join(',')}`;
-          for (let r = 1; r <= REPLAYS.value; r++) {
-            let rg;
-            try {
-              rg = await playGame(browser, server.url, run, lane.levels, `:L${level}:rep${r}`, level, starsQ);
-            } catch (error) {
-              if (error instanceof FatalConsole) {
-                fatal = `Остановлено: дорожка «${tag}», повтор ${r} уровня ${level}, консоль игры сообщила о проблеме.\n   ${error.message}`;
-                return false;
-              }
-              console.log(`   ⚠ [${tag}, уровень ${level}] повтор ${r} не удался: ${error.message.split('\n')[0]}`);
-              break;
-            }
-            Object.assign(rg, { ladderLevel: level, ladderGame: n + r, replay: true, metaLevels: { ...lane.levels }, dnaBefore: lane.dna });
-            games.push(rg);
-            if (rg.result === 'error') break;
-            const capRep = dnaCapOf(META, lane.levels, openRingsAt(META, level + 1));
-            const gainedRep = Math.max(0, Math.min(dnaForGame(rg, true, lane.progress, level), capRep - lane.dna));
-            lane.dna += gainedRep;
-            const buyRep = buyUpgrades(lane.levels, lane.dna, lane.best[level - 1] ?? 0, rg.towers);
-            lane.levels = buyRep.levels;
-            lane.dna = buyRep.dna;
-            rec.replays.push({ result: rg.result, wave: rg.wave, dna: gainedRep, bought: buyRep.bought, gameSec: rg.gameSec, realSec: rg.realSec });
-            console.log(`[${tag}, уровень ${level}] повтор ${r}/${REPLAYS.value}: ${RESULT_RU[rg.result]} · волна ${rg.wave}/${rg.waveTotal} · очков ДНК +${gainedRep} (остаток ${lane.dna}) · куплено ${buyRep.bought.length ? buyRep.bought.join(', ') : '—'} · реал. ${rg.realSec} с`);
-            saveResults();
-          }
-        }
         if (FARM) {
           // Одна повторная партия на пройденном уровне (L − 1; у первого уровня — он же): звёзды всех уровней до L заданы адресом (`&stars=`), улучшения — как после покупок;
           // башни открыты по прогрессу игрока (открытая однажды башня доступна на пройденных уровнях). Очки и время только записываются.
