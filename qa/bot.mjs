@@ -296,6 +296,30 @@ const REVIEW_GROUPS = {
   pillA: { type: 'pill', cell: [11, 6], t0: { pillRapid: 3, pillPierce: 1 }, t1: 'pillHunter' },
   pillB: { type: 'pill', cell: [7, 10], t0: { pillRapid: 3, pillPierce: 1 }, t1: 'pillDouble' },
 };
+/**
+ * Образец на других картах (вариант Б, решение владельца 5 ноября 2026, сообщение 1, п. 1: «образец, переписанный под карту»). Группы — те же, что на «Горле» (те же мутации, очередь REVIEW_STEPS
+ * и слияние внутри группы), меняются только клетки и направление луча Шприца `aim` (0 — вправо, 2 — вниз, 4 — влево, 6 — вверх; луч бьёт через всю карту).
+ *  nose («Нос», уровень 2): два канала — верхний (≈ 25 % бактерий) и нижний (≈ 75 %, к нему же перемычка) — сходятся только у организма. Таблетки и Шипучки — у схождения у организма
+ *    (обе ветки), Шприцы — вдоль каналов (нижний — первый), Сиропы — у нижнего канала справа, у верхнего справа и у спуска нижнего к организму.
+ *  mouth3 («Рот», уровень 3): вход посередине, три пути (верхняя челюсть, язык, нижняя челюсть), у глотки — схождение. Шприцы — сверху вниз и снизу вверх по столбцам 13 и 11
+ *    (поперёк всех трёх путей, мимо зубов), Сироп — у входа и у языка, Таблетки и Шипучки — у глотки и у языка.
+ *  mouth4 («Рот», уровень 4): входы сверху и снизу справа (по челюстям), средний закрыт. Как mouth3, но Сиропы — у обоих входов.
+ */
+const REVIEW_MAP_CELLS = {
+  nose: { syringeA: [[2, 15], 0], syringeB: [[2, 4], 0], syrupA: [16, 14], syrupB: [17, 5], syrupC: [5, 13], fizzA: [4, 12], fizzB: [5, 6], fizzC: [8, 13], fizzD: [12, 12], fizzE: [13, 6], pillA: [3, 9], pillB: [4, 10] },
+  mouth3: { syringeA: [[13, 1], 2], syringeB: [[11, 17], 6], syrupA: [21, 8], syrupB: [10, 8], syrupC: [8, 12], fizzA: [8, 8], fizzB: [8, 11], fizzC: [3, 11], fizzD: [9, 8], fizzE: [9, 11], pillA: [4, 8], pillB: [4, 11] },
+  mouth4: { syringeA: [[13, 1], 2], syringeB: [[11, 17], 6], syrupA: [20, 2], syrupB: [20, 17], syrupC: [8, 12], fizzA: [8, 8], fizzB: [8, 11], fizzC: [3, 8], fizzD: [9, 8], fizzE: [9, 11], pillA: [4, 8], pillB: [4, 12] },
+};
+/** Группы образца на карте `mapId`: «Горло» (throat) — REVIEW_GROUPS как есть; карты из REVIEW_MAP_CELLS — те же группы с клетками и лучами этой карты; другой карты образец не знает (null). */
+function reviewGroupsFor(mapId) {
+  if (mapId === 'throat') return REVIEW_GROUPS;
+  const cells = REVIEW_MAP_CELLS[mapId];
+  if (!cells) return null;
+  return Object.fromEntries(Object.entries(REVIEW_GROUPS).map(([key, g]) => {
+    const c = cells[key];
+    return [key, Array.isArray(c[0]) ? { ...g, cell: c[0], aim: c[1] } : { ...g, cell: c }];
+  }));
+}
 /** Очередь постройки: [группа, сколько обычных башен должно в ней стоять]; берётся первая строка, где башен меньше, башня доступна и (для Сиропа) выполнено правило соотношения. */
 const REVIEW_STEPS = [
   ['syrupA', 1], ['syringeA', 4], ['syrupA', 2], ['syringeA', 8], ['syrupA', 8],
@@ -467,6 +491,8 @@ const FX = new Set();
 let MERGE_LIMIT = 99;
 /** Запись «nolatebuy» в --mut: без покупки веток Таблетки и Шипучки после выхода на волну N (core:…:late). */
 const NO_LATE_BUY = { value: false };
+/** Запись «replays:N» в --mut: N повторов пройденного уровня перед следующим (лестница; 0 — без повторов). */
+const REPLAYS = { value: 0 };
 if (MUT_ALT) for (const [towerId, ids] of Object.entries(DEFAULT_MUT)) MUT_IDS[towerId] = ids.map((id, tier) => (MUTATION_IDS[towerId]?.[tier] ?? []).find((x) => x !== id) ?? id);
 else if (args.mut !== undefined) {
   if (args.mut === true) die('--mut=башня:мутация,мутация;… — после «=» нужна запись, например pill:pillRapid,pillDouble');
@@ -479,6 +505,13 @@ else if (args.mut !== undefined) {
       continue;
     }
     // «mergelimit:4» — бот не сливает башни выше IV уровня (план docs/tower-levels-xp-plan-2026-10-24.md, раздел 7: замер опыта сначала с пределом IV, потом без него; правило 12)
+    // «replays:N» — N повторов пройденного уровня перед следующим (цель уровней 2–30: «древо после победы на прошлом уровне и N его повторов», решение владельца 26 октября 2026,
+    // сообщение 1, п. 5.4; N = 3, контроль N = 5 — 5 ноября 2026, сообщение 1, п. 1.3): ДНК повтора — по правилу игры (× replayFactor), покупки — как после попытки
+    if (towerId === 'replays') {
+      REPLAYS.value = Number(list);
+      if (!Number.isInteger(REPLAYS.value) || REPLAYS.value < 0 || REPLAYS.value > 9) die(`--mut=replays:N — N целое от 0 до 9, получено «${list}»`);
+      continue;
+    }
     if (towerId === 'mergelimit') {
       MERGE_LIMIT = Number(list);
       if (!Number.isInteger(MERGE_LIMIT) || MERGE_LIMIT < 1) die(`--mut=mergelimit:N — N целое от 1, получено «${list}»`);
@@ -1008,7 +1041,11 @@ function buildWorld(graph, map, cols, rows) {
  * Игрок решает, ЧТО построить сейчас: { type, cell } или null (ждать). view: { s (состояние), coins, towers, free (свободные клетки,
  * без занятых и «плохих»), covCount }. После успешной покупки зовётся bought(), после неудачи клетку бот сам помечает «плохой».
  */
-function makePlayer({ world, rng, buttons, forced = null }) {
+function makePlayer({ world, rng, buttons, forced = null, mapId = null }) {
+  /** Группы образца на этой карте (`reviewGroupsFor`); у других стратегий не нужны. */
+  // неизвестная карта (например, тестовая «корни»): клетки «Горла», как было до образца по картам
+  const RG = (REVIEW ? reviewGroupsFor(mapId) : null) ?? REVIEW_GROUPS;
+  if (REVIEW && !reviewGroupsFor(mapId)) console.log(`  образец: карты «${mapId}» нет в REVIEW_MAP_CELLS — клетки «Горла»`);
   const zone = STRATEGY === 'zone'; // «всё у Z»: только Таблетки и один Сироп, клетки — ближайшие к последней развилке у организма
   const available = (id) => TABLE[id] && buttons.includes(id) && !EXCLUDE.has(id) && (!SOLO_ALLOWED || SOLO_ALLOWED.has(id)) && (!zone || ZONE_TOWERS.has(id)) && (!REVIEW || REVIEW_TOWERS.has(id));
   // fx:iv (core:…:late с ядром «Сироп + Шприц»): до волны LATE_WAVE круг «Сироп, четыре Шприца, Сироп, четыре Шприца» — Шприцы доходят до IV (в образце — Шприц IV около 20-й волны)
@@ -1109,18 +1146,18 @@ function makePlayer({ world, rng, buttons, forced = null }) {
   const groupOf = (tw) => groupAt.get(`${tw.col},${tw.row}`) ?? null;
   const reviewUnits = (view, key) => view.towers.filter((tw) => groupOf(tw) === key).reduce((sum, tw) => sum + 2 ** ((tw.level ?? 1) - 1), 0);
   const anchorOf = (key) => {
-    const [col, row] = REVIEW_GROUPS[key].cell;
+    const [col, row] = RG[key].cell;
     return world.byKey.get(`${col},${row}`) ?? null;
   };
   const reviewGaveUp = new Set();
   const reviewCell = (view, key) => {
-    const g = REVIEW_GROUPS[key];
+    const g = RG[key];
     const anchor = anchorOf(key);
     if (!anchor) return null;
     const exact = view.free.find((c) => c.col === anchor.col && c.row === anchor.row);
     if (exact) return exact;
     // клетки других групп, где ещё ничего не стоит, не занимаем: их первая башня встаёт точно в клетку группы
-    const reserved = new Set(Object.keys(REVIEW_GROUPS).filter((k) => k !== key && !reviewGaveUp.has(k) && reviewUnits(view, k) === 0).map((k) => REVIEW_GROUPS[k].cell.join(',')));
+    const reserved = new Set(Object.keys(RG).filter((k) => k !== key && !reviewGaveUp.has(k) && reviewUnits(view, k) === 0).map((k) => RG[k].cell.join(',')));
     const reach = (view.s.mergeRadiusPx ?? 0) * MERGE_NEAR_MARGIN;
     const options = view.free
       .filter((c) => !reserved.has(`${c.col},${c.row}`) && Math.hypot(c.x - anchor.x, c.y - anchor.y) <= reach && (TABLE[g.type].targeting === 'beam' || world.cover(g.type, c) > 0))
@@ -1136,7 +1173,7 @@ function makePlayer({ world, rng, buttons, forced = null }) {
     const runnerWave = view.s.plan?.firstWave?.runner;
     const syrupOpen = runnerWave === undefined || wave >= runnerWave - REVIEW_SYRUP_LEAD;
     for (const [key, target] of FX.has('v') ? [...REVIEW_STEPS, ...REVIEW_V_STEPS] : REVIEW_STEPS) {
-      const g = REVIEW_GROUPS[key];
+      const g = RG[key];
       if (!available(g.type) || reviewGaveUp.has(key) || reviewUnits(view, key) >= target) continue;
       if (reviewUnits(view, 'pillA') < REVIEW_FIRST_PILLS && g.type !== 'pill') continue;
       if (early && g.type === 'fizz') continue;
@@ -1147,14 +1184,14 @@ function makePlayer({ world, rng, buttons, forced = null }) {
         continue;
       }
       if (view.coins < TABLE[g.type].price) return null; // копит монеты на голову очереди
-      return { type: g.type, cell, cycleIdx: -1, group: key };
+      return { type: g.type, cell, cycleIdx: -1, group: key, aimDir: g.aim ?? null };
     }
     return null;
   };
   /** Мутация башни (tw.pending — номер порога) по образцу: id варианта первого порога — с наибольшим недобором в группе, второго — у группы фиксированный. */
   const reviewPickId = (view, tw) => {
     const key = groupOf(tw);
-    const g = key ? REVIEW_GROUPS[key] : null;
+    const g = key ? RG[key] : null;
     if (!g) return null;
     // --mut=syringe:<первый>,<второй> задаёт второй порог Шприцев образца (по умолчанию — «Спираль», как в отчёте): замер «Второго луча» вместо «Спирали» (решение владельца 25 октября 2026, сообщение 1, п. 2.2)
     if (tw.pending === 1) return tw.id === 'syringe' && REVIEW_SYRINGE_MUT ? MUT_IDS.syringe[1] : g.t1;
@@ -1401,7 +1438,7 @@ async function playGame(browser, baseUrl, run, metaLevels = null, salt = '', lev
       console.log(`  карта: клеток ${WORLD.cells.length}, под дорожкой ${WORLD.cells.length - free.length}, свободных ${free.length}; клеток с охватом > 0: ${withCover}`);
     }
     const buttons = s.ui.towerButtons.filter((b) => !b.locked).map((b) => b.id); // закрытые башни (замок) профили не строят
-    const player = makePlayer({ world: WORLD, rng, buttons, forced });
+    const player = makePlayer({ world: WORLD, rng, buttons, forced, mapId: s.mapId });
     // клетки разведки (fx:scout): башня этого вида в такой клетке при слиянии — всегда та, что остаётся (её луч и место сохраняются)
     const pinnedAt = new Map(Object.entries(forced ?? {}).filter(([, p]) => p).map(([id, p]) => [`${p.col},${p.row}`, id]));
     const isPinned = (tw) => pinnedAt.get(`${tw.col},${tw.row}`) === tw.id;
@@ -1623,7 +1660,8 @@ async function playGame(browser, baseUrl, run, metaLevels = null, salt = '', lev
         if (drop > TABLE[type].price + 0.5) record.anomalies.push(`монеты упали на ${drop}, а цена ${type} по таблице ${TABLE[type].price}`);
         record.spent += TABLE[type].price;
         let aim = tower?.aim ?? null;
-        if (tower && TABLE[type].targeting === 'beam' && !REVIEW) aim = await aimTower(st, tower, cell, choice.aim ?? null); // образец: лучи вправо, как при постановке
+        if (tower && TABLE[type].targeting === 'beam' && !REVIEW) aim = await aimTower(st, tower, cell, choice.aim ?? null); // образец на «Горле»: лучи вправо, как при постановке
+        else if (tower && TABLE[type].targeting === 'beam' && REVIEW && choice.aimDir !== null && choice.aimDir !== undefined) aim = await aimTower(st, tower, cell, choice.aimDir); // образец на других картах: луч группы (REVIEW_MAP_CELLS)
         return { ok: true, tower, aim };
       }
       if (st.state !== 'playing') return { ok: false, ended: true };
@@ -2242,6 +2280,36 @@ async function ladderLane(profile, run) {
       if (game.result === 'won') {
         rec.firstWin = n;
         rec.stars = lane.stars[level - 1];
+        if (REPLAYS.value > 0 && level < LADDER_TO) {
+          // N повторов этого уровня (он уже пройден: звёзды уровней 1…level заданы адресом), ДНК — по правилу повтора, после каждого — покупки; затем следующий уровень
+          rec.replays = [];
+          const starsQ = `&stars=${Array(level).fill(1).join(',')}`;
+          for (let r = 1; r <= REPLAYS.value; r++) {
+            let rg;
+            try {
+              rg = await playGame(browser, server.url, run, lane.levels, `:L${level}:rep${r}`, level, starsQ);
+            } catch (error) {
+              if (error instanceof FatalConsole) {
+                fatal = `Остановлено: дорожка «${tag}», повтор ${r} уровня ${level}, консоль игры сообщила о проблеме.\n   ${error.message}`;
+                return false;
+              }
+              console.log(`   ⚠ [${tag}, уровень ${level}] повтор ${r} не удался: ${error.message.split('\n')[0]}`);
+              break;
+            }
+            Object.assign(rg, { ladderLevel: level, ladderGame: n + r, replay: true, metaLevels: { ...lane.levels }, dnaBefore: lane.dna });
+            games.push(rg);
+            if (rg.result === 'error') break;
+            const capRep = dnaCapOf(META, lane.levels, openRingsAt(META, level + 1));
+            const gainedRep = Math.max(0, Math.min(dnaForGame(rg, true, lane.progress, level), capRep - lane.dna));
+            lane.dna += gainedRep;
+            const buyRep = buyUpgrades(lane.levels, lane.dna, lane.best[level - 1] ?? 0, rg.towers);
+            lane.levels = buyRep.levels;
+            lane.dna = buyRep.dna;
+            rec.replays.push({ result: rg.result, wave: rg.wave, dna: gainedRep, bought: buyRep.bought, gameSec: rg.gameSec, realSec: rg.realSec });
+            console.log(`[${tag}, уровень ${level}] повтор ${r}/${REPLAYS.value}: ${RESULT_RU[rg.result]} · волна ${rg.wave}/${rg.waveTotal} · очков ДНК +${gainedRep} (остаток ${lane.dna}) · куплено ${buyRep.bought.length ? buyRep.bought.join(', ') : '—'} · реал. ${rg.realSec} с`);
+            saveResults();
+          }
+        }
         if (FARM) {
           // Одна повторная партия на пройденном уровне (L − 1; у первого уровня — он же): звёзды всех уровней до L заданы адресом (`&stars=`), улучшения — как после покупок;
           // башни открыты по прогрессу игрока (открытая однажды башня доступна на пройденных уровнях). Очки и время только записываются.
