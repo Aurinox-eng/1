@@ -312,6 +312,7 @@ function reviewGroupsFor(mapId, world) {
     ranges: { pill: TABLE.pill.range, fizz: TABLE.fizz.range, syrup: TABLE.syrup.range },
     beam: { length: TABLE.syringe.beamLengthPx, halfWidth: TABLE.syringe.beamHalfWidthPx + BEAM_MARGIN_PX },
     toothRadius: TOOTH_RADIUS,
+    avoidPx: SPORE_AVOID_PX,
   });
   const groups = {};
   for (const [key, g] of Object.entries(REVIEW_GROUPS)) {
@@ -321,6 +322,8 @@ function reviewGroupsFor(mapId, world) {
   return { groups, layout: L };
 }
 const TOOTH_RADIUS = readConfigNumber('obstacles', 'toothRadius');
+/** Правило против спор (решение владельца 6 ноября 2026, сообщение 2, п. 1): на картах по графу башни образца — дальше радиуса глушения спор от дорожки (+ запас 15 px на ширину бактерии). */
+const SPORE_AVOID_PX = Number(/\bspore:\s*\{[^}]*?disableRadius:\s*([\d.]+)/.exec(fs.readFileSync(new URL('../src/config.ts', import.meta.url), 'utf8'))?.[1] ?? 150) + 15;
 /** Очередь постройки: [группа, сколько обычных башен должно в ней стоять]; берётся первая строка, где башен меньше, башня доступна и (для Сиропа) выполнено правило соотношения. */
 const REVIEW_STEPS = [
   ['syrupA', 1], ['syringeA', 4], ['syrupA', 2], ['syringeA', 8], ['syrupA', 8],
@@ -1056,7 +1059,9 @@ function makePlayer({ world, rng, buttons, forced = null, mapId = null }) {
    *  (одна III сильнее двух II: лестницы `42079971734`, `42082507360`), затем II у второго (решение 6 ноября 2026, сообщение 1, п. 1.1: порядок по деньгам — сначала то, что держит ранние волны). */
   const REVIEW_FIRST = channels >= 2 && RG.pillB ? [['pillA', REVIEW_FIRST_PILLS], ['pillB', 2]] : [['pillA', REVIEW_FIRST_PILLS]];
   /** Очередь: каналов несколько — лужа Сиропа на путях каждой обороны сразу после первой (бегуна ранят только в луже). */
-  const STEPS = channels >= 2 ? REVIEW_STEPS.flatMap((row) => (row[0] === 'syrupA' && row[1] === 1 ? [row, ...['syrupB', 'syrupC'].slice(0, channels - 1).filter((k) => RG[k]).map((k) => [k, 1])] : [row])) : REVIEW_STEPS;
+  const STEPS0 = channels >= 2 ? REVIEW_STEPS.flatMap((row) => (row[0] === 'syrupA' && row[1] === 1 ? [row, ...['syrupB', 'syrupC'].slice(0, channels - 1).filter((k) => RG[k]).map((k) => [k, 1])] : [row])) : REVIEW_STEPS;
+  /** Правило против спор: на картах по графу первый Шприц (бьёт через всю карту из безопасной клетки) — до первого Сиропа. «Горло» — без изменений. */
+  const STEPS = reviewMap?.layout ? [['syringeA', 1], ...STEPS0] : STEPS0;
   if (reviewMap?.layout && !LAYOUT_LOGGED.has(mapId)) {
     LAYOUT_LOGGED.add(mapId);
     console.log(`  образец по графу карты «${mapId}»: ${Object.entries(RG).map(([k, g]) => `${k} ${g.cell.join(',')}${g.aim === undefined ? '' : `→${g.aim}`}`).join('; ')}`);
