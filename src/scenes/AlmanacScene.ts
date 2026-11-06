@@ -101,9 +101,30 @@ const wardUsed = (ward: keyof HardWalls): boolean => CONFIG.levels.specs.some((s
 
 /** Строка о жёстком свойстве вида — одна, без чисел (решение владельца 25 октября 2026, сообщение 5, п. 2.6); свойства нет ни на одном уровне или его башня не куплена — пусто. */
 function wardNote(kind: BacteriumKind): string {
-  return WARD_LINES.filter(([ward, wardKind, , tower]) => wardKind === kind && wardUsed(ward) && (tower === null || isTowerOpen(tower)))
-    .map(([, , key]) => t(key))
+  return WARD_LINES.filter(([ward, wardKind]) => wardKind === kind && wardUsed(ward))
+    .map(([, , key, tower]) => (tower === null || isTowerOpen(tower) ? key : WARD_LINE_NO_TOWER[key]))
+    .filter((key): key is TextKey => key !== undefined)
+    .map((key) => t(key))
     .join('\n');
+}
+
+/**
+ * Строка о жёстком свойстве без имени башни — пока башня не куплена (решение владельца 4 ноября 2026, сообщение 2, п. 2.3, по отзыву эксперта): у Бегуна до покупки Сиропа —
+ * «Ранят только в луже…», как у Бронированной (башню не называет); после покупки — прежняя строка с Сиропом. Нет записи — до покупки строки нет.
+ */
+const WARD_LINE_NO_TOWER: Partial<Record<TextKey, TextKey>> = { almWardRunner: 'almWardRunnerAny' };
+
+/**
+ * Примечание под строкой босса (решение владельца 4 ноября 2026, сообщение 2, п. 2.2): последнюю фазу Гигантской колонии ранят только взрыв Шипучки и луч Шприца (`bossArea`, ward.ts);
+ * показывается, только когда обе башни куплены (правило 26 октября 2026, сообщение 1, п. 2.1), без чисел.
+ */
+const BOSS_NOTES: Partial<Record<BossId, [keyof HardWalls, TextKey, TowerId[]]>> = { giantColony: ['bossArea', 'almBossAreaNote', ['fizz', 'syringe']] };
+
+function bossNote(id: BossId): string {
+  const entry = BOSS_NOTES[id];
+  if (!entry) return '';
+  const [ward, key, towers] = entry;
+  return wardUsed(ward) && towers.every((tower) => isTowerOpen(tower)) ? t(key) : '';
 }
 
 /**
@@ -249,6 +270,7 @@ export class AlmanacScene extends Phaser.Scene {
       // Босс: имя и короткая строка особенностей без чисел (решение владельца 26 октября 2026, сообщение 1, «Далее»)
       name = t(`boss${key}` as TextKey);
       line = t(`almBoss${key}` as TextKey);
+      note = bossNote(id as BossId);
     }
     // для проверок: «Название: строка», примечание — после « | »
     this.rowTexts.push(`${line ? `${name}: ${line}` : name}${note ? ` | ${note.replace(/\n/g, ' | ')}` : ''}`);

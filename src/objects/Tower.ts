@@ -40,13 +40,13 @@ const WARD_AWARE = new Set<string>(['radius', 'snipe', 'area']);
 const WARD_LAST = new Set<string>(['poison', 'cone']);
 
 /**
- * Уровни V–VIII со своими рисунками (Таблетка, Сироп, Шприц; решение владельца 25 октября 2026, сообщение 2, п. 3; `highTowerArt.ts`); остальные башни на V–VIII рисуются как IV.
- * В игре слияние пока до IV (строки `towerLevels`): эти рисунки видны только на листе `?qa&artsheet=l` и в стресс-сцене `?qa&stress=high`.
+ * Уровни V–VIII со своими рисунками (Таблетка, Сироп, Шприц; решение владельца 25 октября 2026, сообщение 2, п. 3; `highTowerArt.ts`); у остальных семи — свой ствол V–VIII (`hasOwnHighBarrel`).
+ * В игре слияние идёт до предела уровня игры (`levels.limits`; на уровне 1 — до V), в `main` — с PR №51 (4 ноября 2026); лист `?qa&artsheet=l` и стресс-сцена `?qa&stress=high` — для проверки рисунков.
  */
 function isHighArt(id: TowerId, level: number, legacy: boolean): boolean {
   return !legacy && level >= 5 && hasHighArt(id);
 }
-/** Основание, верх и ореол V–VIII — у всех башен (остальные семь: решение владельца 28 октября 2026, сообщение 2, п. 2; ствол у них — IV со свечением цвета уровня). */
+/** Основание, верх и ореол V–VIII — у всех башен (остальные семь: решение владельца 28 октября 2026, сообщение 2, п. 2; ствол у них — свой, `hasOwnHighBarrel`). */
 function isHighFrame(level: number, legacy: boolean): boolean {
   return !legacy && level >= 5;
 }

@@ -62,6 +62,7 @@
  * Боты запускать по одному, не параллельно.
  */
 import fs from 'node:fs';
+import { graphLayout } from './graph-layout.mjs';
 import path from 'node:path';
 import {
   branchOpen,
@@ -103,6 +104,14 @@ const BEAM_PUDDLE_BONUS = 2;
 const BEAM_CROSS_UNIT = 1000; // fx:beam — цена одного пересечения луча с дорожкой (в единицах «длины × вес ветки», px); длина под лучом — только при равенстве (вес 0,001)
 const BEAM_CROSS_HYBRID = 300; // fx:beamlen — то же, но длина под лучом ценится полностью (вес 1): луч вдоль «ствола» с одним пересечением не проигрывает лучу через несколько веток (диагностика fx:beam, 25 октября 2026)
 const CROSS_PUDDLE_BONUS = 4; // fx:puddle — отрезок у пересечения луча с дорожкой для лужи Сиропа ценится в 1 + столько раз
+// fx:scout — разведка ключевых клеток перед лестницей уровня (вариант А, docs/levels-plan-2026-10-25.md, раздел 7; решение владельца 4 ноября 2026, сообщение 2, п. 1)
+const SCOUT_STOP_WAVE = 25; // разведочная партия кончается после этой волны (или раньше — гибелью); номер волны
+const SCOUT_BEAM_CANDIDATES = 4; // сколько линий луча Шприца перебирать (лучшие по числу пересечений с дорожкой, как fx:beam), штук
+const SCOUT_PUDDLE_CANDIDATES = 4; // сколько мест лужи Сиропа перебирать (лучшие по охвату дорожки с учётом луча Шприца базовой партии), штук
+const SCOUT_SAME_LINE = 0.7; // две линии луча считаются одной, если общих отрезков дорожки под ними не меньше этой доли (от объединения): кандидаты — разные линии
+const SCOUT_MIN_GAP_CELLS = 2; // места луж — не ближе столько клеток друг к другу (по столбцу или ряду), иначе это одно место
+const SCOUT_FULL_GAME_FACTOR = 2.5; // бюджет: полная попытка лестницы ≈ столько разведочных партий (если долгих попыток в этом запуске ещё не было), раз
+const SCOUT_TIME_MARGIN = 1.2; // бюджет: запас к оценке времени партии, раз
 const FIZZ_BY_WAVE = 5; // эксперт копит на первую Шипучку, пока идёт не позже этой волны (рой — с 4-й), даже если уже потерял жизни: Таблетками рой всё равно не остановить
 const EXPERT_OVERLAP = 0.9; // эксперт знает, что все дорожки сходятся у «ствола» у организма: охват, уже накрытый другой башней, почти не обесценивается (башни кучкой у ствола бьют ВСЕХ бактерий)
 const EXPERT_ADJACENT_FACTOR = 1; // … и соседство с другой башней ему не мешает
@@ -183,7 +192,7 @@ const HELP = `Бот-замерщик баланса: играет целые п
   --pair=a,b                            «каждая пара»: только башни a и b, по кругу
   --focus=a,b                           «сосредоточение на связке»: только a и b, башни одного вида кучкой в радиусе слияния, слияния до IV
   --core=a,b                            эксперт без ограничения башен: ядро a + b кучкой, Сироп и Шипучка против стен, остальные открытые башни — по общим правилам
-  --mut=башня:мутация,мутация;…         мутации на порогах (id из config.ts), например pill:pillRapid,pillDouble;fizz:fizzBig,fizzChain; не названные башни — по умолчанию (DEFAULT_MUT); --mut=alt — второй набор (на каждом пороге другой вариант)
+  --mut=башня:мутация,мутация;…         мутации на порогах (id из config.ts), например pill:pillRapid,pillDouble;fizz:fizzBig,fizzChain; не названные башни — по умолчанию (DEFAULT_MUT); --mut=alt — второй набор (на каждом пороге другой вариант); правила fx:… — например pill:pillRapid,pillHunter;fx:scout (fx:scout — разведка ключевых клеток Шприца и Сиропа перед попытками уровня, только с --ladder)
   --runs=N                              партий (по умолчанию 10)
   --speed=2                             ускорение игрового времени, 0.1…5 (по умолчанию 2)
   --exclude=башня,…                     каких башен эксперт не строит
@@ -288,6 +297,33 @@ const REVIEW_GROUPS = {
   pillA: { type: 'pill', cell: [11, 6], t0: { pillRapid: 3, pillPierce: 1 }, t1: 'pillHunter' },
   pillB: { type: 'pill', cell: [7, 10], t0: { pillRapid: 3, pillPierce: 1 }, t1: 'pillDouble' },
 };
+/**
+ * Образец на других картах (вариант Б, решение владельца 5 ноября 2026, сообщение 1, п. 1; правило по графу карты — решение 6 ноября 2026, сообщение 1, п. 1.1): группы — те же, что на «Горле»
+ * (те же мутации, очередь REVIEW_STEPS и слияние внутри группы), клетки и направление луча Шприца `aim` (0 — вправо, 2 — вниз, 4 — влево, 6 — вверх) — по графу карты (`qa/graph-layout.mjs`):
+ * оборона у спуска каждого канала, лужа Сиропа на путях каждой обороны, башни не в одном круге 150 px, луч Шприца с наибольшей длиной путей под ним (обрывается на зубе).
+ * На «Горле» — клетки рецензента (REVIEW_GROUPS): это его записанная оборона; правило по графу выбирает там те же ключевые клетки (Таблетки (11,6), Сироп (16,7), Шприц (0,9) вправо).
+ * Клетки зависят от радиусов башен (улучшения древа), поэтому считаются в начале каждой партии. Возвращает { groups, layout } или null (графа нет).
+ */
+function reviewGroupsFor(mapId, world) {
+  if (mapId === 'throat') return { groups: REVIEW_GROUPS, layout: null };
+  if (!world?.layoutInput) return null;
+  const L = graphLayout({
+    ...world.layoutInput,
+    ranges: { pill: TABLE.pill.range, fizz: TABLE.fizz.range, syrup: TABLE.syrup.range },
+    beam: { length: TABLE.syringe.beamLengthPx, halfWidth: TABLE.syringe.beamHalfWidthPx + BEAM_MARGIN_PX },
+    toothRadius: TOOTH_RADIUS,
+    avoidPx: SPORE_AVOID_PX,
+  });
+  const groups = {};
+  for (const [key, g] of Object.entries(REVIEW_GROUPS)) {
+    const c = L.groups[key];
+    if (c) groups[key] = c.aim === undefined ? { ...g, cell: c.cell } : { ...g, cell: c.cell, aim: c.aim };
+  }
+  return { groups, layout: L };
+}
+const TOOTH_RADIUS = readConfigNumber('obstacles', 'toothRadius');
+/** Правило против спор (решение владельца 6 ноября 2026, сообщение 2, п. 1): на картах по графу башни образца — дальше радиуса глушения спор от дорожки (+ запас 15 px на ширину бактерии). */
+const SPORE_AVOID_PX = Number(/\bspore:\s*\{[^}]*?disableRadius:\s*([\d.]+)/.exec(fs.readFileSync(new URL('../src/config.ts', import.meta.url), 'utf8'))?.[1] ?? 150) + 15;
 /** Очередь постройки: [группа, сколько обычных башен должно в ней стоять]; берётся первая строка, где башен меньше, башня доступна и (для Сиропа) выполнено правило соотношения. */
 const REVIEW_STEPS = [
   ['syrupA', 1], ['syringeA', 4], ['syrupA', 2], ['syringeA', 8], ['syrupA', 8],
@@ -449,13 +485,18 @@ const NO_ALT = new Set();
  *  puddle — лужи Сиропа ложатся на пересечения лучей Шприцев с дорожкой;
  *  coins  — «Стартовые монеты» в начале порядка очков ДНК: после башен Сироп, Шипучка, Шприц — три уровня.
  *  v      — только образец (review): после всей обороны группы достраиваются до V (`REVIEW_V_STEPS`).
+ *  scout  — только лестница: перед первой попыткой уровня, где открыты Шприц и Сироп, бот играет разведочные партии до SCOUT_STOP_WAVE-й волны — базовую (обычный выбор клеток)
+ *           и по одной на каждого кандидата (линии луча Шприца по пересечениям с дорожкой, места луж Сиропа по охвату); лучшие клетки ставятся первыми башнями во всех попытках уровня
+ *           (`scoutLevel`). Разведка не меняет очков ДНК, древа и счёта попыток.
  */
-const FX_KNOWN = ['beam', 'beamlen', 'iv', 'puddle', 'coins', 'v'];
+const FX_KNOWN = ['beam', 'beamlen', 'iv', 'puddle', 'coins', 'v', 'scout'];
 const FX = new Set();
 /** Предел уровня слияния у бота (по умолчанию — без предела; `--mut mergelimit:4`). */
 let MERGE_LIMIT = 99;
 /** Запись «nolatebuy» в --mut: без покупки веток Таблетки и Шипучки после выхода на волну N (core:…:late). */
 const NO_LATE_BUY = { value: false };
+/** Запись «replays:N» в --mut: N повторов пройденного уровня перед следующим (лестница; 0 — без повторов). */
+const REPLAYS = { value: 0 };
 if (MUT_ALT) for (const [towerId, ids] of Object.entries(DEFAULT_MUT)) MUT_IDS[towerId] = ids.map((id, tier) => (MUTATION_IDS[towerId]?.[tier] ?? []).find((x) => x !== id) ?? id);
 else if (args.mut !== undefined) {
   if (args.mut === true) die('--mut=башня:мутация,мутация;… — после «=» нужна запись, например pill:pillRapid,pillDouble');
@@ -468,6 +509,13 @@ else if (args.mut !== undefined) {
       continue;
     }
     // «mergelimit:4» — бот не сливает башни выше IV уровня (план docs/tower-levels-xp-plan-2026-10-24.md, раздел 7: замер опыта сначала с пределом IV, потом без него; правило 12)
+    // «replays:N» — N повторов пройденного уровня перед следующим (цель уровней 2–30: «древо после победы на прошлом уровне и N его повторов», решение владельца 26 октября 2026,
+    // сообщение 1, п. 5.4; N = 3, контроль N = 5 — 5 ноября 2026, сообщение 1, п. 1.3): ДНК повтора — по правилу игры (× replayFactor), покупки — как после попытки
+    if (towerId === 'replays') {
+      REPLAYS.value = Number(list);
+      if (!Number.isInteger(REPLAYS.value) || REPLAYS.value < 0 || REPLAYS.value > 9) die(`--mut=replays:N — N целое от 0 до 9, получено «${list}»`);
+      continue;
+    }
     if (towerId === 'mergelimit') {
       MERGE_LIMIT = Number(list);
       if (!Number.isInteger(MERGE_LIMIT) || MERGE_LIMIT < 1) die(`--mut=mergelimit:N — N целое от 1, получено «${list}»`);
@@ -490,6 +538,11 @@ else if (args.mut !== undefined) {
     MUT_IDS[towerId] = list.split(',').map((x) => x.trim());
   }
 }
+/** fx:scout — разведка ключевых клеток перед лестницей уровня (`scoutLevel`). Башни разведки — Шприц и Сироп, если стратегия их строит. */
+const SCOUT = FX.has('scout');
+if (SCOUT && !LADDER) die('--mut=fx:scout работает только вместе с --ladder=K (разведка идёт перед попытками уровня).');
+if (SCOUT && REVIEW) die('--mut=fx:scout не сочетается с --strategy=review: у образца клетки заданы.');
+const SCOUT_TYPES = ['syringe', 'syrup'].filter((id) => TABLE[id] && !EXCLUDE.has(id) && (!SOLO_ALLOWED || SOLO_ALLOWED.has(id)) && STRATEGY !== 'zone');
 /** Башни, у которых «одиночный» вариант первого порога — названный в мутациях (у Сиропа «Липкий»: одна копия уже даёт предельное замедление) и берётся первым; у остальных одиночный — другой вариант порога. */
 const SINGLE_FIRST = new Set(['syrup']);
 /** Номер варианта мутации (0/1) на каждом пороге для каждой башни. */
@@ -796,12 +849,13 @@ function buildWorld(graph, map, cols, rows) {
     }
     return rayCache.get(key);
   };
-  /** Лучшее направление луча из клетки: weighted — с весом «сколько бактерий идёт по ветке» и скидкой за уже накрытое (covCount). Возвращает { dir, value }. */
-  const bestAim = (type, cell, weighted, covCount) => {
+  /** Лучшее направление луча из клетки: weighted — с весом «сколько бактерий идёт по ветке» и скидкой за уже накрытое (covCount); cross — оценка по пересечениям, как при fx:beam
+   *  (кандидаты разведки fx:scout), даже если правило fx:beam выключено. Возвращает { dir, value }. */
+  const bestAim = (type, cell, weighted, covCount, cross = false) => {
     let best = { dir: 0, value: -1 };
     for (let dir = 0; dir < AIM_STEPS; dir++) {
       let value = 0;
-      if (FX.has('beam') && weighted) {
+      if ((FX.has('beam') || cross) && weighted) {
         // fx:beam — ценность линии = число пересечений луча с дорожкой (вход луча на ребро или повторный заход), каждое с весом ветки и скидкой за уже накрытое; длина под лучом — при равенстве
         let prevIdx = -2;
         let prevEdge = null;
@@ -877,10 +931,13 @@ function buildWorld(graph, map, cols, rows) {
   const zone = [...zoneScore.values()].sort((a, b) => b.w - a.w)[0] ?? { x: 0, y: 0, node: null };
 
   return {
+    /** Граф и размеры карты — для клеток образца по графу (`reviewGroupsFor`, qa/graph-layout.mjs). */
+    layoutInput: { graph, map: { orgW: map.orgW, tile: map.tile }, cols, rows },
     cells,
     segs,
     byKey,
     bestAim,
+    rayOf,
     zone,
     freeCount: cells.filter((c) => !c.path).length,
     /** «Охват» клетки для башни type: сколько длины дорожки (px) попадает в радиус (для «вперёд/назад» — только нужная сторона). */
@@ -990,7 +1047,25 @@ function buildWorld(graph, map, cols, rows) {
  * Игрок решает, ЧТО построить сейчас: { type, cell } или null (ждать). view: { s (состояние), coins, towers, free (свободные клетки,
  * без занятых и «плохих»), covCount }. После успешной покупки зовётся bought(), после неудачи клетку бот сам помечает «плохой».
  */
-function makePlayer({ world, rng, buttons }) {
+function makePlayer({ world, rng, buttons, forced = null, mapId = null }) {
+  /** Группы образца на этой карте (`reviewGroupsFor`); у других стратегий не нужны. */
+  // неизвестная карта (например, тестовая «корни»): клетки «Горла», как было до образца по картам
+  const reviewMap = REVIEW ? reviewGroupsFor(mapId, world) : null;
+  const RG = reviewMap?.groups ?? REVIEW_GROUPS;
+  if (REVIEW && !reviewMap) console.log(`  образец: у карты «${mapId}» нет графа — клетки «Горла»`);
+  /** Каналы с отдельной обороной (клетки обороны по графу): на «Горле» и «Рте» — одна горловина, на «Носе» — два канала. */
+  const channels = reviewMap?.layout?.anchors.length ?? 1;
+  /** Первые Таблетки (до всего остального, по порядку): одна горловина — REVIEW_FIRST_PILLS в pillA (как на «Горле»); каналов несколько — сначала IV у канала с наибольшей долей бактерий
+   *  (одна III сильнее двух II: лестницы `42079971734`, `42082507360`), затем II у второго (решение 6 ноября 2026, сообщение 1, п. 1.1: порядок по деньгам — сначала то, что держит ранние волны). */
+  const REVIEW_FIRST = channels >= 2 && RG.pillB ? [['pillA', REVIEW_FIRST_PILLS], ['pillB', 2]] : [['pillA', REVIEW_FIRST_PILLS]];
+  /** Очередь: каналов несколько — лужа Сиропа на путях каждой обороны сразу после первой (бегуна ранят только в луже). */
+  const STEPS0 = channels >= 2 ? REVIEW_STEPS.flatMap((row) => (row[0] === 'syrupA' && row[1] === 1 ? [row, ...['syrupB', 'syrupC'].slice(0, channels - 1).filter((k) => RG[k]).map((k) => [k, 1])] : [row])) : REVIEW_STEPS;
+  /** Правило против спор: на картах по графу первый Шприц (бьёт через всю карту из безопасной клетки) — до первого Сиропа. «Горло» — без изменений. */
+  const STEPS = reviewMap?.layout ? [['syringeA', 1], ...STEPS0] : STEPS0;
+  if (reviewMap?.layout && !LAYOUT_LOGGED.has(mapId)) {
+    LAYOUT_LOGGED.add(mapId);
+    console.log(`  образец по графу карты «${mapId}»: ${Object.entries(RG).map(([k, g]) => `${k} ${g.cell.join(',')}${g.aim === undefined ? '' : `→${g.aim}`}`).join('; ')}`);
+  }
   const zone = STRATEGY === 'zone'; // «всё у Z»: только Таблетки и один Сироп, клетки — ближайшие к последней развилке у организма
   const available = (id) => TABLE[id] && buttons.includes(id) && !EXCLUDE.has(id) && (!SOLO_ALLOWED || SOLO_ALLOWED.has(id)) && (!zone || ZONE_TOWERS.has(id)) && (!REVIEW || REVIEW_TOWERS.has(id));
   // fx:iv (core:…:late с ядром «Сироп + Шприц»): до волны LATE_WAVE круг «Сироп, четыре Шприца, Сироп, четыре Шприца» — Шприцы доходят до IV (в образце — Шприц IV около 20-й волны)
@@ -1091,18 +1166,18 @@ function makePlayer({ world, rng, buttons }) {
   const groupOf = (tw) => groupAt.get(`${tw.col},${tw.row}`) ?? null;
   const reviewUnits = (view, key) => view.towers.filter((tw) => groupOf(tw) === key).reduce((sum, tw) => sum + 2 ** ((tw.level ?? 1) - 1), 0);
   const anchorOf = (key) => {
-    const [col, row] = REVIEW_GROUPS[key].cell;
+    const [col, row] = RG[key].cell;
     return world.byKey.get(`${col},${row}`) ?? null;
   };
   const reviewGaveUp = new Set();
   const reviewCell = (view, key) => {
-    const g = REVIEW_GROUPS[key];
+    const g = RG[key];
     const anchor = anchorOf(key);
     if (!anchor) return null;
     const exact = view.free.find((c) => c.col === anchor.col && c.row === anchor.row);
     if (exact) return exact;
     // клетки других групп, где ещё ничего не стоит, не занимаем: их первая башня встаёт точно в клетку группы
-    const reserved = new Set(Object.keys(REVIEW_GROUPS).filter((k) => k !== key && !reviewGaveUp.has(k) && reviewUnits(view, k) === 0).map((k) => REVIEW_GROUPS[k].cell.join(',')));
+    const reserved = new Set(Object.keys(RG).filter((k) => k !== key && !reviewGaveUp.has(k) && reviewUnits(view, k) === 0).map((k) => RG[k].cell.join(',')));
     const reach = (view.s.mergeRadiusPx ?? 0) * MERGE_NEAR_MARGIN;
     const options = view.free
       .filter((c) => !reserved.has(`${c.col},${c.row}`) && Math.hypot(c.x - anchor.x, c.y - anchor.y) <= reach && (TABLE[g.type].targeting === 'beam' || world.cover(g.type, c) > 0))
@@ -1117,10 +1192,10 @@ function makePlayer({ world, rng, buttons }) {
     // уровень без бегунов или без плана волн — Сироп в прежнем порядке
     const runnerWave = view.s.plan?.firstWave?.runner;
     const syrupOpen = runnerWave === undefined || wave >= runnerWave - REVIEW_SYRUP_LEAD;
-    for (const [key, target] of FX.has('v') ? [...REVIEW_STEPS, ...REVIEW_V_STEPS] : REVIEW_STEPS) {
-      const g = REVIEW_GROUPS[key];
-      if (!available(g.type) || reviewGaveUp.has(key) || reviewUnits(view, key) >= target) continue;
-      if (reviewUnits(view, 'pillA') < REVIEW_FIRST_PILLS && g.type !== 'pill') continue;
+    const firstLeft = REVIEW_FIRST.filter(([key, target]) => RG[key] && available(RG[key].type) && !reviewGaveUp.has(key) && reviewUnits(view, key) < target);
+    for (const [key, target] of firstLeft.length ? firstLeft : FX.has('v') ? [...STEPS, ...REVIEW_V_STEPS] : STEPS) {
+      const g = RG[key];
+      if (!g || !available(g.type) || reviewGaveUp.has(key) || reviewUnits(view, key) >= target) continue;
       if (early && g.type === 'fizz') continue;
       if (g.type === 'syrup' && (!syrupOpen || syrups + 1 > fighting)) continue;
       const cell = reviewCell(view, key);
@@ -1129,14 +1204,14 @@ function makePlayer({ world, rng, buttons }) {
         continue;
       }
       if (view.coins < TABLE[g.type].price) return null; // копит монеты на голову очереди
-      return { type: g.type, cell, cycleIdx: -1, group: key };
+      return { type: g.type, cell, cycleIdx: -1, group: key, aimDir: g.aim ?? null };
     }
     return null;
   };
   /** Мутация башни (tw.pending — номер порога) по образцу: id варианта первого порога — с наибольшим недобором в группе, второго — у группы фиксированный. */
   const reviewPickId = (view, tw) => {
     const key = groupOf(tw);
-    const g = key ? REVIEW_GROUPS[key] : null;
+    const g = key ? RG[key] : null;
     if (!g) return null;
     // --mut=syringe:<первый>,<второй> задаёт второй порог Шприцев образца (по умолчанию — «Спираль», как в отчёте): замер «Второго луча» вместо «Спирали» (решение владельца 25 октября 2026, сообщение 1, п. 2.2)
     if (tw.pending === 1) return tw.id === 'syringe' && REVIEW_SYRINGE_MUT ? MUT_IDS.syringe[1] : g.t1;
@@ -1209,6 +1284,12 @@ function makePlayer({ world, rng, buttons }) {
         }
         return { type: chosen.type, cell, cycleIdx: chosen.idx };
       }
+      // fx:scout — первая башня вида встаёт в клетку разведки (у Шприца — и направление луча); клетка занята или «плохая» — обычный выбор
+      const pin = forced?.[chosen.type];
+      if (pin && !view.towers.some((tw) => tw.id === chosen.type)) {
+        const cell = view.free.find((c) => c.col === pin.col && c.row === pin.row);
+        if (cell) return { type: chosen.type, cell, cycleIdx: chosen.idx, aim: pin.aim ?? null };
+      }
       const candidates = [];
       for (const c of view.free) {
         // «всё у Z»: оценка — близость к Z (при условии, что клетка вообще достаёт до дорожки); остальные профили — охват дорожки
@@ -1260,6 +1341,7 @@ async function pollUntil(page, predicate, timeoutMs, pollMs = 35) {
   return s;
 }
 
+const LAYOUT_LOGGED = new Set(); // карты, клетки образца которых уже записаны в журнал
 const WORLDS = new Map(); // id карты → сеть дорожек и клетки (строится по первой партии на этой карте)
 
 /**
@@ -1288,8 +1370,14 @@ function growthMismatches(lg, level) {
   return out;
 }
 
-/** Играет одну партию. Возвращает запись о партии. Бросает FatalConsole (ошибка консоли / «cfg:»), остальные ошибки — наверх. */
-async function playGame(browser, baseUrl, run, metaLevels = null, salt = '', level = LEVEL, extraQuery = '') {
+/**
+ * Играет одну партию. Возвращает запись о партии. Бросает FatalConsole (ошибка консоли / «cfg:»), остальные ошибки — наверх.
+ * opts (fx:scout): forced — { syringe: { col, row, aim }, syrup: { col, row } }: первая башня вида — в эту клетку (слияние оставляет итог в ней); stopWave — партия кончается
+ * после этой волны (результат «stopped»: разведочная партия).
+ */
+async function playGame(browser, baseUrl, run, metaLevels = null, salt = '', level = LEVEL, extraQuery = '', opts = {}) {
+  const forced = opts.forced ?? null;
+  const stopWave = opts.stopWave ?? 0;
   applyMetaToTable(metaLevels);
   const profile = PROFILE;
   const rng = makeRng(`${SEED}:${STRATEGY_LABEL}:${run}${salt}`);
@@ -1371,7 +1459,10 @@ async function playGame(browser, baseUrl, run, metaLevels = null, salt = '', lev
       console.log(`  карта: клеток ${WORLD.cells.length}, под дорожкой ${WORLD.cells.length - free.length}, свободных ${free.length}; клеток с охватом > 0: ${withCover}`);
     }
     const buttons = s.ui.towerButtons.filter((b) => !b.locked).map((b) => b.id); // закрытые башни (замок) профили не строят
-    const player = makePlayer({ world: WORLD, rng, buttons });
+    const player = makePlayer({ world: WORLD, rng, buttons, forced, mapId: s.mapId });
+    // клетки разведки (fx:scout): башня этого вида в такой клетке при слиянии — всегда та, что остаётся (её луч и место сохраняются)
+    const pinnedAt = new Map(Object.entries(forced ?? {}).filter(([, p]) => p).map(([id, p]) => [`${p.col},${p.row}`, id]));
+    const isPinned = (tw) => pinnedAt.get(`${tw.col},${tw.row}`) === tw.id;
 
     // 1) один раз отдаляем камеру до минимума колесом мыши (карта целиком в окне)
     for (let k = 0; k < 6 && s.camera.zoom > s.camera.zoomMin + 0.001; k++) {
@@ -1381,7 +1472,7 @@ async function playGame(browser, baseUrl, run, metaLevels = null, salt = '', lev
     }
 
     // 2) поставить башню: кнопка на панели (если не выбрана), при необходимости сдвинуть карту, тап по клетке; проверка по состоянию
-    const record = { builds: [], failures: [], anomalies: [], spent: 0, merges: 0, mergeMisses: 0, picks: 0, fevers: [] };
+    const record = { builds: [], failures: [], anomalies: [], spent: 0, merges: 0, mergeMisses: 0, picks: 0, fevers: [], first: {} };
     const missSeen = new Set(); // группы башен без пары в радиусе, уже посчитанные в mergeMisses
     const ensureVisible = async (col, row) => {
       for (let k = 0; k < 3; k++) {
@@ -1409,24 +1500,28 @@ async function playGame(browser, baseUrl, run, metaLevels = null, salt = '', lev
       const after = await pollUntil(page, (x) => (x.selectedTower?.col === tw.col && x.selectedTower?.row === tw.row) || x.state !== 'playing', 1000);
       return after.selectedTower ? after : null;
     };
-    /** «Особо сильный» после постановки Шприца выбирает его и поворачивает кнопками-стрелками карточки (на 45° влево/вправо) на лучшее направление луча. */
-    const aimTower = async (st, tower, cell) => {
+    /**
+     * «Особо сильный» после постановки Шприца выбирает его и поворачивает кнопками-стрелками карточки (на 45° влево/вправо) на лучшее направление луча
+     * (forcedDir — направление из разведки fx:scout). Возвращает направление, на которое поворачивал.
+     */
+    const aimTower = async (st, tower, cell, forcedDir = null) => {
       const others = st.towers.filter((tw) => !(tw.col === cell.col && tw.row === cell.row));
-      const best = WORLD.bestAim(tower.id, cell, true, WORLD.coverCounts(others));
+      const best = Number.isInteger(forcedDir) ? { dir: forcedDir } : WORLD.bestAim(tower.id, cell, true, WORLD.coverCounts(others));
       const cw = (best.dir - tower.aim + AIM_STEPS) % AIM_STEPS;
       const steps = Math.min(cw, AIM_STEPS - cw);
-      if (steps === 0) return;
+      if (steps === 0) return best.dir;
       const sel = await selectTower(tower);
       const card = sel?.ui.card;
       const button = cw <= AIM_STEPS - cw ? card?.rotateRight : card?.rotateLeft;
       if (!button?.visible) {
         record.anomalies.push(`Шприц в ${cell.key}: кнопок поворота в карточке нет`);
-        return;
+        return best.dir;
       }
       for (let k = 0; k < steps; k++) await clickCard(button);
       const after = await pollUntil(page, (x) => x.towers.find((tw) => tw.col === cell.col && tw.row === cell.row)?.aim === best.dir || x.state !== 'playing', 1500);
       const now = after.towers.find((tw) => tw.col === cell.col && tw.row === cell.row);
       if (after.state === 'playing' && now?.aim !== best.dir) record.anomalies.push(`Шприц в ${cell.key}: ждали направление ${best.dir}, в игре ${now?.aim}`);
+      return best.dir;
     };
     /**
      * Первый порог: варианты чередуются у башен одного вида так, чтобы башня IV собрала 3 + 1 копии (решение владельца 20 октября 2026, сообщение 3, п. 2.1: четвёртая копия даёт 0,
@@ -1525,6 +1620,8 @@ async function playGame(browser, baseUrl, run, metaLevels = null, salt = '', lev
       // образец: итог встаёт у клетки своей группы (башня в самой клетке группы — всегда target); иначе — где охват дорожки больше
       const [target, source] = REVIEW
         ? (player.reviewDistance(found[1]) < player.reviewDistance(found[0]) ? [found[1], found[0]] : [found[0], found[1]])
+        : isPinned(found[0]) ? [found[0], found[1]]
+        : isPinned(found[1]) ? [found[1], found[0]]
         : coverOf(found[1]) > coverOf(found[0]) ? [found[1], found[0]] : [found[0], found[1]];
       let st = await selectTower(source);
       if (!st || !st.ui.card.merge.enabled) return false;
@@ -1583,8 +1680,10 @@ async function playGame(browser, baseUrl, run, metaLevels = null, salt = '', lev
         const drop = coinsBefore - st.coins;
         if (drop > TABLE[type].price + 0.5) record.anomalies.push(`монеты упали на ${drop}, а цена ${type} по таблице ${TABLE[type].price}`);
         record.spent += TABLE[type].price;
-        if (tower && TABLE[type].targeting === 'beam' && !REVIEW) await aimTower(st, tower, cell); // образец: лучи вправо, как при постановке
-        return { ok: true, tower };
+        let aim = tower?.aim ?? null;
+        if (tower && TABLE[type].targeting === 'beam' && !REVIEW) aim = await aimTower(st, tower, cell, choice.aim ?? null); // образец на «Горле»: лучи вправо, как при постановке
+        else if (tower && TABLE[type].targeting === 'beam' && REVIEW && choice.aimDir !== null && choice.aimDir !== undefined) aim = await aimTower(st, tower, cell, choice.aimDir); // образец на других картах: луч группы (правило по графу, qa/graph-layout.mjs)
+        return { ok: true, tower, aim };
       }
       if (st.state !== 'playing') return { ok: false, ended: true };
       return { ok: false, reason: st.coins < TABLE[type].price ? 'не хватило монет (цена в таблице бота неверна?)' : 'игра не приняла башню' };
@@ -1629,6 +1728,11 @@ async function playGame(browser, baseUrl, run, metaLevels = null, salt = '', lev
       }
       if (s.state === 'won' || s.state === 'lost') {
         result = s.state;
+        break;
+      }
+      // fx:scout — разведочная партия кончается после волны stopWave: началась следующая волна или волна stopWave вышла целиком и поле пусто
+      if (stopWave && (s.wave > stopWave || (s.wave === stopWave && s.waveSpawned >= s.waveCount && s.bacteria.length === 0))) {
+        result = 'stopped';
         break;
       }
       if (s.elapsed >= MAX_GAME_SEC || (Date.now() - realStart) / 1000 >= MAX_REAL_SEC) {
@@ -1726,6 +1830,8 @@ async function playGame(browser, baseUrl, run, metaLevels = null, salt = '', lev
           const res = await buy(choice);
           if (res.ok) {
             player.bought(choice);
+            // первая башня вида: клетка и направление луча (fx:scout — базовая партия разведки и проверка, что клетка разведки занята как задумано)
+            if (!record.first[choice.type]) record.first[choice.type] = { col: choice.cell.col, row: choice.cell.row, aim: res.aim, wave: s.wave };
             record.builds.push({ t: Math.round(s.elapsed), type: choice.type, col: choice.cell.col, row: choice.cell.row });
             if (VERBOSE) console.log(`      + ${profileTitle()} #${run}: ${(NAMES[choice.type] ?? choice.type).padEnd(8)} клетка ${choice.cell.col},${choice.cell.row}  (игровое время ${s.elapsed.toFixed(0)} с, волна ${s.wave}, монет было ${s.coins})`);
             break; // не больше одной покупки за решение
@@ -1804,6 +1910,10 @@ async function playGame(browser, baseUrl, run, metaLevels = null, salt = '', lev
       picks: record.picks,
       levels: last.towers.reduce((acc, tw) => ((acc[tw.level] = (acc[tw.level] ?? 0) + 1), acc), {}),
       builds: record.builds,
+      mapId: last.mapId ?? null,
+      // первая башня каждого вида (клетка, направление луча, волна) и клетки, заданные разведкой fx:scout (null — нет)
+      firstPlaced: record.first,
+      forced,
       failures: record.failures,
       anomalies: record.anomalies,
       warnings: [...new Set(warnings)],
@@ -1815,7 +1925,7 @@ async function playGame(browser, baseUrl, run, metaLevels = null, salt = '', lev
 
 // ------------------------------------------------------------------ итоги
 
-const RESULT_RU = { won: 'победа', lost: 'проигрыш', timeout: 'timeout', error: 'ОШИБКА' };
+const RESULT_RU = { won: 'победа', lost: 'проигрыш', timeout: 'timeout', error: 'ОШИБКА', stopped: 'стоп' };
 const mean = (a) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : NaN);
 const f1 = (n) => (Number.isFinite(n) ? (Math.round(n * 10) / 10).toString() : '—');
 const pct = (n) => (Number.isFinite(n) ? `${Math.round(n * 100)} %` : '—');
@@ -1909,7 +2019,7 @@ const saveResults = () => {
   const payload = {
     tag: TAG,
     startedAt: startedAt.toISOString(),
-    args: { profiles: PROFILES, strategy: STRATEGY_LABEL, mut: MUT_IDS, runs: RUNS, speed: SPEED, level: LEVEL, exclude: [...EXCLUDE], solo: SOLO, lamps: LAMP_MODE, cfg: CFG_STRING, seed: SEED, maxGameSec: MAX_GAME_SEC, campaign: CAMPAIGN, meta: META_FIXED },
+    args: { profiles: PROFILES, strategy: STRATEGY_LABEL, mut: MUT_IDS, fx: [...FX], runs: RUNS, speed: SPEED, level: LEVEL, exclude: [...EXCLUDE], solo: SOLO, lamps: LAMP_MODE, cfg: CFG_STRING, seed: SEED, maxGameSec: MAX_GAME_SEC, campaign: CAMPAIGN, meta: META_FIXED },
     campaign: CAMPAIGN ? { n: CAMPAIGN, series, metaTable: META } : undefined,
     ladder: LADDER ? { k: LADDER, from: LADDER_FROM, to: LADDER_TO, lanes: ladderLanes, metaTable: META } : undefined,
     towerTable: TABLE,
@@ -1934,6 +2044,170 @@ if (SOLO) console.log(`  --solo=${SOLO}: строят только ${[...SOLO_AL
 if (EXCLUDE.size) console.log(`  не строят: ${[...EXCLUDE].map((id) => NAMES[id] ?? id).join(', ')}`);
 if (CFG_STRING) console.log(`  подмена чисел (--cfg): ${CFG_STRING}`);
 if (SPEED > 2) console.log(`  ⚠ speed ${SPEED} выше 2: замеры грубее (кадры крупнее, бот тратит больше игрового времени на тап). Для итоговых чисел баланса используйте speed 2.`);
+
+/**
+ * fx:scout — разведка ключевых клеток уровня (вариант А, docs/levels-plan-2026-10-25.md, раздел 7). Идёт один раз на уровень, перед первой попыткой, в которой открыты
+ * все башни разведки (SCOUT_TYPES: Шприц и Сироп; на уровне 1 эксперт покупает их за ДНК не сразу), с древом этой попытки:
+ *  1) базовая партия до SCOUT_STOP_WAVE-й волны — обычный выбор клеток; по ней строится карта и видны обычные клетки первого Шприца и первого Сиропа;
+ *  2) кандидаты Шприца — SCOUT_BEAM_CANDIDATES линий (клетка + направление) с наибольшей оценкой по пересечениям луча с дорожкой (как fx:beam), разные линии;
+ *     кандидаты Сиропа — SCOUT_PUDDLE_CANDIDATES клеток с наибольшим охватом дорожки лужей (оценка бота, с лучом Шприца базовой партии), не рядом друг с другом;
+ *  3) по партии на кандидата (до той же волны): первая башня вида — в клетку кандидата, другая башня разведки — обычным выбором;
+ *  4) лучший у каждого вида отдельно (базовая партия — тоже участник со своими клетками): больше жизней на конце, затем дальше волна, затем больше заработано монет; при полном равенстве — базовая партия
+ *     (без доводов обычный выбор не меняется).
+ * Разведочные партии не входят в попытки лестницы, очки ДНК и покупки не меняют (дорожка не трогается), в общий список партий не пишутся. Итог — rec.scout (журнал дорожки, переходит
+ * между задачами через --state-out / --state-in): кандидаты с оценками, выбор, время. Бюджет запуска (--ladder-budget-sec) учитывается: перед каждой разведочной партией бот
+ * проверяет, что после неё останется время на попытку лестницы; не хватает — разведка короче (меньше кандидатов). Возвращает false, если замер надо остановить (консоль игры).
+ */
+async function scoutLevel(lane, rec, level, run, tag, n) {
+  const started = Date.now();
+  const scout = { atGame: n, stopWave: SCOUT_STOP_WAVE, types: [...SCOUT_TYPES], baseline: null, candidates: [], chosen: {}, forced: null, planned: 0, played: 0, cut: null, wallSec: 0 };
+  rec.scout = scout;
+  const left = () => (LADDER_BUDGET_SEC ? LADDER_BUDGET_SEC - (Date.now() - PROCESS_START) / 1000 : Infinity);
+  const longestAttempt = () => Math.max(0, ...games.map((g) => g.realSec || 0));
+  const finish = () => {
+    scout.wallSec = Math.round((Date.now() - started) / 1000);
+  };
+  /** Одна разведочная партия; null — сбой (кандидат выбывает), 'fatal' — консоль игры сообщила о проблеме. */
+  const play = async (forced) => {
+    try {
+      return await playGame(browser, server.url, run, lane.levels, `:L${level}:scout`, level, '', { forced, stopWave: SCOUT_STOP_WAVE });
+    } catch (error) {
+      if (error instanceof FatalConsole) {
+        fatal = `Остановлено: дорожка «${tag}», разведка клеток на уровне ${level}, консоль игры сообщила о проблеме.\n   ${error.message}`;
+        return 'fatal';
+      }
+      console.log(`   ⚠ [${tag}, уровень ${level}] разведочная партия не удалась: ${error.message.split('\n')[0]}`);
+      if (!browser.isConnected()) browser = await launchBrowser();
+      return null;
+    }
+  };
+  const brief = (g) => ({ result: g.result, wave: g.wave, lives: g.lives, maxLives: g.maxLives, earned: g.earned, kills: g.kills, leaked: g.leaked, firstPlaced: g.firstPlaced, gameSec: g.gameSec, realSec: g.realSec });
+  const say = (label, g) => console.log(`[${tag}, уровень ${level}] разведка ${scout.played}/${scout.planned}: ${label}: ${RESULT_RU[g.result] ?? g.result} · волна ${g.wave} · жизни ${g.lives}/${g.maxLives} · заработано ${g.earned} · реал. ${g.realSec} с`);
+  // бюджет: базовая партия — если после неё (≈ половина самой долгой попытки) ещё останется время на попытку лестницы
+  if (left() < longestAttempt() * SCOUT_TIME_MARGIN * 1.5) {
+    scout.cut = 'бюджет: разведка не помещается, попытки уровня — обычным выбором клеток';
+    console.log(`[${tag}, уровень ${level}] разведка клеток пропущена: ${scout.cut} (осталось ${Math.round(left())} с)`);
+    finish();
+    return true;
+  }
+  scout.planned = 1;
+  const base = await play(null);
+  if (base === 'fatal') return false;
+  if (!base) {
+    scout.cut = 'базовая партия не удалась';
+    finish();
+    return true;
+  }
+  scout.played = 1;
+  scout.baseline = brief(base);
+  say('база (обычный выбор клеток)', base);
+  const world = WORLDS.get(base.mapId);
+  if (!world) {
+    scout.cut = `нет карты «${base.mapId}»`;
+    finish();
+    return true;
+  }
+  const keyOf = (p) => `${p.col},${p.row}`;
+  const baseSyringe = base.firstPlaced?.syringe ?? null;
+  const free = world.cells.filter((c) => !c.path);
+  // Кандидаты Шприца: клетка и направление с наибольшей оценкой по пересечениям луча с дорожкой (fx:beam), линии с общими отрезками ≥ SCOUT_SAME_LINE — одна линия
+  const beamPicks = [];
+  if (SCOUT_TYPES.includes('syringe')) {
+    const lines = free
+      .map((c) => ({ c, ...world.bestAim('syringe', c, true, null, true) }))
+      .filter((x) => x.value > 0)
+      .sort((a, b) => b.value - a.value || a.c.idx - b.c.idx);
+    const sameLine = (a, b) => {
+      const sa = new Set(world.rayOf('syringe', a.c, a.dir));
+      const sb = world.rayOf('syringe', b.c, b.dir);
+      const common = sb.filter((si) => sa.has(si)).length;
+      return common / Math.max(1, sa.size + sb.length - common) >= SCOUT_SAME_LINE;
+    };
+    for (const x of lines) {
+      if (beamPicks.length >= SCOUT_BEAM_CANDIDATES) break;
+      if (baseSyringe && x.c.col === baseSyringe.col && x.c.row === baseSyringe.row && x.dir === baseSyringe.aim) continue; // это и есть базовая партия
+      if (beamPicks.some((p) => sameLine(p, x))) continue;
+      beamPicks.push(x);
+    }
+  }
+  // Кандидаты Сиропа: охват дорожки лужей (оценка бота strongScore) при луче Шприца базовой партии; клетка Шприца базовой партии и соседние места — не кандидаты
+  const puddlePicks = [];
+  if (SCOUT_TYPES.includes('syrup')) {
+    const cov = world.coverCounts(baseSyringe ? [{ id: 'syringe', col: baseSyringe.col, row: baseSyringe.row, aim: baseSyringe.aim ?? 0 }] : []);
+    const baseSyrup = base.firstPlaced?.syrup ?? null;
+    const spots = free
+      .filter((c) => !(baseSyringe && c.col === baseSyringe.col && c.row === baseSyringe.row))
+      .map((c) => ({ c, value: world.strongScore('syrup', c, cov, true) }))
+      .filter((x) => x.value > 0)
+      .sort((a, b) => b.value - a.value || a.c.idx - b.c.idx);
+    const near = (a, b) => Math.max(Math.abs(a.col - b.col), Math.abs(a.row - b.row)) < SCOUT_MIN_GAP_CELLS;
+    for (const x of spots) {
+      if (puddlePicks.length >= SCOUT_PUDDLE_CANDIDATES) break;
+      if (baseSyrup && x.c.col === baseSyrup.col && x.c.row === baseSyrup.row) continue; // это и есть базовая партия
+      if (puddlePicks.some((p) => near(p.c, x.c))) continue;
+      puddlePicks.push(x);
+    }
+  }
+  // Очередь: Шприц и Сироп по очереди — при нехватке бюджета у обоих видов остаётся поровну кандидатов
+  const queue = [];
+  for (let i = 0; i < Math.max(beamPicks.length, puddlePicks.length); i++) {
+    if (beamPicks[i]) queue.push({ type: 'syringe', col: beamPicks[i].c.col, row: beamPicks[i].c.row, aim: beamPicks[i].dir, prior: Math.round(beamPicks[i].value) });
+    if (puddlePicks[i]) queue.push({ type: 'syrup', col: puddlePicks[i].c.col, row: puddlePicks[i].c.row, prior: Math.round(puddlePicks[i].value) });
+  }
+  scout.planned = 1 + queue.length;
+  for (const cand of queue) {
+    if (stopRequested) break;
+    const longestScout = Math.max(base.realSec, ...scout.candidates.map((c) => c.realSec ?? 0));
+    const reserve = (longestAttempt() || base.realSec * SCOUT_FULL_GAME_FACTOR) * SCOUT_TIME_MARGIN; // одна попытка лестницы после разведки
+    if (left() - reserve < longestScout * SCOUT_TIME_MARGIN) {
+      scout.cut = `бюджет: сыграно ${scout.played} из ${scout.planned} разведочных партий`;
+      console.log(`[${tag}, уровень ${level}] разведка короче: ${scout.cut} (осталось ${Math.round(left())} с, партия разведки ≈ ${Math.round(longestScout)} с, на попытку ${Math.round(reserve)} с)`);
+      break;
+    }
+    const pin = cand.type === 'syringe' ? { col: cand.col, row: cand.row, aim: cand.aim } : { col: cand.col, row: cand.row };
+    const g = await play({ [cand.type]: pin });
+    if (g === 'fatal') return false;
+    scout.played++;
+    if (!g) {
+      scout.candidates.push({ ...cand, result: 'error' });
+      continue;
+    }
+    // клетка разведки занята как задумано? (иначе партия сыграна обычным выбором и как кандидат не годится)
+    const placed = g.firstPlaced?.[cand.type];
+    const ok = Boolean(placed && placed.col === cand.col && placed.row === cand.row);
+    scout.candidates.push({ ...cand, forcedOk: ok, ...brief(g) });
+    say(`${NAMES[cand.type]} в ${cand.col},${cand.row}${cand.type === 'syringe' ? ` (луч ${cand.aim})` : ''}${ok ? '' : ' — клетка не занялась'}`, g);
+  }
+  // Выбор: у каждого вида отдельно; участники — базовая партия (её клетка этого вида) и кандидаты этого вида, клетка которых занялась
+  // дошедшие до конца разведки («стоп») равны по волне: следующая волна может начаться и до того, как поле опустеет
+  const reach = (g) => (g.result === 'won' ? SCOUT_STOP_WAVE + 2 : g.result === 'stopped' ? SCOUT_STOP_WAVE + 1 : g.wave ?? 0);
+  const better = (a, b) => (b.lives ?? 0) - (a.lives ?? 0) || reach(b) - reach(a) || (b.earned ?? 0) - (a.earned ?? 0);
+  const ranked = {};
+  for (const type of SCOUT_TYPES) {
+    const pool = [];
+    const basePlace = base.firstPlaced?.[type];
+    if (basePlace) pool.push({ type, col: basePlace.col, row: basePlace.row, ...(type === 'syringe' ? { aim: basePlace.aim } : {}), from: 'база', ...brief(base) });
+    for (const c of scout.candidates) if (c.type === type && c.forcedOk) pool.push({ ...c, from: 'кандидат' });
+    ranked[type] = pool.filter((x) => x.result !== 'error').sort((a, b) => (a.result === 'timeout') - (b.result === 'timeout') || better(a, b));
+  }
+  const forced = {};
+  const take = (type, skipKey) => {
+    const best = (ranked[type] ?? []).find((x) => keyOf(x) !== skipKey);
+    if (!best) return;
+    forced[type] = type === 'syringe' ? { col: best.col, row: best.row, aim: best.aim } : { col: best.col, row: best.row };
+    scout.chosen[type] = { col: best.col, row: best.row, ...(type === 'syringe' ? { aim: best.aim } : {}), from: best.from, result: best.result, wave: best.wave, lives: best.lives, earned: best.earned };
+  };
+  take('syringe', null);
+  take('syrup', forced.syringe ? keyOf(forced.syringe) : null); // клетки выбраны порознь: совпала с клеткой Шприца — следующая по оценке
+  scout.forced = Object.keys(forced).length ? forced : null;
+  finish();
+  const show = (type) => {
+    const c = scout.chosen[type];
+    return c ? `${NAMES[type]} ${c.col},${c.row}${type === 'syringe' ? ` (луч ${c.aim})` : ''} — ${c.from}, жизни ${c.lives}, волна ${c.wave}` : `${NAMES[type]} — обычный выбор`;
+  };
+  console.log(`[${tag}, уровень ${level}] разведка клеток: партий ${scout.played} (из ${scout.planned}), ${Math.round(scout.wallSec / 60)} мин; выбрано: ${SCOUT_TYPES.map(show).join('; ')}; попытки уровня — с этими клетками`);
+  return true;
+}
 
 /**
  * Одна дорожка «лестницы»: идёт по уровням от следующего непройденного до LADDER_TO; на уровне играет до LADDER партий до первой победы.
@@ -1962,10 +2236,52 @@ async function ladderLane(profile, run) {
     const rec = prevRec && prevRec.level === level && !prevRec.firstWin ? prevRec : { level, games: 0, firstWin: null, waves: [], results: [], stars: 0, dnaIn: lane.dna, levelsIn: { ...lane.levels }, bought: [], dnaGained: [], treeLeftIn: treeLeft(lane.levels), treeLeftAfter: [] };
     if (rec !== prevRec) lane.perLevel.push(rec);
     lane.resume = null;
+    if (REPLAYS.value > 0 && level > 1 && rec.games === 0 && !rec.replays && (lane.stars[level - 2] ?? 0) > 0) {
+      // «replays:N»: перед первой попыткой уровня — N повторов пройденного уровня level − 1 (каждая задача лестницы играет один уровень, поэтому повторы — здесь, а не после победы);
+      // ДНК повтора — по правилу игры (× replayFactor), после каждого — покупки; уровень level − 1 пройден: звёзды уровней 1…level − 1 заданы адресом
+      const prev = level - 1;
+      rec.replays = [];
+      const starsQ = `&stars=${Array(prev).fill(1).join(',')}`;
+      for (let r = 1; r <= REPLAYS.value; r++) {
+        if (stopRequested) return true;
+        let rg;
+        try {
+          rg = await playGame(browser, server.url, run, lane.levels, `:L${prev}:rep${r}`, prev, starsQ);
+        } catch (error) {
+          if (error instanceof FatalConsole) {
+            fatal = `Остановлено: дорожка «${tag}», повтор ${r} уровня ${prev}, консоль игры сообщила о проблеме.\n   ${error.message}`;
+            return false;
+          }
+          console.log(`   ⚠ [${tag}, уровень ${prev}] повтор ${r} не удался: ${error.message.split('\n')[0]}`);
+          break;
+        }
+        Object.assign(rg, { ladderLevel: prev, ladderGame: 0, replay: r, metaLevels: { ...lane.levels }, dnaBefore: lane.dna });
+        games.push(rg);
+        if (rg.result === 'error') break;
+        const capRep = dnaCapOf(META, lane.levels, openRingsAt(META, level));
+        const gainedRep = Math.max(0, Math.min(dnaForGame(rg, true, lane.progress, prev), capRep - lane.dna));
+        lane.dna += gainedRep;
+        const buyRep = buyUpgrades(lane.levels, lane.dna, lane.best[prev - 1] ?? 0, rg.towers);
+        lane.levels = buyRep.levels;
+        lane.dna = buyRep.dna;
+        rec.replays.push({ level: prev, result: rg.result, wave: rg.wave, dna: gainedRep, bought: buyRep.bought, gameSec: rg.gameSec, realSec: rg.realSec });
+        console.log(`[${tag}, уровень ${prev}] повтор ${r}/${REPLAYS.value} перед уровнем ${level}: ${RESULT_RU[rg.result]} · волна ${rg.wave}/${rg.waveTotal} · очков ДНК +${gainedRep} (остаток ${lane.dna}) · куплено ${buyRep.bought.length ? buyRep.bought.join(', ') : '—'} · реал. ${rg.realSec} с`);
+        saveResults();
+      }
+      rec.dnaIn = lane.dna;
+      rec.levelsIn = { ...lane.levels };
+      rec.treeLeftIn = treeLeft(lane.levels);
+    }
     const firstN = rec.games + 1;
     const lastN = Math.min(LADDER_TOTAL, rec.games + LADDER);
     for (let n = firstN; n <= lastN; n++) {
       if (stopRequested) return true;
+      // fx:scout — разведка клеток один раз на уровень: перед первой попыткой, в которой открыты все башни разведки (до бюджетной проверки попытки: время разведки идёт в бюджет)
+      if (SCOUT && SCOUT_TYPES.length && !rec.scout && SCOUT_TYPES.every((id) => (lane.levels[towerNodeId(id)] ?? 0) > 0)) {
+        if (!(await scoutLevel(lane, rec, level, run, tag, n))) return false;
+        saveResults();
+        if (stopRequested) return true;
+      }
       if (LADDER_BUDGET_SEC) {
         const longest = Math.max(0, ...games.map((g) => g.realSec || 0));
         if ((Date.now() - PROCESS_START) / 1000 + longest * 1.2 > LADDER_BUDGET_SEC) {
@@ -1976,7 +2292,7 @@ async function ladderLane(profile, run) {
       let game = null;
       for (let attempt = 1; attempt <= 2 && !game; attempt++) {
         try {
-          game = await playGame(browser, server.url, run, lane.levels, `:L${level}:${n}`, level);
+          game = await playGame(browser, server.url, run, lane.levels, `:L${level}:${n}`, level, '', { forced: rec.scout?.forced ?? null });
         } catch (error) {
           if (error instanceof FatalConsole) {
             fatal = `Остановлено: дорожка «${tag}», уровень ${level}, партия ${n}, консоль игры сообщила о проблеме. Замер с такой партией был бы недостоверным.\n   ${error.message}`;
