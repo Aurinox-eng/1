@@ -367,6 +367,8 @@ export interface DebugGraph {
   blockedCells: [number, number][];
   /** Клетки дорожек (строить нельзя). */
   pathCells: [number, number][];
+  /** Клетки с зубом (глава 2): луч и свет через них не проходят (бот выбирает направление луча Шприца с учётом зубов). */
+  teethCells: [number, number][];
 }
 
 /** Что игра отдаёт проверкам через window.__pvb. */
