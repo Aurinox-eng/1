@@ -62,6 +62,7 @@
  * Боты запускать по одному, не параллельно.
  */
 import fs from 'node:fs';
+import { graphLayout } from './graph-layout.mjs';
 import path from 'node:path';
 import {
   branchOpen,
@@ -297,31 +298,29 @@ const REVIEW_GROUPS = {
   pillB: { type: 'pill', cell: [7, 10], t0: { pillRapid: 3, pillPierce: 1 }, t1: 'pillDouble' },
 };
 /**
- * Образец на других картах (вариант Б, решение владельца 5 ноября 2026, сообщение 1, п. 1: «образец, переписанный под карту»). Группы — те же, что на «Горле» (те же мутации, очередь REVIEW_STEPS
- * и слияние внутри группы), меняются только клетки и направление луча Шприца `aim` (0 — вправо, 2 — вниз, 4 — влево, 6 — вверх; луч бьёт через всю карту).
- *  nose («Нос», уровень 2): два канала — верхний (≈ 25 % бактерий) и нижний (≈ 75 %, к нему же перемычка) — сходятся только у организма. Таблетки и Шипучки — у схождения у организма
- *    (обе ветки), Шприцы — вдоль каналов (нижний — первый). Сиропы: первый (syrupA) — у схождения рядом с Таблетками ((3,10): единственная клетка, лужа из которой достаёт все три пути,
- *    ≈ 147 px каждого; бегуна ранят только в луже — с Сиропом у нижнего входа бегуны верхнего входа шли мимо Таблеток невредимыми: лестница `42092843873`, ×1,45 — гибель на 9–11-й,
- *    больше половины жизней — бегуны), второй и третий — у верхнего (17,5) и нижнего (16,14) входов. На «Горле» Сироп у входа (16,7) накрывает все 4 пути (397–506 px).
- *  mouth3 («Рот», уровень 3): вход посередине, три пути (верхняя челюсть, язык, нижняя челюсть), у глотки — схождение. Шприцы — сверху вниз и снизу вверх по столбцам 13 и 11
- *    (поперёк всех трёх путей, мимо зубов), Сироп — у входа и у языка, Таблетки и Шипучки — у глотки и у языка.
- *  mouth4 («Рот», уровень 4): входы сверху и снизу справа (по челюстям), средний закрыт. Как mouth3, но Сиропы — у обоих входов.
+ * Образец на других картах (вариант Б, решение владельца 5 ноября 2026, сообщение 1, п. 1; правило по графу карты — решение 6 ноября 2026, сообщение 1, п. 1.1): группы — те же, что на «Горле»
+ * (те же мутации, очередь REVIEW_STEPS и слияние внутри группы), клетки и направление луча Шприца `aim` (0 — вправо, 2 — вниз, 4 — влево, 6 — вверх) — по графу карты (`qa/graph-layout.mjs`):
+ * оборона у спуска каждого канала, лужа Сиропа на путях каждой обороны, башни не в одном круге 150 px, луч Шприца с наибольшей длиной путей под ним (обрывается на зубе).
+ * На «Горле» — клетки рецензента (REVIEW_GROUPS): это его записанная оборона; правило по графу выбирает там те же ключевые клетки (Таблетки (11,6), Сироп (16,7), Шприц (0,9) вправо).
+ * Клетки зависят от радиусов башен (улучшения древа), поэтому считаются в начале каждой партии. Возвращает { groups, layout } или null (графа нет).
  */
-const REVIEW_MAP_CELLS = {
-  nose: { syringeA: [[2, 15], 0], syringeB: [[2, 4], 0], syrupA: [3, 10], syrupB: [17, 5], syrupC: [16, 14], fizzA: [4, 12], fizzB: [5, 6], fizzC: [8, 13], fizzD: [12, 12], fizzE: [13, 6], pillA: [3, 9], pillB: [4, 10] },
-  mouth3: { syringeA: [[13, 1], 2], syringeB: [[11, 17], 6], syrupA: [21, 8], syrupB: [10, 8], syrupC: [8, 12], fizzA: [8, 8], fizzB: [8, 11], fizzC: [3, 11], fizzD: [9, 8], fizzE: [9, 11], pillA: [4, 8], pillB: [4, 11] },
-  mouth4: { syringeA: [[13, 1], 2], syringeB: [[11, 17], 6], syrupA: [20, 2], syrupB: [20, 17], syrupC: [8, 12], fizzA: [8, 8], fizzB: [8, 11], fizzC: [3, 8], fizzD: [9, 8], fizzE: [9, 11], pillA: [4, 8], pillB: [4, 12] },
-};
-/** Группы образца на карте `mapId`: «Горло» (throat) — REVIEW_GROUPS как есть; карты из REVIEW_MAP_CELLS — те же группы с клетками и лучами этой карты; другой карты образец не знает (null). */
-function reviewGroupsFor(mapId) {
-  if (mapId === 'throat') return REVIEW_GROUPS;
-  const cells = REVIEW_MAP_CELLS[mapId];
-  if (!cells) return null;
-  return Object.fromEntries(Object.entries(REVIEW_GROUPS).map(([key, g]) => {
-    const c = cells[key];
-    return [key, Array.isArray(c[0]) ? { ...g, cell: c[0], aim: c[1] } : { ...g, cell: c }];
-  }));
+function reviewGroupsFor(mapId, world) {
+  if (mapId === 'throat') return { groups: REVIEW_GROUPS, layout: null };
+  if (!world?.layoutInput) return null;
+  const L = graphLayout({
+    ...world.layoutInput,
+    ranges: { pill: TABLE.pill.range, fizz: TABLE.fizz.range, syrup: TABLE.syrup.range },
+    beam: { length: TABLE.syringe.beamLengthPx, halfWidth: TABLE.syringe.beamHalfWidthPx + BEAM_MARGIN_PX },
+    toothRadius: TOOTH_RADIUS,
+  });
+  const groups = {};
+  for (const [key, g] of Object.entries(REVIEW_GROUPS)) {
+    const c = L.groups[key];
+    if (c) groups[key] = c.aim === undefined ? { ...g, cell: c.cell } : { ...g, cell: c.cell, aim: c.aim };
+  }
+  return { groups, layout: L };
 }
+const TOOTH_RADIUS = readConfigNumber('obstacles', 'toothRadius');
 /** Очередь постройки: [группа, сколько обычных башен должно в ней стоять]; берётся первая строка, где башен меньше, башня доступна и (для Сиропа) выполнено правило соотношения. */
 const REVIEW_STEPS = [
   ['syrupA', 1], ['syringeA', 4], ['syrupA', 2], ['syringeA', 8], ['syrupA', 8],
@@ -929,6 +928,8 @@ function buildWorld(graph, map, cols, rows) {
   const zone = [...zoneScore.values()].sort((a, b) => b.w - a.w)[0] ?? { x: 0, y: 0, node: null };
 
   return {
+    /** Граф и размеры карты — для клеток образца по графу (`reviewGroupsFor`, qa/graph-layout.mjs). */
+    layoutInput: { graph, map: { orgW: map.orgW, tile: map.tile }, cols, rows },
     cells,
     segs,
     byKey,
@@ -1046,8 +1047,20 @@ function buildWorld(graph, map, cols, rows) {
 function makePlayer({ world, rng, buttons, forced = null, mapId = null }) {
   /** Группы образца на этой карте (`reviewGroupsFor`); у других стратегий не нужны. */
   // неизвестная карта (например, тестовая «корни»): клетки «Горла», как было до образца по картам
-  const RG = (REVIEW ? reviewGroupsFor(mapId) : null) ?? REVIEW_GROUPS;
-  if (REVIEW && !reviewGroupsFor(mapId)) console.log(`  образец: карты «${mapId}» нет в REVIEW_MAP_CELLS — клетки «Горла»`);
+  const reviewMap = REVIEW ? reviewGroupsFor(mapId, world) : null;
+  const RG = reviewMap?.groups ?? REVIEW_GROUPS;
+  if (REVIEW && !reviewMap) console.log(`  образец: у карты «${mapId}» нет графа — клетки «Горла»`);
+  /** Каналы с отдельной обороной (клетки обороны по графу): на «Горле» и «Рте» — одна горловина, на «Носе» — два канала. */
+  const channels = reviewMap?.layout?.anchors.length ?? 1;
+  /** Первые Таблетки (до всего остального, по порядку): одна горловина — REVIEW_FIRST_PILLS в pillA (как на «Горле»); каналов несколько — сначала IV у канала с наибольшей долей бактерий
+   *  (одна III сильнее двух II: лестницы `42079971734`, `42082507360`), затем II у второго (решение 6 ноября 2026, сообщение 1, п. 1.1: порядок по деньгам — сначала то, что держит ранние волны). */
+  const REVIEW_FIRST = channels >= 2 && RG.pillB ? [['pillA', REVIEW_FIRST_PILLS], ['pillB', 2]] : [['pillA', REVIEW_FIRST_PILLS]];
+  /** Очередь: каналов несколько — лужа Сиропа на путях каждой обороны сразу после первой (бегуна ранят только в луже). */
+  const STEPS = channels >= 2 ? REVIEW_STEPS.flatMap((row) => (row[0] === 'syrupA' && row[1] === 1 ? [row, ...['syrupB', 'syrupC'].slice(0, channels - 1).filter((k) => RG[k]).map((k) => [k, 1])] : [row])) : REVIEW_STEPS;
+  if (reviewMap?.layout && !LAYOUT_LOGGED.has(mapId)) {
+    LAYOUT_LOGGED.add(mapId);
+    console.log(`  образец по графу карты «${mapId}»: ${Object.entries(RG).map(([k, g]) => `${k} ${g.cell.join(',')}${g.aim === undefined ? '' : `→${g.aim}`}`).join('; ')}`);
+  }
   const zone = STRATEGY === 'zone'; // «всё у Z»: только Таблетки и один Сироп, клетки — ближайшие к последней развилке у организма
   const available = (id) => TABLE[id] && buttons.includes(id) && !EXCLUDE.has(id) && (!SOLO_ALLOWED || SOLO_ALLOWED.has(id)) && (!zone || ZONE_TOWERS.has(id)) && (!REVIEW || REVIEW_TOWERS.has(id));
   // fx:iv (core:…:late с ядром «Сироп + Шприц»): до волны LATE_WAVE круг «Сироп, четыре Шприца, Сироп, четыре Шприца» — Шприцы доходят до IV (в образце — Шприц IV около 20-й волны)
@@ -1174,10 +1187,10 @@ function makePlayer({ world, rng, buttons, forced = null, mapId = null }) {
     // уровень без бегунов или без плана волн — Сироп в прежнем порядке
     const runnerWave = view.s.plan?.firstWave?.runner;
     const syrupOpen = runnerWave === undefined || wave >= runnerWave - REVIEW_SYRUP_LEAD;
-    for (const [key, target] of FX.has('v') ? [...REVIEW_STEPS, ...REVIEW_V_STEPS] : REVIEW_STEPS) {
+    const firstLeft = REVIEW_FIRST.filter(([key, target]) => RG[key] && available(RG[key].type) && !reviewGaveUp.has(key) && reviewUnits(view, key) < target);
+    for (const [key, target] of firstLeft.length ? firstLeft : FX.has('v') ? [...STEPS, ...REVIEW_V_STEPS] : STEPS) {
       const g = RG[key];
-      if (!available(g.type) || reviewGaveUp.has(key) || reviewUnits(view, key) >= target) continue;
-      if (reviewUnits(view, 'pillA') < REVIEW_FIRST_PILLS && g.type !== 'pill') continue;
+      if (!g || !available(g.type) || reviewGaveUp.has(key) || reviewUnits(view, key) >= target) continue;
       if (early && g.type === 'fizz') continue;
       if (g.type === 'syrup' && (!syrupOpen || syrups + 1 > fighting)) continue;
       const cell = reviewCell(view, key);
@@ -1323,6 +1336,7 @@ async function pollUntil(page, predicate, timeoutMs, pollMs = 35) {
   return s;
 }
 
+const LAYOUT_LOGGED = new Set(); // карты, клетки образца которых уже записаны в журнал
 const WORLDS = new Map(); // id карты → сеть дорожек и клетки (строится по первой партии на этой карте)
 
 /**
@@ -1663,7 +1677,7 @@ async function playGame(browser, baseUrl, run, metaLevels = null, salt = '', lev
         record.spent += TABLE[type].price;
         let aim = tower?.aim ?? null;
         if (tower && TABLE[type].targeting === 'beam' && !REVIEW) aim = await aimTower(st, tower, cell, choice.aim ?? null); // образец на «Горле»: лучи вправо, как при постановке
-        else if (tower && TABLE[type].targeting === 'beam' && REVIEW && choice.aimDir !== null && choice.aimDir !== undefined) aim = await aimTower(st, tower, cell, choice.aimDir); // образец на других картах: луч группы (REVIEW_MAP_CELLS)
+        else if (tower && TABLE[type].targeting === 'beam' && REVIEW && choice.aimDir !== null && choice.aimDir !== undefined) aim = await aimTower(st, tower, cell, choice.aimDir); // образец на других картах: луч группы (правило по графу, qa/graph-layout.mjs)
         return { ok: true, tower, aim };
       }
       if (st.state !== 'playing') return { ok: false, ended: true };
