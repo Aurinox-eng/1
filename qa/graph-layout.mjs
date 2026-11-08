@@ -15,8 +15,6 @@
  *     (бегуна ранят только в луже, решение 20 октября 2026); syrupA — у pillA, syrupB — у pillB (или вторая лужа на пути pillA), syrupC — третий канал или лужа выше по путям.
  *  5. Шприцы — линия луча через карту (8 направлений) с наибольшей длиной путей под лучом с весом доли бактерий; луч обрывается на зубе (глава 2); syringeB — вторая линия со
  *     скидкой за уже накрытое первым лучом.
- *  6. Против спор (avoidPx > 0; решение владельца 6 ноября 2026, сообщение 2, п. 1): все башни — в клетках дальше avoidPx от дорожки (спора глушит башни в радиусе 150 px от себя,
- *     а Таблетка бьёт на 200–224 px), порог «держит путь» для них — не выше 0,8 лучшего охвата пути из такой клетки; нет такой клетки для группы — группа не ставится.
  * Возвращает { groups: {ключ: { cell: [c, r], aim? }}, anchors: [...], routes: [...], notes: {ключ: строка — какой путь закрывает} }.
  */
 
@@ -29,7 +27,7 @@ export const MIN_GAP_PX = 150;
 /** Скидка за уже накрытое (охват Шипучек C–E и второго луча). */
 const OVERLAP = 0.4;
 
-export function graphLayout({ graph, map, cols, rows, ranges, beam, toothRadius = 0.42, avoidPx = 0 }) {
+export function graphLayout({ graph, map, cols, rows, ranges, beam, toothRadius = 0.42 }) {
   const tile = map.tile;
   const center = (c, r) => ({ x: map.orgW + tile * (c + 0.5), y: tile * (r + 0.5) });
   const taken = new Set([...(graph.pathCells ?? []), ...(graph.blockedCells ?? []), ...(graph.teethCells ?? [])].map(([c, r]) => `${c},${r}`));
@@ -70,11 +68,6 @@ export function graphLayout({ graph, map, cols, rows, ranges, beam, toothRadius 
   });
   for (const rt of routes) for (const si of rt.segs) segs[si].w += rt.w; // доля бактерий на отрезке (сумма по путям, проходящим через него)
 
-  // 6. Против спор (решение владельца 6 ноября 2026, сообщение 2, п. 1): спора глушит башни ближе `avoidPx` к себе, а идёт она по дорожке — клетки ближе avoidPx к любой точке дорожки «опасные».
-  //    Башни ставятся в «безопасные» клетки, если такая клетка вообще достаёт пути (иначе — как без правила).
-  const pathPts = graph.edges.flatMap((e) => e.pts.map(([x, y]) => ({ x, y })));
-  for (const c of cells) c.safe = !avoidPx || pathPts.every((q) => Math.hypot(q.x - c.x, q.y - c.y) > avoidPx);
-
   const near = (p, R) => {
     const list = [];
     for (let i = 0; i < segs.length; i++) if (Math.hypot(segs[i].x - p.x, segs[i].y - p.y) <= R) list.push(i);
@@ -88,28 +81,21 @@ export function graphLayout({ graph, map, cols, rows, ranges, beam, toothRadius 
 
   // 2. оборона
   const Rp = ranges.pill;
+  const hold = HOLD_SHARE * Rp;
   const pillLists = cells.map((c) => near(c, Rp));
-  // «держит» путь: длина пути в радиусе ≥ HOLD_SHARE × радиус; у безопасных клеток (дальше avoidPx от дорожки) дуга короче — порог не выше 0,8 лучшего охвата пути из безопасной клетки
-  const safeIdx = cells.map((c, ci) => ci).filter((ci) => cells[ci].safe);
-  const holdOf = new Map(routes.map((rt) => {
-    const best = Math.max(0, ...safeIdx.map((ci) => covRoute(pillLists[ci], rt)));
-    return [rt.idx, avoidPx && best > 0 ? Math.min(HOLD_SHARE * Rp, 0.8 * best) : HOLD_SHARE * Rp];
-  }));
-  /** Клетка годится башне: безопасная, если правило против спор включено и безопасная клетка для этой задачи есть (ok — проверка охвата). */
-  const allowed = (c) => !avoidPx || c.safe;
   const anchors = [];
   const open = new Set(routes.map((rt) => rt.idx));
   while (open.size) {
     let best = null;
     cells.forEach((c, ci) => {
-      if (anchors.some((a) => a.cell === c) || !allowed(c)) return;
+      if (anchors.some((a) => a.cell === c)) return;
       let score = 0;
       let all = 0;
       const holds = [];
       for (const rt of routes) {
         const v = covRoute(pillLists[ci], rt);
         all += rt.w * v;
-        if (open.has(rt.idx) && v >= holdOf.get(rt.idx)) {
+        if (open.has(rt.idx) && v >= hold) {
           score += rt.w * v;
           holds.push(rt.idx);
         }
@@ -151,7 +137,7 @@ export function graphLayout({ graph, map, cols, rows, ranges, beam, toothRadius 
     // одна горловина: вторая точка той же обороны не ближе SPREAD_PX
     let best = null;
     cells.forEach((c, ci) => {
-      if (used.has(keyOf(c)) || dist(c, a1.cell) < SPREAD_PX || !allowed(c)) return;
+      if (used.has(keyOf(c)) || dist(c, a1.cell) < SPREAD_PX) return;
       const v = routes.reduce((s, rt) => s + rt.w * covRoute(pillLists[ci], rt), 0);
       if (v > 0 && (!best || v > best.v)) best = { c, v };
     });
@@ -175,7 +161,7 @@ export function graphLayout({ graph, map, cols, rows, ranges, beam, toothRadius 
     const rts = anchor.routes.map((i) => routes[i]);
     let best = null;
     cells.forEach((c, ci) => {
-      if (used.has(keyOf(c)) || !allowed(c) || !farFrom(c, pillCells, MIN_GAP_PX) || dist(c, anchor.cell) > 2.2 * Rp) return;
+      if (used.has(keyOf(c)) || !farFrom(c, pillCells, MIN_GAP_PX) || dist(c, anchor.cell) > 2.2 * Rp) return;
       const v = rts.reduce((s, rt) => s + rt.w * covRoute(fizzLists[ci], rt), 0);
       if (v > 0 && (!best || v > best.v)) best = { c, ci, v };
     });
@@ -193,7 +179,7 @@ export function graphLayout({ graph, map, cols, rows, ranges, beam, toothRadius 
   for (const key of ['fizzC', 'fizzD', 'fizzE']) {
     let best = null;
     cells.forEach((c, ci) => {
-      if (used.has(keyOf(c)) || !allowed(c) || !farFrom(c, [...pillCells, ...fizzCells], MIN_GAP_PX)) return;
+      if (used.has(keyOf(c)) || !farFrom(c, [...pillCells, ...fizzCells], MIN_GAP_PX)) return;
       const v = fizzLists[ci].reduce((s, si) => s + segs[si].len * segs[si].w * Math.pow(OVERLAP, covered[si]), 0);
       if (v > 0 && (!best || v > best.v)) best = { c, ci, v };
     });
@@ -214,7 +200,7 @@ export function graphLayout({ graph, map, cols, rows, ranges, beam, toothRadius 
     const inPill = new Set(near(anchor.cell, Rp));
     let best = null;
     cells.forEach((c, ci) => {
-      if (used.has(keyOf(c)) || !allowed(c) || !farFrom(c, [...pillCells, ...syrupCells], MIN_GAP_PX / 2)) return;
+      if (used.has(keyOf(c)) || !farFrom(c, [...pillCells, ...syrupCells], MIN_GAP_PX / 2)) return;
       let v = 0;
       for (const si of syrupLists[ci]) {
         if (!rts.some((rt) => rt.segs.has(si))) continue;
@@ -261,7 +247,7 @@ export function graphLayout({ graph, map, cols, rows, ranges, beam, toothRadius 
   for (const key of ['syringeA', 'syringeB']) {
     let best = null;
     for (const c of cells) {
-      if (used.has(keyOf(c)) || !allowed(c)) continue;
+      if (used.has(keyOf(c))) continue;
       for (let d = 0; d < 8; d++) {
         const list = rayList(c, d);
         const v = list.reduce((s, si) => s + segs[si].len * segs[si].w * Math.pow(OVERLAP, beamed[si]), 0);
