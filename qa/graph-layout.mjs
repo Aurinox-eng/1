@@ -259,6 +259,22 @@ export function graphLayout({ graph, map, cols, rows, ranges, beam, toothRadius 
     put(key, best.c, `луч поперёк путей: ${routeName(rts)}`, best.d);
     best.list.forEach((si) => beamed[si]++);
   }
+  // 6. Новые башни уровней 2+ (решение владельца 8 ноября 2026, сообщение 1, п. 3.4): клетка — наибольшая длина путей в радиусе башни с весом доли бактерий (без скидки за накрытое:
+  //    Ампула бьёт самую прочную бактерию на полкарты, ей важен охват путей, а не соседи); при равенстве — ближе к главной обороне (pillA).
+  for (const [key, type] of [['ampuleA', 'ampule']]) {
+    const R = ranges[type];
+    if (!R) continue;
+    let best = null;
+    for (const c of cells) {
+      if (used.has(keyOf(c))) continue;
+      const v = near(c, R).reduce((s, si) => s + segs[si].len * segs[si].w, 0);
+      const d = dist(c, a1.cell);
+      if (v > 0 && (!best || v > best.v + 1e-6 || (Math.abs(v - best.v) <= 1e-6 && d < best.d))) best = { c, v, d };
+    }
+    if (!best) continue;
+    const rts = routes.filter((rt) => covRoute(near(best.c, R), rt) > 0).map((rt) => rt.idx);
+    put(key, best.c, `${type === 'ampule' ? 'Ампула' : type}: наибольший охват путей в радиусе ${Math.round(R)} px (${routeName(rts)}), ближе к главной обороне`);
+  }
   return {
     groups,
     notes,

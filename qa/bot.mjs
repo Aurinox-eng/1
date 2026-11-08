@@ -309,18 +309,31 @@ function reviewGroupsFor(mapId, world) {
   if (!world?.layoutInput) return null;
   const L = graphLayout({
     ...world.layoutInput,
-    ranges: { pill: TABLE.pill.range, fizz: TABLE.fizz.range, syrup: TABLE.syrup.range },
+    ranges: { pill: TABLE.pill.range, fizz: TABLE.fizz.range, syrup: TABLE.syrup.range, ...Object.fromEntries(reviewNewTowers().map((id) => [id, TABLE[id].range])) },
     beam: { length: TABLE.syringe.beamLengthPx, halfWidth: TABLE.syringe.beamHalfWidthPx + BEAM_MARGIN_PX },
     toothRadius: TOOTH_RADIUS,
   });
   const groups = {};
-  for (const [key, g] of Object.entries(REVIEW_GROUPS)) {
+  for (const [key, g] of Object.entries({ ...REVIEW_GROUPS, ...REVIEW_NEW_GROUPS })) {
     const c = L.groups[key];
     if (c) groups[key] = c.aim === undefined ? { ...g, cell: c.cell } : { ...g, cell: c.cell, aim: c.aim };
   }
   return { groups, layout: L };
 }
 const TOOTH_RADIUS = readConfigNumber('obstacles', 'toothRadius');
+/**
+ * Новые башни образца на уровнях 2+ (решение владельца 8 ноября 2026, сообщение 1, п. 3): узел башни покупается, как устроен `buyBest` (крупный узел — как только хватает ДНК, иначе мелкие узлы
+ * по приросту на ДНК), башня ставится по графу карты (qa/graph-layout.mjs) и строится в очереди после REVIEW_NEW_AFTER. Порядок по цепочке requires: Ампула → Антибиотик → Витамин → Холод → Пластырь;
+ * Лампа — только на уровнях со скрытными. Правка 1 — Ампула; правка 2 — Антибиотик (своими лестницами, правило 12). На «Горле» (уровень 1) новых башен нет.
+ */
+const REVIEW_NEW_ORDER = ['ampule'];
+const REVIEW_NEW_GROUPS = {
+  ampuleA: { type: 'ampule', t0: { [DEFAULT_MUT.ampule[0]]: 1 }, t1: DEFAULT_MUT.ampule[1] },
+};
+/** Где в очереди строятся группы новых башен: [после строки очереди «группа:сколько»] → строка новой башни. */
+const REVIEW_NEW_AFTER = [['syringeA:4', ['ampuleA', 1]], ['fizzA:4', ['ampuleA', 2]]];
+/** Новые башни, которые образец покупает и строит на уровне, который играется (со 2-го). */
+const reviewNewTowers = () => (PLAY_LEVEL >= 2 ? REVIEW_NEW_ORDER.filter((id) => !EXCLUDE.has(id)) : []);
 /** Очередь постройки: [группа, сколько обычных башен должно в ней стоять]; берётся первая строка, где башен меньше, башня доступна и (для Сиропа) выполнено правило соотношения. */
 const REVIEW_STEPS = [
   ['syrupA', 1], ['syringeA', 4], ['syrupA', 2], ['syringeA', 8], ['syrupA', 8],
@@ -671,7 +684,7 @@ function buyPrefix(levels, dna, list) {
 function buyReview(levels, dna, towers) {
   const head = buyPrefix(levels, dna, REVIEW_BUYS);
   if (!head.done) return { levels: head.levels, dna: head.dna, bought: head.bought };
-  const rest = buyBest({ upgrades: META.upgrades, levels: head.levels, dna: head.dna, towers: [...REVIEW_TOWERS], shares: fieldShares(towers), openRing: openRingNow() });
+  const rest = buyBest({ upgrades: META.upgrades, levels: head.levels, dna: head.dna, towers: [...REVIEW_TOWERS, ...reviewNewTowers()], shares: fieldShares(towers), openRing: openRingNow() });
   return { levels: rest.levels, dna: rest.dna, bought: [...head.bought, ...rest.bought] };
 }
 function buyUpgrades(levels, dna, reached = 0, towers = null) {
@@ -1056,13 +1069,15 @@ function makePlayer({ world, rng, buttons, forced = null, mapId = null }) {
    *  (одна III сильнее двух II: лестницы `42079971734`, `42082507360`), затем II у второго (решение 6 ноября 2026, сообщение 1, п. 1.1: порядок по деньгам — сначала то, что держит ранние волны). */
   const REVIEW_FIRST = channels >= 2 && RG.pillB ? [['pillA', REVIEW_FIRST_PILLS], ['pillB', 2]] : [['pillA', REVIEW_FIRST_PILLS]];
   /** Очередь: каналов несколько — лужа Сиропа на путях каждой обороны сразу после первой (бегуна ранят только в луже). */
-  const STEPS = channels >= 2 ? REVIEW_STEPS.flatMap((row) => (row[0] === 'syrupA' && row[1] === 1 ? [row, ...['syrupB', 'syrupC'].slice(0, channels - 1).filter((k) => RG[k]).map((k) => [k, 1])] : [row])) : REVIEW_STEPS;
+  const STEPS1 = channels >= 2 ? REVIEW_STEPS.flatMap((row) => (row[0] === 'syrupA' && row[1] === 1 ? [row, ...['syrupB', 'syrupC'].slice(0, channels - 1).filter((k) => RG[k]).map((k) => [k, 1])] : [row])) : REVIEW_STEPS;
+  /** Новые башни (уровни 2+): строка очереди после REVIEW_NEW_AFTER, если группа есть на карте и башня открыта. */
+  const STEPS = STEPS1.flatMap((row) => [row, ...REVIEW_NEW_AFTER.filter(([after, [key]]) => after === `${row[0]}:${row[1]}` && RG[key] && reviewNewTowers().includes(RG[key].type)).map(([, add]) => add)]);
   if (reviewMap?.layout && !LAYOUT_LOGGED.has(mapId)) {
     LAYOUT_LOGGED.add(mapId);
     console.log(`  образец по графу карты «${mapId}»: ${Object.entries(RG).map(([k, g]) => `${k} ${g.cell.join(',')}${g.aim === undefined ? '' : `→${g.aim}`}`).join('; ')}`);
   }
   const zone = STRATEGY === 'zone'; // «всё у Z»: только Таблетки и один Сироп, клетки — ближайшие к последней развилке у организма
-  const available = (id) => TABLE[id] && buttons.includes(id) && !EXCLUDE.has(id) && (!SOLO_ALLOWED || SOLO_ALLOWED.has(id)) && (!zone || ZONE_TOWERS.has(id)) && (!REVIEW || REVIEW_TOWERS.has(id));
+  const available = (id) => TABLE[id] && buttons.includes(id) && !EXCLUDE.has(id) && (!SOLO_ALLOWED || SOLO_ALLOWED.has(id)) && (!zone || ZONE_TOWERS.has(id)) && (!REVIEW || REVIEW_TOWERS.has(id) || reviewNewTowers().includes(id));
   // fx:iv (core:…:late с ядром «Сироп + Шприц»): до волны LATE_WAVE круг «Сироп, четыре Шприца, Сироп, четыре Шприца» — Шприцы доходят до IV (в образце — Шприц IV около 20-й волны)
   const ivMode = FX.has('iv') && CORE_LATE && CORE.includes('syringe');
   const baseCycle = zone ? ZONE_CYCLE : ivMode ? ['syrup', 'syringe', 'syringe', 'syringe', 'syringe', 'syrup', 'syringe', 'syringe', 'syringe', 'syringe'] : SOLO_CYCLE ?? DEFAULT_CYCLE;
