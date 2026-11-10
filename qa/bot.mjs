@@ -681,14 +681,15 @@ function buyPrefix(levels, dna, list) {
   }
   return { levels: next, dna: left, bought, done: true };
 }
-function buyReview(levels, dna, towers) {
+/** saveFor — новые башни, на которые образец копит (после повторов уровня, пока узел башни не куплен; решение владельца 9 ноября 2026, сообщение 1, п. 2.1): buyBest покупает их узлы первыми, а мелкие узлы — только после. */
+function buyReview(levels, dna, towers, saveFor = null) {
   const head = buyPrefix(levels, dna, REVIEW_BUYS);
   if (!head.done) return { levels: head.levels, dna: head.dna, bought: head.bought };
-  const rest = buyBest({ upgrades: META.upgrades, levels: head.levels, dna: head.dna, towers: [...REVIEW_TOWERS, ...reviewNewTowers()], shares: fieldShares(towers), openRing: openRingNow() });
+  const rest = buyBest({ upgrades: META.upgrades, levels: head.levels, dna: head.dna, towers: [...REVIEW_TOWERS, ...reviewNewTowers()], saveFor: saveFor?.length ? saveFor : null, shares: fieldShares(towers), openRing: openRingNow() });
   return { levels: rest.levels, dna: rest.dna, bought: [...head.bought, ...rest.bought] };
 }
-function buyUpgrades(levels, dna, reached = 0, towers = null) {
-  if (REVIEW) return buyReview(levels, dna, towers);
+function buyUpgrades(levels, dna, reached = 0, towers = null, saveFor = null) {
+  if (REVIEW) return buyReview(levels, dna, towers, saveFor);
   // core:…:late — когда игрок уже доходит до волны LATE_WAVE (там в круге Таблетки и Шипучка против слизней и босса), очки ДНК идут и на их ветки; раньше — только на ветки ядра, как у пары
   // (по лестницам 20 октября 2026: без этого эксперт с 11-й по 20-ю попытку стоял на слизнях, 36–37-я волна, с неулучшенными Таблетками)
   const late = CORE_LATE && !NO_LATE_BUY.value && reached >= LATE_WAVE && CORE.every((id) => levels[towerNodeId(id)] > 0);
@@ -2252,6 +2253,7 @@ async function ladderLane(profile, run) {
       const prev = level - 1;
       rec.replays = [];
       const starsQ = `&stars=${Array(prev).fill(1).join(',')}`;
+      let lastRepTowers = null;
       for (let r = 1; r <= REPLAYS.value; r++) {
         if (stopRequested) return true;
         let rg;
@@ -2271,13 +2273,23 @@ async function ladderLane(profile, run) {
         const capRep = dnaCapOf(META, lane.levels, openRingsAt(META, level));
         const gainedRep = Math.max(0, Math.min(dnaForGame(rg, true, lane.progress, prev), capRep - lane.dna));
         lane.dna += gainedRep;
-        const buyRep = buyUpgrades(lane.levels, lane.dna, lane.best[prev - 1] ?? 0, rg.towers);
-        lane.levels = buyRep.levels;
-        lane.dna = buyRep.dna;
-        rec.replays.push({ level: prev, result: rg.result, wave: rg.wave, dna: gainedRep, bought: buyRep.bought, gameSec: rg.gameSec, realSec: rg.realSec });
-        console.log(`[${tag}, уровень ${prev}] повтор ${r}/${REPLAYS.value} перед уровнем ${level}: ${RESULT_RU[rg.result]} · волна ${rg.wave}/${rg.waveTotal} · очков ДНК +${gainedRep} (остаток ${lane.dna}) · куплено ${buyRep.bought.length ? buyRep.bought.join(', ') : '—'} · реал. ${rg.realSec} с`);
+        lastRepTowers = rg.towers;
+        // покупки — один раз после всех повторов (решение владельца 9 ноября 2026, сообщение 1, п. 2.1), не после каждого
+        rec.replays.push({ level: prev, result: rg.result, wave: rg.wave, dna: gainedRep, bought: [], gameSec: rg.gameSec, realSec: rg.realSec });
+        console.log(`[${tag}, уровень ${prev}] повтор ${r}/${REPLAYS.value} перед уровнем ${level}: ${RESULT_RU[rg.result]} · волна ${rg.wave}/${rg.waveTotal} · очков ДНК +${gainedRep} (на счёте ${lane.dna}) · реал. ${rg.realSec} с`);
         saveResults();
       }
+      // после всех повторов: новая башня — если хватает ДНК, иначе копить на неё (lane.saveFor держится и после попыток, пока узел не куплен), узлы — после её покупки
+      const nextNew = REVIEW ? reviewNewTowers().find((id) => !(lane.levels[towerNodeId(id)] > 0)) : null;
+      lane.saveFor = nextNew ? [nextNew] : null;
+      rec.dnaAfterReplays = lane.dna;
+      const buyAll = buyUpgrades(lane.levels, lane.dna, lane.best[prev - 1] ?? 0, lastRepTowers, lane.saveFor);
+      lane.levels = buyAll.levels;
+      lane.dna = buyAll.dna;
+      if (lane.saveFor && lane.saveFor.every((id) => lane.levels[towerNodeId(id)] > 0)) lane.saveFor = null;
+      rec.replaysBought = buyAll.bought;
+      console.log(`[${tag}, уровень ${prev}] после ${rec.replays.length} повторов: на счёте ${rec.dnaAfterReplays} ДНК · куплено ${buyAll.bought.length ? buyAll.bought.join(', ') : '—'} (остаток ${lane.dna})${lane.saveFor ? ` · копит на ${lane.saveFor.join(', ')}` : ''}`);
+      saveResults();
       rec.dnaIn = lane.dna;
       rec.levelsIn = { ...lane.levels };
       rec.treeLeftIn = treeLeft(lane.levels);
@@ -2332,9 +2344,10 @@ async function ladderLane(profile, run) {
       lane.dna += gained;
       // лучшая волна уровня — число пройденных волн (как `progress.best` в игре): победа — все волны, проигрыш — без текущей
       lane.best[level - 1] = Math.max(lane.best[level - 1] ?? 0, game.result === 'won' ? game.waveTotal : Math.max(0, game.wave - 1));
-      const buy = buyUpgrades(lane.levels, lane.dna, lane.best[level - 1] ?? 0, game.towers);
+      const buy = buyUpgrades(lane.levels, lane.dna, lane.best[level - 1] ?? 0, game.towers, lane.saveFor ?? null);
       lane.levels = buy.levels;
       lane.dna = buy.dna;
+      if (lane.saveFor && lane.saveFor.every((id) => lane.levels[towerNodeId(id)] > 0)) lane.saveFor = null;
       rec.waves.push(game.result === 'won' ? game.waveTotal : game.wave);
       rec.results.push(game.result);
       rec.bought.push(buy.bought);
