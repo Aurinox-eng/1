@@ -326,12 +326,13 @@ const TOOTH_RADIUS = readConfigNumber('obstacles', 'toothRadius');
  * по приросту на ДНК), башня ставится по графу карты (qa/graph-layout.mjs) и строится в очереди после REVIEW_NEW_AFTER. Порядок по цепочке requires: Ампула → Антибиотик → Витамин → Холод → Пластырь;
  * Лампа — только на уровнях со скрытными. Правка 1 — Ампула; правка 2 — Антибиотик (своими лестницами, правило 12). На «Горле» (уровень 1) новых башен нет.
  */
-const REVIEW_NEW_ORDER = ['ampule'];
+const REVIEW_NEW_ORDER = ['ampule', 'antibiotic'];
 const REVIEW_NEW_GROUPS = {
   ampuleA: { type: 'ampule', t0: { [DEFAULT_MUT.ampule[0]]: 1 }, t1: DEFAULT_MUT.ampule[1] },
+  antibioticA: { type: 'antibiotic', t0: { [DEFAULT_MUT.antibiotic[0]]: 1 }, t1: DEFAULT_MUT.antibiotic[1] },
 };
 /** Где в очереди строятся группы новых башен: [после строки очереди «группа:сколько»] → строка новой башни. */
-const REVIEW_NEW_AFTER = [['syringeA:4', ['ampuleA', 1]], ['fizzA:4', ['ampuleA', 2]]];
+const REVIEW_NEW_AFTER = [['syringeA:4', ['ampuleA', 1]], ['fizzA:4', ['ampuleA', 2]], ['syrupB:1', ['antibioticA', 1]], ['syrupA:2', ['antibioticA', 1]], ['fizzA:8', ['antibioticA', 2]]];
 /** Новые башни, которые образец покупает и строит на уровне, который играется (со 2-го). */
 const reviewNewTowers = () => (PLAY_LEVEL >= 2 ? REVIEW_NEW_ORDER.filter((id) => !EXCLUDE.has(id)) : []);
 /** Очередь постройки: [группа, сколько обычных башен должно в ней стоять]; берётся первая строка, где башен меньше, башня доступна и (для Сиропа) выполнено правило соотношения. */

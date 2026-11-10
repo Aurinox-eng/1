@@ -25,13 +25,13 @@ const ranges = (level) => ({
   pill: TABLE.pill.range * (1 + RANGE_STEP * rangeLv.pill),
   syrup: TABLE.syrup.range * (1 + RANGE_STEP * rangeLv.syrup),
   fizz: TABLE.fizz.range * (1 + RANGE_STEP * rangeLv.fizz),
-  ...(level >= 2 ? { ampule: TABLE.ampule.range } : {}),
+  ...(level >= 2 ? { ampule: TABLE.ampule.range, antibiotic: TABLE.antibiotic.range } : {}),
 });
 // порядок первой постройки групп (как очередь образца в qa/bot.mjs): каналов несколько — сначала IV и II Таблеток, Сироп каждого канала после первого; новые башни — после строк REVIEW_NEW_AFTER
-const ORDER_ONE = ['pillA', 'syrupA', 'syringeA', 'ampuleA', 'fizzA', 'syringeB', 'syrupB', 'fizzB', 'pillB', 'fizzC', 'syrupC', 'fizzD', 'fizzE'];
-const ORDER_TWO = ['pillA', 'pillB', 'syrupA', 'syrupB', 'syringeA', 'ampuleA', 'fizzA', 'syringeB', 'fizzB', 'fizzC', 'syrupC', 'fizzD', 'fizzE'];
-const COLOR = { pill: '#4aa8ff', syrup: '#ffb020', fizz: '#ff5fb0', syringe: '#7cff6a', ampule: '#b48cff' };
-const NAME = { pill: 'Таблетка', syrup: 'Сироп', fizz: 'Шипучка', syringe: 'Шприц', ampule: 'Ампула' };
+const ORDER_ONE = ['pillA', 'syrupA', 'syringeA', 'ampuleA', 'antibioticA', 'fizzA', 'syringeB', 'syrupB', 'fizzB', 'pillB', 'fizzC', 'syrupC', 'fizzD', 'fizzE'];
+const ORDER_TWO = ['pillA', 'pillB', 'syrupA', 'syrupB', 'antibioticA', 'syringeA', 'ampuleA', 'fizzA', 'syringeB', 'fizzB', 'fizzC', 'syrupC', 'fizzD', 'fizzE'];
+const COLOR = { pill: '#4aa8ff', syrup: '#ffb020', fizz: '#ff5fb0', syringe: '#7cff6a', ampule: '#b48cff', antibiotic: '#3fd0c0' };
+const NAME = { pill: 'Таблетка', syrup: 'Сироп', fizz: 'Шипучка', syringe: 'Шприц', ampule: 'Ампула', antibiotic: 'Антибиотик' };
 
 const server = await startServer('dist-qa');
 const browser = await launchBrowser();

@@ -275,6 +275,21 @@ export function graphLayout({ graph, map, cols, rows, ranges, beam, toothRadius 
     const rts = routes.filter((rt) => covRoute(near(best.c, R), rt) > 0).map((rt) => rt.idx);
     put(key, best.c, `${type === 'ampule' ? 'Ампула' : type}: наибольший охват путей в радиусе ${Math.round(R)} px (${routeName(rts)}), ближе к главной обороне`);
   }
+  // Антибиотик (яд, решение владельца 8 ноября 2026, сообщение 1, п. 3.4): у главной обороны, выше по путям, чем Таблетки, — яд успевает подействовать до зоны Таблеток. Клетка — наибольшая
+  // длина путей главной обороны в радиусе Антибиотика вне радиуса её Таблеток (отрезки дальше от организма), не дальше 2,5 радиуса Таблетки от неё; при равенстве — ближе к Таблеткам.
+  if (ranges.antibiotic) {
+    const R = ranges.antibiotic;
+    const rts = a1.routes.map((i) => routes[i]);
+    const pillZone = new Set(near(a1.cell, Rp));
+    let best = null;
+    for (const c of cells) {
+      if (used.has(keyOf(c)) || dist(c, a1.cell) > 2.5 * Rp) continue;
+      const v = near(c, R).reduce((s, si) => s + (!pillZone.has(si) && rts.some((rt) => rt.segs.has(si)) ? segs[si].len * segs[si].w : 0), 0);
+      const d = dist(c, a1.cell);
+      if (v > 0 && (!best || v > best.v + 1e-6 || (Math.abs(v - best.v) <= 1e-6 && d < best.d))) best = { c, v, d };
+    }
+    if (best) put('antibioticA', best.c, `Антибиотик: у главной обороны (${routeName(a1.routes)}), выше по путям, чем Таблетки (яд — до их зоны)`);
+  }
   return {
     groups,
     notes,
