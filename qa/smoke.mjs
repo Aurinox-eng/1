@@ -2453,11 +2453,11 @@ async function runLevel2(browser, baseUrl) {
   const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
   const bossWaves = PLAN2.map((w, i) => (w.boss ? [i + 1, w.boss] : null)).filter(Boolean);
   check(`${p} в плане уровня 2 пять боссов на волнах ${bossWaves.map(([n, id]) => `${n} (${id})`).join(', ')}; последний — на последней (50-й)`, PLAN2.length === 50 && bossWaves.length === 5 && bossWaves.map(([n]) => n).join() === '10,20,30,40,50', JSON.stringify(bossWaves));
-  // карта и сеть дорожек: 9 рёбер, 2 входа, один выход
+  // карта и сеть дорожек: 11 рёбер (изгибы у спусков каналов — решение владельца 18 ноября 2026, сообщение 1, п. 3), 2 входа, один выход
   let game = await openGame(context, baseUrl, p, { speed: 1, cfg: 'waves.firstDelaySec:600', query: '&levelwaves&level=2' });
   let s = await game.state();
   const graph = await game.page.evaluate(() => window.__pvb.getGraph());
-  check(`${p} карта «${s.mapId}»: рёбер ${graph.edges.length} (ждали 9), входов ${graph.entrances.length} (2), выходов ${graph.exits.length} (1); монет на старте ${s.coins}`, s.mapId === 'nose' && graph.edges.length === 9 && graph.entrances.length === 2 && graph.exits.length === 1 && s.coins === 200, JSON.stringify({ edges: graph.edges.length, entrances: graph.entrances, exits: graph.exits, coins: s.coins }));
+  check(`${p} карта «${s.mapId}»: рёбер ${graph.edges.length} (ждали 11), входов ${graph.entrances.length} (2), выходов ${graph.exits.length} (1); монет на старте ${s.coins}`, s.mapId === 'nose' && graph.edges.length === 11 && graph.entrances.length === 2 && graph.exits.length === 1 && s.coins === 200, JSON.stringify({ edges: graph.edges.length, entrances: graph.entrances, exits: graph.exits, coins: s.coins }));
   await shot(game.page, 'level2-map');
   await game.page.close();
   // мини-босс 10-й волны выходит на своей волне
