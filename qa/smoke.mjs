@@ -168,7 +168,7 @@ if (['stage-1', 'stage-1b', 'stage-1b-qa', 'td-1-mockup', 'tmp'].includes(tag)) 
   process.exit(2);
 }
 
-const SCENARIOS = ['desktop-ru', 'phone-ru', 'desktop-en', 'phone-en', 'rules', 'graph', 'combat', 'dash', 'split', 'spore', 'armored', 'intro', 'lose-ru', 'lose-en', 'win-ru', 'win-en', 'towers', 'card', 'merge', 'mutations', 'sell', 'special', 'danger', 'rotate', 'production', 'fullgame', 'locked', 'strip', 'almanac', 'almanac-pause', 'damage-numbers', 'sell-gap', 'restart-button', 'deflation', 'camera-fit', 'colors', 'meta-save', 'meta-dna', 'meta-shop', 'meta-effects', 'tree-effects', 'tree-shop', 'level-waves', 'progress-save', 'stars', 'menu-flow', 'menu-reset', 'levels-lock', 'step-dps', 'sound', 'sdk', 'lose-line', 'attempt-line', 'toast-queue', 'shake', 'bosses', 'level2', 'wards', 'spiral-cap', 'marks', 'menu-exit', 'resume-tap', 'two-tabs', 'treemock', 'faces', 'real-game', 'dna-cap', 'xp', 'names', 'ranks']
+const SCENARIOS = ['desktop-ru', 'phone-ru', 'desktop-en', 'phone-en', 'rules', 'graph', 'combat', 'dash', 'split', 'spore', 'armored', 'intro', 'lose-ru', 'lose-en', 'win-ru', 'win-en', 'towers', 'card', 'merge', 'mutations', 'sell', 'special', 'danger', 'rotate', 'production', 'fullgame', 'locked', 'strip', 'almanac', 'almanac-pause', 'damage-numbers', 'sell-gap', 'restart-button', 'deflation', 'camera-fit', 'colors', 'meta-save', 'meta-dna', 'meta-shop', 'meta-effects', 'tree-effects', 'tree-shop', 'level-waves', 'progress-save', 'stars', 'menu-flow', 'menu-reset', 'levels-lock', 'step-dps', 'sound', 'sdk', 'lose-line', 'attempt-line', 'toast-queue', 'toast-boss', 'shake', 'bosses', 'level2', 'wards', 'spiral-cap', 'marks', 'menu-exit', 'resume-tap', 'two-tabs', 'treemock', 'faces', 'real-game', 'dna-cap', 'xp', 'names', 'ranks']
 const only = args.only === undefined ? null : String(args.only);
 if (only !== null && !SCENARIOS.includes(only)) {
   console.error(`Неизвестный сценарий --only=${only}. Есть: ${SCENARIOS.join(', ')}`);
@@ -2233,6 +2233,36 @@ async function runToastQueue(browser, baseUrl) {
   check(`${p} тап по закрытой башне: сообщение «${lockedText}» показано сразу, очередь пуста`, (s1.toast.text ?? '') === lockedText && s1.toast.queued.length === 0, JSON.stringify(s1.toast));
   await game.page.close();
   await context.close();
+}
+
+/**
+ * Сообщение о неудачном действии не закрывает полосу прочности босса (этап 8, п. 9; docs/stage-8-plan-2026-11-19.md): без босса плашка сообщения — на прежнем месте вверху окна карты,
+ * с боссом на поле (выпущен вызовом режима проверки `spawnBoss`) — под полосой: прямоугольники плашки и полосы с именем босса не пересекаются. Компьютер 1280×720 (мышь) и телефон 844×390 (касания).
+ */
+async function runToastBoss(browser, baseUrl) {
+  const TOP = readConfigNumber('map', 'topH');
+  const lockedText = readI18n('hintLockedTree')[0];
+  const intersects = (a, b) => Math.abs(a.x - b.x) < (a.w + b.w) / 2 && Math.abs(a.y - b.y) < (a.h + b.h) / 2;
+  for (const deviceKey of ['desktop', 'phone']) {
+    const p = `[сообщение под полосой босса, ${deviceKey}]`;
+    const context = await newDeviceContext(browser, VIEWPORTS[deviceKey], 'ru');
+    const game = await openGame(context, baseUrl, p, { speed: 1, isTouch: deviceKey === 'phone', cfg: 'waves.firstDelaySec:900,lives.start:5000,bacteria.baseSpeed:20' });
+    // без босса: тап по закрытой башне — сообщение на прежнем месте (центр плашки — TOP_H + 30)
+    await game.selectTower('syringe');
+    const s0 = await game.state();
+    check(`${p} без босса сообщение «${s0.toast.text}» на прежнем месте: центр плашки y = ${f1(s0.toast.rect.y)} (нужно ${TOP + 30}), полосы босса нет`, s0.toast.text === lockedText && Math.abs(s0.toast.rect.y - (TOP + 30)) < 0.5 && !s0.bossBar.visible, JSON.stringify({ toast: s0.toast, bar: s0.bossBar }));
+    await sleep(2600); // сообщение гаснет (ui.toastMs 1800 мс + 400 мс)
+    const ok = await game.page.evaluate(() => window.__pvb.spawnBoss('tartar'));
+    await waitFor(game.page, (x) => x.bossBar.visible, 20000, 'полоса босса на экране');
+    await game.selectTower('syringe');
+    const s1 = await game.state();
+    check(`${p} с боссом на поле сообщение «${s1.toast.text}» показано, плашка (${f1(s1.toast.rect.y - s1.toast.rect.h / 2)}…${f1(s1.toast.rect.y + s1.toast.rect.h / 2)}) не пересекает полосу босса с именем (${f1(s1.bossBar.y - s1.bossBar.h / 2)}…${f1(s1.bossBar.y + s1.bossBar.h / 2)})`, ok && s1.bossBar.visible && s1.toast.text === lockedText && s1.toast.rect.w > 0 && !intersects(s1.toast.rect, s1.bossBar), JSON.stringify({ toast: s1.toast, bar: s1.bossBar }));
+    check(`${p} плашка сообщения внутри окна карты (верх ${f1(s1.toast.rect.y - s1.toast.rect.h / 2)} ≥ ${TOP}, края в пределах 0…1280)`, s1.toast.rect.y - s1.toast.rect.h / 2 >= TOP && s1.toast.rect.x - s1.toast.rect.w / 2 >= 0 && s1.toast.rect.x + s1.toast.rect.w / 2 <= 1280, JSON.stringify(s1.toast.rect));
+    await frames(game.page, 3);
+    await shot(game.page, `toast-boss-${deviceKey}`);
+    await game.page.close();
+    await context.close();
+  }
 }
 
 /**
@@ -10907,6 +10937,7 @@ try {
   if (wants('lose-line')) await safe('[строка проигрыша]', () => runLoseLine(browser, qaServer.url));
   if (wants('attempt-line')) await safe('[строка итога]', () => runAttemptLine(browser, qaServer.url));
   if (wants('toast-queue')) await safe('[очередь уведомлений]', () => runToastQueue(browser, qaServer.url));
+  if (wants('toast-boss')) await safe('[сообщение под полосой босса]', () => runToastBoss(browser, qaServer.url));
   if (wants('shake')) await safe('[тряска только карты]', () => runShake(browser, qaServer.url));
   if (wants('step-dps')) await safe('[шаг игры и скорость]', () => runStepDps(browser, qaServer.url));
   if (wants('menu-exit')) await safe('[выход в меню]', () => runMenuExit(browser, qaServer.url));

@@ -17,6 +17,9 @@ const BOTTOM_Y = H - BOTTOM_H;
 export const VIEW = { x: 0, y: TOP_H, w: W, h: H - TOP_H - BOTTOM_H };
 /** Слои интерфейса: полосы ниже всплывающих подсказок, а те — ниже экранов паузы и конца уровня (глубина 200). */
 const D = { panel: 100, item: 101, chip: 96, toast: 105 };
+/** Центр всплывающего сообщения без полосы босса (вверху окна карты) и зазор под полосой босса, когда она видна (этап 8, п. 9: сообщение не закрывает полосу), пикселей экрана игры. */
+const TOAST_Y = TOP_H + 30;
+const TOAST_GAP = 8;
 
 /** Все башни по порядку таблицы `towers`. */
 const TOWER_IDS = Object.keys(CONFIG.towers) as TowerId[];
@@ -131,6 +134,10 @@ export class Panel {
   private waveBtnVisible = false;
   private waveBtnBonusValue = 0;
   private hintMessage: string | null = null;
+  /** Нижний край полосы прочности босса на экране (null — полосы нет): сообщение встаёт под неё. */
+  private toastBelow: number | null = null;
+  /** Где нарисована плашка сообщения (центр и размер на экране игры) — для проверок. */
+  private toastRect = { x: 0, y: 0, w: 0, h: 0 };
   /** Сдвиг списка башен влево, пикселей (0 — первая карточка у левого края). */
   private scroll = 0;
   private drag: { id: number; startX: number; startY: number; scroll0: number; moved: boolean } | null = null;
@@ -231,7 +238,7 @@ export class Panel {
 
     // ---- всплывающее сообщение сверху окна карты и постоянная подсказка снизу (на тёмных плашках)
     this.toastPlate = scene.add.graphics().setDepth(D.toast - 1).setAlpha(0);
-    this.toastText = this.text(VIEW.x + VIEW.w / 2, TOP_H + 30, '', 26, TEXT_COLORS.accent).setDepth(D.toast).setAlpha(0);
+    this.toastText = this.text(VIEW.x + VIEW.w / 2, TOAST_Y, '', 26, TEXT_COLORS.accent).setDepth(D.toast).setAlpha(0);
     this.hintPlate = scene.add.graphics().setDepth(D.toast - 1).setVisible(false);
     this.hintText = this.text(VIEW.x + VIEW.w / 2, this.hintY(), '', 24, TEXT_COLORS.main).setDepth(D.toast).setVisible(false);
   }
@@ -351,11 +358,35 @@ export class Panel {
     return { visible: this.chip.visible, danger: this.chipDanger === true, alpha: this.chip.alpha, fill: this.chipFill };
   }
 
-  /** Кладёт текст в плашку и, если он не помещается в окно карты, уменьшает его (до 0,5): так длинные сообщения не уходят за край. */
-  private fitPlate(text: Phaser.GameObjects.Text, plate: Phaser.GameObjects.Graphics, y: number): void {
+  /** Кладёт текст в плашку и, если он не помещается в окно карты, уменьшает его (до 0,5): так длинные сообщения не уходят за край. Возвращает прямоугольник плашки (центр и размер). */
+  private fitPlate(text: Phaser.GameObjects.Text, plate: Phaser.GameObjects.Graphics, y: number): { x: number; y: number; w: number; h: number } {
     const scale = Math.min(1, (VIEW.w - 40) / (text.width + 48));
     text.setScale(scale);
-    drawPlate(plate, VIEW.x + VIEW.w / 2, y, text.width * scale + 48, text.height * scale + 18);
+    const rect = { x: VIEW.x + VIEW.w / 2, y, w: text.width * scale + 48, h: text.height * scale + 18 };
+    drawPlate(plate, rect.x, rect.y, rect.w, rect.h);
+    return rect;
+  }
+
+  /**
+   * Полоса прочности босса видна (нижний край на экране игры) или скрыта (null): сообщение о неудачном действии и новости встают под полосу, без босса — на прежнем месте
+   * (этап 8, п. 9; `docs/stage-8-plan-2026-11-19.md`). Показанное сейчас сообщение переносится сразу.
+   */
+  setToastBelow(bottom: number | null): void {
+    if (bottom === this.toastBelow) return;
+    this.toastBelow = bottom;
+    if (this.toastCurrent) this.placeToast();
+  }
+
+  /** Ставит текст и плашку сообщения: под полосой босса, если она видна, иначе вверху окна карты. */
+  private placeToast(): void {
+    let y = TOAST_Y;
+    if (this.toastBelow !== null) {
+      // высота плашки — как в fitPlate (текст с учётом сжатия плюс поля)
+      const scale = Math.min(1, (VIEW.w - 40) / (this.toastText.width + 48));
+      y = Math.max(TOAST_Y, this.toastBelow + TOAST_GAP + (this.toastText.height * scale + 18) / 2);
+    }
+    this.toastText.setY(y);
+    this.toastRect = this.fitPlate(this.toastText, this.toastPlate, y);
   }
 
   /**
@@ -387,16 +418,16 @@ export class Panel {
     this.toastPlate.setAlpha(0);
   }
 
-  /** Состояние уведомлений для проверок: текст на экране (null — ничего не показано), число новостей в очереди. */
-  toastInfo(): { text: string | null; news: boolean; queued: string[] } {
-    return { text: this.toastCurrent?.message ?? null, news: this.toastCurrent?.news ?? false, queued: this.newsQueue.map((item) => item.message) };
+  /** Состояние уведомлений для проверок: текст на экране (null — ничего не показано), число новостей в очереди, плашка (центр и размер на экране игры). */
+  toastInfo(): { text: string | null; news: boolean; queued: string[]; rect: { x: number; y: number; w: number; h: number } } {
+    return { text: this.toastCurrent?.message ?? null, news: this.toastCurrent?.news ?? false, queued: this.newsQueue.map((item) => item.message), rect: { ...this.toastRect } };
   }
 
   private showToast(item: { message: string; ms: number; news: boolean }): void {
     this.toastTween?.stop();
     this.toastCurrent = item;
     this.toastText.setText(item.message).setAlpha(1);
-    this.fitPlate(this.toastText, this.toastPlate, TOP_H + 30);
+    this.placeToast();
     this.toastPlate.setAlpha(1);
     const tween = this.scene.tweens.add({
       targets: [this.toastText, this.toastPlate],

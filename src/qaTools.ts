@@ -124,6 +124,7 @@ export function qaSnapshot(s: GameSceneInternals): DebugSnapshot {
     endDnaLines: [...s.endDnaLines],
     attemptLine: s.attemptText,
     toast: s.panel.toastInfo(),
+    bossBar: s.bossBarRect(),
     selected: s.selected,
     towers: s.towers.map((tw: any) => ({
       id: tw.id,

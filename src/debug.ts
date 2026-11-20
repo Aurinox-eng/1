@@ -229,7 +229,9 @@ export interface DebugSnapshot {
   /** Строка итога попытки (src/attempt.ts): пусто, пока партия идёт. */
   attemptLine: string;
   /** Уведомление сверху окна карты: что показано сейчас (null — ничего), новость это или ответ на нажатие, и какие новости ждут в очереди (по порядку показа). */
-  toast: { text: string | null; news: boolean; queued: string[] };
+  toast: { text: string | null; news: boolean; queued: string[]; rect: { x: number; y: number; w: number; h: number } };
+  /** Полоса прочности босса вверху окна карты (имя и полоса вместе): видна ли и прямоугольник (центр и размер на экране игры) — сообщение не должно на неё налезать (этап 8, п. 9). */
+  bossBar: { visible: boolean; x: number; y: number; w: number; h: number };
   coinsLeft: number;
   /** Нижний край и наибольшая ширина текстов на затемнении (конец уровня), пикселей экрана игры. */
   overlayBox: { bottom: number; maxWidth: number };

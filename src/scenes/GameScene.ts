@@ -2421,6 +2421,7 @@ export class GameScene extends Phaser.Scene {
         this.bossBarKey = '';
         this.bossBarGfx.setVisible(false);
         this.bossBarText.setVisible(false);
+        this.panel.setToastBelow(null);
       }
       return;
     }
@@ -2439,6 +2440,18 @@ export class GameScene extends Phaser.Scene {
     for (const m of marks) g.lineBetween(x - w / 2 + w * m, y - h / 2 - 4, x - w / 2 + w * m, y + h / 2 + 4);
     const id = boss.bossId!;
     this.bossBarText.setText(t(`boss${id.charAt(0).toUpperCase()}${id.slice(1)}` as TextKey)).setVisible(true);
+    // сообщение о неудачном действии встаёт под полосу (этап 8, п. 9)
+    this.panel.setToastBelow(this.bossBarRect().y + this.bossBarRect().h / 2);
+  }
+
+  /** Полоса босса на экране вместе с именем над ней: центр и размер (для сообщения под ней и для проверок). */
+  private bossBarRect(): { visible: boolean; x: number; y: number; w: number; h: number } {
+    const { x, y, w, h } = BOSS_BAR;
+    const visible = this.bossBarGfx?.visible ?? false;
+    const top = Math.min(y - h / 2 - 3, y - h / 2 - 2 - (this.bossBarText?.height ?? 0));
+    const bottom = y + h / 2 + 4; // рамка и отметки фаз выступают на 3–4 px
+    const width = Math.max(w + 6, this.bossBarText?.width ?? 0);
+    return { visible, x, y: (top + bottom) / 2, w: width, h: bottom - top };
   }
 
   /** Перед волной с номером `index` (с нуля): если в ней выходит тип бактерий, который игрок ещё не встречал, пауза перед ней длиннее (уведомления о типе нет). */
