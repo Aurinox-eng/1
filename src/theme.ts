@@ -1,3 +1,4 @@
+import type Phaser from 'phaser';
 import type { CONFIG } from './config';
 import { PILL_EYES_OFF } from './debug';
 
@@ -7,6 +8,33 @@ import { PILL_EYES_OFF } from './debug';
  */
 export const BIG_TEXT = true;
 export const fs = (now: number, plan: number): number => (BIG_TEXT ? plan : now);
+
+/**
+ * Наименьший размер надписи на экране игры, пикселей (этап 8, п. 1, вариант А — решение владельца 20 ноября 2026, сообщение 1, п. 6): на телефоне 844 × 390 экран игры уменьшен в
+ * 390 / 720 = 0,54 раза, 21 px игры ≈ 11,4 точки — не меньше 11 pt. Действующий размер — шрифт × масштаб надписи: сжимать надпись мельче нельзя, длинная строка переносится.
+ */
+export const MIN_FONT = 21;
+/** Мелкие надписи (числа в карточке башни, подписи карточек списка, кнопка «Начать волну», строки Альманаха), пикселей: ровно нижний предел. */
+export const SMALL_FONT = MIN_FONT;
+
+/**
+ * Уместить надпись в ширину `maxW` (пикселей экрана игры при масштабе 1): сначала сжатие, но не мельче `MIN_FONT`; не хватает — перенос по словам (строки по центру, если `center`).
+ * Слово длиннее строки сжимается до ширины, как раньше (редкий случай; в проверке `fonts` его видно).
+ */
+export function fitText(text: Phaser.GameObjects.Text, maxW: number, center = true): void {
+  text.setScale(1).setWordWrapWidth(null);
+  if (text.width <= maxW) return;
+  const raw = text.style.fontSize;
+  const size = typeof raw === 'number' ? raw : parseFloat(raw);
+  const least = Math.min(1, MIN_FONT / size);
+  if (maxW / text.width >= least) {
+    text.setScale(maxW / text.width);
+    return;
+  }
+  text.setWordWrapWidth(maxW / least);
+  if (center) text.setAlign('center');
+  text.setScale(Math.max(least, Math.min(1, maxW / text.width)));
+}
 
 type Kind = keyof typeof CONFIG.types;
 

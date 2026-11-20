@@ -30,7 +30,7 @@ import { gameplay } from '../sdk';
 import { sfx } from '../sound';
 import { wardBlocks } from '../ward';
 import { computeStats, MAX_TOWER_LEVEL, mergeCap, rankCap, mutationById, mutationOptions, mutationStacks, towerPrice, type TowerStats } from '../towerStats';
-import { COLORS, FONT, TEXT_COLORS, fs } from '../theme';
+import { COLORS, FONT, TEXT_COLORS, fitText, fs } from '../theme';
 import { FPS_ENABLED, FpsMeter, frameReport, installFrameStats } from '../perf';
 import { CONDITION_ICON, Panel, TOP_H, VIEW } from '../ui/Panel';
 import { SettingsWindow } from '../ui/SettingsWindow';
@@ -419,7 +419,8 @@ export class GameScene extends Phaser.Scene {
     this.cameras.main.setBackgroundColor(COLORS.background);
 
     // Мир: карта и всё, что на ней. Камера двигает и масштабирует этот контейнер; панель лежит поверх и не двигается.
-    this.world = this.add.container(0, 0);
+    // имя — для перечня надписей режима проверки (`src/qaFonts.ts`: надписи мира карты масштабируются вместе с камерой карты)
+    this.world = this.add.container(0, 0).setName('world');
     const mapLayer = this.add.container(0, 0);
     this.puddleLayer = this.add.container(0, 0);
     this.ghostLayer = this.add.container(0, 0);
@@ -2669,7 +2670,7 @@ export class GameScene extends Phaser.Scene {
     for (const { row, text } of extra) {
       const r = rows[row];
       const line = this.add.text(W / 2, H / 2 + r.y, text, this.textStyle(r.size, r.color)).setOrigin(0.5);
-      if (line.width > W - 100) line.setScale((W - 100) / line.width); // длинная строка (названия бактерий и башен) сжимается, а не выходит за экран
+      fitText(line, W - 100); // длинная строка (названия бактерий и башен) сжимается, но не мельче 21 px, дальше переносится — не выходит за экран
       items.push(line);
     }
     let bottom = 0;

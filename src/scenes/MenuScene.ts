@@ -5,7 +5,7 @@ import { attemptLog, dnaAtCap, hasProgress, metaDna, resetProgress } from '../me
 import { copyText } from '../attempt';
 import { setCurrentLevel } from '../progress';
 import { addButton, setScreenInfo, textStyle, type Rect } from '../screens';
-import { COLORS, TEXT_COLORS, fs } from '../theme';
+import { COLORS, MIN_FONT, TEXT_COLORS, fs } from '../theme';
 import { SettingsWindow } from '../ui/SettingsWindow';
 
 const { width: W, height: H } = CONFIG.screen;
@@ -100,7 +100,7 @@ export class MenuScene extends Phaser.Scene {
     }
 
     // Знак авторского права внизу по центру: ниже кнопки «Альманах» (низ — y 678), над краем экрана остаётся запас
-    const copyright = this.add.text(W / 2, H - 18, t('copyright'), textStyle(20, TEXT_COLORS.soft, false)).setOrigin(0.5);
+    const copyright = this.add.text(W / 2, H - 18, t('copyright'), textStyle(MIN_FONT, TEXT_COLORS.soft, false)).setOrigin(0.5);
     setScreenInfo(() =>
       this.scene.isActive()
         ? { scene: 'menu', buttons: { play, upgrades, almanac, settings: settingsBtn, ...(reset ? { reset } : {}), ...(copyAll ? { copyAll } : {}), ...(dialog ? { resetYes: dialog.yes, resetNo: dialog.no } : {}), ...(settingsWin ? settingsWin.buttons() : {}) }, texts: [title.text, balance.text, ...(dialog ? dialog.texts : []), ...(settingsWin ? settingsWin.info().texts : [])], labels: { copyright: { x: copyright.x, y: copyright.y, w: copyright.width, h: copyright.height }, ...(dialog ? { resetPlate: dialog.plate } : {}) } }

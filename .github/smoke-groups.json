@@ -6,9 +6,9 @@
     "towers_only": ""
   },
   {
-    "group": "Экран на английском, клетки, граф (desktop-en, phone-en, rules, graph)",
+    "group": "Экран на английском, клетки, граф (desktop-en, phone-en, rules, graph, fonts)",
     "key": "screen-en",
-    "scenarios": "desktop-en phone-en rules graph names ranks",
+    "scenarios": "desktop-en phone-en rules graph names ranks fonts",
     "towers_only": ""
   },
   {

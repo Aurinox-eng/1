@@ -168,7 +168,7 @@ if (['stage-1', 'stage-1b', 'stage-1b-qa', 'td-1-mockup', 'tmp'].includes(tag)) 
   process.exit(2);
 }
 
-const SCENARIOS = ['desktop-ru', 'phone-ru', 'desktop-en', 'phone-en', 'rules', 'graph', 'combat', 'dash', 'split', 'spore', 'armored', 'intro', 'lose-ru', 'lose-en', 'win-ru', 'win-en', 'towers', 'card', 'merge', 'mutations', 'sell', 'special', 'danger', 'rotate', 'production', 'fullgame', 'locked', 'strip', 'almanac', 'almanac-pause', 'damage-numbers', 'sell-gap', 'restart-button', 'deflation', 'camera-fit', 'colors', 'meta-save', 'meta-dna', 'meta-shop', 'meta-effects', 'tree-effects', 'tree-shop', 'level-waves', 'progress-save', 'stars', 'menu-flow', 'menu-reset', 'levels-lock', 'step-dps', 'sound', 'sdk', 'lose-line', 'attempt-line', 'toast-queue', 'toast-boss', 'keys', 'settings', 'shake', 'bosses', 'level2', 'wards', 'spiral-cap', 'marks', 'menu-exit', 'resume-tap', 'two-tabs', 'treemock', 'faces', 'real-game', 'dna-cap', 'xp', 'names', 'ranks']
+const SCENARIOS = ['desktop-ru', 'phone-ru', 'desktop-en', 'phone-en', 'rules', 'graph', 'combat', 'dash', 'split', 'spore', 'armored', 'intro', 'lose-ru', 'lose-en', 'win-ru', 'win-en', 'towers', 'card', 'merge', 'mutations', 'sell', 'special', 'danger', 'rotate', 'production', 'fullgame', 'locked', 'strip', 'almanac', 'almanac-pause', 'damage-numbers', 'sell-gap', 'restart-button', 'deflation', 'camera-fit', 'colors', 'meta-save', 'meta-dna', 'meta-shop', 'meta-effects', 'tree-effects', 'tree-shop', 'level-waves', 'progress-save', 'stars', 'menu-flow', 'menu-reset', 'levels-lock', 'step-dps', 'sound', 'sdk', 'lose-line', 'attempt-line', 'toast-queue', 'toast-boss', 'keys', 'settings', 'fonts', 'shake', 'bosses', 'level2', 'wards', 'spiral-cap', 'marks', 'menu-exit', 'resume-tap', 'two-tabs', 'treemock', 'faces', 'real-game', 'dna-cap', 'xp', 'names', 'ranks']
 const only = args.only === undefined ? null : String(args.only);
 if (only !== null && !SCENARIOS.includes(only)) {
   console.error(`Неизвестный сценарий --only=${only}. Есть: ${SCENARIOS.join(', ')}`);
@@ -2562,6 +2562,97 @@ async function runSettings(browser, baseUrl) {
   check(`${p} Пробел при открытом окне продолжает игру (${s.state}) и закрывает окно (${s.settingsOpen})`, s.state === 'playing' && !s.settingsOpen && (await info(game.page)).open === false, JSON.stringify({ state: s.state, open: s.settingsOpen }));
   await game.page.close();
   await context.close();
+}
+
+/**
+ * Размер надписей (этап 8, п. 1, вариант А; docs/stage-8-plan-2026-11-19.md): на телефоне 844×390 (экран игры в 0,54 раза меньше) все видимые надписи меню, окна «Настройки», выбора уровня,
+ * «Улучшений», Альманаха (все вкладки), боя (старт, карточка башни, выбор мутации, Шприц с поворотом луча, полоса босса и сообщение, пауза, «Настройки» с паузы) и конца уровня — не мельче
+ * 21 px экрана игры (шрифт × масштаб надписи × приближение; перечень — `window.__pvbTexts()`, src/qaFonts.ts), русский и английский. Надписи мира карты (числа урона, «+монеты», «!» над башней)
+ * масштабируются вместе с картой и в счёт не идут.
+ */
+async function runFonts(browser, baseUrl) {
+  const MIN = 21;
+  for (const lang of ['ru', 'en']) {
+    const p = `[надписи не мельче ${MIN} px, телефон 844×390, ${lang}]`;
+    const context = await newDeviceContext(browser, VIEWPORTS.phone, lang);
+    const audit = async (page, where) => {
+      await frames(page, 3);
+      const list = await page.evaluate(() => window.__pvbTexts());
+      const small = list.filter((x) => !x.world && x.effective < MIN - 1e-6);
+      check(`${p} ${where}: надписей ${list.filter((x) => !x.world).length}, мельче ${MIN} px — ${small.length}`, list.length > 0 && small.length === 0, small.slice(0, 6).map((x) => `«${x.text.slice(0, 40)}» ${x.size}px × ${f2(x.scale)} = ${f1(x.effective)}`).join('; '));
+    };
+    // ---- меню, «Настройки», выбор уровня, «Улучшения», Альманах
+    let app = await openMenu(context, baseUrl, p, { isTouch: true });
+    let u = await app.ui();
+    await audit(app.page, 'меню');
+    await app.tapRect(u.buttons.settings);
+    u = await app.waitButton('menu', 'settingsClose', 'окно «Настройки»');
+    await audit(app.page, 'меню, окно «Настройки»');
+    await app.tapRect(u.buttons.settingsClose);
+    await sleep(300);
+    u = await app.ui();
+    await app.tapRect(u.buttons.play);
+    await app.waitUi('levels', 'выбор уровня');
+    await audit(app.page, 'выбор уровня');
+    await app.page.close();
+    app = await openMenu(context, baseUrl, p, { isTouch: true });
+    u = await app.ui();
+    await app.tapRect(u.buttons.upgrades);
+    await app.waitUi('upgrades', '«Улучшения»');
+    await sleep(500);
+    await audit(app.page, '«Улучшения»');
+    await app.page.close();
+    app = await openMenu(context, baseUrl, p, { isTouch: true });
+    u = await app.ui();
+    await app.tapRect(u.buttons.almanac);
+    u = await app.waitUi('almanac', 'Альманах');
+    await audit(app.page, 'Альманах, башни');
+    for (const tab of ['bacteria', 'bosses']) {
+      if (!u.buttons[tab]) continue;
+      await app.tapRect(u.buttons[tab]);
+      await sleep(300);
+      await audit(app.page, `Альманах, вкладка ${tab}`);
+    }
+    await app.page.close();
+    // ---- бой
+    const game = await openGame(context, baseUrl, p, { isTouch: true, query: ALL_TOWERS, cfg: 'waves.firstDelaySec:900,economy.startCoins:5000,lives.start:5000,bacteria.baseSpeed:20' });
+    await audit(game.page, 'бой, старт');
+    await game.placeTowersOf('pill', [FREE.a]);
+    await game.selectTower('pill');
+    let s = await selectPlaced(game, FREE.a);
+    await audit(game.page, `бой, карточка башни (${s.ui.card.visible})`);
+    await game.page.evaluate(([c, r]) => window.__pvb.upgradeTower(c, r, []), FREE.a);
+    await audit(game.page, 'бой, выбор мутации');
+    s = await game.state();
+    if (s.ui.card.picks[0].visible) await tapCard(game, 'pick', 0);
+    await audit(game.page, 'бой, карточка с мутацией');
+    await game.page.evaluate(([c, r]) => window.__pvb.placeTower('syringe', c, r, 1), FREE.b);
+    s = await selectPlaced(game, FREE.b);
+    await audit(game.page, 'бой, карточка Шприца');
+    await game.input.tap(game.g(s.ui.card.close.x, s.ui.card.close.y));
+    await game.page.evaluate(() => window.__pvb.spawnBoss('tartar'));
+    await waitFor(game.page, (x) => x.bossBar.visible, 20000, 'полоса босса');
+    await game.selectTower('pill');
+    await game.tapCell(...PATH[0]); // на дорожке строить нельзя — сообщение
+    await audit(game.page, 'бой, полоса босса и сообщение');
+    s = await game.state();
+    await game.input.tap(game.g(s.ui.pauseButton.x, s.ui.pauseButton.y));
+    await waitFor(game.page, (x) => x.state === 'paused', 10000, 'пауза');
+    await sleep(500);
+    await audit(game.page, 'пауза');
+    s = await game.state();
+    await game.input.tap(game.g(s.pauseSettingsButton.x, s.pauseSettingsButton.y));
+    await waitFor(game.page, (x) => x.settingsOpen, 10000, 'окно «Настройки» с паузы');
+    await audit(game.page, 'пауза, окно «Настройки»');
+    await game.page.close();
+    // ---- конец уровня
+    const end = await openGame(context, baseUrl, p, { isTouch: true, speed: 4, cfg: 'waves.firstDelaySec:1,waves.total:1,waves.list.0.coccus:6,bacteria.baseSpeed:300,towers.pill.damage:0,lives.start:1' });
+    await waitFor(end.page, (x) => x.state === 'lost', WAIT_MS, 'проигрыш');
+    await sleep(600);
+    await audit(end.page, 'конец уровня');
+    await end.page.close();
+    await context.close();
+  }
 }
 
 /** SDK Яндекс Игр (этап 9, раздел 1 плана): подставной `window.YaGames` — `LoadingAPI.ready()` один раз, язык из SDK главнее языка браузера, пауза площадки глушит звук и ставит партию на паузу, возобновление возвращает звук и снимает паузу площадки (пауза игрока кнопкой остаётся), разметка GameplayAPI. Без SDK — язык браузера и ни одного вызова. */
@@ -11096,6 +11187,7 @@ try {
   if (wants('attempt-line')) await safe('[строка итога]', () => runAttemptLine(browser, qaServer.url));
   if (wants('toast-queue')) await safe('[очередь уведомлений]', () => runToastQueue(browser, qaServer.url));
   if (wants('keys')) await safe('[клавиши]', () => runKeys(browser, qaServer.url));
+  if (wants('fonts')) await safe('[надписи не мельче 21 px]', () => runFonts(browser, qaServer.url));
   if (wants('settings')) await safe('[окно «Настройки»]', () => runSettings(browser, qaServer.url));
   if (wants('toast-boss')) await safe('[сообщение под полосой босса]', () => runToastBoss(browser, qaServer.url));
   if (wants('shake')) await safe('[тряска только карты]', () => runShake(browser, qaServer.url));
