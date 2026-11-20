@@ -12,9 +12,9 @@
     "towers_only": ""
   },
   {
-    "group": "Бактерии и бой (combat, dash, split, spore, armored, intro, danger, rotate, step-dps, sound, sdk)",
+    "group": "Бактерии и бой (combat, dash, split, spore, armored, intro, danger, rotate, step-dps, sound, sdk, settings)",
     "key": "bacteria",
-    "scenarios": "combat dash split spore armored intro danger rotate step-dps sound sdk",
+    "scenarios": "combat dash split spore armored intro danger rotate step-dps sound sdk settings",
     "towers_only": ""
   },
   {

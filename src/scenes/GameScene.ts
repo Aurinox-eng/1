@@ -33,6 +33,7 @@ import { computeStats, MAX_TOWER_LEVEL, mergeCap, rankCap, mutationById, mutatio
 import { COLORS, FONT, TEXT_COLORS, fs } from '../theme';
 import { FPS_ENABLED, FpsMeter, frameReport, installFrameStats } from '../perf';
 import { CONDITION_ICON, Panel, TOP_H, VIEW } from '../ui/Panel';
+import { SettingsWindow } from '../ui/SettingsWindow';
 
 const { width: W, height: H } = CONFIG.screen;
 /** Самое сильное отдаление камеры: карта помещается целиком и по ширине, и по высоте (≈ 0,499). */
@@ -225,7 +226,9 @@ export class GameScene extends Phaser.Scene {
   private pauseResumeButton: { x: number; y: number; w: number; h: number } | null = null;
   private pauseMenuButton: { x: number; y: number; w: number; h: number } | null = null;
   private pauseAlmanacButton: { x: number; y: number; w: number; h: number } | null = null;
-  private pauseSoundButton: { x: number; y: number; w: number; h: number } | null = null;
+  private pauseSettingsButton: { x: number; y: number; w: number; h: number } | null = null;
+  /** Окно «Настройки», открытое с паузы (null — закрыто). */
+  private settingsWindow: SettingsWindow | null = null;
   private pauseRestartButton: { x: number; y: number; w: number; h: number } | null = null;
   /** (читает снимок режима проверки, qaTools) */ dnaGained = 0;
   private dnaAwarded = false;
@@ -337,7 +340,8 @@ export class GameScene extends Phaser.Scene {
     this.pauseResumeButton = null;
     this.pauseMenuButton = null;
     this.pauseAlmanacButton = null;
-    this.pauseSoundButton = null;
+    this.pauseSettingsButton = null;
+    this.settingsWindow = null;
     this.pauseRestartButton = null;
     setScreenInfo(null);
     this.dnaGained = 0;
@@ -2196,7 +2200,7 @@ export class GameScene extends Phaser.Scene {
 
   /**
    * Клавиши на компьютере (этап 8, п. 2; решение владельца 20 ноября 2026, сообщение 1, п. 6): Пробел — пауза и продолжение (как кнопка паузы), F — следующая скорость по кругу (как кнопка скорости),
-   * Esc — закрыть открытое окно (карточку башни, окно паузы). Только в бою (обработчик — у сцены боя и снимается вместе с ней); в бою текстовых подсказок нет — список клавиш в окне «Настройки».
+   * Esc — закрыть открытое окно (окно «Настройки», карточку башни, окно паузы). Только в бою (обработчик — у сцены боя и снимается вместе с ней); в бою текстовых подсказок нет — список клавиш в окне «Настройки».
    * Клавиши — по месту на клавиатуре (`code`), поэтому F работает и в русской раскладке; удержание клавиши (автоповтор) не переключает много раз.
    */
   private bindKeys(): void {
@@ -2215,7 +2219,9 @@ export class GameScene extends Phaser.Scene {
     } else if (code === 'KeyF') {
       this.cycleSpeed();
     } else if (code === 'Escape') {
-      if (this.state === 'paused') {
+      if (this.state === 'paused' && this.settingsWindow) {
+        this.settingsWindow.close();
+      } else if (this.state === 'paused') {
         if (performance.now() >= this.resumeAllowedAt) this.togglePause();
       } else if (this.state === 'playing' && this.panel.cardVisible) {
         this.deselectTower();
@@ -2242,7 +2248,9 @@ export class GameScene extends Phaser.Scene {
     if (isPortraitPhone()) return;
     const now = performance.now();
     // Тап по кнопке меню паузы игру сам не возобновляет (кнопка делает своё дело; «Продолжить» возобновляет сама)
-    for (const b of [this.pauseResumeButton, this.pauseMenuButton, this.pauseAlmanacButton, this.pauseSoundButton, this.pauseRestartButton]) {
+    // окно «Настройки» поверх паузы: нажатия забирает оно само (тап мимо его кнопок игру не продолжает)
+    if (this.settingsWindow) return;
+    for (const b of [this.pauseResumeButton, this.pauseMenuButton, this.pauseAlmanacButton, this.pauseSettingsButton, this.pauseRestartButton]) {
       if (this.state === 'paused' && b && pointer && Math.abs(pointer.x - b.x) <= b.w / 2 && Math.abs(pointer.y - b.y) <= b.h / 2) return;
     }
     if (this.state === 'paused' && now >= this.resumeAllowedAt) this.togglePause();
@@ -2345,21 +2353,20 @@ export class GameScene extends Phaser.Scene {
       this.resumeAllowedAt = performance.now() + 250;
       this.ghost.setVisible(false);
       this.showOverlay(t('paused'), TEXT_COLORS.accent, '');
-      // Меню паузы: «Продолжить» по центру, ниже два ряда по 76 px — «Альманах» и «Звук», затем «Заново» и «В меню»; тап по свободному месту экрана тоже продолжает игру
+      // Меню паузы: «Продолжить» по центру, ниже два ряда по 76 px — «Альманах» и «Настройки» (на месте прежней кнопки «Звук»), затем «Заново» и «В меню»; тап по свободному месту экрана тоже продолжает игру
       this.pauseResumeButton = this.addEndButton(W / 2, H / 2 + 20, 320, 76, t('resumeBtn'), 0x2a8a4a, COLORS.merge, () => {
         if (performance.now() >= this.resumeAllowedAt) this.togglePause();
       });
       this.pauseAlmanacButton = this.addEndButton(W / 2 - 180, H / 2 + 110, 320, 76, t('almanacBtn'), 0x2a3550, 0x4a5c82, () => this.openAlmanac());
-      const sound = this.addLabeledButton(W / 2 + 180, H / 2 + 110, 320, 76, t(sfx.muted ? 'soundOff' : 'soundOn'), 0x2a3550, 0x4a5c82, () => {
-        sfx.setMuted(!sfx.muted);
-        sound.label.setText(t(sfx.muted ? 'soundOff' : 'soundOn'));
-      }, 30);
-      this.pauseSoundButton = sound.rect;
+      this.pauseSettingsButton = this.addEndButton(W / 2 + 180, H / 2 + 110, 320, 76, t('settingsTitle'), 0x2a3550, 0x4a5c82, () => this.openSettings(), 30);
       this.pauseRestartButton = this.addEndButton(W / 2 - 180, H / 2 + 200, 320, 76, t('restart'), 0x2a3550, 0x4a5c82, () => {
         if (performance.now() >= this.resumeAllowedAt) this.scene.restart();
       });
       this.pauseMenuButton = this.addEndButton(W / 2 + 180, H / 2 + 200, 320, 76, t('toMenu'), 0x2a3550, 0x4a5c82, () => this.leaveToMenu());
     } else if (this.state === 'paused') {
+      // Пробел на паузе продолжает игру и при открытом окне «Настройки»: окно закрывается вместе с паузой
+      this.settingsWindow?.close(false);
+      this.settingsWindow = null;
       gameplay(true);
       this.pausedByPlatform = false;
       this.state = 'playing';
@@ -2369,9 +2376,17 @@ export class GameScene extends Phaser.Scene {
       this.pauseResumeButton = null;
       this.pauseMenuButton = null;
       this.pauseAlmanacButton = null;
-      this.pauseSoundButton = null;
+      this.pauseSettingsButton = null;
       this.pauseRestartButton = null;
     }
+  }
+
+  /** «Настройки» с паузы (этап 8): окно поверх меню паузы; «Закрыть» и Esc возвращают на паузу, Пробел продолжает игру. */
+  private openSettings(): void {
+    if (this.state !== 'paused' || performance.now() < this.resumeAllowedAt || this.settingsWindow) return;
+    this.settingsWindow = new SettingsWindow(this, 300, () => {
+      this.settingsWindow = null;
+    });
   }
 
   // ---------------------------------------------------------------- плашки с описанием (игра на паузе)

@@ -12,6 +12,7 @@ import { accentAt, hasHighArt, HIGH_ACCENT, rankMarkKey, RANK_BOX, highBarrelKey
 import { darken, isPilotTower, lighten, pilotBarrelKey, pilotBaseKey, pilotEyesKey, pilotPupilKey, pilotTopKey, PILL_EYE_POS, EYES_BOX, PUPIL_BOX, RECOIL_PX, RECOIL_SEC } from './pilotTowerArt';
 import { computeStats, mutationOptions, rankOf, unlockedTiers, type TowerKey, type TowerStats } from '../towerStats';
 import { wardBlocks } from '../ward';
+import { settings } from '../settings';
 import type { Bacterium } from './Bacterium';
 
 export type TowerId = TowerKey;
@@ -1739,8 +1740,10 @@ export class Tower {
   /** Подсветка «с этой башней можно слить». */
   setMergeCandidate(on: boolean): void {
     this.mergeRing.setVisible(on);
-    if (on) this.mergeTween.resume();
+    // режим «Без вспышек и тряски» (этап 8, п. 3): кольцо не мигает, горит ровно
+    if (on && !settings.calm) this.mergeTween.resume();
     else this.mergeTween.pause();
+    if (on && settings.calm) this.mergeRing.setAlpha(1);
   }
 
   /** Повернуть луч на один шаг (45°): dir 1 — по часовой стрелке, -1 — против. Для башен без луча ничего не делает. */

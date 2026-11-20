@@ -3,6 +3,7 @@ import { CONFIG } from '../config';
 import { t, type TextKey } from '../i18n';
 import { createTowerArt, type TowerId } from '../objects/Tower';
 import { isTowerOpen } from '../progress';
+import { settings } from '../settings';
 import { towerPrice } from '../towerStats';
 import { COLORS, FONT, TEXT_COLORS, BIG_TEXT, fs } from '../theme';
 import { drawPlate, roundButton, waveButton as waveButtonTexture } from './panelArt';
@@ -345,12 +346,12 @@ export class Panel {
     this.waveBtnLabel.setY(showBonus ? CTRL_Y - 12 : CTRL_Y);
   }
 
-  /** Подсказка «◀ Организм»: показывать, когда организм за краем экрана; danger — бактерия близко (мигает). */
+  /** Подсказка «◀ Организм»: показывать, когда организм за краем экрана; danger — бактерия близко (мигает; в режиме «Без вспышек и тряски» — ровно горит красным). */
   setChip(visible: boolean, danger: boolean, timeSec: number): void {
     this.chip.setVisible(visible);
     if (!visible) return;
     if (danger !== this.chipDanger) this.drawChip(danger);
-    this.chip.setAlpha(danger ? 0.65 + 0.35 * Math.sin(timeSec * 9) : 0.92);
+    this.chip.setAlpha(danger ? (settings.calm ? 1 : 0.65 + 0.35 * Math.sin(timeSec * 9)) : 0.92);
   }
 
   /** Подсказка «◀ Организм» для проверок: видна ли, тревога ли, прозрачность сейчас и цвет заливки (проверка читает это, а не пиксели снимка экрана). */

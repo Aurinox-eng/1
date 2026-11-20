@@ -1,11 +1,12 @@
 /**
  * Звуки игры — не файлы, а короткие тоны, которые «рисуются» кодом (WebAudio).
- * Громкость — в config.ts (feedback.soundVolume, 0 = звука нет).
+ * Громкость — в config.ts (feedback.soundVolume, 0 = звука нет), умноженная на ползунок «Громкость» окна «Настройки» (`src/settings.ts`, 0 % — тишина).
  *
  * Браузеры разрешают звук только после касания или клика, поэтому звуковая система создаётся
  * при первом таком действии игрока. Так в консоли нет предупреждений, а звук работает и на iPhone.
  */
 import { CONFIG } from './config';
+import { onSettingsChange, settings } from './settings';
 
 type ToneOptions = {
   from: number;
@@ -18,17 +19,6 @@ type ToneOptions = {
   delayMs?: number;
 };
 
-const MUTE_KEY = 'pvb.sound';
-
-/** Звук выключен игроком (кнопка «Звук» на паузе и в меню): хранится отдельным ключом, не в сохранении прогресса. */
-function loadMuted(): boolean {
-  try {
-    return window.localStorage.getItem(MUTE_KEY) === '0';
-  } catch {
-    return false;
-  }
-}
-
 class Sfx {
   private ctx: AudioContext | null = null;
   /** Общий усилитель и компрессор перед выходом: десятки одновременных тонов поздних волн не складываются в треск. */
@@ -39,8 +29,6 @@ class Sfx {
   private pending: { at: number; opts: ToneOptions }[] = [];
   /** Сколько звуков сыграно (для проверок). */
   played = 0;
-  /** Выключен ли звук игроком. */
-  muted = loadMuted();
   /** Остановлен ли звук площадкой (`game_api_pause`, требование 1.3): `AudioContext` приостановлен, браузерные события ввода его не возобновляют. */
   private suspended = false;
   /** Когда (время аудио, секунды) последний раз играл звук каждого вида частых звуков. */
@@ -49,6 +37,7 @@ class Sfx {
   private ends: number[] = [];
 
   constructor() {
+    onSettingsChange(() => this.applyVolume());
     // Именно эти события браузеры считают «действием игрока» (касание начинается, а разрешает звук — его окончание)
     for (const type of ['pointerup', 'touchend', 'mousedown', 'keydown', 'click']) {
       window.addEventListener(type, () => this.unlock(), { capture: true, passive: true });
@@ -59,15 +48,24 @@ class Sfx {
     return this.ctx?.state ?? 'none';
   }
 
-  /** Включить или выключить звук (запоминается между запусками). */
-  setMuted(on: boolean): void {
-    this.muted = on;
-    if (this.out && this.ctx) this.out.gain.setTargetAtTime(on ? 0 : 1, this.ctx.currentTime, 0.01);
-    try {
-      window.localStorage.setItem(MUTE_KEY, on ? '0' : '1');
-    } catch {
-      /* не страшно: просто не запомнится */
-    }
+  /** Звук выключен игроком: громкость 0 % (окно «Настройки»). */
+  get muted(): boolean {
+    return settings.volume <= 0;
+  }
+
+  /** Доля громкости ползунка 0–1 (общий усилитель перед компрессором). */
+  get volume(): number {
+    return settings.volume / 100;
+  }
+
+  /** Громкость общего усилителя сейчас (null — звук ещё не запущен): для проверок. */
+  get gain(): number | null {
+    return this.out ? this.out.gain.value : null;
+  }
+
+  /** Новая громкость ползунка: общий усилитель плавно (`settings.volumeRampSec`) идёт к ней — без щелчков; уже запланированные тоны тоже тише или громче (0 % — замолкают). */
+  private applyVolume(): void {
+    if (this.out && this.ctx) this.out.gain.setTargetAtTime(this.volume, this.ctx.currentTime, CONFIG.settings.volumeRampSec);
   }
 
   /**
@@ -110,7 +108,7 @@ class Sfx {
         const compressor = this.ctx.createDynamicsCompressor();
         compressor.connect(this.ctx.destination);
         this.out = this.ctx.createGain();
-        this.out.gain.value = this.muted ? 0 : 1;
+        this.out.gain.value = this.volume;
         this.out.connect(compressor);
         this.master = this.out;
       }

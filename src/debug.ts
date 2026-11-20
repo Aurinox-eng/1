@@ -203,7 +203,8 @@ export interface DebugSnapshot {
   pauseResumeButton: { x: number; y: number; w: number; h: number } | null;
   pauseMenuButton: { x: number; y: number; w: number; h: number } | null;
   pauseAlmanacButton: { x: number; y: number; w: number; h: number } | null;
-  pauseSoundButton: { x: number; y: number; w: number; h: number } | null;
+  /** «Настройки» на паузе (этап 8: на месте прежней кнопки «Звук»). */
+  pauseSettingsButton: { x: number; y: number; w: number; h: number } | null;
   pauseRestartButton: { x: number; y: number; w: number; h: number } | null;
   /** Фактические числа роста прочности текущего уровня, с которыми идёт партия (после подмены `?qa&cfg=`): бот пишет их в журнал и сверяет с `--cfg`, чтобы подмена не прошла незамеченной (не на тот уровень, не тем числом). */
   levelGrowth: { level: number; perWave: number; fromWave: number; latePerWave: number; lateFromWave: number; hpFactor: number; hpScale: number };
@@ -355,9 +356,12 @@ export interface DebugSnapshot {
   /** Сколько обработчиков нажатия навешено на сцену (при перезапуске не должно расти — иначе утечка). */
   pointerListeners: number;
   /** Сколько раз сработали вспышка, частицы, «+монеты», кольцо постановки, красная вспышка потери жизни, кольцо глушения башни, взрыв шипучки, удар луча шприца и всплеск лужи. */
-  effects: { flashes: number; bursts: number; popups: number; damageNumbers: number; placements: number; lifeLosses: number; lifeFlashes: number; zaps: number; blasts: number; beams: number; splats: number; frosts: number };
+  effects: { flashes: number; bursts: number; popups: number; damageNumbers: number; placements: number; lifeLosses: number; lifeFlashes: number; zaps: number; blasts: number; beams: number; splats: number; frosts: number; calmMarks: number };
   /** Звук: состояние аудио («running» — играет) и сколько звуков сыграно с загрузки страницы. */
-  sound: { state: string; played: number; muted: boolean };
+  sound: { state: string; played: number; muted: boolean; volume: number; gain: number | null };
+  /** Окно «Настройки» на паузе открыто; режим «Без вспышек и тряски» (этап 8). */
+  settingsOpen: boolean;
+  calm: boolean;
 }
 
 /** Сеть дорожек для проверок: рёбра-кривые (точки в пикселях мира), входы (номера рёбер) и выходы (узлы). */
