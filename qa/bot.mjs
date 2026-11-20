@@ -355,6 +355,8 @@ const REVIEW_V_STEPS = [['syringeA', 16], ['syringeB', 16], ['fizzA', 16], ['syr
 const REVIEW_EARLY_WAVE = 10;
 const REVIEW_EARLY_PILLS = 8;
 const REVIEW_FIRST_PILLS = 4;
+/** П3: бронебой первым на уровнях, где бронированные выходят раньше этой волны (на «Горле» — с 25-й). */
+const REVIEW_ARMORED_EARLY_WAVE = 25;
 const REVIEW_SYRUP_LEAD = 2;
 /** Покупки очков ДНК по отчёту (с. 71): узел и уровень, до которого он покупается, в порядке покупок за попытки 1–5. */
 const REVIEW_BUYS = [['towerSyrup', 1], ['towerFizz', 1], ['towerSyringe', 1], ['damage', 1], ['coins', 3], ['syringePower', 1], ['syrupPower', 1]];
@@ -1228,6 +1230,12 @@ function makePlayer({ world, rng, buttons, forced = null, mapId = null }) {
     if (tw.pending === 1) return tw.id === 'syringe' && REVIEW_SYRINGE_MUT ? MUT_IDS.syringe[1] : g.t1;
     const have = {};
     for (const other of view.towers) if (groupOf(other) === key) for (const id of other.picks ?? []) have[id] = (have[id] ?? 0) + 1;
+    // П3 (решение владельца 20 ноября 2026, сообщение 1, п. 4.1): на уровнях, где бронированные выходят раньше 25-й волны (план уровня, `plan.firstWave.armored`), бронебойный удар —
+    // первым (бронированного ранит только он, `armoredPierce`): у Ампулы первая мутация «Бронебой», у Таблеток группы «Бронебойная» — первой, затем «Скорострел». На «Горле» (бронированные с 25-й) — без изменений.
+    if (((view.s ?? view).plan?.firstWave?.armored ?? Infinity) < REVIEW_ARMORED_EARLY_WAVE) {
+      if (tw.id === 'ampule') return 'ampulePierce';
+      if (tw.id === 'pill' && g.t0.pillPierce && (have.pillPierce ?? 0) < g.t0.pillPierce) return 'pillPierce';
+    }
     return Object.entries(g.t0).sort((a, b) => b[1] - (have[b[0]] ?? 0) - (a[1] - (have[a[0]] ?? 0)))[0]?.[0] ?? null;
   };
   /** Расстояние башни до клетки её группы (для слияния: итог встаёт у клетки группы). */
@@ -1579,6 +1587,9 @@ async function playGame(browser, baseUrl, run, metaLevels = null, salt = '', lev
       const after = await pollUntil(page, (x) => x.mutationsPicked > before || x.state !== 'playing', 1000);
       if (after.mutationsPicked > before) {
         record.picks++;
+        // первая мутация с бронебоем (отчёт по П3: волна первого бронебойного удара); на игру не влияет
+        const pickedId = (MUTATION_IDS[tw.id]?.[tw.pending] ?? [])[index];
+        if (!record.first.pierce && /Pierce$/.test(pickedId ?? '')) record.first.pierce = { tower: tw.id, id: pickedId, wave: after.wave };
         return true;
       }
       record.anomalies.push(`мутация в ${tw.col},${tw.row}: кнопка варианта ${index} не сработала`);
