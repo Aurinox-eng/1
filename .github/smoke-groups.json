@@ -30,9 +30,9 @@
     "towers_only": "lamp,vitamin,mixed,swarm,runner,healer,regen,commander,brood,giant,leaper,phago,stealth,toxin,frost,patch,mutant,parasite,film,ch2bosses,ch2obstacles"
   },
   {
-    "group": "Карточка, слияние, мутации, «Продолжить» в режиме постройки (card, merge, mutations, sell, special, strip, sell-gap, resume-tap)",
+    "group": "Карточка, слияние, мутации, «Продолжить» в режиме постройки, клавиши (card, merge, mutations, sell, special, strip, sell-gap, resume-tap, keys)",
     "key": "card",
-    "scenarios": "card merge mutations sell special strip sell-gap resume-tap",
+    "scenarios": "card merge mutations sell special strip sell-gap resume-tap keys",
     "towers_only": ""
   },
   {

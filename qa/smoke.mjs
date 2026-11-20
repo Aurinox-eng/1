@@ -168,7 +168,7 @@ if (['stage-1', 'stage-1b', 'stage-1b-qa', 'td-1-mockup', 'tmp'].includes(tag)) 
   process.exit(2);
 }
 
-const SCENARIOS = ['desktop-ru', 'phone-ru', 'desktop-en', 'phone-en', 'rules', 'graph', 'combat', 'dash', 'split', 'spore', 'armored', 'intro', 'lose-ru', 'lose-en', 'win-ru', 'win-en', 'towers', 'card', 'merge', 'mutations', 'sell', 'special', 'danger', 'rotate', 'production', 'fullgame', 'locked', 'strip', 'almanac', 'almanac-pause', 'damage-numbers', 'sell-gap', 'restart-button', 'deflation', 'camera-fit', 'colors', 'meta-save', 'meta-dna', 'meta-shop', 'meta-effects', 'tree-effects', 'tree-shop', 'level-waves', 'progress-save', 'stars', 'menu-flow', 'menu-reset', 'levels-lock', 'step-dps', 'sound', 'sdk', 'lose-line', 'attempt-line', 'toast-queue', 'toast-boss', 'shake', 'bosses', 'level2', 'wards', 'spiral-cap', 'marks', 'menu-exit', 'resume-tap', 'two-tabs', 'treemock', 'faces', 'real-game', 'dna-cap', 'xp', 'names', 'ranks']
+const SCENARIOS = ['desktop-ru', 'phone-ru', 'desktop-en', 'phone-en', 'rules', 'graph', 'combat', 'dash', 'split', 'spore', 'armored', 'intro', 'lose-ru', 'lose-en', 'win-ru', 'win-en', 'towers', 'card', 'merge', 'mutations', 'sell', 'special', 'danger', 'rotate', 'production', 'fullgame', 'locked', 'strip', 'almanac', 'almanac-pause', 'damage-numbers', 'sell-gap', 'restart-button', 'deflation', 'camera-fit', 'colors', 'meta-save', 'meta-dna', 'meta-shop', 'meta-effects', 'tree-effects', 'tree-shop', 'level-waves', 'progress-save', 'stars', 'menu-flow', 'menu-reset', 'levels-lock', 'step-dps', 'sound', 'sdk', 'lose-line', 'attempt-line', 'toast-queue', 'toast-boss', 'keys', 'shake', 'bosses', 'level2', 'wards', 'spiral-cap', 'marks', 'menu-exit', 'resume-tap', 'two-tabs', 'treemock', 'faces', 'real-game', 'dna-cap', 'xp', 'names', 'ranks']
 const only = args.only === undefined ? null : String(args.only);
 if (only !== null && !SCENARIOS.includes(only)) {
   console.error(`Неизвестный сценарий --only=${only}. Есть: ${SCENARIOS.join(', ')}`);
@@ -2263,6 +2263,65 @@ async function runToastBoss(browser, baseUrl) {
     await game.page.close();
     await context.close();
   }
+}
+
+/**
+ * Клавиши на компьютере (этап 8, п. 2; docs/stage-8-plan-2026-11-19.md): Пробел — пауза и продолжение, F — следующая скорость по кругу (`ui.speeds`, как кнопка скорости), Esc — закрыть карточку башни
+ * и окно паузы. Удержание Пробела (автоповтор) паузу не переключает много раз.
+ */
+async function runKeys(browser, baseUrl) {
+  const p = '[клавиши]';
+  // скорости кнопки — список `ui.speeds` в config.ts ([1, 2, 3, 5])
+  const found = /\bspeeds:\s*\[([^\]]*)\]/.exec(fs.readFileSync(path.join(ROOT, 'src', 'config.ts'), 'utf8'));
+  const speeds = found ? found[1].split(',').map(Number) : [];
+  const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
+  const game = await openGame(context, baseUrl, p, { speed: 1, cfg: 'waves.firstDelaySec:900' });
+  const kb = game.page.keyboard;
+  const s0 = await game.state();
+  check(`${p} на старте партия идёт, скорость ×${s0.speed}`, s0.state === 'playing' && s0.speed === speeds[0], `${s0.state}, ×${s0.speed}`);
+  await kb.press('Space');
+  await sleep(350); // после паузы продолжить можно не раньше чем через 250 мс (защита от двойного нажатия)
+  const s1 = await game.state();
+  check(`${p} Пробел ставит паузу (${s1.state}), окно паузы с кнопкой «Продолжить»`, s1.state === 'paused' && s1.pauseResumeButton !== null, JSON.stringify({ state: s1.state, resume: s1.pauseResumeButton }));
+  await kb.press('Space');
+  await sleep(150);
+  const s2 = await game.state();
+  check(`${p} второй Пробел снимает паузу (${s2.state}), окна паузы нет`, s2.state === 'playing' && s2.pauseResumeButton === null, JSON.stringify({ state: s2.state, resume: s2.pauseResumeButton }));
+  await kb.down('Space');
+  await sleep(300);
+  // автоповтор браузера при удержании: события keydown с repeat = true (Playwright сам их не шлёт)
+  await game.page.evaluate(() => {
+    for (let i = 0; i < 3; i++) window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Space', key: ' ', keyCode: 32, repeat: true }));
+  });
+  await sleep(400);
+  await kb.up('Space');
+  await sleep(350);
+  const s3 = await game.state();
+  check(`${p} удержание Пробела — одна пауза, а не много переключений: ${s3.state}`, s3.state === 'paused', s3.state);
+  await kb.press('Escape');
+  await sleep(150);
+  const s4 = await game.state();
+  check(`${p} Esc закрывает окно паузы, партия идёт (${s4.state})`, s4.state === 'playing' && s4.pauseResumeButton === null, s4.state);
+  // F: следующая скорость по кругу, как кнопка скорости
+  const seen = [];
+  for (let i = 0; i < speeds.length; i++) {
+    await kb.press('f');
+    await sleep(80);
+    seen.push((await game.state()).speed);
+  }
+  const want = speeds.map((_, i) => speeds[(i + 1) % speeds.length]);
+  check(`${p} F переключает скорость по кругу: ${seen.map((x) => `×${x}`).join(' → ')} (нужно ${want.map((x) => `×${x}`).join(' → ')})`, JSON.stringify(seen) === JSON.stringify(want), JSON.stringify(seen));
+  // Esc закрывает карточку стоящей башни
+  await game.placeTowers([FREE.a]);
+  await game.selectTower('pill'); // снять выбор на панели
+  const s5 = await selectPlaced(game, FREE.a);
+  check(`${p} тап по башне открывает карточку`, s5.ui.card.visible && selectedIs(s5, FREE.a), JSON.stringify({ card: s5.ui.card.visible, sel: s5.selectedTower }));
+  await kb.press('Escape');
+  await sleep(150);
+  const s6 = await game.state();
+  check(`${p} Esc закрывает карточку башни (карточка ${s6.ui.card.visible}, выбрана ${JSON.stringify(s6.selectedTower)}), партия идёт (${s6.state})`, !s6.ui.card.visible && s6.selectedTower === null && s6.state === 'playing', JSON.stringify({ card: s6.ui.card.visible, sel: s6.selectedTower, state: s6.state }));
+  await game.page.close();
+  await context.close();
 }
 
 /**
@@ -10937,6 +10996,7 @@ try {
   if (wants('lose-line')) await safe('[строка проигрыша]', () => runLoseLine(browser, qaServer.url));
   if (wants('attempt-line')) await safe('[строка итога]', () => runAttemptLine(browser, qaServer.url));
   if (wants('toast-queue')) await safe('[очередь уведомлений]', () => runToastQueue(browser, qaServer.url));
+  if (wants('keys')) await safe('[клавиши]', () => runKeys(browser, qaServer.url));
   if (wants('toast-boss')) await safe('[сообщение под полосой босса]', () => runToastBoss(browser, qaServer.url));
   if (wants('shake')) await safe('[тряска только карты]', () => runShake(browser, qaServer.url));
   if (wants('step-dps')) await safe('[шаг игры и скорость]', () => runStepDps(browser, qaServer.url));

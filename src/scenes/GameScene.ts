@@ -463,6 +463,7 @@ export class GameScene extends Phaser.Scene {
       onRotate: (dir) => this.rotateSelected(dir),
       onCardClose: () => this.deselectTower(),
     });
+    this.bindKeys();
     this.panel.init(this.maxLives());
     this.panel.setSpeed(this.userSpeed);
     this.panel.setCoins(this.coins);
@@ -2190,6 +2191,35 @@ export class GameScene extends Phaser.Scene {
       window.localStorage.setItem('pvb.speed', String(this.userSpeed));
     } catch {
       /* не страшно: просто не запомнится */
+    }
+  }
+
+  /**
+   * Клавиши на компьютере (этап 8, п. 2; решение владельца 20 ноября 2026, сообщение 1, п. 6): Пробел — пауза и продолжение (как кнопка паузы), F — следующая скорость по кругу (как кнопка скорости),
+   * Esc — закрыть открытое окно (карточку башни, окно паузы). Только в бою (обработчик — у сцены боя и снимается вместе с ней); в бою текстовых подсказок нет — список клавиш в окне «Настройки».
+   * Клавиши — по месту на клавиатуре (`code`), поэтому F работает и в русской раскладке; удержание клавиши (автоповтор) не переключает много раз.
+   */
+  private bindKeys(): void {
+    const keyboard = this.input.keyboard;
+    if (!keyboard) return;
+    // Пробел не прокручивает страницу
+    keyboard.addCapture([Phaser.Input.Keyboard.KeyCodes.SPACE]);
+    keyboard.on('keydown', (event: KeyboardEvent) => {
+      if (!event.repeat) this.onKey(event.code);
+    });
+  }
+
+  private onKey(code: string): void {
+    if (code === 'Space') {
+      if (this.state === 'playing' || (this.state === 'paused' && performance.now() >= this.resumeAllowedAt)) this.togglePause();
+    } else if (code === 'KeyF') {
+      this.cycleSpeed();
+    } else if (code === 'Escape') {
+      if (this.state === 'paused') {
+        if (performance.now() >= this.resumeAllowedAt) this.togglePause();
+      } else if (this.state === 'playing' && this.panel.cardVisible) {
+        this.deselectTower();
+      }
     }
   }
 
