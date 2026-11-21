@@ -121,6 +121,8 @@ export class TowerCard {
   private pressedAt = -1e9;
   private rotVisible = false;
   private compact = false;
+  /** Высота кнопок выбора мутации сейчас: обычная `PICK_BTN_H` или больше, если текст варианта длиннее (этап 8, п. 1: 21 px без сжатия). */
+  private pickBtnH = PICK_BTN_H;
 
   constructor(
     private readonly scene: Phaser.Scene,
@@ -174,7 +176,8 @@ export class TowerCard {
   private areaFor(m: CardModel): Rect {
     if (!m.pending) return this.area;
     const bottom = this.area.y + this.area.h;
-    return { x: this.area.x, y: bottom - PICK_CARD_H, w: this.area.w, h: PICK_CARD_H };
+    const h = this.pickBtnH + (PICK_CARD_H - PICK_BTN_H);
+    return { x: this.area.x, y: bottom - h, w: this.area.w, h };
   }
 
   /** Верхний край карточки на экране (выше него камера держит выбранную башню). */
@@ -197,6 +200,15 @@ export class TowerCard {
 
   /** Показывает карточку и раскладывает всё по модели. */
   show(m: CardModel): void {
+    this.pickBtnH = PICK_BTN_H;
+    this.layout(m, false);
+  }
+
+  /**
+   * Раскладка карточки. При выборе мутации описание и «было → станет» (21 px, без сжатия) могут не уместиться в кнопке выбора обычной высоты: тогда кнопки и карточка
+   * становятся выше (карточка растёт вверх) и раскладка повторяется один раз (`relaid`).
+   */
+  private layout(m: CardModel, relaid: boolean): void {
     this.compact = m.merge === 'active';
     if (this.compact) {
       this.showCompact(m);
@@ -273,11 +285,13 @@ export class TowerCard {
       this.shownChanges = m.pending.slice(0, 2).map((o) => o.change);
       // у башни с лучом справа от вариантов стоят кнопки поворота: варианты уже, чтобы не налезать на них
       const pickW = Math.min(PICK_W, Math.floor((midRight - midX - 8) / 2));
+      const btnH = this.pickBtnH;
+      let need = 0;
       m.pending.slice(0, 2).forEach((opt, i) => {
         const bx = midX + i * (pickW + 8);
-        const top = cy - PICK_BTN_H / 2;
-        this.btns.fillStyle(0x2a4d8e, 1).fillRoundedRect(bx, top, pickW, PICK_BTN_H, 12);
-        this.btns.lineStyle(3, COLORS.gold, 1).strokeRoundedRect(bx, top, pickW, PICK_BTN_H, 12);
+        const top = cy - btnH / 2;
+        this.btns.fillStyle(0x2a4d8e, 1).fillRoundedRect(bx, top, pickW, btnH, 12);
+        this.btns.lineStyle(3, COLORS.gold, 1).strokeRoundedRect(bx, top, pickW, btnH, 12);
         this.pickDescs[i].setWordWrapWidth(pickW - 20);
         this.pickChanges[i].setWordWrapWidth(pickW - 20);
         this.pickNames[i].setVisible(true).setText(opt.name).setPosition(bx + 10, top + 6);
@@ -285,12 +299,19 @@ export class TowerCard {
         // «было → станет» и потолок — под описанием, тем же шрифтом и без сжатия: длинная строка переносится
         const change = this.pickChanges[i].setVisible(true).setText(opt.change).setScale(1);
         change.setPosition(bx + 10, top + (BIG_TEXT ? 34 : 30) + this.pickDescs[i].height + 6);
-        this.pickFits[i] = change.y + change.height <= top + PICK_BTN_H - 4;
+        this.pickFits[i] = change.y + change.height <= top + btnH - 4;
+        need = Math.max(need, Math.ceil(change.y + change.height + 8 - top));
         const zone = i === 0 ? this.zones.pick0 : this.zones.pick1;
-        zone.setSize(pickW, PICK_BTN_H).setPosition(bx + pickW / 2, cy);
+        zone.setSize(pickW, btnH).setPosition(bx + pickW / 2, cy);
         this.pickVisible[i] = true;
-        this.rects[`pick${i}`] = { x: bx + pickW / 2, y: cy, w: pickW, h: PICK_BTN_H };
+        this.rects[`pick${i}`] = { x: bx + pickW / 2, y: cy, w: pickW, h: btnH };
       });
+      // текст не уместился — кнопки выше, раскладка заново (один раз)
+      if (!relaid && need > btnH) {
+        this.pickBtnH = need;
+        this.layout(m, true);
+        return;
+      }
     } else {
       // длинная строка (пауза с пометкой «×0,4, Витамин, Лихорадка») сжимается до места перед кнопками, но не мельче 21 px — дальше переносится (этап 8, п. 1); строки идут друг под другом
       const room = midRight - midX;
