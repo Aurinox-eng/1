@@ -2203,15 +2203,18 @@ export class GameScene extends Phaser.Scene {
    * Клавиши на компьютере (этап 8, п. 2; решение владельца 20 ноября 2026, сообщение 1, п. 6): Пробел — пауза и продолжение (как кнопка паузы), F — следующая скорость по кругу (как кнопка скорости),
    * Esc — закрыть открытое окно (окно «Настройки», карточку башни, окно паузы). Только в бою (обработчик — у сцены боя и снимается вместе с ней); в бою текстовых подсказок нет — список клавиш в окне «Настройки».
    * Клавиши — по месту на клавиатуре (`code`), поэтому F работает и в русской раскладке; удержание клавиши (автоповтор) не переключает много раз.
+   * Слушатель — событие страницы `keydown`, а не клавиатура Phaser: Phaser копит события до конца кадра и при каждом новом событии перебирает очередь заново, поэтому при редких кадрах
+   * (медленное устройство) два нажатия F между кадрами давали лишний шаг скорости (полный smoke 21 ноября 2026: ×3 → ×5 → ×5 → ×1 вместо ×2 → ×3 → ×5 → ×1). Одно событие — одно действие.
    */
   private bindKeys(): void {
-    const keyboard = this.input.keyboard;
-    if (!keyboard) return;
-    // Пробел не прокручивает страницу
-    keyboard.addCapture([Phaser.Input.Keyboard.KeyCodes.SPACE]);
-    keyboard.on('keydown', (event: KeyboardEvent) => {
-      if (!event.repeat) this.onKey(event.code);
-    });
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.repeat || !this.scene.isActive()) return;
+      // Пробел не прокручивает страницу
+      if (event.code === 'Space') event.preventDefault();
+      this.onKey(event.code);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => window.removeEventListener('keydown', onKeyDown));
   }
 
   private onKey(code: string): void {
