@@ -22,7 +22,9 @@ export const SMALL_FONT = MIN_FONT;
  * Слово длиннее строки сжимается до ширины, как раньше (редкий случай; в проверке `fonts` его видно).
  */
 export function fitText(text: Phaser.GameObjects.Text, maxW: number, center = true): void {
-  text.setScale(1).setWordWrapWidth(null);
+  // перенос сбрасывается, только если он был: каждый вызов setWordWrapWidth и setAlign заново рисует картинку надписи
+  if (text.style.wordWrapWidth !== null) text.setWordWrapWidth(null);
+  text.setScale(1);
   if (text.width <= maxW) return;
   const raw = text.style.fontSize;
   const size = typeof raw === 'number' ? raw : parseFloat(raw);
@@ -32,7 +34,7 @@ export function fitText(text: Phaser.GameObjects.Text, maxW: number, center = tr
     return;
   }
   text.setWordWrapWidth(maxW / least);
-  if (center) text.setAlign('center');
+  if (center && text.style.align !== 'center') text.setAlign('center');
   text.setScale(Math.max(least, Math.min(1, maxW / text.width)));
 }
 
