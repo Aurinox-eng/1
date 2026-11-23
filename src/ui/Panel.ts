@@ -516,7 +516,11 @@ export class Panel {
 
   /** Раскладка карточек по текущему сдвигу, затухание у правого края, стрелки и ползунок. */
   private layoutCards(): void {
-    this.cards.forEach((c, i) => c.box.setPosition(this.cardX(i), CARD.top));
+    // карточки целиком за краем окна списка закрыты подложкой — их не рисуем (меньше работы кадра; на экране ничего не меняется)
+    this.cards.forEach((c, i) => {
+      const x = this.cardX(i);
+      c.box.setPosition(x, CARD.top).setVisible(x + CARD.w > LIST.x && x < LIST.x + LIST.w);
+    });
     const max = this.maxScroll();
     this.listFade.clear();
     this.listCover.clear();
