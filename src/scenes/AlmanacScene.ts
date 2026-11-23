@@ -8,7 +8,7 @@ import { createTowerArt, type TowerId } from '../objects/Tower';
 import { isLevelOpen, wasMet } from '../meta';
 import { isTowerOpen, levelKinds } from '../progress';
 import { addButton, setScreenInfo, textStyle, type Rect } from '../screens';
-import { COLORS, TEXT_COLORS, fs } from '../theme';
+import { COLORS, SMALL_FONT, TEXT_COLORS, fitText, fs } from '../theme';
 
 const { width: W, height: H } = CONFIG.screen;
 
@@ -202,7 +202,7 @@ export class AlmanacScene extends Phaser.Scene {
     const w = 260;
     const h = 56;
     const text = this.add.text(x, y, label, textStyle(30)).setOrigin(0.5);
-    if (text.width > w - 16) text.setScale((w - 16) / text.width);
+    fitText(text, w - 16);
     this.add
       .zone(x, y, w, h)
       .setInteractive({ useHandCursor: true })
@@ -277,7 +277,7 @@ export class AlmanacScene extends Phaser.Scene {
     // Строка и примечание мелко под ней, вместе — по центру ряда
     const lineText = line ? this.add.text(LINE_X, 0, line, { ...textStyle(22, TEXT_COLORS.main, false), fontStyle: 'normal', wordWrap: { width: LINE_W } }) : null;
     if (lineText) this.list.add(lineText);
-    const noteText = note ? this.add.text(LINE_X, 0, note, { ...textStyle(fs(17, 20), TEXT_COLORS.soft, false), fontStyle: 'normal', wordWrap: { width: LINE_W } }) : null;
+    const noteText = note ? this.add.text(LINE_X, 0, note, { ...textStyle(SMALL_FONT, TEXT_COLORS.soft, false), fontStyle: 'normal', wordWrap: { width: LINE_W } }) : null;
     if (noteText) this.list.add(noteText);
     const content = (lineText?.height ?? 0) + (noteText ? 4 + noteText.height : 0);
     const rowH = Math.max(ROW_H, Math.ceil(content) + 24);
@@ -290,9 +290,9 @@ export class AlmanacScene extends Phaser.Scene {
     const top = cy - content / 2;
     lineText?.setY(top);
     noteText?.setY(top + (lineText?.height ?? 0) + 4);
-    // Длинное название («Бронированная», «Гигантская колония») сжимается по ширине, чтобы не заходить на описание (оно начинается с LINE_X)
+    // Длинное название («Бронированная», «Гигантская колония») сжимается по ширине, чтобы не заходить на описание (оно начинается с LINE_X); мельче 21 px — переносится на вторую строку
     const nameText = this.add.text(NAME_X, cy, name, textStyle(28)).setOrigin(0, 0.5);
-    if (nameText.width > LINE_X - NAME_X - 12) nameText.setScale((LINE_X - NAME_X - 12) / nameText.width);
+    fitText(nameText, LINE_X - NAME_X - 12, false);
     this.list.add(nameText);
 
     if (tab === 'bosses') {

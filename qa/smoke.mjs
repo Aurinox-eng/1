@@ -168,7 +168,7 @@ if (['stage-1', 'stage-1b', 'stage-1b-qa', 'td-1-mockup', 'tmp'].includes(tag)) 
   process.exit(2);
 }
 
-const SCENARIOS = ['desktop-ru', 'phone-ru', 'desktop-en', 'phone-en', 'rules', 'graph', 'combat', 'dash', 'split', 'spore', 'armored', 'intro', 'lose-ru', 'lose-en', 'win-ru', 'win-en', 'towers', 'card', 'merge', 'mutations', 'sell', 'special', 'danger', 'rotate', 'production', 'fullgame', 'locked', 'strip', 'almanac', 'almanac-pause', 'damage-numbers', 'sell-gap', 'restart-button', 'deflation', 'camera-fit', 'colors', 'meta-save', 'meta-dna', 'meta-shop', 'meta-effects', 'tree-effects', 'tree-shop', 'level-waves', 'progress-save', 'stars', 'menu-flow', 'menu-reset', 'levels-lock', 'step-dps', 'sound', 'sdk', 'lose-line', 'attempt-line', 'toast-queue', 'shake', 'bosses', 'level2', 'wards', 'spiral-cap', 'marks', 'menu-exit', 'resume-tap', 'two-tabs', 'treemock', 'faces', 'real-game', 'dna-cap', 'xp', 'names', 'ranks']
+const SCENARIOS = ['desktop-ru', 'phone-ru', 'desktop-en', 'phone-en', 'rules', 'graph', 'combat', 'dash', 'split', 'spore', 'armored', 'intro', 'lose-ru', 'lose-en', 'win-ru', 'win-en', 'towers', 'card', 'merge', 'mutations', 'sell', 'special', 'danger', 'rotate', 'production', 'fullgame', 'locked', 'strip', 'almanac', 'almanac-pause', 'damage-numbers', 'sell-gap', 'restart-button', 'deflation', 'camera-fit', 'colors', 'meta-save', 'meta-dna', 'meta-shop', 'meta-effects', 'tree-effects', 'tree-shop', 'level-waves', 'progress-save', 'stars', 'menu-flow', 'menu-reset', 'levels-lock', 'step-dps', 'sound', 'sdk', 'lose-line', 'attempt-line', 'toast-queue', 'toast-boss', 'keys', 'settings', 'fonts', 'shake', 'bosses', 'level2', 'wards', 'spiral-cap', 'marks', 'menu-exit', 'resume-tap', 'two-tabs', 'treemock', 'faces', 'real-game', 'dna-cap', 'xp', 'names', 'ranks']
 const only = args.only === undefined ? null : String(args.only);
 if (only !== null && !SCENARIOS.includes(only)) {
   console.error(`Неизвестный сценарий --only=${only}. Есть: ${SCENARIOS.join(', ')}`);
@@ -2236,6 +2236,95 @@ async function runToastQueue(browser, baseUrl) {
 }
 
 /**
+ * Сообщение о неудачном действии не закрывает полосу прочности босса (этап 8, п. 9; docs/stage-8-plan-2026-11-19.md): без босса плашка сообщения — на прежнем месте вверху окна карты,
+ * с боссом на поле (выпущен вызовом режима проверки `spawnBoss`) — под полосой: прямоугольники плашки и полосы с именем босса не пересекаются. Компьютер 1280×720 (мышь) и телефон 844×390 (касания).
+ */
+async function runToastBoss(browser, baseUrl) {
+  const TOP = readConfigNumber('map', 'topH');
+  const lockedText = readI18n('hintLockedTree')[0];
+  const intersects = (a, b) => Math.abs(a.x - b.x) < (a.w + b.w) / 2 && Math.abs(a.y - b.y) < (a.h + b.h) / 2;
+  for (const deviceKey of ['desktop', 'phone']) {
+    const p = `[сообщение под полосой босса, ${deviceKey}]`;
+    const context = await newDeviceContext(browser, VIEWPORTS[deviceKey], 'ru');
+    const game = await openGame(context, baseUrl, p, { speed: 1, isTouch: deviceKey === 'phone', cfg: 'waves.firstDelaySec:900,lives.start:5000,bacteria.baseSpeed:20' });
+    // без босса: тап по закрытой башне — сообщение на прежнем месте (центр плашки — TOP_H + 30)
+    await game.selectTower('syringe');
+    const s0 = await game.state();
+    check(`${p} без босса сообщение «${s0.toast.text}» на прежнем месте: центр плашки y = ${f1(s0.toast.rect.y)} (нужно ${TOP + 30}), полосы босса нет`, s0.toast.text === lockedText && Math.abs(s0.toast.rect.y - (TOP + 30)) < 0.5 && !s0.bossBar.visible, JSON.stringify({ toast: s0.toast, bar: s0.bossBar }));
+    await sleep(2600); // сообщение гаснет (ui.toastMs 1800 мс + 400 мс)
+    const ok = await game.page.evaluate(() => window.__pvb.spawnBoss('tartar'));
+    await waitFor(game.page, (x) => x.bossBar.visible, 20000, 'полоса босса на экране');
+    await game.selectTower('syringe');
+    const s1 = await game.state();
+    check(`${p} с боссом на поле сообщение «${s1.toast.text}» показано, плашка (${f1(s1.toast.rect.y - s1.toast.rect.h / 2)}…${f1(s1.toast.rect.y + s1.toast.rect.h / 2)}) не пересекает полосу босса с именем (${f1(s1.bossBar.y - s1.bossBar.h / 2)}…${f1(s1.bossBar.y + s1.bossBar.h / 2)})`, ok && s1.bossBar.visible && s1.toast.text === lockedText && s1.toast.rect.w > 0 && !intersects(s1.toast.rect, s1.bossBar), JSON.stringify({ toast: s1.toast, bar: s1.bossBar }));
+    check(`${p} плашка сообщения внутри окна карты (верх ${f1(s1.toast.rect.y - s1.toast.rect.h / 2)} ≥ ${TOP}, края в пределах 0…1280)`, s1.toast.rect.y - s1.toast.rect.h / 2 >= TOP && s1.toast.rect.x - s1.toast.rect.w / 2 >= 0 && s1.toast.rect.x + s1.toast.rect.w / 2 <= 1280, JSON.stringify(s1.toast.rect));
+    await frames(game.page, 3);
+    await shot(game.page, `toast-boss-${deviceKey}`);
+    await game.page.close();
+    await context.close();
+  }
+}
+
+/**
+ * Клавиши на компьютере (этап 8, п. 2; docs/stage-8-plan-2026-11-19.md): Пробел — пауза и продолжение, F — следующая скорость по кругу (`ui.speeds`, как кнопка скорости), Esc — закрыть карточку башни
+ * и окно паузы. Удержание Пробела (автоповтор) паузу не переключает много раз.
+ */
+async function runKeys(browser, baseUrl) {
+  const p = '[клавиши]';
+  // скорости кнопки — список `ui.speeds` в config.ts ([1, 2, 3, 5])
+  const found = /\bspeeds:\s*\[([^\]]*)\]/.exec(fs.readFileSync(path.join(ROOT, 'src', 'config.ts'), 'utf8'));
+  const speeds = found ? found[1].split(',').map(Number) : [];
+  const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
+  const game = await openGame(context, baseUrl, p, { speed: 1, cfg: 'waves.firstDelaySec:900' });
+  const kb = game.page.keyboard;
+  const s0 = await game.state();
+  check(`${p} на старте партия идёт, скорость ×${s0.speed}`, s0.state === 'playing' && s0.speed === speeds[0], `${s0.state}, ×${s0.speed}`);
+  await kb.press('Space');
+  await sleep(350); // после паузы продолжить можно не раньше чем через 250 мс (защита от двойного нажатия)
+  const s1 = await game.state();
+  check(`${p} Пробел ставит паузу (${s1.state}), окно паузы с кнопкой «Продолжить»`, s1.state === 'paused' && s1.pauseResumeButton !== null, JSON.stringify({ state: s1.state, resume: s1.pauseResumeButton }));
+  await kb.press('Space');
+  await sleep(150);
+  const s2 = await game.state();
+  check(`${p} второй Пробел снимает паузу (${s2.state}), окна паузы нет`, s2.state === 'playing' && s2.pauseResumeButton === null, JSON.stringify({ state: s2.state, resume: s2.pauseResumeButton }));
+  await kb.down('Space');
+  await sleep(300);
+  // автоповтор браузера при удержании: события keydown с repeat = true (Playwright сам их не шлёт)
+  await game.page.evaluate(() => {
+    for (let i = 0; i < 3; i++) window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Space', key: ' ', keyCode: 32, repeat: true }));
+  });
+  await sleep(400);
+  await kb.up('Space');
+  await sleep(350);
+  const s3 = await game.state();
+  check(`${p} удержание Пробела — одна пауза, а не много переключений: ${s3.state}`, s3.state === 'paused', s3.state);
+  await kb.press('Escape');
+  await sleep(150);
+  const s4 = await game.state();
+  check(`${p} Esc закрывает окно паузы, партия идёт (${s4.state})`, s4.state === 'playing' && s4.pauseResumeButton === null, s4.state);
+  // F: следующая скорость по кругу, как кнопка скорости
+  const seen = [];
+  for (let i = 0; i < speeds.length; i++) {
+    await kb.press('f');
+    await sleep(80);
+    seen.push((await game.state()).speed);
+  }
+  const want = speeds.map((_, i) => speeds[(i + 1) % speeds.length]);
+  check(`${p} F переключает скорость по кругу: ${seen.map((x) => `×${x}`).join(' → ')} (нужно ${want.map((x) => `×${x}`).join(' → ')})`, JSON.stringify(seen) === JSON.stringify(want), JSON.stringify(seen));
+  // Esc закрывает карточку стоящей башни
+  await game.placeTowers([FREE.a]);
+  await game.selectTower('pill'); // снять выбор на панели
+  const s5 = await selectPlaced(game, FREE.a);
+  check(`${p} тап по башне открывает карточку`, s5.ui.card.visible && selectedIs(s5, FREE.a), JSON.stringify({ card: s5.ui.card.visible, sel: s5.selectedTower }));
+  await kb.press('Escape');
+  await sleep(150);
+  const s6 = await game.state();
+  check(`${p} Esc закрывает карточку башни (карточка ${s6.ui.card.visible}, выбрана ${JSON.stringify(s6.selectedTower)}), партия идёт (${s6.state})`, !s6.ui.card.visible && s6.selectedTower === null && s6.state === 'playing', JSON.stringify({ card: s6.ui.card.visible, sel: s6.selectedTower, state: s6.state }));
+  await game.page.close();
+  await context.close();
+}
+
+/**
  * Тряска при потере жизни трясёт только карту: контейнер мира смещается на размах тряски, а главная камера сцены (с нею панели и надписи) не трясётся и не сдвинута.
  * Длительность и размах в проверке увеличены (feedback.lifeLostShakeMs 6000, lifeLostShakeIntensity 0,04), чтобы поймать тряску при 3–20 кадрах в секунду.
  */
@@ -2379,6 +2468,193 @@ async function runSound(browser, baseUrl) {
   await context.close();
 }
 
+/**
+ * Окно «Настройки» (этап 8, пп. 3–4; docs/stage-8-plan-2026-11-19.md). (А) Меню: по умолчанию громкость `settings.volumeDefault` %; тап по ползунку на 30 % — громкость 30 %, общий усилитель звука
+ * через 0,5 с ≈ 0,3; «+» — на шаг больше; тап в начало ползунка — 0 %, усилитель ≈ 0; всё записано в хранилище (`pvb.settings`). (Б) При 0 % в стресс-сценарии боя (сотни выстрелов и попаданий)
+ * не создаётся ни одного тона. (В) Переключатель «Без вспышек и тряски» включён — при потере жизни карта не трясётся и не сдвигается, красных вспышек экрана 0, вместо них спокойная обводка.
+ * (Г) С паузы: окно открывается, Esc его закрывает (пауза остаётся), Пробел при открытом окне продолжает игру и закрывает окно.
+ */
+async function runSettings(browser, baseUrl) {
+  const p = '[окно «Настройки»]';
+  const def = readConfigNumber('settings', 'volumeDefault');
+  const step = readConfigNumber('settings', 'volumeStep');
+  const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
+  await context.addInitScript(OSC_SPY);
+  const info = (page) => page.evaluate(() => window.__pvbSettings.get());
+  const stored = (page) => page.evaluate(() => JSON.parse(window.localStorage.getItem('pvb.settings') ?? 'null'));
+  // ---- (А) громкость в меню
+  const app = await openMenu(context, baseUrl, p);
+  let u = await app.ui();
+  await app.tapRect(u.buttons.settings); // касание и запускает звук
+  u = await app.waitButton('menu', 'volumeTrack', 'окно «Настройки»');
+  let w = await info(app.page);
+  check(`${p} громкость по умолчанию ${w.volume} % (в config.ts ${def}), режим без вспышек выключен (${w.calm})`, w.open && w.volume === def && w.calm === false, JSON.stringify(w));
+  const at = (pct) => ({ x: w.rects.track.x0 + ((w.rects.track.x1 - w.rects.track.x0) * pct) / 100, y: w.rects.track.y });
+  await app.tapRect(at(30));
+  await sleep(500);
+  w = await info(app.page);
+  check(`${p} тап по ползунку на 30 %: громкость ${w.volume} %, усилитель звука ${w.gain === null ? 'не запущен' : f2(w.gain)} (нужно ≈ 0,3), в хранилище ${JSON.stringify(await stored(app.page))}`, w.volume === 30 && w.gain !== null && Math.abs(w.gain - 0.3) < 0.03 && (await stored(app.page))?.volume === 30, JSON.stringify(w));
+  await app.tapRect(w.rects.plus);
+  await sleep(500);
+  w = await info(app.page);
+  check(`${p} «+» прибавляет шаг ${step} %: громкость ${w.volume} %, усилитель ${f2(w.gain ?? -1)}`, w.volume === 30 + step && Math.abs((w.gain ?? -1) - (30 + step) / 100) < 0.03, JSON.stringify(w));
+  await app.tapRect(at(0));
+  await sleep(500);
+  w = await info(app.page);
+  const played0 = w.played;
+  await app.tapRect(w.rects.minus); // на 0 % «тик» не звучит
+  await sleep(300);
+  const w0 = await info(app.page);
+  check(`${p} тап в начало ползунка — 0 %: громкость ${w.volume} %, звук выключен (${w.muted}), усилитель ${f2(w.gain ?? -1)} ≈ 0; «−» на 0 % ничего не играет (звуков ${played0} → ${w0.played})`, w.volume === 0 && w.muted && Math.abs(w.gain ?? -1) < 0.01 && w0.played === played0 && w0.volume === 0, JSON.stringify({ w, w0 }));
+  await app.tapRect(w.rects.calm);
+  await sleep(300);
+  w = await info(app.page);
+  check(`${p} переключатель «Без вспышек и тряски» включается (${w.calm}), записано в хранилище`, w.calm === true && (await stored(app.page))?.calm === true, JSON.stringify(await stored(app.page)));
+  await app.page.close();
+  // ---- (Б) 0 % — тишина в бою (стресс-сценарий)
+  let game = await openGame(context, baseUrl, `${p} тишина`, { query: '&stress', speed: 1 });
+  await game.input.tap(game.g(640, 300));
+  await sleep(4000);
+  const quiet = await game.state();
+  const created = await game.page.evaluate(() => window.__osc.length);
+  check(`${p} громкость 0 % сохранилась (${quiet.sound.volume}), в стресс-сценарии за 4 с создано тонов: ${created} (нужно 0)`, quiet.sound.volume === 0 && quiet.sound.muted && created === 0, JSON.stringify({ sound: quiet.sound, created }));
+  await game.page.close();
+  // ---- (В) без вспышек и тряски: потеря жизни
+  const cfg = 'waves.firstDelaySec:1,waves.total:1,waves.list.0.coccus:6,bacteria.baseSpeed:250,towers.pill.damage:0,lives.start:20,feedback.lifeLostShakeMs:6000,feedback.lifeLostShakeIntensity:0.04';
+  game = await openGame(context, baseUrl, `${p} без вспышек`, { speed: 1, cfg });
+  await waitFor(game.page, (x) => x.lives < 20, WAIT_MS, 'потеряна первая жизнь');
+  const samples = [];
+  const started = Date.now();
+  while (Date.now() - started < 3000) {
+    samples.push(await game.state());
+    await sleep(60);
+  }
+  const last = samples.at(-1);
+  const moved = samples.filter((x) => x.shake.active || Math.abs(x.shake.offset.x) > 0 || Math.abs(x.shake.offset.y) > 0);
+  check(`${p} режим включён (${last.calm}): за ${samples.length} кадров после потери жизни (потерь ${last.effects.lifeLosses}) карта ни разу не тряслась и не сдвинута (кадров с тряской ${moved.length})`, last.calm && last.effects.lifeLosses >= 1 && moved.length === 0, JSON.stringify(moved[0]?.shake ?? last.shake));
+  check(`${p} красных вспышек экрана 0 (${last.effects.lifeFlashes}), вместо них спокойная обводка (${last.effects.calmMarks})`, last.effects.lifeFlashes === 0 && last.effects.calmMarks >= 1, JSON.stringify(last.effects));
+  await frames(game.page, 2);
+  await shot(game.page, 'settings-calm-life-lost');
+  await game.page.close();
+  // ---- (Г) окно с паузы: Esc закрывает окно, Пробел продолжает игру
+  game = await openGame(context, baseUrl, `${p} с паузы`, { speed: 1, cfg: 'waves.firstDelaySec:900' });
+  let s = await game.state();
+  await game.input.tap(game.g(s.ui.pauseButton.x, s.ui.pauseButton.y));
+  await waitFor(game.page, (x) => x.state === 'paused', 10000, 'пауза');
+  await sleep(500);
+  s = await game.state();
+  await game.input.tap(game.g(s.pauseSettingsButton.x, s.pauseSettingsButton.y));
+  await waitFor(game.page, (x) => x.settingsOpen, 10000, 'окно «Настройки» с паузы');
+  // тап мимо кнопок окна игру не продолжает
+  await game.input.tap(game.g(60, 60));
+  await sleep(300);
+  s = await game.state();
+  check(`${p} тап мимо кнопок окна «Настройки» на паузе игру не продолжает (${s.state}), окно открыто (${s.settingsOpen})`, s.state === 'paused' && s.settingsOpen, JSON.stringify({ state: s.state, open: s.settingsOpen }));
+  await game.page.keyboard.press('Escape');
+  await sleep(300);
+  s = await game.state();
+  check(`${p} Esc закрывает окно «Настройки», пауза остаётся (${s.state}, окно ${s.settingsOpen})`, s.state === 'paused' && !s.settingsOpen, JSON.stringify({ state: s.state, open: s.settingsOpen }));
+  await game.input.tap(game.g(s.pauseSettingsButton.x, s.pauseSettingsButton.y));
+  await waitFor(game.page, (x) => x.settingsOpen, 10000, 'окно «Настройки» с паузы ещё раз');
+  await game.page.keyboard.press('Space');
+  await sleep(300);
+  s = await game.state();
+  check(`${p} Пробел при открытом окне продолжает игру (${s.state}) и закрывает окно (${s.settingsOpen})`, s.state === 'playing' && !s.settingsOpen && (await info(game.page)).open === false, JSON.stringify({ state: s.state, open: s.settingsOpen }));
+  await game.page.close();
+  await context.close();
+}
+
+/**
+ * Размер надписей (этап 8, п. 1, вариант А; docs/stage-8-plan-2026-11-19.md): на телефоне 844×390 (экран игры в 0,54 раза меньше) все видимые надписи меню, окна «Настройки», выбора уровня,
+ * «Улучшений», Альманаха (все вкладки), боя (старт, карточка башни, выбор мутации, Шприц с поворотом луча, полоса босса и сообщение, пауза, «Настройки» с паузы) и конца уровня — не мельче
+ * 21 px экрана игры (шрифт × масштаб надписи × приближение; перечень — `window.__pvbTexts()`, src/qaFonts.ts), русский и английский. Надписи мира карты (числа урона, «+монеты», «!» над башней)
+ * масштабируются вместе с картой и в счёт не идут.
+ */
+async function runFonts(browser, baseUrl) {
+  const MIN = 21;
+  for (const lang of ['ru', 'en']) {
+    const p = `[надписи не мельче ${MIN} px, телефон 844×390, ${lang}]`;
+    const context = await newDeviceContext(browser, VIEWPORTS.phone, lang);
+    const audit = async (page, where) => {
+      await frames(page, 3);
+      const list = await page.evaluate(() => window.__pvbTexts());
+      const small = list.filter((x) => !x.world && x.effective < MIN - 1e-6);
+      check(`${p} ${where}: надписей ${list.filter((x) => !x.world).length}, мельче ${MIN} px — ${small.length}`, list.length > 0 && small.length === 0, small.slice(0, 6).map((x) => `«${x.text.slice(0, 40)}» ${x.size}px × ${f2(x.scale)} = ${f1(x.effective)}`).join('; '));
+    };
+    // ---- меню, «Настройки», выбор уровня, «Улучшения», Альманах
+    let app = await openMenu(context, baseUrl, p, { isTouch: true });
+    let u = await app.ui();
+    await audit(app.page, 'меню');
+    await app.tapRect(u.buttons.settings);
+    u = await app.waitButton('menu', 'settingsClose', 'окно «Настройки»');
+    await audit(app.page, 'меню, окно «Настройки»');
+    await app.tapRect(u.buttons.settingsClose);
+    await sleep(300);
+    u = await app.ui();
+    await app.tapRect(u.buttons.play);
+    await app.waitUi('levels', 'выбор уровня');
+    await audit(app.page, 'выбор уровня');
+    await app.page.close();
+    app = await openMenu(context, baseUrl, p, { isTouch: true });
+    u = await app.ui();
+    await app.tapRect(u.buttons.upgrades);
+    await app.waitUi('upgrades', '«Улучшения»');
+    await sleep(500);
+    await audit(app.page, '«Улучшения»');
+    await app.page.close();
+    app = await openMenu(context, baseUrl, p, { isTouch: true });
+    u = await app.ui();
+    await app.tapRect(u.buttons.almanac);
+    u = await app.waitUi('almanac', 'Альманах');
+    await audit(app.page, 'Альманах, башни');
+    for (const tab of ['bacteria', 'bosses']) {
+      if (!u.buttons[tab]) continue;
+      await app.tapRect(u.buttons[tab]);
+      await sleep(300);
+      await audit(app.page, `Альманах, вкладка ${tab}`);
+    }
+    await app.page.close();
+    // ---- бой
+    const game = await openGame(context, baseUrl, p, { isTouch: true, query: ALL_TOWERS, cfg: 'waves.firstDelaySec:900,economy.startCoins:5000,lives.start:5000,bacteria.baseSpeed:20' });
+    await audit(game.page, 'бой, старт');
+    await game.placeTowersOf('pill', [FREE.a]);
+    await game.selectTower('pill');
+    let s = await selectPlaced(game, FREE.a);
+    await audit(game.page, `бой, карточка башни (${s.ui.card.visible})`);
+    await game.page.evaluate(([c, r]) => window.__pvb.upgradeTower(c, r, []), FREE.a);
+    await audit(game.page, 'бой, выбор мутации');
+    s = await game.state();
+    if (s.ui.card.picks[0].visible) await tapCard(game, 'pick', 0);
+    await audit(game.page, 'бой, карточка с мутацией');
+    await game.page.evaluate(([c, r]) => window.__pvb.placeTower('syringe', c, r, 1), FREE.b);
+    s = await selectPlaced(game, FREE.b);
+    await audit(game.page, 'бой, карточка Шприца');
+    await game.input.tap(game.g(s.ui.card.close.x, s.ui.card.close.y));
+    await game.page.evaluate(() => window.__pvb.spawnBoss('tartar'));
+    await waitFor(game.page, (x) => x.bossBar.visible, 20000, 'полоса босса');
+    await game.selectTower('pill');
+    await game.tapCell(...PATH[0]); // на дорожке строить нельзя — сообщение
+    await audit(game.page, 'бой, полоса босса и сообщение');
+    s = await game.state();
+    await game.input.tap(game.g(s.ui.pauseButton.x, s.ui.pauseButton.y));
+    await waitFor(game.page, (x) => x.state === 'paused', 10000, 'пауза');
+    await sleep(500);
+    await audit(game.page, 'пауза');
+    s = await game.state();
+    await game.input.tap(game.g(s.pauseSettingsButton.x, s.pauseSettingsButton.y));
+    await waitFor(game.page, (x) => x.settingsOpen, 10000, 'окно «Настройки» с паузы');
+    await audit(game.page, 'пауза, окно «Настройки»');
+    await game.page.close();
+    // ---- конец уровня
+    const end = await openGame(context, baseUrl, p, { isTouch: true, speed: 4, cfg: 'waves.firstDelaySec:1,waves.total:1,waves.list.0.coccus:6,bacteria.baseSpeed:300,towers.pill.damage:0,lives.start:1' });
+    await waitFor(end.page, (x) => x.state === 'lost', WAIT_MS, 'проигрыш');
+    await sleep(600);
+    await audit(end.page, 'конец уровня');
+    await end.page.close();
+    await context.close();
+  }
+}
+
 /** SDK Яндекс Игр (этап 9, раздел 1 плана): подставной `window.YaGames` — `LoadingAPI.ready()` один раз, язык из SDK главнее языка браузера, пауза площадки глушит звук и ставит партию на паузу, возобновление возвращает звук и снимает паузу площадки (пауза игрока кнопкой остаётся), разметка GameplayAPI. Без SDK — язык браузера и ни одного вызова. */
 async function runSdk(browser, baseUrl) {
   const p = '[SDK площадки]';
@@ -2453,11 +2729,11 @@ async function runLevel2(browser, baseUrl) {
   const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
   const bossWaves = PLAN2.map((w, i) => (w.boss ? [i + 1, w.boss] : null)).filter(Boolean);
   check(`${p} в плане уровня 2 пять боссов на волнах ${bossWaves.map(([n, id]) => `${n} (${id})`).join(', ')}; последний — на последней (50-й)`, PLAN2.length === 50 && bossWaves.length === 5 && bossWaves.map(([n]) => n).join() === '10,20,30,40,50', JSON.stringify(bossWaves));
-  // карта и сеть дорожек: 9 рёбер, 2 входа, один выход
+  // карта и сеть дорожек: 11 рёбер (изгибы у спусков каналов — решение владельца 18 ноября 2026, сообщение 1, п. 3), 2 входа, один выход
   let game = await openGame(context, baseUrl, p, { speed: 1, cfg: 'waves.firstDelaySec:600', query: '&levelwaves&level=2' });
   let s = await game.state();
   const graph = await game.page.evaluate(() => window.__pvb.getGraph());
-  check(`${p} карта «${s.mapId}»: рёбер ${graph.edges.length} (ждали 9), входов ${graph.entrances.length} (2), выходов ${graph.exits.length} (1); монет на старте ${s.coins}`, s.mapId === 'nose' && graph.edges.length === 9 && graph.entrances.length === 2 && graph.exits.length === 1 && s.coins === 200, JSON.stringify({ edges: graph.edges.length, entrances: graph.entrances, exits: graph.exits, coins: s.coins }));
+  check(`${p} карта «${s.mapId}»: рёбер ${graph.edges.length} (ждали 11), входов ${graph.entrances.length} (2), выходов ${graph.exits.length} (1); монет на старте ${s.coins}`, s.mapId === 'nose' && graph.edges.length === 11 && graph.entrances.length === 2 && graph.exits.length === 1 && s.coins === 200, JSON.stringify({ edges: graph.edges.length, entrances: graph.entrances, exits: graph.exits, coins: s.coins }));
   await shot(game.page, 'level2-map');
   await game.page.close();
   // мини-босс 10-й волны выходит на своей волне
@@ -9086,16 +9362,21 @@ async function runMenuFlow(browser, baseUrl) {
     check(`${p} игра открывается на главном меню: название «${TITLES[lang]}», кнопки «Играть» и «Улучшения» внутри экрана и не налезают друг на друга`, u.texts[0] === TITLES[lang] && insideScreen(u.buttons.play) && insideScreen(u.buttons.upgrades) && !overlaps(u.buttons.play, u.buttons.upgrades), JSON.stringify(u));
     const cr = u.labels && u.labels.copyright;
     check(`${p} строка «© 2026 Aurinox» внизу меню (одинаковая на русском и английском), внутри экрана и не перекрывает кнопки`, !!cr && readI18n('copyright')[li] === '© 2026 Aurinox' && insideScreen(cr) && !overlaps(cr, u.buttons.play) && !overlaps(cr, u.buttons.upgrades) && !overlaps(cr, u.buttons.almanac), JSON.stringify({ cr, buttons: u.buttons }));
-    check(`${p} кнопка «Звук» в углу меню внутри экрана и не налезает на другие кнопки`, !!u.buttons.sound && insideScreen(u.buttons.sound) && !overlaps(u.buttons.sound, u.buttons.play) && !overlaps(u.buttons.sound, u.buttons.upgrades) && !overlaps(u.buttons.sound, u.buttons.almanac), JSON.stringify(u.buttons));
-    await app.tapRect(u.buttons.sound);
-    await sleep(700);
-    const soundOff = await app.page.evaluate(() => window.localStorage.getItem('pvb.sound'));
+    // «Настройки» (этап 8, на месте прежней кнопки «Звук»): окно поверх меню, «−» убавляет громкость на шаг, «Закрыть» возвращает меню
+    check(`${p} кнопка «Настройки» в углу меню внутри экрана и не налезает на другие кнопки`, !!u.buttons.settings && insideScreen(u.buttons.settings) && !overlaps(u.buttons.settings, u.buttons.play) && !overlaps(u.buttons.settings, u.buttons.upgrades) && !overlaps(u.buttons.settings, u.buttons.almanac), JSON.stringify(u.buttons));
+    const volumeBefore = (await app.page.evaluate(() => window.__pvbSettings.get())).volume;
+    await app.tapRect(u.buttons.settings);
+    u = await app.waitButton('menu', 'volumeMinus', 'окно «Настройки» в меню');
+    await app.tapRect(u.buttons.volumeMinus);
+    await sleep(300);
+    const afterMinus = await app.page.evaluate(() => ({ info: window.__pvbSettings.get(), stored: window.localStorage.getItem('pvb.settings') }));
+    check(`${p} в окне «Настройки» «−» убавляет громкость на шаг: ${volumeBefore} → ${afterMinus.info.volume} %, записано в хранилище (${afterMinus.stored})`, afterMinus.info.open && afterMinus.info.volume === volumeBefore - readConfigNumber('settings', 'volumeStep') && JSON.parse(afterMinus.stored ?? '{}').volume === afterMinus.info.volume, JSON.stringify(afterMinus));
+    await shot(app.page, `menu-settings-${deviceKey}-${lang}`);
+    await app.tapRect(u.buttons.settingsClose);
+    await sleep(300);
     u = await app.ui();
-    await app.tapRect(u.buttons.sound);
-    await sleep(700);
-    const soundOn = await app.page.evaluate(() => window.localStorage.getItem('pvb.sound'));
-    u = await app.ui();
-    check(`${p} тап по «Звук» в меню выключает звук (в хранилище «${soundOff}»), второй тап включает («${soundOn}»); меню остаётся на экране`, soundOff === '0' && soundOn === '1' && u && u.scene === 'menu', JSON.stringify({ soundOff, soundOn, scene: u && u.scene }));
+    const closedInfo = await app.page.evaluate(() => window.__pvbSettings.get());
+    check(`${p} «Закрыть» закрывает окно «Настройки», меню остаётся на экране`, !closedInfo.open && u && u.scene === 'menu' && !u.buttons.settingsClose, JSON.stringify({ open: closedInfo.open, scene: u && u.scene }));
     await shot(app.page, `menu-main-${deviceKey}-${lang}`);
 
     await app.tapRect(u.buttons.play);
@@ -10542,19 +10823,17 @@ async function runAlmanacPause(browser, baseUrl) {
     s = await waitFor(page, (x) => x.state === 'paused', 10000, 'пауза');
     await sleep(500); // тап по кнопкам паузы принимается через 0,25 с после её начала
     s = await game.state();
-    check(`${p} на паузе три кнопки: сверху «Альманах» слева и «Звук» справа, ниже «В меню»; все внутри экрана и не налезают друг на друга`, s.pauseAlmanacButton !== null && s.pauseSoundButton !== null && s.pauseMenuButton !== null && [s.pauseAlmanacButton, s.pauseSoundButton, s.pauseMenuButton].every(insideScreen) && !overlaps(s.pauseAlmanacButton, s.pauseSoundButton) && !overlaps(s.pauseAlmanacButton, s.pauseMenuButton) && !overlaps(s.pauseSoundButton, s.pauseMenuButton) && s.pauseAlmanacButton.x < s.pauseSoundButton.x && s.pauseMenuButton.y > s.pauseAlmanacButton.y, `альманах ${JSON.stringify(s.pauseAlmanacButton)}, звук ${JSON.stringify(s.pauseSoundButton)}, в меню ${JSON.stringify(s.pauseMenuButton)}`);
-    // «Звук»: тап выключает звук (и запоминает в хранилище), второй тап включает; игра на паузе не возобновляется
-    const mutedBefore = s.sound.muted;
-    await game.input.tap(game.g(s.pauseSoundButton.x, s.pauseSoundButton.y));
+    check(`${p} на паузе три кнопки: сверху «Альманах» слева и «Настройки» справа, ниже «В меню»; все внутри экрана и не налезают друг на друга`, s.pauseAlmanacButton !== null && s.pauseSettingsButton !== null && s.pauseMenuButton !== null && [s.pauseAlmanacButton, s.pauseSettingsButton, s.pauseMenuButton].every(insideScreen) && !overlaps(s.pauseAlmanacButton, s.pauseSettingsButton) && !overlaps(s.pauseAlmanacButton, s.pauseMenuButton) && !overlaps(s.pauseSettingsButton, s.pauseMenuButton) && s.pauseAlmanacButton.x < s.pauseSettingsButton.x && s.pauseMenuButton.y > s.pauseAlmanacButton.y, `альманах ${JSON.stringify(s.pauseAlmanacButton)}, настройки ${JSON.stringify(s.pauseSettingsButton)}, в меню ${JSON.stringify(s.pauseMenuButton)}`);
+    // «Настройки»: тап открывает окно поверх паузы, «Закрыть» возвращает на паузу; игра не возобновляется
+    await game.input.tap(game.g(s.pauseSettingsButton.x, s.pauseSettingsButton.y));
+    await waitFor(page, (x) => x.settingsOpen, 10000, 'окно «Настройки» с паузы');
+    const win = await page.evaluate(() => window.__pvbSettings.get());
+    const afterOpen = await game.state();
+    check(`${p} тап по «Настройки» открывает окно (кнопки: ${Object.keys(win.rects).join(', ')}), пауза остаётся (${afterOpen.state})`, win.open && !!win.rects.close && afterOpen.state === 'paused', JSON.stringify({ open: win.open, state: afterOpen.state }));
+    await game.input.tap(game.g(win.rects.close.x, win.rects.close.y));
     await sleep(500);
-    let afterSound = await game.state();
-    const storedOff = await page.evaluate(() => window.localStorage.getItem('pvb.sound'));
-    check(`${p} тап по «Звук» выключает звук (muted ${mutedBefore} → ${afterSound.sound.muted}), записывает «0» в хранилище (${storedOff}), пауза остаётся (${afterSound.state})`, mutedBefore === false && afterSound.sound.muted === true && storedOff === '0' && afterSound.state === 'paused', JSON.stringify({ muted: afterSound.sound.muted, storedOff, state: afterSound.state }));
-    await game.input.tap(game.g(s.pauseSoundButton.x, s.pauseSoundButton.y));
-    await sleep(500);
-    afterSound = await game.state();
-    const storedOn = await page.evaluate(() => window.localStorage.getItem('pvb.sound'));
-    check(`${p} второй тап по «Звук» включает звук (muted ${afterSound.sound.muted}), в хранилище «1» (${storedOn}), пауза остаётся (${afterSound.state})`, afterSound.sound.muted === false && storedOn === '1' && afterSound.state === 'paused', JSON.stringify({ muted: afterSound.sound.muted, storedOn, state: afterSound.state }));
+    const afterClose = await game.state();
+    check(`${p} «Закрыть» закрывает окно «Настройки» (открыто: ${afterClose.settingsOpen}), пауза остаётся (${afterClose.state})`, !afterClose.settingsOpen && afterClose.state === 'paused', JSON.stringify({ open: afterClose.settingsOpen, state: afterClose.state }));
     await frames(page, 3);
     await shot(page, `almanac-pause-overlay-${deviceKey}-${lang}`);
     const elapsed0 = s.elapsed;
@@ -10601,7 +10880,7 @@ async function runAlmanacPause(browser, baseUrl) {
     await waitFor(page, (x) => x.state === 'paused', 10000, 'пауза перед «Заново»');
     await sleep(500);
     const pausedAgain = await game.state();
-    check(`${p} на паузе есть четвёртая кнопка «Заново» слева внизу рядом с «В меню», внутри экрана, не налезает на остальные`, pausedAgain.pauseRestartButton !== null && insideScreen(pausedAgain.pauseRestartButton) && [pausedAgain.pauseAlmanacButton, pausedAgain.pauseSoundButton, pausedAgain.pauseMenuButton].every((b) => !overlaps(pausedAgain.pauseRestartButton, b)) && pausedAgain.pauseRestartButton.x < pausedAgain.pauseMenuButton.x, JSON.stringify(pausedAgain.pauseRestartButton));
+    check(`${p} на паузе есть четвёртая кнопка «Заново» слева внизу рядом с «В меню», внутри экрана, не налезает на остальные`, pausedAgain.pauseRestartButton !== null && insideScreen(pausedAgain.pauseRestartButton) && [pausedAgain.pauseAlmanacButton, pausedAgain.pauseSettingsButton, pausedAgain.pauseMenuButton].every((b) => !overlaps(pausedAgain.pauseRestartButton, b)) && pausedAgain.pauseRestartButton.x < pausedAgain.pauseMenuButton.x, JSON.stringify(pausedAgain.pauseRestartButton));
     await game.input.tap(game.g(pausedAgain.pauseRestartButton.x, pausedAgain.pauseRestartButton.y));
     const restarted = await waitFreshRun(page, 'партия после «Заново» с паузы');
     check(`${p} «Заново» на паузе начинает партию сначала: башен было ${withTower.towers.length}, стало ${restarted.towers.length}, монеты ${restarted.coins} (старт ${CFG.startCoins}), время ${f2(restarted.elapsed)} с, волна ${restarted.wave}`, withTower.towers.length === 1 && restarted.towers.length === 0 && restarted.coins === CFG.startCoins && restarted.wave === 0, JSON.stringify({ towers: restarted.towers.length, coins: restarted.coins, wave: restarted.wave }));
@@ -10611,7 +10890,7 @@ async function runAlmanacPause(browser, baseUrl) {
     await sleep(500);
     const pausedResume = await game.state();
     const resumeBtn = pausedResume.pauseResumeButton;
-    const menuOthers = [pausedResume.pauseAlmanacButton, pausedResume.pauseSoundButton, pausedResume.pauseRestartButton, pausedResume.pauseMenuButton];
+    const menuOthers = [pausedResume.pauseAlmanacButton, pausedResume.pauseSettingsButton, pausedResume.pauseRestartButton, pausedResume.pauseMenuButton];
     check(`${p} на паузе есть кнопка «Продолжить» по центру над остальными четырьмя, внутри экрана, не налезает на них`,
       resumeBtn !== null && insideScreen(resumeBtn) && menuOthers.every((b) => b !== null && !overlaps(resumeBtn, b) && resumeBtn.y < b.y) && Math.abs(resumeBtn.x - W / 2) < 2, JSON.stringify({ resumeBtn, menuOthers }));
     // цвета: зелёной остаётся только «Продолжить», «Заново» — того же цвета, что «В меню» (заливка у левого края кнопки, вне надписи)
@@ -10667,8 +10946,8 @@ async function runMenuReset(browser, baseUrl) {
     await app.waitUi('menu', 'меню после загрузки сохранения');
     const balanceText = (n) => readI18n('dnaBalance')[li].replace('{n}', String(n));
     let u = await app.ui();
-    check(`${p} в меню очки ДНК из сохранения (${balanceText(77)}), кнопка «${readI18n('resetBtn')[li]}» внутри экрана слева вверху, не налезает на «Звук»`,
-      u.texts.includes(balanceText(77)) && u.buttons.reset && insideScreen(u.buttons.reset) && u.buttons.reset.x < W / 2 && !overlaps(u.buttons.reset, u.buttons.sound), JSON.stringify({ texts: u.texts, reset: u.buttons.reset }));
+    check(`${p} в меню очки ДНК из сохранения (${balanceText(77)}), кнопка «${readI18n('resetBtn')[li]}» внутри экрана слева вверху, не налезает на «Настройки»`,
+      u.texts.includes(balanceText(77)) && u.buttons.reset && insideScreen(u.buttons.reset) && u.buttons.reset.x < W / 2 && !overlaps(u.buttons.reset, u.buttons.settings), JSON.stringify({ texts: u.texts, reset: u.buttons.reset }));
     // цвет кнопки «Сбросить прогресс» — как у «Альманаха» (заливка у левого края кнопки, вне надписи)
     const menuPng = await shot(page, `reset-menu-${deviceKey}-${lang}`);
     const edge = (r) => app.g(r.x - r.w / 2 + 14, r.y);
@@ -10907,6 +11186,10 @@ try {
   if (wants('lose-line')) await safe('[строка проигрыша]', () => runLoseLine(browser, qaServer.url));
   if (wants('attempt-line')) await safe('[строка итога]', () => runAttemptLine(browser, qaServer.url));
   if (wants('toast-queue')) await safe('[очередь уведомлений]', () => runToastQueue(browser, qaServer.url));
+  if (wants('keys')) await safe('[клавиши]', () => runKeys(browser, qaServer.url));
+  if (wants('fonts')) await safe('[надписи не мельче 21 px]', () => runFonts(browser, qaServer.url));
+  if (wants('settings')) await safe('[окно «Настройки»]', () => runSettings(browser, qaServer.url));
+  if (wants('toast-boss')) await safe('[сообщение под полосой босса]', () => runToastBoss(browser, qaServer.url));
   if (wants('shake')) await safe('[тряска только карты]', () => runShake(browser, qaServer.url));
   if (wants('step-dps')) await safe('[шаг игры и скорость]', () => runStepDps(browser, qaServer.url));
   if (wants('menu-exit')) await safe('[выход в меню]', () => runMenuExit(browser, qaServer.url));

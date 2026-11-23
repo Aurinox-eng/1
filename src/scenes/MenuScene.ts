@@ -4,13 +4,13 @@ import { t } from '../i18n';
 import { attemptLog, dnaAtCap, hasProgress, metaDna, resetProgress } from '../meta';
 import { copyText } from '../attempt';
 import { setCurrentLevel } from '../progress';
-import { sfx } from '../sound';
 import { addButton, setScreenInfo, textStyle, type Rect } from '../screens';
-import { COLORS, TEXT_COLORS, fs } from '../theme';
+import { COLORS, MIN_FONT, TEXT_COLORS, fs } from '../theme';
+import { SettingsWindow } from '../ui/SettingsWindow';
 
 const { width: W, height: H } = CONFIG.screen;
 
-/** Главное меню (этап 5, docs/stage-5-plan.md): название, очки ДНК, кнопки «Играть» (выбор уровня), «Улучшения», «Альманах», «Звук» и «Сбросить прогресс» (с подтверждением). */
+/** Главное меню (этап 5, docs/stage-5-plan.md): название, очки ДНК, кнопки «Играть» (выбор уровня), «Улучшения», «Альманах», «Настройки» (этап 8) и «Сбросить прогресс» (с подтверждением). */
 export class MenuScene extends Phaser.Scene {
   constructor() {
     super('Menu');
@@ -44,22 +44,19 @@ export class MenuScene extends Phaser.Scene {
       line: 0x4a5c82,
       onTap: () => this.scene.start('Almanac', { from: 'menu' }),
     });
-    // Звук: маленькая кнопка в правом верхнем углу (по тапу — выключить или включить, надпись обновляется перезапуском сцены)
-    const sound = addButton(this, {
+    // «Настройки» (этап 8: громкость, режим без вспышек, клавиши): маленькая кнопка в правом верхнем углу — на месте прежней кнопки «Звук»; по тапу — окно поверх меню
+    let settingsWin: SettingsWindow | null = null;
+    const settingsBtn = addButton(this, {
       x: W - 130,
       y: 52,
       w: 220,
       h: 60,
-      label: t(sfx.muted ? 'soundOff' : 'soundOn'),
+      label: t('settingsTitle'),
       fontSize: 28,
       fill: 0x2a3550,
       line: 0x4a5c82,
-      // звук нажатия — только после включения: выключение не звучит, включение подтверждается (находка аудита MASTER-0098)
-      silent: true,
       onTap: () => {
-        sfx.setMuted(!sfx.muted);
-        if (!sfx.muted) sfx.place();
-        this.scene.restart();
+        if (!settingsWin) settingsWin = new SettingsWindow(this, 1000, () => (settingsWin = null));
       },
     });
     // «Сбросить прогресс»: маленькая кнопка в левом верхнем углу, цвета кнопки «Альманах»; показывается, только когда есть что сбрасывать (очки ДНК, узлы или звёзды);
@@ -103,10 +100,10 @@ export class MenuScene extends Phaser.Scene {
     }
 
     // Знак авторского права внизу по центру: ниже кнопки «Альманах» (низ — y 678), над краем экрана остаётся запас
-    const copyright = this.add.text(W / 2, H - 18, t('copyright'), textStyle(20, TEXT_COLORS.soft, false)).setOrigin(0.5);
+    const copyright = this.add.text(W / 2, H - 18, t('copyright'), textStyle(MIN_FONT, TEXT_COLORS.soft, false)).setOrigin(0.5);
     setScreenInfo(() =>
       this.scene.isActive()
-        ? { scene: 'menu', buttons: { play, upgrades, almanac, sound, ...(reset ? { reset } : {}), ...(copyAll ? { copyAll } : {}), ...(dialog ? { resetYes: dialog.yes, resetNo: dialog.no } : {}) }, texts: [title.text, balance.text, ...(dialog ? dialog.texts : [])], labels: { copyright: { x: copyright.x, y: copyright.y, w: copyright.width, h: copyright.height }, ...(dialog ? { resetPlate: dialog.plate } : {}) } }
+        ? { scene: 'menu', buttons: { play, upgrades, almanac, settings: settingsBtn, ...(reset ? { reset } : {}), ...(copyAll ? { copyAll } : {}), ...(dialog ? { resetYes: dialog.yes, resetNo: dialog.no } : {}), ...(settingsWin ? settingsWin.buttons() : {}) }, texts: [title.text, balance.text, ...(dialog ? dialog.texts : []), ...(settingsWin ? settingsWin.info().texts : [])], labels: { copyright: { x: copyright.x, y: copyright.y, w: copyright.width, h: copyright.height }, ...(dialog ? { resetPlate: dialog.plate } : {}) } }
         : null,
     );
   }

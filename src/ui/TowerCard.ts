@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import { createTowerArt, type TowerId } from '../objects/Tower';
 import { t } from '../i18n';
-import { BIG_TEXT, COLORS, FONT, fs, TEXT_COLORS } from '../theme';
+import { BIG_TEXT, COLORS, FONT, fitText, fs, SMALL_FONT, TEXT_COLORS } from '../theme';
 
 /** Что показывает карточка выбранной башни (тексты уже на нужном языке; считает сцена). */
 export interface CardModel {
@@ -62,8 +62,8 @@ const BTN_H = 84;
 const BTN_W = 180;
 const SELL_GAP = 40;
 const PICK_W = 300;
-/** Размер шрифта описания мутации и строки «было → станет» с потолком (одинаковый: строка не мельче описания), пикселей. */
-const PICK_FONT = fs(14, 20);
+/** Размер шрифта описания мутации и строки «было → станет» с потолком (одинаковый: строка не мельче описания), пикселей; не меньше 21 (этап 8, п. 1). */
+const PICK_FONT = SMALL_FONT;
 /** Карточка с выбором мутации выше обычной (104 px): описание и «было → станет» с потолком идут в несколько строк без сжатия; кнопки выбора — на всю высоту карточки за вычетом отступов. */
 const PICK_CARD_H = BIG_TEXT ? 200 : 156;
 const PICK_BTN_H = BIG_TEXT ? 180 : 136;
@@ -121,6 +121,8 @@ export class TowerCard {
   private pressedAt = -1e9;
   private rotVisible = false;
   private compact = false;
+  /** Высота кнопок выбора мутации сейчас: обычная `PICK_BTN_H` или больше, если текст варианта длиннее (этап 8, п. 1: 21 px без сжатия). */
+  private pickBtnH = PICK_BTN_H;
 
   constructor(
     private readonly scene: Phaser.Scene,
@@ -135,16 +137,16 @@ export class TowerCard {
     this.all.push(this.bg, this.btns, this.icon);
     this.nameText = this.text(0, 0, '', 22, TEXT_COLORS.main, 0);
     this.levelText = this.text(0, 0, '', fs(17, 22), TEXT_COLORS.accent, 0);
-    this.statTexts = [0, 1, 2].map(() => this.text(0, 0, '', fs(15, 20), TEXT_COLORS.soft, 0).setFontStyle('normal'));
+    this.statTexts = [0, 1, 2].map(() => this.text(0, 0, '', SMALL_FONT, TEXT_COLORS.soft, 0).setFontStyle('normal'));
     this.pickNames = [0, 1].map(() => this.text(0, 0, '', fs(17, 22), TEXT_COLORS.main, 0));
     this.pickDescs = [0, 1].map(() => this.text(0, 0, '', PICK_FONT, TEXT_COLORS.soft, 0).setFontStyle('normal').setWordWrapWidth(PICK_W - 20));
     this.pickChanges = [0, 1].map(() => this.text(0, 0, '', PICK_FONT, TEXT_COLORS.accent, 0).setFontStyle('normal').setWordWrapWidth(PICK_W - 20));
-    this.listText = this.text(0, 0, '', fs(13, 20), TEXT_COLORS.main, 0).setFontStyle('normal').setWordWrapWidth(330);
+    this.listText = this.text(0, 0, '', SMALL_FONT, TEXT_COLORS.main, 0).setFontStyle('normal').setWordWrapWidth(330);
     this.hintText = this.text(0, 0, '', fs(18, 22), TEXT_COLORS.accent, 0).setFontStyle('normal').setVisible(false);
     this.mergeText = this.text(0, 0, '', 24, TEXT_COLORS.main);
-    this.mergeSub = this.text(0, 0, '', fs(14, 18), TEXT_COLORS.main).setFontStyle('normal');
+    this.mergeSub = this.text(0, 0, '', SMALL_FONT, TEXT_COLORS.main).setFontStyle('normal');
     this.sellText = this.text(0, 0, '', 24, TEXT_COLORS.main);
-    this.sellSub = this.text(0, 0, '', fs(14, 18), TEXT_COLORS.main).setFontStyle('normal');
+    this.sellSub = this.text(0, 0, '', SMALL_FONT, TEXT_COLORS.main).setFontStyle('normal');
     this.closeText = this.text(0, 0, '✕', 22, TEXT_COLORS.soft);
     // Карточка лежит на карте: нажатия мимо её кнопок проходят к карте под ней (иначе клетки в нижней полосе окна нельзя было бы тапнуть, например при выборе пары для слияния)
     const zone = (w: number, h: number, handler: () => void): Phaser.GameObjects.Zone => {
@@ -174,7 +176,8 @@ export class TowerCard {
   private areaFor(m: CardModel): Rect {
     if (!m.pending) return this.area;
     const bottom = this.area.y + this.area.h;
-    return { x: this.area.x, y: bottom - PICK_CARD_H, w: this.area.w, h: PICK_CARD_H };
+    const h = this.pickBtnH + (PICK_CARD_H - PICK_BTN_H);
+    return { x: this.area.x, y: bottom - h, w: this.area.w, h };
   }
 
   /** Верхний край карточки на экране (выше него камера держит выбранную башню). */
@@ -197,6 +200,15 @@ export class TowerCard {
 
   /** Показывает карточку и раскладывает всё по модели. */
   show(m: CardModel): void {
+    this.pickBtnH = PICK_BTN_H;
+    this.layout(m, false);
+  }
+
+  /**
+   * Раскладка карточки. При выборе мутации описание и «было → станет» (21 px, без сжатия) могут не уместиться в кнопке выбора обычной высоты: тогда кнопки и карточка
+   * становятся выше (карточка растёт вверх) и раскладка повторяется один раз (`relaid`).
+   */
+  private layout(m: CardModel, relaid: boolean): void {
     this.compact = m.merge === 'active';
     if (this.compact) {
       this.showCompact(m);
@@ -273,11 +285,13 @@ export class TowerCard {
       this.shownChanges = m.pending.slice(0, 2).map((o) => o.change);
       // у башни с лучом справа от вариантов стоят кнопки поворота: варианты уже, чтобы не налезать на них
       const pickW = Math.min(PICK_W, Math.floor((midRight - midX - 8) / 2));
+      const btnH = this.pickBtnH;
+      let need = 0;
       m.pending.slice(0, 2).forEach((opt, i) => {
         const bx = midX + i * (pickW + 8);
-        const top = cy - PICK_BTN_H / 2;
-        this.btns.fillStyle(0x2a4d8e, 1).fillRoundedRect(bx, top, pickW, PICK_BTN_H, 12);
-        this.btns.lineStyle(3, COLORS.gold, 1).strokeRoundedRect(bx, top, pickW, PICK_BTN_H, 12);
+        const top = cy - btnH / 2;
+        this.btns.fillStyle(0x2a4d8e, 1).fillRoundedRect(bx, top, pickW, btnH, 12);
+        this.btns.lineStyle(3, COLORS.gold, 1).strokeRoundedRect(bx, top, pickW, btnH, 12);
         this.pickDescs[i].setWordWrapWidth(pickW - 20);
         this.pickChanges[i].setWordWrapWidth(pickW - 20);
         this.pickNames[i].setVisible(true).setText(opt.name).setPosition(bx + 10, top + 6);
@@ -285,23 +299,33 @@ export class TowerCard {
         // «было → станет» и потолок — под описанием, тем же шрифтом и без сжатия: длинная строка переносится
         const change = this.pickChanges[i].setVisible(true).setText(opt.change).setScale(1);
         change.setPosition(bx + 10, top + (BIG_TEXT ? 34 : 30) + this.pickDescs[i].height + 6);
-        this.pickFits[i] = change.y + change.height <= top + PICK_BTN_H - 4;
+        this.pickFits[i] = change.y + change.height <= top + btnH - 4;
+        need = Math.max(need, Math.ceil(change.y + change.height + 8 - top));
         const zone = i === 0 ? this.zones.pick0 : this.zones.pick1;
-        zone.setSize(pickW, PICK_BTN_H).setPosition(bx + pickW / 2, cy);
+        zone.setSize(pickW, btnH).setPosition(bx + pickW / 2, cy);
         this.pickVisible[i] = true;
-        this.rects[`pick${i}`] = { x: bx + pickW / 2, y: cy, w: pickW, h: PICK_BTN_H };
+        this.rects[`pick${i}`] = { x: bx + pickW / 2, y: cy, w: pickW, h: btnH };
       });
+      // текст не уместился — кнопки выше, раскладка заново (один раз)
+      if (!relaid && need > btnH) {
+        this.pickBtnH = need;
+        this.layout(m, true);
+        return;
+      }
     } else {
+      // длинная строка (пауза с пометкой «×0,4, Витамин, Лихорадка») сжимается до места перед кнопками, но не мельче 21 px — дальше переносится (этап 8, п. 1); строки идут друг под другом
+      const room = midRight - midX;
+      let ty = y + 9;
       this.statTexts.forEach((text, i) => {
-        text.setVisible(i < m.stats.length).setText(m.stats[i] ?? '').setPosition(midX, y + 9 + i * STAT_STEP).setScale(1);
-        // длинная строка (пауза с пометкой «×0,4, Витамин, Лихорадка») сжимается до места перед кнопками, а не налезает на них
-        const room = midRight - midX;
-        if (room > 0 && text.width > room) text.setScale(room / text.width);
+        text.setVisible(i < m.stats.length).setText(m.stats[i] ?? '').setPosition(midX, ty);
+        if (room > 0) fitText(text, room, false);
+        if (i < m.stats.length) ty += Math.max(STAT_STEP, text.displayHeight);
       });
-      const ty = y + 9 + Math.max(1, m.stats.length) * STAT_STEP + 2;
+      if (m.stats.length === 0) ty += STAT_STEP;
+      ty += 2;
       this.shownStats = m.stats.slice();
       if (m.picked.length > 0) {
-        this.listText.setVisible(true).setText(`${t('cardMutations')} ${m.picked.map((p) => p.name).join(', ')}`).setPosition(midX, ty);
+        this.listText.setVisible(true).setText(`${t('cardMutations')} ${m.picked.map((p) => p.name).join(', ')}`).setPosition(midX, ty).setWordWrapWidth(Math.max(200, room));
         this.shownMutations = this.listText.text;
       }
     }
@@ -316,9 +340,8 @@ export class TowerCard {
     this.btns.lineStyle(3, mergeEdge, 1).strokeRoundedRect(mergeX - BTN_W / 2, cy - BTN_H / 2, BTN_W, BTN_H, 14);
     const mergeLabel = { ready: t('cardMerge'), active: t('cardMergeCancel'), none: t('cardNoPair'), max: t('cardMaxLevel'), cap: '' }[m.merge];
     this.mergeText.setText(mergeLabel).setColor(this.mergeEnabled ? TEXT_COLORS.main : TEXT_COLORS.dim);
-    const longLabel = this.mergeText.width > BTN_W - 16;
-    if (longLabel) this.mergeText.setScale((BTN_W - 16) / this.mergeText.width);
-    else this.mergeText.setScale(1);
+    // длинная надпись («Рядом нет пары») — в две строки, а не мельче 21 px (этап 8, п. 1)
+    fitText(this.mergeText, BTN_W - 16);
     this.mergeText.setPosition(mergeX, cy);
     this.mergeSub.setVisible(false);
     this.zones.merge.setPosition(mergeX, cy);
@@ -327,8 +350,7 @@ export class TowerCard {
       this.btns.fillStyle(0x8a2f45, 1).fillRoundedRect(sellX - BTN_W / 2, cy - BTN_H / 2, BTN_W, BTN_H, 14);
       this.btns.lineStyle(3, 0xff8aa0, 1).strokeRoundedRect(sellX - BTN_W / 2, cy - BTN_H / 2, BTN_W, BTN_H, 14);
       this.sellText.setText(t('cardSell', { n: m.sell ?? 0 })).setPosition(sellX, cy);
-      if (this.sellText.width > BTN_W - 16) this.sellText.setScale((BTN_W - 16) / this.sellText.width);
-      else this.sellText.setScale(1);
+      fitText(this.sellText, BTN_W - 16);
       this.zones.sell.setPosition(sellX, cy);
       this.rects.sell = { x: sellX, y: cy, w: BTN_W, h: BTN_H };
     } else {
@@ -370,8 +392,7 @@ export class TowerCard {
     this.btns.fillStyle(0x9a5a1c, 1).fillRoundedRect(cancelX - BTN_W / 2, cy - COMPACT_BTN_H / 2, BTN_W, COMPACT_BTN_H, 14);
     this.btns.lineStyle(3, 0xffb347, 1).strokeRoundedRect(cancelX - BTN_W / 2, cy - COMPACT_BTN_H / 2, BTN_W, COMPACT_BTN_H, 14);
     this.mergeText.setText(t('cardMergeCancel')).setColor(TEXT_COLORS.main).setPosition(cancelX, cy);
-    if (this.mergeText.width > BTN_W - 16) this.mergeText.setScale((BTN_W - 16) / this.mergeText.width);
-    else this.mergeText.setScale(1);
+    fitText(this.mergeText, BTN_W - 16);
     this.mergeSub.setVisible(false);
     this.zones.merge.setSize(BTN_W, COMPACT_BTN_H).setPosition(cancelX, cy);
     this.rects.merge = { x: cancelX, y: cy, w: BTN_W, h: COMPACT_BTN_H };
@@ -471,7 +492,7 @@ export class TowerCard {
 
   private text(x: number, y: number, str: string, size: number, color: string, ox = 0.5): Phaser.GameObjects.Text {
     const text = this.scene.add
-      .text(x, y, str, { fontFamily: FONT, fontSize: `${size}px`, fontStyle: 'bold', color, stroke: TEXT_COLORS.stroke, strokeThickness: size > 20 ? 4 : 0, resolution: 2 })
+      .text(x, y, str, { fontFamily: FONT, fontSize: `${size}px`, fontStyle: 'bold', color, stroke: TEXT_COLORS.stroke, strokeThickness: size > SMALL_FONT ? 4 : 0, resolution: 2 })
       .setOrigin(ox, ox === 0 ? 0 : 0.5)
       .setDepth(this.depth + 2);
     return text;

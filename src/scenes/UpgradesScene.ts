@@ -9,7 +9,7 @@ import { maxLevel, UPGRADE_IDS, type UpgradeId } from '../save';
 import { sfx } from '../sound';
 import { currentLevel, favoriteBranch } from '../progress';
 import { setScreenInfo } from '../screens';
-import { COLORS, FONT, TEXT_COLORS, fs } from '../theme';
+import { COLORS, FONT, MIN_FONT, TEXT_COLORS, fs } from '../theme';
 
 const { width: W } = CONFIG.screen;
 
@@ -26,8 +26,10 @@ const TAP_MAX_MOVE = CONFIG.camera.tapMaxMovePx; // как у карты: пор
 const ZOOM_MIN = 0.3;
 const ZOOM_MAX = 2.2;
 const LABEL_MIN_ZOOM = 0.62;
-/** Размер подписи цепочки, пикселей мира. */
+/** Размер подписи цепочки, «★» рекомендации и надписи ядра, пикселей мира (на экране — не мельче 21 px: при отдалении они увеличиваются, `layoutLabels`). */
 const LABEL_PX = 20;
+const STAR_PX = 26;
+const CORE_PX = 22;
 /** Кнопка сброса сети (бесплатный сброс между попытками; решение владельца 26 октября 2026, сообщение 3, п. 4.2; с надписью — сообщение 6, п. 3): над карточкой справа, вне окна сети — узлы под ней не закрываются (сообщение 1 от 28 октября 2026, п. 5). */
 const RESPEC = { x: DETAIL.x + DETAIL.w - 84, y: 88, w: 168, h: 48 };
 const LAYOUT = layoutNet();
@@ -119,7 +121,13 @@ export class UpgradesScene extends Phaser.Scene {
   private edges!: Phaser.GameObjects.Graphics;
   private dots!: Phaser.GameObjects.Graphics;
   private stars: Phaser.GameObjects.Text[] = [];
-  private labels: { text: Phaser.GameObjects.Text; ring: number }[] = [];
+  /** Подписи цепочек: надпись, кольцо, центр в мире сети и размер при масштабе 1 (пикселей мира). */
+  private labels: { text: Phaser.GameObjects.Text; ring: number; cx: number; cy: number; w: number; h: number }[] = [];
+  /** Узлы и ядро сети (прямоугольники в мире сети): подпись, увеличенная до 21 px на экране, на них не налезает. */
+  private nodeBoxes: Phaser.Geom.Rectangle[] = [];
+  private coreText: Phaser.GameObjects.Text | null = null;
+  /** Масштаб, при котором подписи разложены последний раз (раскладка — только при смене масштаба, не при сдвиге). */
+  private labelsZoom = -1;
   private zoom = 1;
   private pan = { x: 0, y: 0 };
   private balance!: Phaser.GameObjects.Text;
@@ -152,6 +160,8 @@ export class UpgradesScene extends Phaser.Scene {
     this.toast = null;
     this.stars = [];
     this.labels = [];
+    this.nodeBoxes = [];
+    this.labelsZoom = -1;
     this.selected = 'damage';
     this.selectedKey = representative('damage');
     this.cameras.main.setBackgroundColor(COLORS.background);
@@ -165,6 +175,8 @@ export class UpgradesScene extends Phaser.Scene {
     const mask = this.make.graphics({ x: 0, y: 0 }, false);
     mask.fillStyle(0xffffff, 1).fillRect(VIEW.x, VIEW.y, VIEW.w, VIEW.h);
     this.world.setMask(mask.createGeometryMask());
+    // окно, вне которого сеть не видна (маска), — для перечня надписей режима проверки (`src/qaFonts.ts`)
+    this.world.setData('clip', { ...VIEW });
     this.drawBackdrop();
     this.edges = this.add.graphics();
     this.dots = this.add.graphics();
@@ -231,11 +243,14 @@ export class UpgradesScene extends Phaser.Scene {
     return k;
   }
 
-  /** Начальный масштаб: ядро и открытые кольца по высоте окна, не мельче, чем нужно для чтения подписей; на телефоне — крупнее (подписи читаются, сообщение 1 от 26 октября, п. 6.3). */
+  /**
+   * Начальный масштаб: ядро и открытые кольца по высоте окна, не мельче, чем нужно для чтения подписей; на телефоне — крупнее (подписи читаются, сообщение 1 от 26 октября, п. 6.3).
+   * С этапа 8 (п. 1: надписи не мельче 21 px экрана игры) нижний предел 1,0 и на компьютере: при прежних 0,72 подписи цепочек были 14 px, а увеличенные до 21 px не помещались между узлами.
+   */
   private startZoom(): number {
     const fit = VIEW.h / (2 * (ringInner(this.openRings() + 1) + 10));
     const phone = window.innerWidth < 1000;
-    return Phaser.Math.Clamp(fit, phone ? 1.0 : 0.72, phone ? 1.3 : 1.1);
+    return Phaser.Math.Clamp(fit, 1.0, phone ? 1.3 : 1.1);
   }
 
   /** Масштаб и сдвиг сети (центр сети — в середине окна плюс сдвиг); сдвиг ограничен так, чтобы сеть не уходила из окна целиком. */
@@ -244,8 +259,32 @@ export class UpgradesScene extends Phaser.Scene {
     const reach = (ringInner(LAYOUT.rings + 1) + 40) * this.zoom;
     this.pan = { x: Phaser.Math.Clamp(pan.x, -reach, reach), y: Phaser.Math.Clamp(pan.y, -reach, reach) };
     this.world.setScale(this.zoom).setPosition(VIEW.x + VIEW.w / 2 + this.pan.x, VIEW.y + VIEW.h / 2 + this.pan.y);
-    const show = this.zoom >= LABEL_MIN_ZOOM;
-    for (const l of this.labels) l.text.setVisible(show);
+    if (this.zoom !== this.labelsZoom) this.layoutLabels();
+  }
+
+  /**
+   * Надписи мира сети не мельче 21 px на экране (этап 8, п. 1): при отдалении сети подписи цепочек, «★» и надпись ядра увеличиваются обратно масштабу.
+   * Подпись, которая при этом налезла бы на узел или на уже показанную подпись, скрыта (при приближении появляется); мельче LABEL_MIN_ZOOM подписи скрыты, как раньше.
+   * Надпись ядра скрыта, если увеличенная не помещается в круг ядра.
+   */
+  private layoutLabels(): void {
+    this.labelsZoom = this.zoom;
+    const grow = (size: number): number => Math.max(1, MIN_FONT / (size * this.zoom));
+    const k = grow(LABEL_PX);
+    const shown: Phaser.Geom.Rectangle[] = [];
+    for (const l of this.labels) {
+      const box = new Phaser.Geom.Rectangle(l.cx - (l.w * k) / 2, l.cy - (l.h * k) / 2, l.w * k, l.h * k);
+      const free = this.zoom >= LABEL_MIN_ZOOM && ![...this.nodeBoxes, ...shown].some((b) => Phaser.Geom.Intersects.RectangleToRectangle(box, b));
+      l.text.setScale(k).setVisible(free);
+      if (free) shown.push(box);
+    }
+    for (const s of this.stars) s.setScale(grow(STAR_PX));
+    const core = this.coreText;
+    if (core) {
+      const kc = grow(CORE_PX);
+      core.setScale(kc).setWordWrapWidth((NET_LAYOUT.coreR * 1.8) / kc);
+      core.setVisible(core.displayWidth <= NET_LAYOUT.coreR * 1.9 && core.displayHeight <= NET_LAYOUT.coreR * 1.7);
+    }
   }
 
   /** Сдвигает сеть так, чтобы узел улучшения оказался в середине окна (для проверок и выбора). */
@@ -299,8 +338,9 @@ export class UpgradesScene extends Phaser.Scene {
     g.fillStyle(COLORS.gold, 1).fillCircle(0, 0, NET_LAYOUT.coreR);
     g.lineStyle(6, COLORS.goldEdge, 1).strokeCircle(0, 0, NET_LAYOUT.coreR);
     g.lineStyle(12, 0xffe9a8, 0.18).strokeCircle(0, 0, NET_LAYOUT.coreR + 14);
-    const text = this.add.text(0, 0, t('upgDamage'), { ...this.style(fs(17, 22), '#3a2a00', false), align: 'center', wordWrap: { width: NET_LAYOUT.coreR * 1.8 } }).setOrigin(0.5);
+    const text = this.add.text(0, 0, t('upgDamage'), { ...this.style(CORE_PX, '#3a2a00', false), align: 'center', wordWrap: { width: NET_LAYOUT.coreR * 1.8 } }).setOrigin(0.5);
     this.world.add([g, text]);
+    this.coreText = text;
   }
 
   /**
@@ -333,11 +373,13 @@ export class UpgradesScene extends Phaser.Scene {
         text.destroy();
         continue;
       }
-      text.setPosition(spot.x, spot.y);
+      // по центру места: при увеличении (отдаление сети) подпись растёт от своего центра
+      text.setOrigin(0.5).setPosition(spot.x + w / 2, spot.y + h / 2);
       boxes.push(new Phaser.Geom.Rectangle(spot.x, spot.y, w, h));
       this.world.add(text);
-      this.labels.push({ text, ring: chain.ring });
+      this.labels.push({ text, ring: chain.ring, cx: spot.x + w / 2, cy: spot.y + h / 2, w, h });
     }
+    this.nodeBoxes = boxes.slice(0, LAYOUT.nodes.size + 1);
   }
 
   private buildDetail(): void {
@@ -497,7 +539,8 @@ export class UpgradesScene extends Phaser.Scene {
     for (const s of this.stars) s.destroy();
     this.stars = recommendedIds().map((id) => {
       const placed = LAYOUT.nodes.get(representative(id))!;
-      const star = this.add.text(placed.x, placed.y - placed.r - 2, '★', this.style(26, TEXT_COLORS.accent)).setOrigin(0.5, 1);
+      const star = this.add.text(placed.x, placed.y - placed.r - 2, '★', this.style(STAR_PX, TEXT_COLORS.accent)).setOrigin(0.5, 1);
+      star.setScale(Math.max(1, MIN_FONT / (STAR_PX * this.zoom)));
       this.world.add(star);
       return star;
     });
@@ -569,8 +612,8 @@ export class UpgradesScene extends Phaser.Scene {
       zoom: this.zoom,
       selectedKey: this.selectedKey,
       labels: this.labels.filter((l) => l.text.visible).map((l) => {
-        const c = this.toScreen(l.text.x + l.text.width / 2, l.text.y + l.text.height / 2);
-        return { x: c.x, y: c.y, w: l.text.width * this.zoom, h: l.text.height * this.zoom };
+        const c = this.toScreen(l.text.x, l.text.y);
+        return { x: c.x, y: c.y, w: l.text.displayWidth * this.zoom, h: l.text.displayHeight * this.zoom };
       }),
       respec: { ...RESPEC },
       refund: networkRefund(),

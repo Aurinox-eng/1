@@ -7,7 +7,7 @@ import { isLevelOpen, isLevelReady, levelBest, levelStars } from '../meta';
 import { META_KEY } from '../save';
 import { addButton, drawLock, drawStar, setScreenInfo, textStyle, type LevelCardInfo, type Rect } from '../screens';
 import { sfx } from '../sound';
-import { COLORS, TEXT_COLORS, fs } from '../theme';
+import { COLORS, MIN_FONT, TEXT_COLORS, fs } from '../theme';
 
 const { width: W } = CONFIG.screen;
 
@@ -92,7 +92,7 @@ export class LevelsScene extends Phaser.Scene {
         return y - 6;
       };
       textsBottom = place();
-      while (objs.length > 0 && textsBottom > limit && size > fs(13, 18)) {
+      while (objs.length > 0 && textsBottom > limit && size > MIN_FONT) {
         size--;
         textsBottom = place();
       }

@@ -1,0 +1,59 @@
+# Снимки клеток образца по графу карты (решение владельца 8 ноября 2026, сообщение 1, п. 4): qa/bot-cells.mjs рисует на картах уровней клетки групп бота, номера по порядку
+# постройки и лучи Шприцев; рядом — текст: какой путь закрывает каждая группа. Итог — артефакт прогона «bot-cells» (PNG и TXT по уровню).
+# Запуск: Actions → «Клетки бота» → Run workflow (ветка — та, чей бот нужен; поле ref — ветка или хеш, пусто — та же). Файл можно запустить вручную, когда он есть в main.
+name: Клетки бота
+run-name: Клетки бота · ${{ inputs.ref || github.ref_name }} · уровни ${{ inputs.levels }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Ветка или коммит (пусто — та ветка, с которой запущено)'
+        type: string
+        default: ''
+      levels:
+        description: 'Уровни через запятую'
+        type: string
+        default: '2,3,4'
+      range:
+        description: 'Узлы дальности древа (пусто — как на входе в уровень 2: pill:4,syrup:4,fizz:2)'
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  cells:
+    name: Снимки
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Установить зависимости и браузер
+        env:
+          PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+      - name: Собрать тестовую версию игры
+        run: npm run build:qa
+      - name: Снимки клеток
+        env:
+          LEVELS: ${{ inputs.levels }}
+          RANGE: ${{ inputs.range }}
+        run: |
+          if [ -n "$RANGE" ]; then node qa/bot-cells.mjs --levels="$LEVELS" --range="$RANGE"; else node qa/bot-cells.mjs --levels="$LEVELS"; fi
+          ls qa/screenshots/bot-cells-* >> "$GITHUB_STEP_SUMMARY"
+          for f in qa/screenshots/bot-cells-*.txt; do echo; echo '```'; cat "$f"; echo '```'; done >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bot-cells
+          path: qa/screenshots/bot-cells-*
+          retention-days: 30

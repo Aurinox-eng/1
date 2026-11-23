@@ -3,6 +3,7 @@ import { ART_DENSITY, artDensity, bakeArt, ringArt, squareBox } from './art';
 import { CONFIG } from './config';
 import type { BacteriumKind } from './objects/Bacterium';
 import { num } from './i18n';
+import { settings } from './settings';
 import { COLORS, FONT, TEXT_COLORS } from './theme';
 
 /**
@@ -124,6 +125,8 @@ export class Effects {
   splats = 0;
   frosts = 0;
   damageNumbers = 0;
+  /** Сколько раз в режиме «Без вспышек и тряски» вместо вспышки и тряски показана красная обводка (этап 8, п. 3). */
+  calmMarks = 0;
 
   /** Один эмиттер на все разлёты частиц. */
   private readonly emitter: Phaser.GameObjects.Particles.ParticleEmitter;
@@ -530,6 +533,11 @@ export class Effects {
    */
   lifeLost(): void {
     this.lifeLosses++;
+    // режим «Без вспышек и тряски» (окно «Настройки», этап 8, п. 3): ни вспышки экрана, ни тряски — неподвижная красная обводка
+    if (settings.calm) {
+      this.calmMark();
+      return;
+    }
     const { lifeFlashMs, lifeFlashMinGapMs, lifeFlashAlpha } = CONFIG.feedback;
     const now = performance.now();
     if (now - this.lifeFlashAt >= lifeFlashMinGapMs && lifeFlashMs > 0 && lifeFlashAlpha > 0) {
@@ -546,6 +554,39 @@ export class Effects {
     const { lifeLostShakeMs, lifeLostShakeIntensity } = CONFIG.feedback;
     if (lifeLostShakeMs > 0 && lifeLostShakeIntensity > 0) {
       this.shake(lifeLostShakeMs, lifeLostShakeIntensity);
+    }
+  }
+
+  /** Обводка экрана режима «Без вспышек и тряски»: одна на сцену, создаётся при первой потере жизни. */
+  private calmFrame: Phaser.GameObjects.Graphics | null = null;
+  private calmTween: Phaser.Tweens.Tween | null = null;
+
+  /**
+   * Спокойный знак потери жизни: красная обводка по краю окна карты горит ровно `feedback.calmMarkMs`, затем плавно гаснет за `calmMarkFadeMs` (без мигания).
+   * Новая потеря, пока обводка видна, просто продлевает её.
+   */
+  private calmMark(): void {
+    this.calmMarks++;
+    const { calmMarkMs, calmMarkFadeMs, calmMarkWidth } = CONFIG.feedback;
+    if (!this.calmFrame) {
+      // по краю окна карты (между верхней и нижней полосами — полосы лежат выше и закрыли бы обводку)
+      const { width, height } = CONFIG.screen;
+      const { topH, bottomH } = CONFIG.map;
+      const half = calmMarkWidth / 2;
+      this.calmFrame = this.scene.add.graphics().setDepth(90);
+      this.calmFrame.lineStyle(calmMarkWidth, COLORS.loseLine, 1).strokeRect(half, topH + half, width - calmMarkWidth, height - topH - bottomH - calmMarkWidth);
+    }
+    this.calmTween?.stop();
+    const frame = this.calmFrame;
+    const fadeOut = (): void => {
+      this.calmTween = this.scene.tweens.add({ targets: frame, alpha: 0, delay: calmMarkMs, duration: calmMarkFadeMs, onComplete: () => frame.setVisible(false) });
+    };
+    // обводка уже гаснет — плавно возвращается к полной яркости (резкий скачок яркости был бы миганием); не видна — появляется сразу
+    if (frame.visible && frame.alpha > 0) {
+      this.calmTween = this.scene.tweens.add({ targets: frame, alpha: 1, duration: calmMarkFadeMs / 2, onComplete: fadeOut });
+    } else {
+      frame.setAlpha(1).setVisible(true);
+      fadeOut();
     }
   }
 }

@@ -309,21 +309,31 @@ function reviewGroupsFor(mapId, world) {
   if (!world?.layoutInput) return null;
   const L = graphLayout({
     ...world.layoutInput,
-    ranges: { pill: TABLE.pill.range, fizz: TABLE.fizz.range, syrup: TABLE.syrup.range },
+    ranges: { pill: TABLE.pill.range, fizz: TABLE.fizz.range, syrup: TABLE.syrup.range, ...Object.fromEntries(reviewNewTowers().map((id) => [id, TABLE[id].range])) },
     beam: { length: TABLE.syringe.beamLengthPx, halfWidth: TABLE.syringe.beamHalfWidthPx + BEAM_MARGIN_PX },
     toothRadius: TOOTH_RADIUS,
-    avoidPx: SPORE_AVOID_PX,
   });
   const groups = {};
-  for (const [key, g] of Object.entries(REVIEW_GROUPS)) {
+  for (const [key, g] of Object.entries({ ...REVIEW_GROUPS, ...REVIEW_NEW_GROUPS })) {
     const c = L.groups[key];
     if (c) groups[key] = c.aim === undefined ? { ...g, cell: c.cell } : { ...g, cell: c.cell, aim: c.aim };
   }
   return { groups, layout: L };
 }
 const TOOTH_RADIUS = readConfigNumber('obstacles', 'toothRadius');
-/** Правило против спор (решение владельца 6 ноября 2026, сообщение 2, п. 1): на картах по графу башни образца — дальше радиуса глушения спор от дорожки (+ запас 15 px на ширину бактерии). */
-const SPORE_AVOID_PX = Number(/\bspore:\s*\{[^}]*?disableRadius:\s*([\d.]+)/.exec(fs.readFileSync(new URL('../src/config.ts', import.meta.url), 'utf8'))?.[1] ?? 150) + 15;
+/**
+ * Новые башни образца на уровнях 2+ (решение владельца 8 ноября 2026, сообщение 1, п. 3): узел башни покупается, как устроен `buyBest` (крупный узел — как только хватает ДНК, иначе мелкие узлы
+ * по приросту на ДНК), башня ставится по графу карты (qa/graph-layout.mjs) и строится в очереди после REVIEW_NEW_AFTER. Порядок по цепочке requires: Ампула → Антибиотик → Витамин → Холод → Пластырь;
+ * Лампа — только на уровнях со скрытными. Правка 1 — Ампула; правка 2 — Антибиотик (своими лестницами, правило 12). На «Горле» (уровень 1) новых башен нет.
+ */
+const REVIEW_NEW_ORDER = ['ampule'];
+const REVIEW_NEW_GROUPS = {
+  ampuleA: { type: 'ampule', t0: { [DEFAULT_MUT.ampule[0]]: 1 }, t1: DEFAULT_MUT.ampule[1] },
+};
+/** Где в очереди строятся группы новых башен: [после строки очереди «группа:сколько»] → строка новой башни. */
+const REVIEW_NEW_AFTER = [['syringeA:4', ['ampuleA', 1]], ['fizzA:4', ['ampuleA', 2]]];
+/** Новые башни, которые образец покупает и строит на уровне, который играется (со 2-го). */
+const reviewNewTowers = () => (PLAY_LEVEL >= 2 ? REVIEW_NEW_ORDER.filter((id) => !EXCLUDE.has(id)) : []);
 /** Очередь постройки: [группа, сколько обычных башен должно в ней стоять]; берётся первая строка, где башен меньше, башня доступна и (для Сиропа) выполнено правило соотношения. */
 const REVIEW_STEPS = [
   ['syrupA', 1], ['syringeA', 4], ['syrupA', 2], ['syringeA', 8], ['syrupA', 8],
@@ -345,6 +355,8 @@ const REVIEW_V_STEPS = [['syringeA', 16], ['syringeB', 16], ['fizzA', 16], ['syr
 const REVIEW_EARLY_WAVE = 10;
 const REVIEW_EARLY_PILLS = 8;
 const REVIEW_FIRST_PILLS = 4;
+/** П3: бронебой первым на уровнях, где бронированные выходят раньше этой волны (на «Горле» — с 25-й). */
+const REVIEW_ARMORED_EARLY_WAVE = 25;
 const REVIEW_SYRUP_LEAD = 2;
 /** Покупки очков ДНК по отчёту (с. 71): узел и уровень, до которого он покупается, в порядке покупок за попытки 1–5. */
 const REVIEW_BUYS = [['towerSyrup', 1], ['towerFizz', 1], ['towerSyringe', 1], ['damage', 1], ['coins', 3], ['syringePower', 1], ['syrupPower', 1]];
@@ -671,14 +683,15 @@ function buyPrefix(levels, dna, list) {
   }
   return { levels: next, dna: left, bought, done: true };
 }
-function buyReview(levels, dna, towers) {
+/** saveFor — новые башни, на которые образец копит (после повторов уровня, пока узел башни не куплен; решение владельца 9 ноября 2026, сообщение 1, п. 2.1): buyBest покупает их узлы первыми, а мелкие узлы — только после. */
+function buyReview(levels, dna, towers, saveFor = null) {
   const head = buyPrefix(levels, dna, REVIEW_BUYS);
   if (!head.done) return { levels: head.levels, dna: head.dna, bought: head.bought };
-  const rest = buyBest({ upgrades: META.upgrades, levels: head.levels, dna: head.dna, towers: [...REVIEW_TOWERS], shares: fieldShares(towers), openRing: openRingNow() });
+  const rest = buyBest({ upgrades: META.upgrades, levels: head.levels, dna: head.dna, towers: [...REVIEW_TOWERS, ...reviewNewTowers()], saveFor: saveFor?.length ? saveFor : null, shares: fieldShares(towers), openRing: openRingNow() });
   return { levels: rest.levels, dna: rest.dna, bought: [...head.bought, ...rest.bought] };
 }
-function buyUpgrades(levels, dna, reached = 0, towers = null) {
-  if (REVIEW) return buyReview(levels, dna, towers);
+function buyUpgrades(levels, dna, reached = 0, towers = null, saveFor = null) {
+  if (REVIEW) return buyReview(levels, dna, towers, saveFor);
   // core:…:late — когда игрок уже доходит до волны LATE_WAVE (там в круге Таблетки и Шипучка против слизней и босса), очки ДНК идут и на их ветки; раньше — только на ветки ядра, как у пары
   // (по лестницам 20 октября 2026: без этого эксперт с 11-й по 20-ю попытку стоял на слизнях, 36–37-я волна, с неулучшенными Таблетками)
   const late = CORE_LATE && !NO_LATE_BUY.value && reached >= LATE_WAVE && CORE.every((id) => levels[towerNodeId(id)] > 0);
@@ -1059,15 +1072,15 @@ function makePlayer({ world, rng, buttons, forced = null, mapId = null }) {
    *  (одна III сильнее двух II: лестницы `42079971734`, `42082507360`), затем II у второго (решение 6 ноября 2026, сообщение 1, п. 1.1: порядок по деньгам — сначала то, что держит ранние волны). */
   const REVIEW_FIRST = channels >= 2 && RG.pillB ? [['pillA', REVIEW_FIRST_PILLS], ['pillB', 2]] : [['pillA', REVIEW_FIRST_PILLS]];
   /** Очередь: каналов несколько — лужа Сиропа на путях каждой обороны сразу после первой (бегуна ранят только в луже). */
-  const STEPS0 = channels >= 2 ? REVIEW_STEPS.flatMap((row) => (row[0] === 'syrupA' && row[1] === 1 ? [row, ...['syrupB', 'syrupC'].slice(0, channels - 1).filter((k) => RG[k]).map((k) => [k, 1])] : [row])) : REVIEW_STEPS;
-  /** Правило против спор: на картах по графу первый Шприц (бьёт через всю карту из безопасной клетки) — до первого Сиропа. «Горло» — без изменений. */
-  const STEPS = reviewMap?.layout ? [['syringeA', 1], ...STEPS0] : STEPS0;
+  const STEPS1 = channels >= 2 ? REVIEW_STEPS.flatMap((row) => (row[0] === 'syrupA' && row[1] === 1 ? [row, ...['syrupB', 'syrupC'].slice(0, channels - 1).filter((k) => RG[k]).map((k) => [k, 1])] : [row])) : REVIEW_STEPS;
+  /** Новые башни (уровни 2+): строка очереди после REVIEW_NEW_AFTER, если группа есть на карте и башня открыта. */
+  const STEPS = STEPS1.flatMap((row) => [row, ...REVIEW_NEW_AFTER.filter(([after, [key]]) => after === `${row[0]}:${row[1]}` && RG[key] && reviewNewTowers().includes(RG[key].type)).map(([, add]) => add)]);
   if (reviewMap?.layout && !LAYOUT_LOGGED.has(mapId)) {
     LAYOUT_LOGGED.add(mapId);
     console.log(`  образец по графу карты «${mapId}»: ${Object.entries(RG).map(([k, g]) => `${k} ${g.cell.join(',')}${g.aim === undefined ? '' : `→${g.aim}`}`).join('; ')}`);
   }
   const zone = STRATEGY === 'zone'; // «всё у Z»: только Таблетки и один Сироп, клетки — ближайшие к последней развилке у организма
-  const available = (id) => TABLE[id] && buttons.includes(id) && !EXCLUDE.has(id) && (!SOLO_ALLOWED || SOLO_ALLOWED.has(id)) && (!zone || ZONE_TOWERS.has(id)) && (!REVIEW || REVIEW_TOWERS.has(id));
+  const available = (id) => TABLE[id] && buttons.includes(id) && !EXCLUDE.has(id) && (!SOLO_ALLOWED || SOLO_ALLOWED.has(id)) && (!zone || ZONE_TOWERS.has(id)) && (!REVIEW || REVIEW_TOWERS.has(id) || reviewNewTowers().includes(id));
   // fx:iv (core:…:late с ядром «Сироп + Шприц»): до волны LATE_WAVE круг «Сироп, четыре Шприца, Сироп, четыре Шприца» — Шприцы доходят до IV (в образце — Шприц IV около 20-й волны)
   const ivMode = FX.has('iv') && CORE_LATE && CORE.includes('syringe');
   const baseCycle = zone ? ZONE_CYCLE : ivMode ? ['syrup', 'syringe', 'syringe', 'syringe', 'syringe', 'syrup', 'syringe', 'syringe', 'syringe', 'syringe'] : SOLO_CYCLE ?? DEFAULT_CYCLE;
@@ -1217,6 +1230,12 @@ function makePlayer({ world, rng, buttons, forced = null, mapId = null }) {
     if (tw.pending === 1) return tw.id === 'syringe' && REVIEW_SYRINGE_MUT ? MUT_IDS.syringe[1] : g.t1;
     const have = {};
     for (const other of view.towers) if (groupOf(other) === key) for (const id of other.picks ?? []) have[id] = (have[id] ?? 0) + 1;
+    // П3 (решение владельца 20 ноября 2026, сообщение 1, п. 4.1): на уровнях, где бронированные выходят раньше 25-й волны (план уровня, `plan.firstWave.armored`), бронебойный удар —
+    // первым (бронированного ранит только он, `armoredPierce`): у Ампулы первая мутация «Бронебой», у Таблеток группы «Бронебойная» — первой, затем «Скорострел». На «Горле» (бронированные с 25-й) — без изменений.
+    if (((view.s ?? view).plan?.firstWave?.armored ?? Infinity) < REVIEW_ARMORED_EARLY_WAVE) {
+      if (tw.id === 'ampule') return 'ampulePierce';
+      if (tw.id === 'pill' && g.t0.pillPierce && (have.pillPierce ?? 0) < g.t0.pillPierce) return 'pillPierce';
+    }
     return Object.entries(g.t0).sort((a, b) => b[1] - (have[b[0]] ?? 0) - (a[1] - (have[a[0]] ?? 0)))[0]?.[0] ?? null;
   };
   /** Расстояние башни до клетки её группы (для слияния: итог встаёт у клетки группы). */
@@ -1568,6 +1587,9 @@ async function playGame(browser, baseUrl, run, metaLevels = null, salt = '', lev
       const after = await pollUntil(page, (x) => x.mutationsPicked > before || x.state !== 'playing', 1000);
       if (after.mutationsPicked > before) {
         record.picks++;
+        // первая мутация с бронебоем (отчёт по П3: волна первого бронебойного удара); на игру не влияет
+        const pickedId = (MUTATION_IDS[tw.id]?.[tw.pending] ?? [])[index];
+        if (!record.first.pierce && /Pierce$/.test(pickedId ?? '')) record.first.pierce = { tower: tw.id, id: pickedId, wave: after.wave };
         return true;
       }
       record.anomalies.push(`мутация в ${tw.col},${tw.row}: кнопка варианта ${index} не сработала`);
@@ -2242,6 +2264,7 @@ async function ladderLane(profile, run) {
       const prev = level - 1;
       rec.replays = [];
       const starsQ = `&stars=${Array(prev).fill(1).join(',')}`;
+      let lastRepTowers = null;
       for (let r = 1; r <= REPLAYS.value; r++) {
         if (stopRequested) return true;
         let rg;
@@ -2261,13 +2284,23 @@ async function ladderLane(profile, run) {
         const capRep = dnaCapOf(META, lane.levels, openRingsAt(META, level));
         const gainedRep = Math.max(0, Math.min(dnaForGame(rg, true, lane.progress, prev), capRep - lane.dna));
         lane.dna += gainedRep;
-        const buyRep = buyUpgrades(lane.levels, lane.dna, lane.best[prev - 1] ?? 0, rg.towers);
-        lane.levels = buyRep.levels;
-        lane.dna = buyRep.dna;
-        rec.replays.push({ level: prev, result: rg.result, wave: rg.wave, dna: gainedRep, bought: buyRep.bought, gameSec: rg.gameSec, realSec: rg.realSec });
-        console.log(`[${tag}, уровень ${prev}] повтор ${r}/${REPLAYS.value} перед уровнем ${level}: ${RESULT_RU[rg.result]} · волна ${rg.wave}/${rg.waveTotal} · очков ДНК +${gainedRep} (остаток ${lane.dna}) · куплено ${buyRep.bought.length ? buyRep.bought.join(', ') : '—'} · реал. ${rg.realSec} с`);
+        lastRepTowers = rg.towers;
+        // покупки — один раз после всех повторов (решение владельца 9 ноября 2026, сообщение 1, п. 2.1), не после каждого
+        rec.replays.push({ level: prev, result: rg.result, wave: rg.wave, dna: gainedRep, bought: [], gameSec: rg.gameSec, realSec: rg.realSec });
+        console.log(`[${tag}, уровень ${prev}] повтор ${r}/${REPLAYS.value} перед уровнем ${level}: ${RESULT_RU[rg.result]} · волна ${rg.wave}/${rg.waveTotal} · очков ДНК +${gainedRep} (на счёте ${lane.dna}) · реал. ${rg.realSec} с`);
         saveResults();
       }
+      // после всех повторов: новая башня — если хватает ДНК, иначе копить на неё (lane.saveFor держится и после попыток, пока узел не куплен), узлы — после её покупки
+      const nextNew = REVIEW ? reviewNewTowers().find((id) => !(lane.levels[towerNodeId(id)] > 0)) : null;
+      lane.saveFor = nextNew ? [nextNew] : null;
+      rec.dnaAfterReplays = lane.dna;
+      const buyAll = buyUpgrades(lane.levels, lane.dna, lane.best[prev - 1] ?? 0, lastRepTowers, lane.saveFor);
+      lane.levels = buyAll.levels;
+      lane.dna = buyAll.dna;
+      if (lane.saveFor && lane.saveFor.every((id) => lane.levels[towerNodeId(id)] > 0)) lane.saveFor = null;
+      rec.replaysBought = buyAll.bought;
+      console.log(`[${tag}, уровень ${prev}] после ${rec.replays.length} повторов: на счёте ${rec.dnaAfterReplays} ДНК · куплено ${buyAll.bought.length ? buyAll.bought.join(', ') : '—'} (остаток ${lane.dna})${lane.saveFor ? ` · копит на ${lane.saveFor.join(', ')}` : ''}`);
+      saveResults();
       rec.dnaIn = lane.dna;
       rec.levelsIn = { ...lane.levels };
       rec.treeLeftIn = treeLeft(lane.levels);
@@ -2322,9 +2355,10 @@ async function ladderLane(profile, run) {
       lane.dna += gained;
       // лучшая волна уровня — число пройденных волн (как `progress.best` в игре): победа — все волны, проигрыш — без текущей
       lane.best[level - 1] = Math.max(lane.best[level - 1] ?? 0, game.result === 'won' ? game.waveTotal : Math.max(0, game.wave - 1));
-      const buy = buyUpgrades(lane.levels, lane.dna, lane.best[level - 1] ?? 0, game.towers);
+      const buy = buyUpgrades(lane.levels, lane.dna, lane.best[level - 1] ?? 0, game.towers, lane.saveFor ?? null);
       lane.levels = buy.levels;
       lane.dna = buy.dna;
+      if (lane.saveFor && lane.saveFor.every((id) => lane.levels[towerNodeId(id)] > 0)) lane.saveFor = null;
       rec.waves.push(game.result === 'won' ? game.waveTotal : game.wave);
       rec.results.push(game.result);
       rec.bought.push(buy.bought);

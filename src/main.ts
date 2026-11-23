@@ -14,6 +14,7 @@ import { TreeMockScene } from './qaTreeMock';
 import { MenuScene } from './scenes/MenuScene';
 import { UpgradesScene } from './scenes/UpgradesScene';
 import { COLORS } from './theme';
+import { installFontAudit } from './qaFonts';
 
 async function boot(): Promise<void> {
   // SDK площадки подключается до создания игры: язык берётся из него при запуске (требование 2.14), `LoadingAPI.ready()` — когда игра нарисована (1.19.2)
@@ -52,6 +53,9 @@ async function boot(): Promise<void> {
     // Первая сцена в списке запускается сама: меню или, при адресе с `?level=N` (и в режиме проверки без `&menu`), сразу партия
     scene: ART_SHEET || TREE_MOCK ? [] : startInMenu() ? [MenuScene, LevelsScene, GameScene, UpgradesScene, AlmanacScene] : [GameScene, MenuScene, LevelsScene, UpgradesScene, AlmanacScene],
   });
+
+  // Перечень надписей с размерами шрифта для проверок (только `?qa`; этап 8, п. 1)
+  installFontAudit(game);
 
   // Лист образцов пилота этапа 8 (только `?qa&artsheet`): в игровой сборке ART_SHEET всегда false, и сцена вместе с файлом qaArtSheet.ts в неё не попадает
   if (ART_SHEET) game.scene.add('ArtSheet', ArtSheetScene, true);
