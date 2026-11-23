@@ -2950,8 +2950,9 @@ async function runSdkAds(browser, baseUrl) {
     const markKey = `${key}.settled`;
     const stored1 = await other.evaluate(([k, m]) => ({ record: window.localStorage.getItem(k), mark: JSON.parse(window.localStorage.getItem(m) ?? 'null') }), [key, markKey]);
     const unfMark = i18nText('attemptUnfinished', 0, { w: n, total: rec?.line?.waveTotal ?? 0 });
-    check(`${p} вкладка Б засчитала попытку фоновой вкладки А: пройдено ${n}, ДНК ${dna0} → ${dna1} (за ${n} волн — ${wantN}), попыток ${attempts(save0)} → ${attempts(save1)}, запись А стёрта, отметка «засчитано ${stored1.mark?.waves} волн»`,
-      key !== null && rec !== null && n >= 1 && dna1 - dna0 === wantN && attempts(save1) === attempts(save0) + 1 && (save1?.log?.at(-1) ?? '').includes(` | ${unfMark} | `) && stored1.record === null && stored1.mark?.waves === n && stored1.mark?.dna === wantN,
+    // отметка «засчитано» может быть уже забрана вкладкой А: на сервере заморозка страницы не всегда останавливает её таймеры (smoke 45262748404) — тогда её проверяет следующая проверка («вкладка А вернулась»)
+    check(`${p} вкладка Б засчитала попытку фоновой вкладки А: пройдено ${n}, ДНК ${dna0} → ${dna1} (за ${n} волн — ${wantN}), попыток ${attempts(save0)} → ${attempts(save1)}, запись А стёрта, отметка «засчитано ${stored1.mark ? `${stored1.mark.waves} волн` : 'уже забрана вкладкой А'}»`,
+      key !== null && rec !== null && n >= 1 && dna1 - dna0 === wantN && attempts(save1) === attempts(save0) + 1 && (save1?.log?.at(-1) ?? '').includes(` | ${unfMark} | `) && stored1.record === null && ((stored1.mark?.waves === n && stored1.mark?.dna === wantN) || stored1.mark === null),
       JSON.stringify({ key, n, dna0, dna1, wantN, stored1, line: (save1?.log?.at(-1) ?? '').slice(0, 160) }));
     await other.close();
     // вкладка А вернулась: забирает отметку (раз в 5 с), запись дальше несёт засчитанную часть
