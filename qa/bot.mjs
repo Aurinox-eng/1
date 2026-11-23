@@ -357,6 +357,8 @@ const REVIEW_EARLY_PILLS = 8;
 const REVIEW_FIRST_PILLS = 4;
 /** П3: бронебой первым на уровнях, где бронированные выходят раньше этой волны (на «Горле» — с 25-й). */
 const REVIEW_ARMORED_EARLY_WAVE = 25;
+/** П3′: за сколько волн до первой волны бронированных Таблетки берут «Бронебойную» (на «Носе» бронированные с 15-й — с 12-й). */
+const REVIEW_PIERCE_LEAD = 3;
 const REVIEW_SYRUP_LEAD = 2;
 /** Покупки очков ДНК по отчёту (с. 71): узел и уровень, до которого он покупается, в порядке покупок за попытки 1–5. */
 const REVIEW_BUYS = [['towerSyrup', 1], ['towerFizz', 1], ['towerSyringe', 1], ['damage', 1], ['coins', 3], ['syringePower', 1], ['syrupPower', 1]];
@@ -1232,9 +1234,12 @@ function makePlayer({ world, rng, buttons, forced = null, mapId = null }) {
     for (const other of view.towers) if (groupOf(other) === key) for (const id of other.picks ?? []) have[id] = (have[id] ?? 0) + 1;
     // П3 (решение владельца 20 ноября 2026, сообщение 1, п. 4.1): на уровнях, где бронированные выходят раньше 25-й волны (план уровня, `plan.firstWave.armored`), бронебойный удар —
     // первым (бронированного ранит только он, `armoredPierce`): у Ампулы первая мутация «Бронебой», у Таблеток группы «Бронебойная» — первой, затем «Скорострел». На «Горле» (бронированные с 25-й) — без изменений.
-    if (((view.s ?? view).plan?.firstWave?.armored ?? Infinity) < REVIEW_ARMORED_EARLY_WAVE) {
+    const armoredWave = (view.s ?? view).plan?.firstWave?.armored ?? Infinity;
+    if (armoredWave < REVIEW_ARMORED_EARLY_WAVE) {
       if (tw.id === 'ampule') return 'ampulePierce';
-      if (tw.id === 'pill' && g.t0.pillPierce && (have.pillPierce ?? 0) < g.t0.pillPierce) return 'pillPierce';
+      // П3′ (решение владельца 22 ноября 2026, сообщение 1, п. 2.1): Таблетки начинают со «Скорострела», «Бронебойную» берут с волны за REVIEW_PIERCE_LEAD до первой волны бронированных
+      const wave = (view.s ?? view).wave ?? 0;
+      if (tw.id === 'pill' && g.t0.pillPierce && (have.pillPierce ?? 0) < g.t0.pillPierce && wave >= armoredWave - REVIEW_PIERCE_LEAD) return 'pillPierce';
     }
     return Object.entries(g.t0).sort((a, b) => b[1] - (have[b[0]] ?? 0) - (a[1] - (have[a[0]] ?? 0)))[0]?.[0] ?? null;
   };
@@ -1728,6 +1733,10 @@ async function playGame(browser, baseUrl, run, metaLevels = null, salt = '', lev
     }, 0);
     const lifeLossWaves = [];
     const lifeLossKinds = []; // вид бактерии, ближайшей к организму в последнем опросе до потери жизни (кто пробивает оборону)
+    const lifeLossEdges = []; // её путь: «первое ребро>последнее ребро» (решение владельца 22 ноября 2026, сообщение 1, п. 2.2; игра не меняется)
+    const edgeHist = new Map(); // номер бактерии → [первое ребро, последнее ребро]
+    let frontEdges = null;
+    const snapByWave = {}; // срезы к 10, 15, 20-й волне: башни (вид, уровень, клетка), монеты, слияния, промахи слияний
     let frontKind = null;
     let lastLives = s.lives;
     let minLives = s.lives;
@@ -1789,6 +1798,7 @@ async function playGame(browser, baseUrl, run, metaLevels = null, salt = '', lev
         ws = { hp: 0, startT: s.elapsed, clearT: null, maxOnMap: 0, buildsAt: record.builds.length };
         waveSeen.wave = s.wave;
         if ([10, 20, 30, 40, 50].includes(s.wave)) xpByWave[s.wave] = xpSnapshot(s);
+        if ([10, 15, 20].includes(s.wave)) snapByWave[s.wave] = { coins: s.coins, merges: record.merges, mergeMisses: record.mergeMisses, towers: s.towers.map((tw) => [tw.id, tw.level, tw.col, tw.row]) };
         timeline.push({ wave: s.wave, t: Math.round(s.elapsed), coins: s.coins, towers: s.towers.length, lives: s.lives, dps: Math.round(paperDps(s) * 10) / 10, merges: record.merges, picks: record.picks });
       }
       for (const b of s.bacteria) {
@@ -1803,10 +1813,21 @@ async function playGame(browser, baseUrl, run, metaLevels = null, salt = '', lev
         for (let k = 0; k < lastLives - s.lives; k++) {
           lifeLossWaves.push(s.wave);
           lifeLossKinds.push(frontKind ?? '?');
+          lifeLossEdges.push(frontEdges ?? '?');
         }
         lastLives = s.lives;
       }
-      if (s.bacteria.length) frontKind = s.bacteria.reduce((a, b) => (b.remaining < a.remaining ? b : a)).kind;
+      for (const b of s.bacteria) {
+        const h = edgeHist.get(b.id);
+        if (h) h[1] = b.edge;
+        else edgeHist.set(b.id, [b.edge, b.edge]);
+      }
+      if (s.bacteria.length) {
+        const front = s.bacteria.reduce((a, b) => (b.remaining < a.remaining ? b : a));
+        frontKind = front.kind;
+        const h = edgeHist.get(front.id);
+        frontEdges = h ? `${h[0]}>${h[1]}` : null;
+      }
       minLives = Math.min(minLives, s.lives);
       maxOnMap = Math.max(maxOnMap, s.bacteria.length);
 
@@ -1908,6 +1929,8 @@ async function playGame(browser, baseUrl, run, metaLevels = null, salt = '', lev
       minLives,
       lifeLossWaves,
       lifeLossKinds,
+      lifeLossEdges,
+      snapByWave,
       levelGrowth,
       leakLives,
       stealthLives: leakLives.stealth ?? 0,
