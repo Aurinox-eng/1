@@ -3,8 +3,9 @@ import { CONFIG } from '../config';
 import { t, type TextKey } from '../i18n';
 import { createTowerArt, type TowerId } from '../objects/Tower';
 import { isTowerOpen } from '../progress';
+import { settings } from '../settings';
 import { towerPrice } from '../towerStats';
-import { COLORS, FONT, TEXT_COLORS, BIG_TEXT, fs } from '../theme';
+import { COLORS, FONT, TEXT_COLORS, BIG_TEXT, SMALL_FONT, fitText, fs } from '../theme';
 import { drawPlate, roundButton, waveButton as waveButtonTexture } from './panelArt';
 import { TowerCard, type CardGeometry, type CardModel } from './TowerCard';
 
@@ -17,6 +18,9 @@ const BOTTOM_Y = H - BOTTOM_H;
 export const VIEW = { x: 0, y: TOP_H, w: W, h: H - TOP_H - BOTTOM_H };
 /** Слои интерфейса: полосы ниже всплывающих подсказок, а те — ниже экранов паузы и конца уровня (глубина 200). */
 const D = { panel: 100, item: 101, chip: 96, toast: 105 };
+/** Центр всплывающего сообщения без полосы босса (вверху окна карты) и зазор под полосой босса, когда она видна (этап 8, п. 9: сообщение не закрывает полосу), пикселей экрана игры. */
+const TOAST_Y = TOP_H + 30;
+const TOAST_GAP = 8;
 
 /** Все башни по порядку таблицы `towers`. */
 const TOWER_IDS = Object.keys(CONFIG.towers) as TowerId[];
@@ -29,7 +33,8 @@ const LIVES_X = 636;
 const LIVES_W = 150;
 /** Значок особого условия уровня (глава 2 и дальше): в верхней полосе справа от жизней — не над картой, поэтому не закрывает дорожки и входы бактерий (решение владельца 4 ноября 2026, сообщение 1, п. 2). */
 export const CONDITION_ICON = { x: LIVES_X + LIVES_W + 30, y: TOP_H / 2, r: 17, depth: 101 };
-const CARD = { w: BIG_TEXT ? 120 : 108, h: 92, gap: 8, top: BOTTOM_Y + 8 };
+/** Карточка башни в списке: ширина 132 px (этап 8, п. 1: «Антибиотик» шрифтом 21 px без сжатия — 123 px). */
+const CARD = { w: BIG_TEXT ? 132 : 108, h: 92, gap: 8, top: BOTTOM_Y + 8 };
 /** Правая часть: «Начать волну» (всегда на месте), скорость и пауза — круглые по 80 px, чтобы попадать большим пальцем. */
 const WAVE_BTN = { x: 916, w: 170, h: 98 };
 const CTRL_Y = BOTTOM_Y + 56;
@@ -131,6 +136,10 @@ export class Panel {
   private waveBtnVisible = false;
   private waveBtnBonusValue = 0;
   private hintMessage: string | null = null;
+  /** Нижний край полосы прочности босса на экране (null — полосы нет): сообщение встаёт под неё. */
+  private toastBelow: number | null = null;
+  /** Где нарисована плашка сообщения (центр и размер на экране игры) — для проверок. */
+  private toastRect = { x: 0, y: 0, w: 0, h: 0 };
   /** Сдвиг списка башен влево, пикселей (0 — первая карточка у левого края). */
   private scroll = 0;
   private drag: { id: number; startX: number; startY: number; scroll0: number; moved: boolean } | null = null;
@@ -192,7 +201,7 @@ export class Panel {
     this.waveBtnItems.push(scene.add.image(WAVE_BTN.x + WAVE_BTN.w / 2, wy, waveButtonTexture(scene, WAVE_BTN.w, WAVE_BTN.h, 20)).setDepth(D.item + 1));
     this.waveBtnLabel = this.text(WAVE_BTN.x + WAVE_BTN.w / 2, wy - 12, t('startWave'), fs(19, 22), '#06220f');
     this.waveBtnLabel.setStroke('#000000', 0);
-    this.waveBtnBonus = this.text(WAVE_BTN.x + WAVE_BTN.w / 2, wy + 16, '', fs(17, 20), '#06220f');
+    this.waveBtnBonus = this.text(WAVE_BTN.x + WAVE_BTN.w / 2, wy + 16, '', SMALL_FONT, '#06220f');
     this.waveBtnBonus.setStroke('#000000', 0);
     this.waveBtnItems.push(this.waveBtnLabel, this.waveBtnBonus);
     this.waveBtnItems.push(
@@ -231,7 +240,7 @@ export class Panel {
 
     // ---- всплывающее сообщение сверху окна карты и постоянная подсказка снизу (на тёмных плашках)
     this.toastPlate = scene.add.graphics().setDepth(D.toast - 1).setAlpha(0);
-    this.toastText = this.text(VIEW.x + VIEW.w / 2, TOP_H + 30, '', 26, TEXT_COLORS.accent).setDepth(D.toast).setAlpha(0);
+    this.toastText = this.text(VIEW.x + VIEW.w / 2, TOAST_Y, '', 26, TEXT_COLORS.accent).setDepth(D.toast).setAlpha(0);
     this.hintPlate = scene.add.graphics().setDepth(D.toast - 1).setVisible(false);
     this.hintText = this.text(VIEW.x + VIEW.w / 2, this.hintY(), '', 24, TEXT_COLORS.main).setDepth(D.toast).setVisible(false);
   }
@@ -338,12 +347,12 @@ export class Panel {
     this.waveBtnLabel.setY(showBonus ? CTRL_Y - 12 : CTRL_Y);
   }
 
-  /** Подсказка «◀ Организм»: показывать, когда организм за краем экрана; danger — бактерия близко (мигает). */
+  /** Подсказка «◀ Организм»: показывать, когда организм за краем экрана; danger — бактерия близко (мигает; в режиме «Без вспышек и тряски» — ровно горит красным). */
   setChip(visible: boolean, danger: boolean, timeSec: number): void {
     this.chip.setVisible(visible);
     if (!visible) return;
     if (danger !== this.chipDanger) this.drawChip(danger);
-    this.chip.setAlpha(danger ? 0.65 + 0.35 * Math.sin(timeSec * 9) : 0.92);
+    this.chip.setAlpha(danger ? (settings.calm ? 1 : 0.65 + 0.35 * Math.sin(timeSec * 9)) : 0.92);
   }
 
   /** Подсказка «◀ Организм» для проверок: видна ли, тревога ли, прозрачность сейчас и цвет заливки (проверка читает это, а не пиксели снимка экрана). */
@@ -351,11 +360,37 @@ export class Panel {
     return { visible: this.chip.visible, danger: this.chipDanger === true, alpha: this.chip.alpha, fill: this.chipFill };
   }
 
-  /** Кладёт текст в плашку и, если он не помещается в окно карты, уменьшает его (до 0,5): так длинные сообщения не уходят за край. */
-  private fitPlate(text: Phaser.GameObjects.Text, plate: Phaser.GameObjects.Graphics, y: number): void {
-    const scale = Math.min(1, (VIEW.w - 40) / (text.width + 48));
-    text.setScale(scale);
-    drawPlate(plate, VIEW.x + VIEW.w / 2, y, text.width * scale + 48, text.height * scale + 18);
+  /**
+   * Кладёт текст в плашку; если он не помещается в окно карты — сжимается, но не мельче 21 px (этап 8, п. 1), дальше переносится на вторую строку: длинные сообщения не уходят за край.
+   * Возвращает прямоугольник плашки (центр и размер).
+   */
+  private fitPlate(text: Phaser.GameObjects.Text, plate: Phaser.GameObjects.Graphics, y: number): { x: number; y: number; w: number; h: number } {
+    fitText(text, VIEW.w - 88);
+    const rect = { x: VIEW.x + VIEW.w / 2, y, w: text.displayWidth + 48, h: text.displayHeight + 18 };
+    drawPlate(plate, rect.x, rect.y, rect.w, rect.h);
+    return rect;
+  }
+
+  /**
+   * Полоса прочности босса видна (нижний край на экране игры) или скрыта (null): сообщение о неудачном действии и новости встают под полосу, без босса — на прежнем месте
+   * (этап 8, п. 9; `docs/stage-8-plan-2026-11-19.md`). Показанное сейчас сообщение переносится сразу.
+   */
+  setToastBelow(bottom: number | null): void {
+    if (bottom === this.toastBelow) return;
+    this.toastBelow = bottom;
+    if (this.toastCurrent) this.placeToast();
+  }
+
+  /** Ставит текст и плашку сообщения: под полосой босса, если она видна, иначе вверху окна карты. */
+  private placeToast(): void {
+    let y = TOAST_Y;
+    if (this.toastBelow !== null) {
+      // высота плашки — как в fitPlate (текст с учётом сжатия и переноса плюс поля)
+      fitText(this.toastText, VIEW.w - 88);
+      y = Math.max(TOAST_Y, this.toastBelow + TOAST_GAP + (this.toastText.displayHeight + 18) / 2);
+    }
+    this.toastText.setY(y);
+    this.toastRect = this.fitPlate(this.toastText, this.toastPlate, y);
   }
 
   /**
@@ -387,16 +422,16 @@ export class Panel {
     this.toastPlate.setAlpha(0);
   }
 
-  /** Состояние уведомлений для проверок: текст на экране (null — ничего не показано), число новостей в очереди. */
-  toastInfo(): { text: string | null; news: boolean; queued: string[] } {
-    return { text: this.toastCurrent?.message ?? null, news: this.toastCurrent?.news ?? false, queued: this.newsQueue.map((item) => item.message) };
+  /** Состояние уведомлений для проверок: текст на экране (null — ничего не показано), число новостей в очереди, плашка (центр и размер на экране игры). */
+  toastInfo(): { text: string | null; news: boolean; queued: string[]; rect: { x: number; y: number; w: number; h: number } } {
+    return { text: this.toastCurrent?.message ?? null, news: this.toastCurrent?.news ?? false, queued: this.newsQueue.map((item) => item.message), rect: { ...this.toastRect } };
   }
 
   private showToast(item: { message: string; ms: number; news: boolean }): void {
     this.toastTween?.stop();
     this.toastCurrent = item;
     this.toastText.setText(item.message).setAlpha(1);
-    this.fitPlate(this.toastText, this.toastPlate, TOP_H + 30);
+    this.placeToast();
     this.toastPlate.setAlpha(1);
     const tween = this.scene.tweens.add({
       targets: [this.toastText, this.toastPlate],
@@ -481,7 +516,11 @@ export class Panel {
 
   /** Раскладка карточек по текущему сдвигу, затухание у правого края, стрелки и ползунок. */
   private layoutCards(): void {
-    this.cards.forEach((c, i) => c.box.setPosition(this.cardX(i), CARD.top));
+    // карточки целиком за краем окна списка закрыты подложкой — их не рисуем (меньше работы кадра; на экране ничего не меняется)
+    this.cards.forEach((c, i) => {
+      const x = this.cardX(i);
+      c.box.setPosition(x, CARD.top).setVisible(x + CARD.w > LIST.x && x < LIST.x + LIST.w);
+    });
     const max = this.maxScroll();
     this.listFade.clear();
     this.listCover.clear();
@@ -514,8 +553,8 @@ export class Panel {
     const need = scene.add.graphics();
     box.add(bg);
     // Название башни сверху (русское или английское, по языку игры), ниже значок, у открытой — цена
-    const name = this.text(CARD.w / 2, 11, t(`tower${id.charAt(0).toUpperCase()}${id.slice(1)}` as TextKey), fs(14, 20), TEXT_COLORS.main).setDepth(0);
-    if (name.width > CARD.w - 8) name.setScale((CARD.w - 8) / name.width);
+    const name = this.text(CARD.w / 2, 11, t(`tower${id.charAt(0).toUpperCase()}${id.slice(1)}` as TextKey), SMALL_FONT, TEXT_COLORS.main).setDepth(0);
+    fitText(name, CARD.w - 8);
     box.add(name);
     const icon = scene.add.container(CARD.w / 2, 39).setScale(0.44);
     createTowerArt(scene, icon, id);
@@ -531,8 +570,8 @@ export class Panel {
       veil.fillStyle(0x070d1c, 0.7).fillRoundedRect(0, 0, CARD.w, CARD.h, 12);
       box.add(veil);
       box.add(this.lockIcon(CARD.w / 2, 36));
-      const lock = this.text(CARD.w / 2, 74, t('lockedTree'), fs(17, 20), TEXT_COLORS.soft).setDepth(0);
-      if (lock.width > CARD.w - 10) lock.setScale((CARD.w - 10) / lock.width);
+      const lock = this.text(CARD.w / 2, 74, t('lockedTree'), SMALL_FONT, TEXT_COLORS.soft).setDepth(0);
+      fitText(lock, CARD.w - 10);
       box.add(lock);
     }
     const c: ListCard = { id, open, box, bg, need, price, key: '' };
@@ -639,7 +678,7 @@ export class Panel {
 
   private text(x: number, y: number, str: string, size: number, color: string = TEXT_COLORS.main, ox = 0.5, oy = 0.5): Phaser.GameObjects.Text {
     return this.scene.add
-      .text(x, y, str, { fontFamily: FONT, fontSize: `${size}px`, fontStyle: 'bold', color, stroke: TEXT_COLORS.stroke, strokeThickness: size > 20 ? 4 : 0, resolution: 2 })
+      .text(x, y, str, { fontFamily: FONT, fontSize: `${size}px`, fontStyle: 'bold', color, stroke: TEXT_COLORS.stroke, strokeThickness: size > SMALL_FONT ? 4 : 0, resolution: 2 })
       .setOrigin(ox, oy)
       .setDepth(D.item + 1);
   }

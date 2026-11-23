@@ -16,6 +16,7 @@ import { Tower, type TowerId } from './objects/Tower';
 import { pointAt, tileCenter } from './pathing';
 import { currentLevel } from './progress';
 import { sfx } from './sound';
+import { settings } from './settings';
 import { MAX_TOWER_LEVEL, towerPrice } from './towerStats';
 import { VIEW } from './ui/Panel';
 
@@ -110,7 +111,7 @@ export function qaSnapshot(s: GameSceneInternals): DebugSnapshot {
     pauseResumeButton: s.pauseResumeButton ? { ...s.pauseResumeButton } : null,
     pauseMenuButton: s.pauseMenuButton ? { ...s.pauseMenuButton } : null,
     pauseAlmanacButton: s.pauseAlmanacButton ? { ...s.pauseAlmanacButton } : null,
-    pauseSoundButton: s.pauseSoundButton ? { ...s.pauseSoundButton } : null,
+    pauseSettingsButton: s.pauseSettingsButton ? { ...s.pauseSettingsButton } : null,
     pauseRestartButton: s.pauseRestartButton ? { ...s.pauseRestartButton } : null,
     levelGrowth: { level: currentLevel(), ...s.params.growth, hpFactor: s.params.hpFactor, hpScale: CONFIG.waves.hpScale },
     // сцена могла уже закрыться (снимок запрашивают и после перехода на другой экран): тогда у неё нет камер
@@ -124,6 +125,7 @@ export function qaSnapshot(s: GameSceneInternals): DebugSnapshot {
     endDnaLines: [...s.endDnaLines],
     attemptLine: s.attemptText,
     toast: s.panel.toastInfo(),
+    bossBar: s.bossBarRect(),
     selected: s.selected,
     towers: s.towers.map((tw: any) => ({
       id: tw.id,
@@ -248,8 +250,11 @@ export function qaSnapshot(s: GameSceneInternals): DebugSnapshot {
       beams: s.effects.beams,
       splats: s.effects.splats,
       frosts: s.effects.frosts,
+      calmMarks: s.effects.calmMarks,
     },
-    sound: { state: sfx.state, played: sfx.played, muted: sfx.muted },
+    sound: { state: sfx.state, played: sfx.played, muted: sfx.muted, volume: sfx.volume, gain: sfx.gain },
+    settingsOpen: s.settingsWindow !== null,
+    calm: settings.calm,
   };
 }
 
