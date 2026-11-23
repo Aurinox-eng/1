@@ -403,6 +403,14 @@ const REVIEW_SYRUP_LEAD = 2;
  * к 10/15/20-й волне, Шипучки не строятся. Сверка без правки на том же коммите — запись `fx:nok1` в --mut.
  */
 const K1_TOLERANCE = 0.05;
+/**
+ * К2 — доля канала добирается уроном (решение владельца 22 ноября 2026, сообщение 1, п. 2.3: вторая правка бота; правила — «защита каждого канала – по доле его бактерий»,
+ * «Сироп на каждом канале до первой волны бегунов»). Лестница К1 (`45181196118`, 23 ноября 2026): К1 добирает верхний канал «Носа» только Сиропами (строка syrupB:4 — первая
+ * строка канала в очереди), урон канала не растёт, 96 % потерянных жизней — через верхний путь. С К2: когда К1 выбирает отстающий канал и на нём уже стоит Сироп, строки Сиропов
+ * этого канала пропускаются — берётся первая строка урона (Шипучка, Таблетки, Шприц) с теми же правилами очереди. Только вместе с К1 (карты с несколькими каналами);
+ * сверка без правки — `fx:nok2`.
+ */
+const K2_DAMAGE_FIRST = true;
 /** Покупки очков ДНК по отчёту (с. 71): узел и уровень, до которого он покупается, в порядке покупок за попытки 1–5. */
 const REVIEW_BUYS = [['towerSyrup', 1], ['towerFizz', 1], ['towerSyringe', 1], ['damage', 1], ['coins', 3], ['syringePower', 1], ['syrupPower', 1]];
 const listArg = (name) => (args[name] === undefined || args[name] === true ? null : String(args[name]).split(',').map((x) => x.trim()).filter(Boolean));
@@ -546,8 +554,9 @@ const NO_ALT = new Set();
  *           и по одной на каждого кандидата (линии луча Шприца по пересечениям с дорожкой, места луж Сиропа по охвату); лучшие клетки ставятся первыми башнями во всех попытках уровня
  *           (`scoutLevel`). Разведка не меняет очков ДНК, древа и счёта попыток.
  *  nok1   — только образец (review): без правки К1 (защита каналов по доле бактерий, K1_TOLERANCE) — сверка на том же коммите.
+ *  nok2   — только образец (review): без правки К2 (доля отстающего канала добирается уроном, если на нём уже есть Сироп) — сверка на том же коммите.
  */
-const FX_KNOWN = ['beam', 'beamlen', 'iv', 'puddle', 'coins', 'v', 'scout', 'nok1'];
+const FX_KNOWN = ['beam', 'beamlen', 'iv', 'puddle', 'coins', 'v', 'scout', 'nok1', 'nok2'];
 const FX = new Set();
 /** Предел уровня слияния у бота (по умолчанию — без предела; `--mut mergelimit:4`). */
 let MERGE_LIMIT = 99;
@@ -1276,8 +1285,10 @@ function makePlayer({ world, rng, buttons, forced = null, mapId = null }) {
     // К1: канал, отстающий по вложениям от своей доли бактерий, — первым (после первых Таблеток)
     if (k1 && !firstLeft.length) {
       for (const ch of k1Lagging(k1, view.towers, groupOf)) {
-        const pick = firstRow(queue.filter(([key]) => k1.channelOf[key] === ch));
-        if (pick !== undefined) return pick && { ...pick, k1: true };
+        // К2: на канале уже есть Сироп — его строки Сиропов пропускаются, доля добирается уроном
+        const k2 = K2_DAMAGE_FIRST && !FX.has('nok2') && view.towers.some((tw) => tw.id === 'syrup' && k1.channelOf[groupOf(tw)] === ch);
+        const pick = firstRow(queue.filter(([key]) => k1.channelOf[key] === ch && !(k2 && RG[key]?.type === 'syrup')));
+        if (pick !== undefined) return pick && { ...pick, k1: true, ...(k2 ? { k2: true } : {}) };
       }
     }
     return firstRow(queue) ?? null;
@@ -1934,7 +1945,7 @@ async function playGame(browser, baseUrl, run, metaLevels = null, salt = '', lev
             player.bought(choice);
             // первая башня вида: клетка и направление луча (fx:scout — базовая партия разведки и проверка, что клетка разведки занята как задумано)
             if (!record.first[choice.type]) record.first[choice.type] = { col: choice.cell.col, row: choice.cell.row, aim: res.aim, wave: s.wave };
-            record.builds.push({ t: Math.round(s.elapsed), type: choice.type, col: choice.cell.col, row: choice.cell.row, ...(choice.k1 ? { k1: true } : {}) }); // k1 — постройку выбрала правка К1
+            record.builds.push({ t: Math.round(s.elapsed), type: choice.type, col: choice.cell.col, row: choice.cell.row, ...(choice.k1 ? { k1: true } : {}), ...(choice.k2 ? { k2: true } : {}) }); // k1 — постройку выбрала правка К1; k2 — с пропуском Сиропов (К2)
             if (VERBOSE) console.log(`      + ${profileTitle()} #${run}: ${(NAMES[choice.type] ?? choice.type).padEnd(8)} клетка ${choice.cell.col},${choice.cell.row}  (игровое время ${s.elapsed.toFixed(0)} с, волна ${s.wave}, монет было ${s.coins})`);
             break; // не больше одной покупки за решение
           }
