@@ -83,6 +83,12 @@
  *   stars                  звёзды: победа без потерь — три, пороги по потерянным жизням, очки ДНК только за впервые полученные звёзды, результат не ухудшается, лучшая волна при проигрыше, звёзды на экране конца уровня
  *   sound                 звук (15 октября 2026): в стресс-сценарии одновременно звучит не больше soundMaxVoices тонов, с выключенным звуком (pvb.sound = 0) тонов нет
  *   sdk                   SDK Яндекс Игр (этап 9, раздел 1 плана): подставной window.YaGames — LoadingAPI.ready() один раз, язык из SDK главнее языка браузера, game_api_pause глушит звук и ставит партию на паузу, game_api_resume возвращает звук и снимает паузу площадки (пауза игрока кнопкой остаётся), разметка GameplayAPI; без SDK — язык браузера
+ *   sdk-ads               SDK Яндекс Игр, реклама и прерванная попытка (этап 9, раздел 2 плана): подставной window.YaGames с рекламой — на экране конца попытки GameplayAPI.stop() и кнопка рекламы
+ *                          с вознаграждением («Заново», «Улучшения», «В меню» на прежних местах); пока реклама открыта — звук молчит; награда по onRewarded — монеты на старт следующей попытки,
+ *                          второй показ за попытку не запускается, полноэкранной после неё нет; «В меню» — сначала полноэкранная реклама, переход после её закрытия; не открылась за 3 с — переход без неё;
+ *                          во время попытки рекламы нет; без SDK кнопки нет. Прерванная попытка (&unfinished): запись «пройдено N» на границе волны; живую запись другая вкладка не засчитывает;
+ *                          запись закрытой партии следующий запуск засчитывает — ДНК за N волн, попытка +1, строка «не завершена, пройдено N/…»; вкладка в фоне дольше 120 с (строка 7 решений этапа 9):
+ *                          вкладка Б засчитывает её попытку, вернувшаяся вкладка А забирает отметку «засчитано», при «В меню» ДНК в сумме — как без прерывания, попытка не прибавляется, строка итога одна
  *   step-dps              шаг игры и скорость (15 октября 2026): слитая Таблетка стреляет одинаково часто на ×1 и ×5 (расхождение не больше 1 %), скорострельность близка к 1000 / пауза
  *   menu-flow              главное меню и выбор уровня (этап 5, шаг 3; компьютер ru, телефон en): игра открывается на меню (`?qa&menu`), «Играть» → 10 карточек (уровень 1 открыт, остальные закрыты), тап по закрытой ничего не делает, по открытой — партия, пауза → «В меню», «Улучшения» из меню и возврат
  *   levels-lock            открытие уровней по звёздам (`&stars=`), экран конца уровня: «Следующий уровень» после победы (не на последнем уровне), «В меню», тап по «Следующий уровень» открывает уровень 2
@@ -168,7 +174,7 @@ if (['stage-1', 'stage-1b', 'stage-1b-qa', 'td-1-mockup', 'tmp'].includes(tag)) 
   process.exit(2);
 }
 
-const SCENARIOS = ['desktop-ru', 'phone-ru', 'desktop-en', 'phone-en', 'rules', 'graph', 'combat', 'dash', 'split', 'spore', 'armored', 'intro', 'lose-ru', 'lose-en', 'win-ru', 'win-en', 'towers', 'card', 'merge', 'mutations', 'sell', 'special', 'danger', 'rotate', 'production', 'fullgame', 'locked', 'strip', 'almanac', 'almanac-pause', 'damage-numbers', 'sell-gap', 'restart-button', 'deflation', 'camera-fit', 'colors', 'meta-save', 'meta-dna', 'meta-shop', 'meta-effects', 'tree-effects', 'tree-shop', 'level-waves', 'progress-save', 'stars', 'menu-flow', 'menu-reset', 'levels-lock', 'step-dps', 'sound', 'sdk', 'lose-line', 'attempt-line', 'toast-queue', 'toast-boss', 'keys', 'settings', 'fonts', 'shake', 'bosses', 'level2', 'wards', 'spiral-cap', 'marks', 'menu-exit', 'resume-tap', 'two-tabs', 'treemock', 'faces', 'real-game', 'dna-cap', 'xp', 'names', 'ranks']
+const SCENARIOS = ['desktop-ru', 'phone-ru', 'desktop-en', 'phone-en', 'rules', 'graph', 'combat', 'dash', 'split', 'spore', 'armored', 'intro', 'lose-ru', 'lose-en', 'win-ru', 'win-en', 'towers', 'card', 'merge', 'mutations', 'sell', 'special', 'danger', 'rotate', 'production', 'fullgame', 'locked', 'strip', 'almanac', 'almanac-pause', 'damage-numbers', 'sell-gap', 'restart-button', 'deflation', 'camera-fit', 'colors', 'meta-save', 'meta-dna', 'meta-shop', 'meta-effects', 'tree-effects', 'tree-shop', 'level-waves', 'progress-save', 'stars', 'menu-flow', 'menu-reset', 'levels-lock', 'step-dps', 'sound', 'sdk', 'sdk-ads', 'lose-line', 'attempt-line', 'toast-queue', 'toast-boss', 'keys', 'settings', 'fonts', 'shake', 'bosses', 'level2', 'wards', 'spiral-cap', 'marks', 'menu-exit', 'resume-tap', 'two-tabs', 'treemock', 'faces', 'real-game', 'dna-cap', 'xp', 'names', 'ranks']
 const only = args.only === undefined ? null : String(args.only);
 if (only !== null && !SCENARIOS.includes(only)) {
   console.error(`Неизвестный сценарий --only=${only}. Есть: ${SCENARIOS.join(', ')}`);
@@ -2721,6 +2727,265 @@ async function runSdk(browser, baseUrl) {
   check(`${p} без SDK: язык браузера (en), объекта YaGames нет: ${JSON.stringify(plain)}`, plain.lang === 'en' && plain.sdk === 'undefined', JSON.stringify(plain));
   await game.page.close();
   await context.close();
+}
+
+/**
+ * SDK Яндекс Игр, раздел 2 плана этапа 9: реклама с вознаграждением (монеты на старт следующей попытки, один показ за попытку), полноэкранная реклама только после «Заново» и «В меню»
+ * на экране конца попытки, игра стоит и звук молчит, пока реклама открыта; прерванная попытка — запись на границе волны, засчитывается следующим запуском.
+ * Подставной SDK отдаёт обработчики рекламы проверке (`window.__sdk.ad`): открытие, награду и закрытие проверка вызывает сама.
+ */
+async function runSdkAds(browser, baseUrl) {
+  const p = '[реклама и прерванная попытка]';
+  const N = readConfigNumber('ads', 'rewardStartCoins');
+  const lose = 'waves.firstDelaySec:1,waves.total:1,waves.list.0.coccus:6,bacteria.baseSpeed:300,towers.pill.damage:0,lives.start:1';
+  const fakeSdk = () => {
+    const sdk = (window.__sdk = { calls: [], handlers: {}, ad: null, silent: false });
+    window.YaGames = {
+      init: async () => ({
+        features: {
+          LoadingAPI: { ready: () => sdk.calls.push('ready') },
+          GameplayAPI: { start: () => sdk.calls.push('start'), stop: () => sdk.calls.push('stop') },
+        },
+        environment: { i18n: { lang: 'ru' } },
+        adv: {
+          showFullscreenAdv: ({ callbacks }) => {
+            sdk.calls.push('fullscreen');
+            sdk.ad = sdk.silent ? null : callbacks;
+          },
+          showRewardedVideo: ({ callbacks }) => {
+            sdk.calls.push('rewarded');
+            sdk.ad = callbacks;
+          },
+        },
+        on: (event, listener) => {
+          sdk.handlers[event] = listener;
+        },
+      }),
+    };
+  };
+  const calls = (game) => game.page.evaluate(() => window.__sdk.calls.slice());
+  const waitAd = async (game) => {
+    for (let i = 0; i < 50 && !(await game.page.evaluate(() => window.__sdk.ad !== null)); i++) await sleep(100);
+  };
+  const loseRun = async (game, label) => {
+    await waitFor(game.page, (x) => x.state === 'lost', WAIT_MS, label);
+    await sleep(700); // кнопки экрана конца принимают нажатие через gameOver.restartLockMs
+    return game.state();
+  };
+  // ---- реклама с вознаграждением и полноэкранная
+  {
+    const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
+    await context.addInitScript(fakeSdk);
+    const game = await openGame(context, baseUrl, p, { speed: 4, cfg: lose });
+    const start0 = (await game.state()).coins;
+    await game.page.keyboard.press('Shift'); // действие игрока: звук разрешён
+    let s = await loseRun(game, 'проигрыш (1-я попытка)');
+    let c = await calls(game);
+    check(`${p} во время попытки рекламы нет: вызовы ${c.join(', ')}`, !c.includes('fullscreen') && !c.includes('rewarded'), c.join(', '));
+    check(`${p} экран конца попытки: последний вызов GameplayAPI.stop() («${c.at(-1)}»)`, c.at(-1) === 'stop', c.join(', '));
+    const places = { endButton: [460, 560], upgradesButton: [820, 560], menuButton: [640, 650] };
+    const moved = Object.entries(places).filter(([k, [x, y]]) => !s[k] || s[k].x !== x || s[k].y !== y);
+    check(`${p} кнопка рекламы есть (${JSON.stringify(s.rewardButton)}), «Заново», «Улучшения», «В меню» на прежних местах`, s.rewardButton !== null && moved.length === 0, JSON.stringify({ reward: s.rewardButton, moved }));
+    const rb = s.rewardButton ?? { x: 0, y: 0, w: 0, h: 0 };
+    const overlaps = ['endButton', 'upgradesButton', 'menuButton', 'copyButton'].filter((k) => s[k] && Math.abs(s[k].x - rb.x) < (s[k].w + rb.w) / 2 && Math.abs(s[k].y - rb.y) < (s[k].h + rb.h) / 2);
+    check(`${p} кнопка рекламы не заходит на другие кнопки экрана`, overlaps.length === 0, overlaps.join(', '));
+    await game.input.tap(game.g(rb.x, rb.y));
+    await waitAd(game);
+    await game.page.evaluate(() => window.__sdk.ad.onOpen());
+    await sleep(400);
+    s = await game.state();
+    check(`${p} реклама с вознаграждением открыта: звук молчит (${s.sound.state}), игра стоит (held ${s.ads.held}), показ «${s.ads.reward}»`, s.sound.state === 'suspended' && s.ads.held && s.ads.reward === 'busy', JSON.stringify({ sound: s.sound.state, ads: s.ads }));
+    await game.page.evaluate(() => {
+      window.__sdk.ad.onRewarded();
+      window.__sdk.ad.onClose();
+      window.__sdk.ad = null;
+    });
+    await sleep(400);
+    s = await game.state();
+    check(`${p} onRewarded и закрытие: звук вернулся (${s.sound.state}), награда ${s.ads.pendingCoins} монет ждёт следующую попытку (ads.rewardStartCoins = ${N})`, s.sound.state === 'running' && !s.ads.held && s.ads.reward === 'rewarded' && s.ads.pendingCoins === N, JSON.stringify({ sound: s.sound.state, ads: s.ads }));
+    await game.input.tap(game.g(rb.x, rb.y));
+    await sleep(500);
+    c = await calls(game);
+    check(`${p} второй показ за попытку не запускается: показов с вознаграждением ${c.filter((x) => x === 'rewarded').length}`, c.filter((x) => x === 'rewarded').length === 1, c.join(', '));
+    await game.input.tap(game.g(s.endButton.x, s.endButton.y));
+    const fresh = await waitFreshRun(game.page, 'попытка после «Заново»');
+    c = await calls(game);
+    check(`${p} «Заново» после рекламы с вознаграждением — без полноэкранной; новая попытка: монет ${fresh.coins} = ${start0} + ${N}, награда забрана (ждёт ${fresh.ads.pendingCoins})`,
+      !c.includes('fullscreen') && fresh.coins === start0 + N && fresh.ads.startCoins === N && fresh.ads.pendingCoins === 0, JSON.stringify({ coins: fresh.coins, start0, ads: fresh.ads, calls: c }));
+    // 2-я попытка: «В меню» — сначала полноэкранная реклама, переход после её закрытия
+    s = await loseRun(game, 'проигрыш (2-я попытка)');
+    check(`${p} новая попытка — снова один показ: кнопка рекламы есть, показ «${s.ads.reward}»`, s.rewardButton !== null && s.ads.reward === 'idle', JSON.stringify(s.ads));
+    await game.input.tap(game.g(s.menuButton.x, s.menuButton.y));
+    await waitAd(game);
+    await game.page.evaluate(() => window.__sdk.ad.onOpen());
+    await sleep(500);
+    s = await game.state();
+    c = await calls(game);
+    check(`${p} «В меню»: полноэкранная реклама показана, пока она открыта — экран конца (${s.state}), звук молчит (${s.sound.state})`, c.at(-1) === 'fullscreen' && s.state === 'lost' && s.sound.state === 'suspended', JSON.stringify({ state: s.state, sound: s.sound.state, calls: c }));
+    await game.page.evaluate(() => window.__sdk.ad.onClose(true));
+    let menu = true;
+    try {
+      await waitUiWhere(game.page, (u) => u !== null && u.scene === 'menu', 5000, 'меню после полноэкранной рекламы');
+    } catch {
+      menu = false;
+    }
+    check(`${p} после закрытия полноэкранной рекламы — меню`, menu, '');
+    await game.page.close();
+    await context.close();
+  }
+  // ---- полноэкранная реклама не открылась: «Заново» срабатывает без неё (ожидание не дольше 3 с)
+  {
+    const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
+    await context.addInitScript(fakeSdk);
+    const game = await openGame(context, baseUrl, p, { speed: 4, cfg: lose });
+    await game.page.evaluate(() => {
+      window.__sdk.silent = true;
+    });
+    const s = await loseRun(game, 'проигрыш (реклама молчит)');
+    const t0 = Date.now();
+    await game.input.tap(game.g(s.endButton.x, s.endButton.y));
+    await waitFreshRun(game.page, 'попытка после «Заново» без рекламы', { timeoutMs: 10000 });
+    const c = await calls(game);
+    check(`${p} полноэкранная реклама не открылась: «Заново» сработало через ${((Date.now() - t0) / 1000).toFixed(1)} с без неё`, c.includes('fullscreen') && Date.now() - t0 < 9000, c.join(', '));
+    await game.page.close();
+    await context.close();
+  }
+  // ---- без SDK кнопки рекламы нет
+  {
+    const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
+    const game = await openGame(context, baseUrl, p, { speed: 4, cfg: lose });
+    const s = await loseRun(game, 'проигрыш без SDK');
+    check(`${p} без SDK: кнопки рекламы нет, реклама недоступна`, s.rewardButton === null && !s.ads.available, JSON.stringify({ reward: s.rewardButton, ads: s.ads }));
+    await game.page.close();
+    await context.close();
+  }
+  // ---- прерванная попытка (&unfinished): запись на границе волны, живая запись не засчитывается, закрытая — засчитывается при следующем запуске
+  {
+    const D = readMetaTable().dna;
+    const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
+    const cfg = 'waves.firstDelaySec:1,waves.pauseSec:90,waves.newTypePauseSec:0,waves.intervalStartSec:0.3,waves.intervalEndSec:0.3,lives.start:999';
+    const game = await openGame(context, baseUrl, `${p} прерывание`, { realMeta: true, speed: 4, cfg, query: '&unfinished' });
+    const save0 = await readSave5(game.page);
+    const dna0 = (await metaOf(game.page)).dna;
+    const s = await waitForGame(game.page, (x) => (x.unfinished?.waves ?? 0) >= 2, 'запись «пройдено 2 волны»', { gameSec: 600 });
+    const keys = (page) => page.evaluate(() => Object.keys(window.localStorage).filter((k) => k.startsWith('pvb.unf5.')));
+    const k1 = await keys(game.page);
+    check(`${p} граница волны: запись прерванной попытки (пройдено ${s.unfinished?.waves}, уровень ${s.unfinished?.level}), ключей ${k1.length}`, k1.length === 1 && s.unfinished?.waves >= 2, JSON.stringify({ unfinished: s.unfinished, keys: k1 }));
+    // вторая вкладка при живой партии запись не засчитывает
+    const other = await openGame(context, baseUrl, `${p} вторая вкладка`, { realMeta: true, cfg: 'waves.firstDelaySec:9999', query: '&unfinished' });
+    const saveO = await readSave5(other.page);
+    const k2 = await keys(other.page);
+    check(`${p} партия жива: другая вкладка её запись не засчитывает (попыток ${save0?.attempts?.[0] ?? 0} → ${saveO?.attempts?.[0] ?? 0}, запись на месте)`, (saveO?.attempts?.[0] ?? 0) === (save0?.attempts?.[0] ?? 0) && k2.includes(k1[0]), JSON.stringify({ k2 }));
+    await other.page.close();
+    // партию «закрыли»: страница закрыта, отметка «жива» старая — следующий запуск засчитывает запись
+    await game.page.close();
+    const next = await context.newPage();
+    watchConsole(next, `${p} следующий запуск`);
+    // отметка «жива» сбрасывается до загрузки игры (как будто партию закрыли больше STALE_MS назад)
+    await next.addInitScript((key) => {
+      try {
+        const r = JSON.parse(window.localStorage.getItem(key));
+        if (r && !window.__unfAged) {
+          window.__unfRecord = r;
+          r.alive = 0;
+          window.localStorage.setItem(key, JSON.stringify(r));
+          window.__unfAged = true;
+        }
+      } catch {
+        /* записи нет */
+      }
+    }, k1[0]);
+    await next.goto(`${baseUrl}?qa&unfinished&cfg=waves.firstDelaySec:9999,levels.starDna:0,lives.start:3`, { waitUntil: 'load', timeout: 90000 });
+    await waitFor(next, (x) => x.state === 'playing', 20000, 'запуск после прерывания');
+    const rec = await next.evaluate(() => window.__unfRecord ?? null);
+    const save1 = await readSave5(next);
+    const dna1 = (await metaOf(next)).dna;
+    const waves = rec?.waves ?? -1;
+    const want = rec ? dnaWavesReward(D, waves, rec.level) : -1;
+    const line = save1?.log?.at(-1) ?? '';
+    const mark = i18nText('attemptUnfinished', 0, { w: waves, total: rec?.line?.waveTotal ?? 0 });
+    const left = await next.evaluate((key) => window.localStorage.getItem(key), k1[0]);
+    check(`${p} следующий запуск засчитал прерванную попытку: ДНК ${dna0} → ${dna1} (за ${waves} волн — ${want}), попыток ${save0?.attempts?.[0] ?? 0} → ${save1?.attempts?.[0] ?? 0}, строка «${mark}», запись стёрта`,
+      rec !== null && waves >= 2 && dna1 - dna0 === want && (save1?.attempts?.[0] ?? 0) === (save0?.attempts?.[0] ?? 0) + 1 && line.includes(` | ${mark} | `) && line.includes(`ДНК +${want}`) && left === null, JSON.stringify({ dna0, dna1, want, line: line.slice(0, 160), left }));
+    await next.close();
+    await context.close();
+  }
+  // ---- вкладка в фоне дольше STALE_MS (строка 7 docs/stage-9-decisions-2026-11-22.md, вариант А): другая вкладка засчитывает её попытку как прерванную; вернувшаяся вкладка
+  //      доигрывает и при «В меню» платит ДНК только сверх засчитанного (за попытку в сумме — как без прерывания), счётчик попыток второй раз не растёт, строка итога в журнале одна
+  {
+    const D = readMetaTable().dna;
+    const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
+    const cfg = 'waves.firstDelaySec:1,waves.pauseSec:90,waves.newTypePauseSec:0,waves.intervalStartSec:0.3,waves.intervalEndSec:0.3,lives.start:999';
+    const game = await openGame(context, baseUrl, `${p} фоновая вкладка`, { realMeta: true, speed: 4, cfg, query: '&unfinished' });
+    const attempts = (save) => save?.attempts?.[0] ?? 0;
+    const save0 = await readSave5(game.page);
+    const dna0 = (await metaOf(game.page)).dna;
+    await waitForGame(game.page, (x) => (x.unfinished?.waves ?? 0) >= 1, 'запись «пройдено 1 волна» (фоновая вкладка)', { gameSec: 600 });
+    const key = await game.page.evaluate(() => Object.keys(window.localStorage).find((k) => k.startsWith('pvb.unf5.') && !k.endsWith('.settled')) ?? null);
+    // вкладка «ушла в фон»: страница заморожена (кадры и таймеры стоят — отметка «жива» не обновляется)
+    await game.cdp.send('Page.setWebLifecycleState', { state: 'frozen' });
+    const other = await context.newPage();
+    watchConsole(other, `${p} вкладка Б`);
+    // отметка «жива» старится до загрузки вкладки Б (как будто вкладка А в фоне дольше STALE_MS)
+    await other.addInitScript((k) => {
+      try {
+        const r = JSON.parse(window.localStorage.getItem(k));
+        if (r && !window.__unfAged) {
+          window.__unfRecord = r;
+          r.alive = Date.now() - 10 * 60 * 1000;
+          window.localStorage.setItem(k, JSON.stringify(r));
+          window.__unfAged = true;
+        }
+      } catch {
+        /* записи нет */
+      }
+    }, key);
+    await other.goto(`${baseUrl}?qa&unfinished&cfg=waves.firstDelaySec:9999,levels.starDna:0,lives.start:3`, { waitUntil: 'load', timeout: 90000 });
+    await waitFor(other, (x) => x.state === 'playing', 20000, 'запуск вкладки Б');
+    const rec = await other.evaluate(() => window.__unfRecord ?? null);
+    const n = rec?.waves ?? -1;
+    const save1 = await readSave5(other);
+    const dna1 = save1?.dna ?? -1;
+    const wantN = rec ? dnaWavesReward(D, n, rec.level) : -1;
+    const markKey = `${key}.settled`;
+    const stored1 = await other.evaluate(([k, m]) => ({ record: window.localStorage.getItem(k), mark: JSON.parse(window.localStorage.getItem(m) ?? 'null') }), [key, markKey]);
+    const unfMark = i18nText('attemptUnfinished', 0, { w: n, total: rec?.line?.waveTotal ?? 0 });
+    // отметка «засчитано» может быть уже забрана вкладкой А: на сервере заморозка страницы не всегда останавливает её таймеры (smoke 45262748404) — тогда её проверяет следующая проверка («вкладка А вернулась»)
+    check(`${p} вкладка Б засчитала попытку фоновой вкладки А: пройдено ${n}, ДНК ${dna0} → ${dna1} (за ${n} волн — ${wantN}), попыток ${attempts(save0)} → ${attempts(save1)}, запись А стёрта, отметка «засчитано ${stored1.mark ? `${stored1.mark.waves} волн` : 'уже забрана вкладкой А'}»`,
+      key !== null && rec !== null && n >= 1 && dna1 - dna0 === wantN && attempts(save1) === attempts(save0) + 1 && (save1?.log?.at(-1) ?? '').includes(` | ${unfMark} | `) && stored1.record === null && ((stored1.mark?.waves === n && stored1.mark?.dna === wantN) || stored1.mark === null),
+      JSON.stringify({ key, n, dna0, dna1, wantN, stored1, line: (save1?.log?.at(-1) ?? '').slice(0, 160) }));
+    await other.close();
+    // вкладка А вернулась: забирает отметку (раз в 5 с), запись дальше несёт засчитанную часть
+    await game.cdp.send('Page.setWebLifecycleState', { state: 'active' });
+    const back = await waitForGame(game.page, (x) => (x.unfinished?.settled ?? 0) >= 1, 'вкладка А забрала отметку «засчитано»', { gameSec: 600 });
+    const markLeft = await game.page.evaluate((m) => window.localStorage.getItem(m), markKey);
+    check(`${p} вкладка А вернулась: узнала, что засчитано ${back.unfinished?.settled} волн (ждали ${n}), отметка стёрта`, back.unfinished?.settled === n && markLeft === null, JSON.stringify({ unfinished: back.unfinished, markLeft }));
+    // вкладка А проходит ещё волну: новая запись несёт засчитанную часть (закроют снова — следующий запуск начислит только разницу)
+    await waitForGame(game.page, (x) => (x.unfinished?.waves ?? 0) >= n + 1 && x.wavePhase === 'pause' && x.bacteria.length === 0, `вкладка А: пройдено ${n + 1}, пауза между волнами`, { gameSec: 900 });
+    const rec2 = await game.page.evaluate((k) => JSON.parse(window.localStorage.getItem(k) ?? 'null'), key);
+    check(`${p} новая запись вкладки А (пройдено ${rec2?.waves}) несёт засчитанную часть: ${rec2?.settled?.waves} волн, ${rec2?.settled?.dna} ДНК, попытка ${rec2?.settled?.attempt}`,
+      rec2?.waves >= n + 1 && rec2?.settled?.waves === n && rec2?.settled?.dna === wantN && rec2?.settled?.attempt === attempts(save0) + 1, JSON.stringify(rec2?.settled ?? null));
+    // «В меню»: ДНК за попытку в сумме — как без прерывания, счётчик попыток не растёт, строка «не завершена» заменена итоговой
+    const paused = await pauseGame(game, 'вкладка А перед «В меню»');
+    const between = paused.wavePhase === 'pause' && paused.bacteria.length === 0;
+    const cleared = between ? paused.wave : Math.max(0, paused.wave - 1);
+    const wantAll = dnaWavesReward(D, cleared, paused.level);
+    await tapToMenu(game, paused, `${p} вкладка А`);
+    await sleep(300);
+    const save2 = await readSave5(game.page);
+    const dna2 = save2?.dna ?? -1;
+    const log2 = save2?.log ?? [];
+    const last = log2.at(-1) ?? '';
+    const exitMark = i18nText('attemptExit', 0, { w: paused.wave, total: paused.waveTotal });
+    const no = i18nText('attemptNo', 0, { n: attempts(save0) + 1 });
+    check(`${p} вкладка А «В меню» после ${cleared} волн: ДНК ${dna0} → ${dna1} → ${dna2} (всего за ${cleared} волн — ${wantAll}, засчитанные ${n} повторно не начислены), попыток ${attempts(save1)} → ${attempts(save2)} (не растёт), строк журнала ${save1?.log?.length ?? 0} → ${log2.length}, строка «${exitMark}», «${no}», «ДНК +${wantAll}», строки «не завершена» нет`,
+      cleared > n && dna2 - dna0 === wantAll && attempts(save2) === attempts(save1) && log2.length === (save1?.log?.length ?? 0) && last.includes(` | ${exitMark} | `) && last.includes(` | ${no} | `) && last.includes(`ДНК +${wantAll}`) && !log2.some((l) => l.includes(i18nText('attemptUnfinished', 0, { w: n, total: rec?.line?.waveTotal ?? 0 }))),
+      JSON.stringify({ cleared, n, dna0, dna1, dna2, wantAll, attempts: [attempts(save0), attempts(save1), attempts(save2)], last: last.slice(0, 200) }));
+    const leftKeys = await game.page.evaluate(() => Object.keys(window.localStorage).filter((k) => k.startsWith('pvb.unf5.')));
+    check(`${p} после конца попытки вкладки А записей и отметок не осталось (${leftKeys.length})`, leftKeys.length === 0, JSON.stringify(leftKeys));
+    await game.page.close();
+    await context.close();
+  }
 }
 
 /** Уровень 2 «Нос» (план docs/level2-plan-2026-10-23.md): карта, план волн, мини-босс 10-й волны, финальный босс — поражение сразу. */
@@ -11183,6 +11448,7 @@ try {
   if (wants('levels-lock')) await safe('[открытие уровней и конец уровня]', () => runLevelsLock(browser, qaServer.url));
   if (wants('sound')) await safe('[звук]', () => runSound(browser, qaServer.url));
   if (wants('sdk')) await safe('[SDK площадки]', () => runSdk(browser, qaServer.url));
+  if (wants('sdk-ads')) await safe('[реклама и прерванная попытка]', () => runSdkAds(browser, qaServer.url));
   if (wants('lose-line')) await safe('[строка проигрыша]', () => runLoseLine(browser, qaServer.url));
   if (wants('attempt-line')) await safe('[строка итога]', () => runAttemptLine(browser, qaServer.url));
   if (wants('toast-queue')) await safe('[очередь уведомлений]', () => runToastQueue(browser, qaServer.url));

@@ -11,6 +11,8 @@ export interface AttemptRecord {
   won: boolean;
   /** Выход в меню с паузы после хотя бы одной пройденной волны (решение владельца 20 октября 2026, сообщение 2, п. 1.2): вместо «гибель N/30» — «выход в меню N/30». */
   exit?: boolean;
+  /** Прерванная попытка (этап 9, раздел 2.2 плана): игру закрыли посреди попытки; засчитана при следующем запуске по записи на границе волны — «не завершена, пройдено N/50». */
+  unfinished?: boolean;
   /** Волна гибели или выхода (при победе не читается). */
   wave: number;
   waveTotal: number;
@@ -52,7 +54,7 @@ function clock(sec: number): string {
 
 export function attemptLine(r: AttemptRecord): string {
   const fields: string[] = [t('attemptBuild', { v: buildVersion() }), t('attemptLevel', { n: r.level }), t('attemptNo', { n: r.attempt })];
-  fields.push(r.won ? t('attemptWon', { stars: '★'.repeat(r.stars) || '—' }) : t(r.exit ? 'attemptExit' : 'attemptLost', { w: r.wave, total: r.waveTotal }));
+  fields.push(r.won ? t('attemptWon', { stars: '★'.repeat(r.stars) || '—' }) : r.unfinished ? t('attemptUnfinished', { w: r.wave, total: r.waveTotal }) : t(r.exit ? 'attemptExit' : 'attemptLost', { w: r.wave, total: r.waveTotal }));
   fields.push(t('attemptLives', { left: Math.max(0, Math.round(r.livesLeft)), max: r.livesMax }));
   const totalSec = Object.values(r.speedSec).reduce((a, b) => a + b, 0);
   const parts = Object.entries(r.speedSec)
