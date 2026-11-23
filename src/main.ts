@@ -4,7 +4,8 @@ import { ART_SHEET, QA_MODE, QA_NORENDER, TREE_MOCK } from './debug';
 import { t } from './i18n';
 import { getLang, setLang } from './lang';
 import { startInMenu } from './progress';
-import { initSdk, onPlatformPause, sdkReady } from './sdk';
+import { initSdk, onGameHold, sdkReady } from './sdk';
+import { settleUnfinished } from './unfinished';
 import { sfx } from './sound';
 import { AlmanacScene } from './scenes/AlmanacScene';
 import { GameScene } from './scenes/GameScene';
@@ -25,6 +26,8 @@ async function boot(): Promise<void> {
   document.title = t('gameTitle');
   const rotateText = document.getElementById('rotate-text');
   if (rotateText) rotateText.textContent = t('rotatePhone');
+  // Прерванные попытки (этап 9, раздел 2.2): игру закрыли посреди попытки — запись с границы волны засчитывается сейчас, до меню (очки ДНК в меню уже с ними); строка итога — на языке этого запуска
+  settleUnfinished();
 
   // Режим проверки (?qa&canvas, только в тестовой сборке и dev): рисовать через canvas вместо WebGL — на слабом контейнере без видеокарты
   // это втрое быстрее, бот баланса замеряет партии быстрее. В игровой сборке параметр не работает.
@@ -62,23 +65,21 @@ async function boot(): Promise<void> {
   // Макет радиального древа (только `?qa&treemock`): в игровой сборке TREE_MOCK всегда false
   if (TREE_MOCK) game.scene.add('TreeMock', TreeMockScene, true);
 
-  // Площадка: `LoadingAPI.ready()` после второго шага цикла (меню нарисовано и принимает ввод); пауза и возобновление (требование 1.3) глушат и возвращают звук, пауза ставит партию на паузу
+  // Площадка: `LoadingAPI.ready()` после второго шага цикла (меню нарисовано и принимает ввод); пауза и возобновление (требование 1.3) и реклама глушат и возвращают звук, пауза ставит партию на паузу
   let steps = 0;
   game.events.on(Phaser.Core.Events.STEP, function onStep() {
     if (++steps < 2) return;
     game.events.off(Phaser.Core.Events.STEP, onStep);
     sdkReady();
   });
-  onPlatformPause(
-    () => {
-      sfx.setSuspended(true);
-      if (game.scene.isActive('Game')) (game.scene.getScene('Game') as GameScene).pauseByPlatform();
-    },
-    () => {
-      sfx.setSuspended(false);
-      if (game.scene.isActive('Game')) (game.scene.getScene('Game') as GameScene).resumeByPlatform();
-    },
-  );
+  // остановка площадкой — пауза (`game_api_pause`) или открытая реклама: звук молчит, партия на паузе; когда закрылось всё — звук возвращается, пауза площадки снимается
+  onGameHold((held) => {
+    sfx.setSuspended(held);
+    if (!game.scene.isActive('Game')) return;
+    const scene = game.scene.getScene('Game') as GameScene;
+    if (held) scene.pauseByPlatform();
+    else scene.resumeByPlatform();
+  });
 
   // Поворот телефона и смена размера окна. Phaser иногда уже знает новый размер страницы, но не
   // перестраивает поле (так было при повороте телефона в эмуляции), поэтому перестраиваем сами:

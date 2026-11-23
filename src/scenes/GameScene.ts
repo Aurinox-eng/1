@@ -6,7 +6,7 @@ import { placeTowerQa, qaLog, qaSnapshot, setupStress, stressFrame } from '../qa
 import { Effects } from '../effects';
 import { drawStar, setScreenInfo } from '../screens';
 import { attemptNumber, autoWaveOwned, awardDna, boughtSinceLast, dnaParts, coinsBonus, exposeMetaDebug, feverOwned, finishAttempt, HIDDEN_SCREEN, isLevelBeaten, isLevelOpen, livesBonus, markSeen, wasMet, metaDna, metaLevels, nextBigNode, recordResult, refundBonus, rewardMul, shieldCharges, starsForLoss, waveCoinsBonus, type DnaInput, type DnaParts } from '../meta';
-import { attemptLine, copyText } from '../attempt';
+import { attemptLine, copyText, type AttemptRecord } from '../attempt';
 import { num, t, type TextKey } from '../i18n';
 import { aimAngle, BLOCKED_TILES, EDGES, ENTRANCE_EDGES, LEVEL, PATH_TILES, PLAQUES, TOOTH_TILES, WORLD, cellKey, toothCut, useLevelMap, worldToCell } from '../level';
 import { isPortraitPhone } from '../orientation';
@@ -26,7 +26,9 @@ import { Puddle } from '../objects/Puddle';
 import { beamReach, createTowerArt, defaultAim, drawAimLine, Tower, type TowerId } from '../objects/Tower';
 import { artStats } from '../art';
 import { pointAt, tileCenter, unitCenter, type Edge } from '../pathing';
-import { gameplay } from '../sdk';
+import { adsAvailable, gameplay, showFullscreenAd, showRewardedAd } from '../sdk';
+import { grantAdCoins, takeAdCoins } from '../adReward';
+import { beginUnfinished, endUnfinished, keepUnfinishedAlive, writeUnfinished } from '../unfinished';
 import { sfx } from '../sound';
 import { wardBlocks } from '../ward';
 import { computeStats, MAX_TOWER_LEVEL, mergeCap, rankCap, mutationById, mutationOptions, mutationStacks, towerPrice, type TowerStats } from '../towerStats';
@@ -203,6 +205,15 @@ export class GameScene extends Phaser.Scene {
   /** (читает снимок режима проверки, qaTools) */ attemptText = '';
   /** Кнопка «Скопировать итог» на экране конца уровня (или null). */
   /** (читает снимок режима проверки, qaTools) */ copyButton: { x: number; y: number; w: number; h: number } | null = null;
+  /** Реклама с вознаграждением на экране конца попытки (этап 9, раздел 2.1 плана): кнопка (null — кнопки нет: нет SDK или попытка идёт) и что с показом в этой попытке:
+   *  `idle` — можно смотреть, `busy` — реклама открыта, `rewarded` — награда получена, `closed` — закрыта без награды, `error` — не показана. Показ — не больше одного за попытку. */
+  /** (читает снимок режима проверки, qaTools) */ rewardButton: { x: number; y: number; w: number; h: number } | null = null;
+  /** (читает снимок режима проверки, qaTools) */ adReward: 'idle' | 'busy' | 'rewarded' | 'closed' | 'error' = 'idle';
+  /** (читает снимок режима проверки, qaTools) */ adStartCoins = 0;
+  /** Идёт ли переход с экрана конца попытки через полноэкранную рекламу («Заново», «В меню»): повторные нажатия не считаются. */
+  private adLeaving = false;
+  /** Сколько пройденных волн записано в запись прерванной попытки (src/unfinished.ts). */
+  private unfinishedWaves = 0;
 
   // Волны
   private phase: WavePhase = 'countdown';
@@ -308,7 +319,15 @@ export class GameScene extends Phaser.Scene {
     this.qaBaseSec = 0;
     this.qaEvents = [];
     this.qaChip = '';
-    this.coins = (this.params.plan ? this.params.plan.startCoins : CONFIG.economy.startCoins) + coinsBonus();
+    // награда за рекламу с прошлого экрана конца попытки (раздел 2.1 плана этапа 9) — прибавка к стартовым монетам этой попытки
+    this.adStartCoins = takeAdCoins();
+    this.coins = (this.params.plan ? this.params.plan.startCoins : CONFIG.economy.startCoins) + coinsBonus() + this.adStartCoins;
+    this.rewardButton = null;
+    this.adReward = 'idle';
+    this.adLeaving = false;
+    // запись прерванной попытки (раздел 2.2 плана этапа 9): новая попытка этой вкладки
+    beginUnfinished();
+    this.unfinishedWaves = 0;
     this.lives = this.maxLives();
     this.kills = 0;
     this.splits = 0;
@@ -573,6 +592,7 @@ export class GameScene extends Phaser.Scene {
   update(time: number, deltaMs: number): void {
     this.rig.tickShake(Math.min(deltaMs, MAX_FRAME_MS));
     this.updateChip(time / 1000);
+    if (this.state === 'playing' || this.state === 'paused') this.trackUnfinished();
     if (this.state !== 'playing' || isPortraitPhone()) return;
 
     const frameDt = (Math.min(deltaMs, MAX_FRAME_MS) / 1000) * TIME_SCALE * this.userSpeed;
@@ -2284,6 +2304,7 @@ export class GameScene extends Phaser.Scene {
       this.attemptText = this.buildAttemptLine(false, true);
       finishAttempt(currentLevel(), this.attemptText);
     }
+    endUnfinished();
     if (QA_MODE) qaLog(this, 'menuExit', { cleared, dna: this.dnaAwarded ? this.dnaGained : 0, attempt: this.dnaAwarded });
     this.scene.start('Menu');
   }
@@ -2291,14 +2312,19 @@ export class GameScene extends Phaser.Scene {
   /** Строка итога попытки (src/attempt.ts): номер попытки — до записи этой, покупки — с конца прошлой; `exit` — выход в меню с паузы (пометка вместо «гибель»). */
   private buildAttemptLine(won: boolean, exit: boolean): string {
     const level = currentLevel();
+    return attemptLine({ ...this.attemptRecord(won, exit, this.waveIdx), attempt: attemptNumber(level), dna: this.dnaGained + this.starDna, bought: boughtSinceLast() });
+  }
+
+  /** Поля строки итога, которые знает партия (номер попытки, очки ДНК и покупки добавляет тот, кто записывает попытку); `wave` — волна гибели или выхода, у прерванной попытки — пройдено волн. */
+  private attemptRecord(won: boolean, exit: boolean, wave: number): Omit<AttemptRecord, 'dna' | 'attempt' | 'bought'> {
+    const level = currentLevel();
     const waves: [number, number | null][] = [];
     for (let w = 10; w <= this.waveTotal(); w += 10) waves.push([w, this.coinsAtWave.get(w) ?? null]);
-    return attemptLine({
+    return {
       level,
-      attempt: attemptNumber(level),
       won,
       exit,
-      wave: this.waveIdx,
+      wave,
       waveTotal: this.waveTotal(),
       stars: this.stars,
       livesLeft: this.lives,
@@ -2311,10 +2337,22 @@ export class GameScene extends Phaser.Scene {
       builds: this.builds,
       sells: this.sells,
       coinsAtWave: waves,
-      dna: this.dnaGained + this.starDna,
       entry: this.entryLevels,
-      bought: boughtSinceLast(),
-    });
+    };
+  }
+
+  /**
+   * Запись прерванной попытки (раздел 2.2 плана этапа 9): на границе волны — «не завершена, пройдено N волн» (волна засчитана, как у «В меню»: вся вышла и поле пустое — пауза между волнами,
+   * или началась следующая); пока партия идёт или стоит на паузе — отметка, что вкладка жива. Попытка уже засчитана (`dnaAwarded`) — записи нет.
+   */
+  private trackUnfinished(): void {
+    if (this.dnaAwarded) return;
+    const cleared = Math.max(0, this.phase === 'pause' && this.bacteria.length === 0 ? this.waveIdx : this.waveIdx - 1);
+    if (cleared > this.unfinishedWaves) {
+      this.unfinishedWaves = cleared;
+      writeUnfinished(currentLevel(), cleared, this.attemptRecord(false, false, cleared));
+      if (QA_MODE) qaLog(this, 'unfinished', { waves: cleared });
+    } else keepUnfinishedAlive();
   }
 
   /** Итог партии для очков ДНК: пройдено волн, победа, повтор пройденного уровня, остаток монет, побеждённые боссы, «без потерь». */
@@ -2515,6 +2553,7 @@ export class GameScene extends Phaser.Scene {
   private endGame(won: boolean): void {
     this.state = won ? 'won' : 'lost';
     gameplay(false);
+    endUnfinished(); // попытка закончилась: записи «не завершена» больше нет
     this.restartAllowedAt = performance.now() + CONFIG.gameOver.restartLockMs;
     this.ghost.setVisible(false);
     this.panel.clearToasts(); // уведомление (например, «Новая бактерия») гаснет, когда показывается экран победы или проигрыша
@@ -2607,8 +2646,9 @@ export class GameScene extends Phaser.Scene {
     const h = 76;
     const y = H / 2 + 200;
     const y2 = y + h + 14;
+    // «Заново» и «В меню» — после полноэкранной рекламы, если она есть (раздел 2.4 плана этапа 9: только здесь, во время попытки — никогда)
     const restart = this.addEndButton(W / 2 - 180, y, w, h, t('restart'), 0x2a8a4a, COLORS.merge, () => {
-      if (performance.now() >= this.restartAllowedAt) this.scene.restart();
+      if (performance.now() >= this.restartAllowedAt) this.leaveAfterAd(() => this.scene.restart());
     });
     const upgrades = this.addEndButton(W / 2 + 180, y, w, h, t('upgradesBtn'), 0x2a5c9a, COLORS.gold, () => {
       if (performance.now() >= this.restartAllowedAt) this.scene.start('Upgrades');
@@ -2623,7 +2663,7 @@ export class GameScene extends Phaser.Scene {
       }, 28);
     }
     this.menuButton = this.addEndButton(hasNext ? W / 2 + 180 : W / 2, y2, w, h, t('toMenu'), 0x2a3550, 0x4a5c82, () => {
-      if (performance.now() >= this.restartAllowedAt) this.scene.start('Menu');
+      if (performance.now() >= this.restartAllowedAt) this.leaveAfterAd(() => this.scene.start('Menu'));
     });
     this.endButton = restart;
     this.upgradesButton = upgrades;
@@ -2633,6 +2673,47 @@ export class GameScene extends Phaser.Scene {
       void copyText(this.attemptText).then((ok) => copy.label.setText(t(ok ? 'copyAttemptDone' : 'copyAttemptFail')));
     }, 26);
     this.copyButton = copy.rect;
+    this.addRewardButton();
+  }
+
+  /**
+   * Реклама с вознаграждением (раздел 2.1 плана этапа 9): кнопка в левом верхнем углу экрана конца попытки (напротив «Скопировать итог»; кнопки «Заново», «Улучшения»,
+   * «Следующий уровень» и «В меню» остаются на местах). Только если есть SDK площадки. Один показ за попытку; награда — монеты на старт следующей попытки, по `onRewarded`.
+   */
+  private addRewardButton(): void {
+    if (!adsAvailable()) return;
+    const n = CONFIG.ads.rewardStartCoins;
+    const rewardW = 420;
+    const button = this.addLabeledButton(rewardW / 2 + 24, 56, rewardW, 60, t('adRewardBtn', { n }), 0x2a6a3a, COLORS.gold, () => {
+      if (this.adReward !== 'idle' || this.adLeaving || performance.now() < this.restartAllowedAt) return;
+      this.adReward = 'busy';
+      void showRewardedAd().then((result) => {
+        this.adReward = result;
+        if (result === 'rewarded') grantAdCoins(n);
+        if (QA_MODE) qaLog(this, 'adRewarded', { result, coins: result === 'rewarded' ? n : 0 });
+        if (!button.label.active) return; // экран уже закрыт
+        button.label.setText(t(result === 'rewarded' ? 'adRewardDone' : result === 'closed' ? 'adRewardNone' : 'adRewardFail', { n }));
+        fitText(button.label, rewardW - 24);
+        button.label.setAlpha(0.75);
+      });
+    }, 26);
+    fitText(button.label, rewardW - 24);
+    this.rewardButton = button.rect;
+  }
+
+  /** Уход с экрана конца попытки по «Заново» или «В меню»: сначала полноэкранная реклама (если есть SDK и в этой попытке не смотрели рекламу с вознаграждением), затем переход. */
+  private leaveAfterAd(go: () => void): void {
+    if (this.adLeaving || this.adReward === 'busy') return;
+    // реклама с вознаграждением уже показана на этом экране (с наградой или без) — полноэкранной нет; не показалась (`error`) — полноэкранная может быть
+    if (!adsAvailable() || this.adReward === 'rewarded' || this.adReward === 'closed') {
+      go();
+      return;
+    }
+    this.adLeaving = true;
+    if (QA_MODE) qaLog(this, 'adFullscreen', {});
+    void showFullscreenAd().then(() => {
+      if (this.state === 'won' || this.state === 'lost') go();
+    });
   }
 
   private addEndButton(x: number, y: number, w: number, h: number, label: string, fill: number, line: number, onTap: () => void, fontSize = 34): { x: number; y: number; w: number; h: number } {
