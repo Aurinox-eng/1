@@ -15,7 +15,11 @@
  *     (бегуна ранят только в луже, решение 20 октября 2026); syrupA — у pillA, syrupB — у pillB (или вторая лужа на пути pillA), syrupC — третий канал или лужа выше по путям.
  *  5. Шприцы — линия луча через карту (8 направлений) с наибольшей длиной путей под лучом с весом доли бактерий; луч обрывается на зубе (глава 2); syringeB — вторая линия со
  *     скидкой за уже накрытое первым лучом.
- * Возвращает { groups: {ключ: { cell: [c, r], aim? }}, anchors: [...], routes: [...], notes: {ключ: строка — какой путь закрывает} }.
+ *  7. Канал группы (для правки бота К1, решение владельца 22 ноября 2026, сообщение 1, п. 2.3): номер клетки обороны (anchors), пути которой группа бьёт; Таблетки pillA/pillB — канал
+ *     своей обороны; остальные — по длине путей канала в радиусе башни (у Шприца — под лучом): группа в канале, если на пути других каналов приходится не больше CHANNEL_SIDE_SHARE
+ *     этой длины; иначе (бьёт несколько каналов — Ампула, луч поперёк каналов) или ничего не бьёт — null (общая). Клетки и лучи этот шаг не меняет.
+ * Возвращает { groups: {ключ: { cell: [c, r], aim? }}, anchors: [...], routes: [...], notes: {ключ: строка — какой путь закрывает}, channels: {ключ: номер клетки обороны или null},
+ * channelLen: {ключ: [длина путей каждого канала в охвате группы, px]} (кроме Таблеток обороны) }.
  */
 
 /** Доля радиуса: клетка «держит» путь, если длина пути в радиусе Таблетки ≥ HOLD_SHARE × радиус. */
@@ -26,6 +30,11 @@ export const SPREAD_PX = 300;
 export const MIN_GAP_PX = 150;
 /** Скидка за уже накрытое (охват Шипучек C–E и второго луча). */
 const OVERLAP = 0.4;
+/**
+ * Канал группы (шаг 7): длина путей другого канала в охвате группы (доля от длины путей главного), при которой группа ещё считается башней одного канала. На «Носе» луч syringeA
+ * (7,17) идёт вдоль нижнего канала и задевает верхний (437 и 69 px, 16 %) — нижний; Ампула (1512 и 1444 px), Шипучки D, E (76 %, 74 %) бьют оба канала — общие.
+ */
+export const CHANNEL_SIDE_SHARE = 0.25;
 
 export function graphLayout({ graph, map, cols, rows, ranges, beam, toothRadius = 0.42 }) {
   const tile = map.tile;
@@ -244,6 +253,7 @@ export function graphLayout({ graph, map, cols, rows, ranges, beam, toothRadius 
     return list;
   };
   const beamed = new Int32Array(segs.length);
+  const beamLists = {}; // отрезки под лучом каждого Шприца (шаг 7)
   for (const key of ['syringeA', 'syringeB']) {
     let best = null;
     for (const c of cells) {
@@ -258,6 +268,7 @@ export function graphLayout({ graph, map, cols, rows, ranges, beam, toothRadius 
     const rts = routes.filter((rt) => best.list.some((si) => rt.segs.has(si))).map((rt) => rt.idx);
     put(key, best.c, `луч поперёк путей: ${routeName(rts)}`, best.d);
     best.list.forEach((si) => beamed[si]++);
+    beamLists[key] = best.list;
   }
   // 6. Новые башни уровней 2+ (решение владельца 8 ноября 2026, сообщение 1, п. 3.4): клетка — наибольшая длина путей в радиусе башни с весом доли бактерий (без скидки за накрытое:
   //    Ампула бьёт самую прочную бактерию на полкарты, ей важен охват путей, а не соседи); при равенстве — ближе к главной обороне (pillA).
@@ -275,9 +286,27 @@ export function graphLayout({ graph, map, cols, rows, ranges, beam, toothRadius 
     const rts = routes.filter((rt) => covRoute(near(best.c, R), rt) > 0).map((rt) => rt.idx);
     put(key, best.c, `${type === 'ampule' ? 'Ампула' : type}: наибольший охват путей в радиусе ${Math.round(R)} px (${routeName(rts)}), ближе к главной обороне`);
   }
+  // 7. Каналы групп (правка бота К1): длина путей каждого канала в охвате группы
+  const anchorSegs = anchors.map((a) => new Set(a.routes.flatMap((i) => [...routes[i].segs])));
+  const channels = {};
+  const channelLen = {};
+  for (const [key, g] of Object.entries(groups)) {
+    if (key === 'pillA') channels[key] = 0;
+    else if (key === 'pillB') channels[key] = anchors[1] ? 1 : 0;
+    else {
+      const type = key.replace(/[A-Z]$/, '');
+      const list = type === 'syringe' ? (beamLists[key] ?? []) : ranges[type] ? near(center(g.cell[0], g.cell[1]), ranges[type]) : [];
+      const len = anchorSegs.map((set) => list.reduce((s, si) => s + (set.has(si) ? segs[si].len : 0), 0));
+      channelLen[key] = len.map(Math.round);
+      const top = len.indexOf(Math.max(...len));
+      channels[key] = len[top] > 0 && len.every((v, i) => i === top || v <= CHANNEL_SIDE_SHARE * len[top]) ? top : null;
+    }
+  }
   return {
     groups,
     notes,
+    channels,
+    channelLen,
     anchors: anchors.map((a) => ({ cell: [a.cell.col, a.cell.row], routes: a.routes, w: a.w })),
     routes: routes.map((rt) => ({ edges: rt.edges, w: rt.w })),
   };
