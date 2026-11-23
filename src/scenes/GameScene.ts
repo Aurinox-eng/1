@@ -5,7 +5,7 @@ import { exposeDebug, QA_ENABLED, QA_ENTRANCE, QA_MODE, QA_NORENDER, QA_START_WA
 import { placeTowerQa, qaLog, qaSnapshot, setupStress, stressFrame } from '../qaTools';
 import { Effects } from '../effects';
 import { drawStar, setScreenInfo } from '../screens';
-import { attemptNumber, autoWaveOwned, awardDna, boughtSinceLast, dnaParts, coinsBonus, exposeMetaDebug, feverOwned, finishAttempt, HIDDEN_SCREEN, isLevelBeaten, isLevelOpen, livesBonus, markSeen, wasMet, metaDna, metaLevels, nextBigNode, recordResult, refundBonus, rewardMul, shieldCharges, starsForLoss, waveCoinsBonus, type DnaInput, type DnaParts } from '../meta';
+import { attemptNumber, autoWaveOwned, awardDna, boughtSinceLast, dnaParts, coinsBonus, exposeMetaDebug, feverOwned, finishAttempt, HIDDEN_SCREEN, isLevelBeaten, isLevelOpen, livesBonus, markSeen, wasMet, metaDna, metaLevels, nextBigNode, recordResult, refundBonus, replaceAttempt, rewardMul, shieldCharges, starsForLoss, waveCoinsBonus, type DnaInput, type DnaParts } from '../meta';
 import { attemptLine, copyText, type AttemptRecord } from '../attempt';
 import { num, t, type TextKey } from '../i18n';
 import { aimAngle, BLOCKED_TILES, EDGES, ENTRANCE_EDGES, LEVEL, PATH_TILES, PLAQUES, TOOTH_TILES, WORLD, cellKey, toothCut, useLevelMap, worldToCell } from '../level';
@@ -28,7 +28,7 @@ import { artStats } from '../art';
 import { pointAt, tileCenter, unitCenter, type Edge } from '../pathing';
 import { adsAvailable, gameplay, showFullscreenAd, showRewardedAd } from '../sdk';
 import { grantAdCoins, takeAdCoins } from '../adReward';
-import { beginUnfinished, endUnfinished, keepUnfinishedAlive, writeUnfinished } from '../unfinished';
+import { beginUnfinished, endUnfinished, keepUnfinishedAlive, takeSettled, writeUnfinished, type SettledPart } from '../unfinished';
 import { sfx } from '../sound';
 import { wardBlocks } from '../ward';
 import { computeStats, MAX_TOWER_LEVEL, mergeCap, rankCap, mutationById, mutationOptions, mutationStacks, towerPrice, type TowerStats } from '../towerStats';
@@ -2295,24 +2295,34 @@ export class GameScene extends Phaser.Scene {
     if (this.state !== 'paused' || performance.now() < this.resumeAllowedAt) return;
     // волна засчитана, если она вся вышла и поле пустое — пауза между волнами (находка аудита MASTER-0001, решение владельца 28 октября 2026, сообщение 1, п. 7.1)
     const cleared = Math.max(0, this.phase === 'pause' && this.bacteria.length === 0 ? this.waveIdx : this.waveIdx - 1);
+    const settled = takeSettled(); // часть попытки уже засчитала другая вкладка (src/unfinished.ts)
     if (!this.dnaAwarded && cleared >= 1) {
       this.dnaAwarded = true;
       this.dnaReplay = isLevelBeaten(currentLevel());
-      this.dnaGained = awardDna(this.dnaInput(cleared, false));
+      this.dnaGained = awardDna(this.dnaInput(cleared, false), settled?.dna ?? 0);
       this.stars = 0;
       this.starDna = recordResult(currentLevel(), cleared, 0).starDna;
-      this.attemptText = this.buildAttemptLine(false, true);
-      finishAttempt(currentLevel(), this.attemptText);
+      this.attemptText = this.buildAttemptLine(false, true, settled);
+      this.closeAttempt(settled);
     }
     endUnfinished();
     if (QA_MODE) qaLog(this, 'menuExit', { cleared, dna: this.dnaAwarded ? this.dnaGained : 0, attempt: this.dnaAwarded });
     this.scene.start('Menu');
   }
 
-  /** Строка итога попытки (src/attempt.ts): номер попытки — до записи этой, покупки — с конца прошлой; `exit` — выход в меню с паузы (пометка вместо «гибель»). */
-  private buildAttemptLine(won: boolean, exit: boolean): string {
+  /**
+   * Строка итога попытки (src/attempt.ts): номер попытки — до записи этой, покупки — с конца прошлой; `exit` — выход в меню с паузы (пометка вместо «гибель»).
+   * `settled` — часть попытки, засчитанная другой вкладкой: номер попытки — её, очки ДНК — за всю попытку (засчитанные + начисленные сейчас).
+   */
+  private buildAttemptLine(won: boolean, exit: boolean, settled: SettledPart | null = null): string {
     const level = currentLevel();
-    return attemptLine({ ...this.attemptRecord(won, exit, this.waveIdx), attempt: attemptNumber(level), dna: this.dnaGained + this.starDna, bought: boughtSinceLast() });
+    return attemptLine({ ...this.attemptRecord(won, exit, this.waveIdx), attempt: settled?.attempt ?? attemptNumber(level), dna: (settled?.dna ?? 0) + this.dnaGained + this.starDna, bought: boughtSinceLast() });
+  }
+
+  /** Запись попытки в журнал: обычно — счётчик попыток +1 и новая строка; попытку уже засчитала другая вкладка — её строка «не завершена» заменяется итоговой, счётчик не растёт. */
+  private closeAttempt(settled: SettledPart | null): void {
+    if (settled) replaceAttempt(settled.line, this.attemptText);
+    else finishAttempt(currentLevel(), this.attemptText);
   }
 
   /** Поля строки итога, которые знает партия (номер попытки, очки ДНК и покупки добавляет тот, кто записывает попытку); `wave` — волна гибели или выхода, у прерванной попытки — пройдено волн. */
@@ -2553,6 +2563,7 @@ export class GameScene extends Phaser.Scene {
   private endGame(won: boolean): void {
     this.state = won ? 'won' : 'lost';
     gameplay(false);
+    const settled = takeSettled(); // часть попытки уже засчитала другая вкладка (src/unfinished.ts): ДНК — только сверх засчитанного, попытка не прибавляется
     endUnfinished(); // попытка закончилась: записи «не завершена» больше нет
     this.restartAllowedAt = performance.now() + CONFIG.gameOver.restartLockMs;
     this.ghost.setVisible(false);
@@ -2578,8 +2589,11 @@ export class GameScene extends Phaser.Scene {
       this.dnaReplay = isLevelBeaten(currentLevel());
       const coinsLeft = Math.floor(this.coins);
       const input = this.dnaInput(cleared, won);
-      const parts = dnaParts(input);
-      this.dnaGained = awardDna(input);
+      const paid = settled?.dna ?? 0;
+      const fullParts = dnaParts(input);
+      // на экране конца — то, что начислено сейчас: засчитанное раньше вычитается из очков за волны
+      const parts = paid > 0 ? { ...fullParts, waves: Math.max(0, fullParts.waves - paid) } : fullParts;
+      this.dnaGained = awardDna(input, paid);
       // Звёзды по потерянным жизням (docs/stage-5-plan.md, раздел 4) и лучшая волна уровня; за новые звёзды — очки ДНК
       // Потеря = целые списанные жизни + накопленный дробной остаток (рой отнимает по 0,25) + погашенное щитом: дробные потери учитываются как есть (config.ts, levels.stars)
       this.stars = won ? starsForLoss(Math.max(0, this.maxLives() - this.lives) + this.lifePool + this.shieldAbsorbed) : 0;
@@ -2587,8 +2601,8 @@ export class GameScene extends Phaser.Scene {
       this.dnaParts = { ...parts, stars: this.starDna };
       this.coinsLeft = coinsLeft;
       // Строка итога попытки: номер попытки — до записи этой, покупки — с конца прошлой; после записи счётчик попыток уровня +1, строка — в журнал меню
-      this.attemptText = this.buildAttemptLine(won, false);
-      finishAttempt(currentLevel(), this.attemptText);
+      this.attemptText = this.buildAttemptLine(won, false, settled);
+      this.closeAttempt(settled);
     }
     // Экран конца уровня: итог, из чего он сложился (волны + победа + звёзды; нулевые слагаемые, кроме волн, не показываются), монеты отдельной строкой (только после победы), пометка пройденного уровня
     const pieces = [t('dnaPartWaves', { n: this.dnaParts.waves })];

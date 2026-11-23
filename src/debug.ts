@@ -204,8 +204,8 @@ export interface DebugSnapshot {
   rewardButton: { x: number; y: number; w: number; h: number } | null;
   /** Реклама (этап 9): есть ли SDK с рекламой; показ с вознаграждением в этой попытке; монеты за рекламу, прибавленные к старту этой попытки; монеты, ждущие следующую попытку; стоит ли игра по воле площадки. */
   ads: { available: boolean; reward: string; startCoins: number; pendingCoins: number; held: boolean };
-  /** Запись прерванной попытки этой вкладки (этап 9, раздел 2.2): пройдено волн и уровень; null — записи нет. */
-  unfinished: { waves: number; level: number } | null;
+  /** Запись прерванной попытки этой вкладки (этап 9, раздел 2.2): пройдено волн и уровень (0 — записи нет), сколько волн засчитала другая вкладка; null — ни записи, ни засчитанной части. */
+  unfinished: { waves: number; level: number; settled: number } | null;
   pauseResumeButton: { x: number; y: number; w: number; h: number } | null;
   pauseMenuButton: { x: number; y: number; w: number; h: number } | null;
   pauseAlmanacButton: { x: number; y: number; w: number; h: number } | null;

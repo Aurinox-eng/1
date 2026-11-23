@@ -87,7 +87,8 @@
  *                          с вознаграждением («Заново», «Улучшения», «В меню» на прежних местах); пока реклама открыта — звук молчит; награда по onRewarded — монеты на старт следующей попытки,
  *                          второй показ за попытку не запускается, полноэкранной после неё нет; «В меню» — сначала полноэкранная реклама, переход после её закрытия; не открылась за 3 с — переход без неё;
  *                          во время попытки рекламы нет; без SDK кнопки нет. Прерванная попытка (&unfinished): запись «пройдено N» на границе волны; живую запись другая вкладка не засчитывает;
- *                          запись закрытой партии следующий запуск засчитывает — ДНК за N волн, попытка +1, строка «не завершена, пройдено N/…»
+ *                          запись закрытой партии следующий запуск засчитывает — ДНК за N волн, попытка +1, строка «не завершена, пройдено N/…»; вкладка в фоне дольше 120 с (строка 7 решений этапа 9):
+ *                          вкладка Б засчитывает её попытку, вернувшаяся вкладка А забирает отметку «засчитано», при «В меню» ДНК в сумме — как без прерывания, попытка не прибавляется, строка итога одна
  *   step-dps              шаг игры и скорость (15 октября 2026): слитая Таблетка стреляет одинаково часто на ×1 и ×5 (расхождение не больше 1 %), скорострельность близка к 1000 / пауза
  *   menu-flow              главное меню и выбор уровня (этап 5, шаг 3; компьютер ru, телефон en): игра открывается на меню (`?qa&menu`), «Играть» → 10 карточек (уровень 1 открыт, остальные закрыты), тап по закрытой ничего не делает, по открытой — партия, пауза → «В меню», «Улучшения» из меню и возврат
  *   levels-lock            открытие уровней по звёздам (`&stars=`), экран конца уровня: «Следующий уровень» после победы (не на последнем уровне), «В меню», тап по «Следующий уровень» открывает уровень 2
@@ -2907,6 +2908,81 @@ async function runSdkAds(browser, baseUrl) {
     check(`${p} следующий запуск засчитал прерванную попытку: ДНК ${dna0} → ${dna1} (за ${waves} волн — ${want}), попыток ${save0?.attempts?.[0] ?? 0} → ${save1?.attempts?.[0] ?? 0}, строка «${mark}», запись стёрта`,
       rec !== null && waves >= 2 && dna1 - dna0 === want && (save1?.attempts?.[0] ?? 0) === (save0?.attempts?.[0] ?? 0) + 1 && line.includes(` | ${mark} | `) && line.includes(`ДНК +${want}`) && left === null, JSON.stringify({ dna0, dna1, want, line: line.slice(0, 160), left }));
     await next.close();
+    await context.close();
+  }
+  // ---- вкладка в фоне дольше STALE_MS (строка 7 docs/stage-9-decisions-2026-11-22.md, вариант А): другая вкладка засчитывает её попытку как прерванную; вернувшаяся вкладка
+  //      доигрывает и при «В меню» платит ДНК только сверх засчитанного (за попытку в сумме — как без прерывания), счётчик попыток второй раз не растёт, строка итога в журнале одна
+  {
+    const D = readMetaTable().dna;
+    const context = await newDeviceContext(browser, VIEWPORTS.desktop, 'ru');
+    const cfg = 'waves.firstDelaySec:1,waves.pauseSec:90,waves.newTypePauseSec:0,waves.intervalStartSec:0.3,waves.intervalEndSec:0.3,lives.start:999';
+    const game = await openGame(context, baseUrl, `${p} фоновая вкладка`, { realMeta: true, speed: 4, cfg, query: '&unfinished' });
+    const attempts = (save) => save?.attempts?.[0] ?? 0;
+    const save0 = await readSave5(game.page);
+    const dna0 = (await metaOf(game.page)).dna;
+    await waitForGame(game.page, (x) => (x.unfinished?.waves ?? 0) >= 1, 'запись «пройдено 1 волна» (фоновая вкладка)', { gameSec: 600 });
+    const key = await game.page.evaluate(() => Object.keys(window.localStorage).find((k) => k.startsWith('pvb.unf5.') && !k.endsWith('.settled')) ?? null);
+    // вкладка «ушла в фон»: страница заморожена (кадры и таймеры стоят — отметка «жива» не обновляется)
+    await game.cdp.send('Page.setWebLifecycleState', { state: 'frozen' });
+    const other = await context.newPage();
+    watchConsole(other, `${p} вкладка Б`);
+    // отметка «жива» старится до загрузки вкладки Б (как будто вкладка А в фоне дольше STALE_MS)
+    await other.addInitScript((k) => {
+      try {
+        const r = JSON.parse(window.localStorage.getItem(k));
+        if (r && !window.__unfAged) {
+          window.__unfRecord = r;
+          r.alive = Date.now() - 10 * 60 * 1000;
+          window.localStorage.setItem(k, JSON.stringify(r));
+          window.__unfAged = true;
+        }
+      } catch {
+        /* записи нет */
+      }
+    }, key);
+    await other.goto(`${baseUrl}?qa&unfinished&cfg=waves.firstDelaySec:9999,levels.starDna:0,lives.start:3`, { waitUntil: 'load', timeout: 90000 });
+    await waitFor(other, (x) => x.state === 'playing', 20000, 'запуск вкладки Б');
+    const rec = await other.evaluate(() => window.__unfRecord ?? null);
+    const n = rec?.waves ?? -1;
+    const save1 = await readSave5(other);
+    const dna1 = save1?.dna ?? -1;
+    const wantN = rec ? dnaWavesReward(D, n, rec.level) : -1;
+    const markKey = `${key}.settled`;
+    const stored1 = await other.evaluate(([k, m]) => ({ record: window.localStorage.getItem(k), mark: JSON.parse(window.localStorage.getItem(m) ?? 'null') }), [key, markKey]);
+    const unfMark = i18nText('attemptUnfinished', 0, { w: n, total: rec?.line?.waveTotal ?? 0 });
+    check(`${p} вкладка Б засчитала попытку фоновой вкладки А: пройдено ${n}, ДНК ${dna0} → ${dna1} (за ${n} волн — ${wantN}), попыток ${attempts(save0)} → ${attempts(save1)}, запись А стёрта, отметка «засчитано ${stored1.mark?.waves} волн»`,
+      key !== null && rec !== null && n >= 1 && dna1 - dna0 === wantN && attempts(save1) === attempts(save0) + 1 && (save1?.log?.at(-1) ?? '').includes(` | ${unfMark} | `) && stored1.record === null && stored1.mark?.waves === n && stored1.mark?.dna === wantN,
+      JSON.stringify({ key, n, dna0, dna1, wantN, stored1, line: (save1?.log?.at(-1) ?? '').slice(0, 160) }));
+    await other.close();
+    // вкладка А вернулась: забирает отметку (раз в 5 с), запись дальше несёт засчитанную часть
+    await game.cdp.send('Page.setWebLifecycleState', { state: 'active' });
+    const back = await waitForGame(game.page, (x) => (x.unfinished?.settled ?? 0) >= 1, 'вкладка А забрала отметку «засчитано»', { gameSec: 600 });
+    const markLeft = await game.page.evaluate((m) => window.localStorage.getItem(m), markKey);
+    check(`${p} вкладка А вернулась: узнала, что засчитано ${back.unfinished?.settled} волн (ждали ${n}), отметка стёрта`, back.unfinished?.settled === n && markLeft === null, JSON.stringify({ unfinished: back.unfinished, markLeft }));
+    // вкладка А проходит ещё волну: новая запись несёт засчитанную часть (закроют снова — следующий запуск начислит только разницу)
+    await waitForGame(game.page, (x) => (x.unfinished?.waves ?? 0) >= n + 1 && x.wavePhase === 'pause' && x.bacteria.length === 0, `вкладка А: пройдено ${n + 1}, пауза между волнами`, { gameSec: 900 });
+    const rec2 = await game.page.evaluate((k) => JSON.parse(window.localStorage.getItem(k) ?? 'null'), key);
+    check(`${p} новая запись вкладки А (пройдено ${rec2?.waves}) несёт засчитанную часть: ${rec2?.settled?.waves} волн, ${rec2?.settled?.dna} ДНК, попытка ${rec2?.settled?.attempt}`,
+      rec2?.waves >= n + 1 && rec2?.settled?.waves === n && rec2?.settled?.dna === wantN && rec2?.settled?.attempt === attempts(save0) + 1, JSON.stringify(rec2?.settled ?? null));
+    // «В меню»: ДНК за попытку в сумме — как без прерывания, счётчик попыток не растёт, строка «не завершена» заменена итоговой
+    const paused = await pauseGame(game, 'вкладка А перед «В меню»');
+    const between = paused.wavePhase === 'pause' && paused.bacteria.length === 0;
+    const cleared = between ? paused.wave : Math.max(0, paused.wave - 1);
+    const wantAll = dnaWavesReward(D, cleared, paused.level);
+    await tapToMenu(game, paused, `${p} вкладка А`);
+    await sleep(300);
+    const save2 = await readSave5(game.page);
+    const dna2 = save2?.dna ?? -1;
+    const log2 = save2?.log ?? [];
+    const last = log2.at(-1) ?? '';
+    const exitMark = i18nText('attemptExit', 0, { w: paused.wave, total: paused.waveTotal });
+    const no = i18nText('attemptNo', 0, { n: attempts(save0) + 1 });
+    check(`${p} вкладка А «В меню» после ${cleared} волн: ДНК ${dna0} → ${dna1} → ${dna2} (всего за ${cleared} волн — ${wantAll}, засчитанные ${n} повторно не начислены), попыток ${attempts(save1)} → ${attempts(save2)} (не растёт), строк журнала ${save1?.log?.length ?? 0} → ${log2.length}, строка «${exitMark}», «${no}», «ДНК +${wantAll}», строки «не завершена» нет`,
+      cleared > n && dna2 - dna0 === wantAll && attempts(save2) === attempts(save1) && log2.length === (save1?.log?.length ?? 0) && last.includes(` | ${exitMark} | `) && last.includes(` | ${no} | `) && last.includes(`ДНК +${wantAll}`) && !log2.some((l) => l.includes(i18nText('attemptUnfinished', 0, { w: n, total: rec?.line?.waveTotal ?? 0 }))),
+      JSON.stringify({ cleared, n, dna0, dna1, dna2, wantAll, attempts: [attempts(save0), attempts(save1), attempts(save2)], last: last.slice(0, 200) }));
+    const leftKeys = await game.page.evaluate(() => Object.keys(window.localStorage).filter((k) => k.startsWith('pvb.unf5.')));
+    check(`${p} после конца попытки вкладки А записей и отметок не осталось (${leftKeys.length})`, leftKeys.length === 0, JSON.stringify(leftKeys));
+    await game.page.close();
     await context.close();
   }
 }
