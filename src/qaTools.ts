@@ -16,6 +16,9 @@ import { Tower, type TowerId } from './objects/Tower';
 import { pointAt, tileCenter } from './pathing';
 import { currentLevel } from './progress';
 import { sfx } from './sound';
+import { adsAvailable, gameHeld } from './sdk';
+import { pendingAdCoins } from './adReward';
+import { unfinishedInfo } from './unfinished';
 import { settings } from './settings';
 import { MAX_TOWER_LEVEL, towerPrice } from './towerStats';
 import { VIEW } from './ui/Panel';
@@ -108,6 +111,9 @@ export function qaSnapshot(s: GameSceneInternals): DebugSnapshot {
     nextButton: s.nextButton ? { ...s.nextButton } : null,
     menuButton: s.menuButton ? { ...s.menuButton } : null,
     copyButton: s.copyButton ? { ...s.copyButton } : null,
+    rewardButton: s.rewardButton ? { ...s.rewardButton } : null,
+    ads: { available: adsAvailable(), reward: s.adReward, startCoins: s.adStartCoins, pendingCoins: pendingAdCoins(), held: gameHeld() },
+    unfinished: unfinishedInfo(),
     pauseResumeButton: s.pauseResumeButton ? { ...s.pauseResumeButton } : null,
     pauseMenuButton: s.pauseMenuButton ? { ...s.pauseMenuButton } : null,
     pauseAlmanacButton: s.pauseAlmanacButton ? { ...s.pauseAlmanacButton } : null,

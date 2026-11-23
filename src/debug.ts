@@ -108,7 +108,7 @@ export const TIME_SCALE: number = QA_MODE ? Math.min(10, Math.max(0.1, Number(pa
  * Журнал пишет сама игра в тот кадр, когда событие случилось, поэтому проверкам не нужно «ловить» его опросом состояния, а реальное время (и скорость сервера) на него не влияет.
  */
 export interface QaEvent {
-  type: 'spawn' | 'kill' | 'blast' | 'beam' | 'latch' | 'chip' | 'leak' | 'boss' | 'fever' | 'menuExit';
+  type: 'spawn' | 'kill' | 'blast' | 'beam' | 'latch' | 'chip' | 'leak' | 'boss' | 'fever' | 'menuExit' | 'unfinished' | 'adRewarded' | 'adFullscreen';
   t: number;
   [key: string]: unknown;
 }
@@ -200,6 +200,12 @@ export interface DebugSnapshot {
   menuButton: { x: number; y: number; w: number; h: number } | null;
   /** «Скопировать итог» на экране конца уровня (или null). */
   copyButton: { x: number; y: number; w: number; h: number } | null;
+  /** Реклама с вознаграждением на экране конца попытки (этап 9): кнопка (null — нет SDK или попытка идёт). */
+  rewardButton: { x: number; y: number; w: number; h: number } | null;
+  /** Реклама (этап 9): есть ли SDK с рекламой; показ с вознаграждением в этой попытке; монеты за рекламу, прибавленные к старту этой попытки; монеты, ждущие следующую попытку; стоит ли игра по воле площадки. */
+  ads: { available: boolean; reward: string; startCoins: number; pendingCoins: number; held: boolean };
+  /** Запись прерванной попытки этой вкладки (этап 9, раздел 2.2): пройдено волн и уровень (0 — записи нет), сколько волн засчитала другая вкладка; null — ни записи, ни засчитанной части. */
+  unfinished: { waves: number; level: number; settled: number } | null;
   pauseResumeButton: { x: number; y: number; w: number; h: number } | null;
   pauseMenuButton: { x: number; y: number; w: number; h: number } | null;
   pauseAlmanacButton: { x: number; y: number; w: number; h: number } | null;

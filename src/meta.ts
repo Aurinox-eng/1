@@ -294,6 +294,20 @@ export function finishAttempt(level: number, line: string): void {
   persist();
 }
 
+/**
+ * Конец попытки, которую уже засчитала другая вкладка как прерванную (src/unfinished.ts, строка 7 docs/stage-9-decisions-2026-11-22.md): счётчик попыток не растёт,
+ * строка итога `oldLine` (засчитанная «не завершена») заменяется итоговой `newLine` на своём месте журнала; выпала из журнала — `newLine` дописывается в конец. Список покупок очищается, как в `finishAttempt`.
+ */
+export function replaceAttempt(oldLine: string, newLine: string): void {
+  refresh();
+  const log = [...state.log];
+  const i = log.lastIndexOf(oldLine.slice(0, MAX_LOG_LEN));
+  if (i >= 0) log[i] = newLine.slice(0, MAX_LOG_LEN);
+  else log.push(newLine.slice(0, MAX_LOG_LEN));
+  state = { ...state, log: log.slice(-MAX_LOG), bought: [] };
+  persist();
+}
+
 /** Строки итога последних попыток (старые первыми). */
 export function attemptLog(): string[] {
   return [...state.log];
@@ -366,12 +380,15 @@ export function dnaForGame(input: DnaInput): number {
   return p.waves + p.win + p.coins + p.bosses + p.flawless + p.floor;
 }
 
-/** Начисляет очки ДНК за партию на счёт, записывает первые победы над боссами и «без потерь»; возвращает, сколько начислено. */
-export function awardDna(input: DnaInput): number {
+/**
+ * Начисляет очки ДНК за партию на счёт, записывает первые победы над боссами и «без потерь»; возвращает, сколько начислено.
+ * `paid` — сколько очков за эту попытку уже начислено раньше (её засчитала как прерванную другая вкладка, src/unfinished.ts): начисляется только разница, за попытку в сумме — как без прерывания.
+ */
+export function awardDna(input: DnaInput, paid = 0): number {
   refresh();
   const parts = dnaParts(input);
   // победа этой партии открывает кольцо раньше, чем `recordResult` запишет звёзды: её кольцо уже в пределе
-  const gained = underCap(parts.waves + parts.win + parts.coins + parts.bosses + parts.flawless + parts.floor, input.won ? input.level : 0);
+  const gained = underCap(Math.max(0, parts.waves + parts.win + parts.coins + parts.bosses + parts.flawless + parts.floor - paid), input.won ? input.level : 0);
   const i = input.level - 1;
   const bossWins = [...state.bossWins];
   const flawless = [...state.flawless];
