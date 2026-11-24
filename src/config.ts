@@ -345,8 +345,8 @@ export const CONFIG = {
   levels: {
     /** Сколько уровней в игре (план: 10; меню уровней — этап 5). Номер текущего уровня берётся из адреса `?level=N` (по умолчанию 1). */
     count: 10,
-    /** Сколько первых уровней готовы к игре (переработаны и приняты владельцем): остальные закрыты строкой «Скоро» (решение владельца 23 октября 2026); повтор пройденного уровня 1 остаётся. Значение 2 ставится вместе с окончательными числами уровня 2 после «да» владельца (24 октября 2026); для проверок уровень 2 открывается подменой `&ready=2`. Единицы: число уровней. */
-    ready: 1,
+    /** Сколько первых уровней готовы к игре (переработаны и приняты владельцем): остальные закрыты строкой «Скоро» (решение владельца 23 октября 2026); повтор пройденного уровня 1 остаётся. Уровень 2 открыт с временными числами (решение владельца 23 ноября 2026, сообщение 1, п. 3.2); для проверок уровень 3 открывается подменой `&ready=3`. Единицы: число уровней. */
+    ready: 2,
     /** Множитель прочности бактерий для каждого уровня 2–10 поверх `waves.hpScale` (как `waves.level1HpFactor` у уровня 1; форма роста по волнам не меняется): 1 — без изменения.
      *  Ключ — номер уровня. Нужен для подбора силы уровней под прокачку игрока (docs/balance-history.md, «Уровни 2–4»); замеры подменяют его через `?qa&cfg=levels.hpFactor.2:3.6`.
      *  Действует только на уровнях из генератора (`intro` + `hpBudget`); у уровней с готовым планом волн (`plan`) прочность задаёт `plan.hpScale` (`src/progress.ts`; находка аудита MASTER-0026). */
@@ -480,7 +480,10 @@ export const CONFIG = {
       },
       // Уровень 2 «Нос» — новый формат (план docs/level2-plan-2026-10-23.md; решение владельца 23 октября 2026: вариант C рабочий, устройство принято, числа — начальные, окончательные — по лестницам и после «да» владельца).
       // Состав волн — приложение А плана (модель docs/level2-model-2026-10-23.mjs, `--comp=C`): 14 стен-пачек, мини-боссы на 10/20/30/40-й, босс на 50-й; новые виды — спора (8), лекарь (12), прыгун (18).
-      // Параметры времени и дохода — как у уровня 1; отличаются `hpScale` (прочность одной бактерии ×4,8 к форме уровня 1) и `armorPerWave`. Жёсткие свойства — те же, что у уровня 1.
+      // Параметры времени и дохода — как у уровня 1; отличаются `hpScale` и `armorPerWave`. Жёсткие свойства — те же, что у уровня 1.
+      // Временные числа 23 ноября 2026: бактерии слабее, чем на уровне 1, причина – отдельный верхний канал (решение владельца 23 ноября 2026, сообщение 1, пп. 3.2–3.3).
+      // Подбор — лестницы образца с правкой бота К2 (`docs/balance-history.md`, 23 ноября 2026): Р1 — бегуны с 15-й волны (на 6–14-й их нет, стена бегунов 9-й волны — 0, на 15–21-й по 2);
+      // Р2 — стена 16-й волны 6 спор, Споровик выпускает 3 споры; Р4 — стена бронированных 19-й волны 1, состав 20-й волны легче; прочность пяти боссов × hpScale / 4,8 (`bossTune` их волн).
       {
         plan: {
           startCoins: 200,
@@ -495,8 +498,8 @@ export const CONFIG = {
           incomeBase: 25,
           incomePerWave: 7,
           incomeMiniBoss: 60,
-          /** Множитель прочности всех видов к уровню 1 (вариант C плана: наименьшее значение с шагом 0,1, при котором в 50-й волне не больше 300 бактерий). */
-          hpScale: 4.8,
+          /** Множитель прочности всех видов к форме уровня 1. Прежде 4,8 (вариант C плана); временно 0,55 — подбор лестницами 23 ноября 2026 (решение владельца 23 ноября 2026, сообщение 1, п. 3.2). Единицы: множитель. */
+          hpScale: 0.55,
           hpFlatUntil: 8,
           hpExp: 1.75,
           hpLateFrom: 30,
@@ -511,22 +514,22 @@ export const CONFIG = {
         { mix: { coccus: 3, rod: 2 } }, // 3
         { mix: { coccus: 3, rod: 2, swarm: 12 } }, // 4
         { mix: { coccus: 4, rod: 2, swarm: 12 }, wall: ['rod', 1] }, // 5
-        { mix: { coccus: 6, rod: 3, swarm: 12, runner: 2 } }, // 6
-        { mix: { coccus: 7, rod: 3, swarm: 12, runner: 3 } }, // 7
-        { mix: { coccus: 7, rod: 4, swarm: 12, runner: 3, spore: 2 } }, // 8
-        { mix: { coccus: 7, rod: 4, swarm: 12, runner: 3, spore: 2 }, wall: ['runner', 4] }, // 9
-        { mix: { coccus: 11, rod: 6, swarm: 12, runner: 4, spore: 3 }, boss: 'sporeling' }, // 10 Споровик 489 HP
-        { mix: { coccus: 8, rod: 4, swarm: 12, runner: 3, spore: 2, splitter: 2 } }, // 11
-        { mix: { coccus: 8, rod: 4, swarm: 12, runner: 3, spore: 2, splitter: 2, healer: 1 } }, // 12
-        { mix: { coccus: 8, rod: 4, swarm: 12, runner: 3, spore: 2, splitter: 2, healer: 1 }, wall: ['splitter', 3] }, // 13
-        { mix: { coccus: 10, rod: 5, swarm: 12, runner: 4, spore: 2, splitter: 2, healer: 1 } }, // 14
-        { mix: { coccus: 8, rod: 4, swarm: 12, runner: 3, spore: 2, splitter: 2, healer: 1, armored: 1 } }, // 15
-        { mix: { coccus: 8, rod: 4, swarm: 12, runner: 3, spore: 2, splitter: 2, healer: 1, armored: 1 }, wall: ['spore', 12] }, // 16
-        { mix: { coccus: 10, rod: 5, swarm: 12, runner: 4, spore: 3, splitter: 3, healer: 1, armored: 1 } }, // 17
-        { mix: { coccus: 10, rod: 5, swarm: 12, runner: 4, spore: 2, splitter: 2, healer: 1, armored: 1, leaper: 2 } }, // 18
-        { mix: { coccus: 10, rod: 5, swarm: 12, runner: 4, spore: 2, splitter: 2, healer: 1, armored: 1, leaper: 2 }, wall: ['armored', 2] }, // 19
-        { mix: { coccus: 19, rod: 10, swarm: 12, runner: 7, spore: 5, splitter: 5, healer: 2, armored: 2, leaper: 4 }, boss: 'shaman' }, // 20 Знахарь 900 HP
-        { mix: { coccus: 11, rod: 6, swarm: 12, runner: 4, spore: 3, splitter: 3, healer: 1, armored: 1, leaper: 2 } }, // 21
+        { mix: { coccus: 6, rod: 3, swarm: 12 } }, // 6
+        { mix: { coccus: 7, rod: 3, swarm: 12 } }, // 7
+        { mix: { coccus: 7, rod: 4, swarm: 12, spore: 2 } }, // 8
+        { mix: { coccus: 7, rod: 4, swarm: 12, spore: 2 }, wall: ['runner', 0] }, // 9 стена бегунов — 0 (Р1; вид остаётся в строке: по нему бот образца ставит Сироп до бегунов, как в лестницах подбора)
+        { mix: { coccus: 11, rod: 6, swarm: 12, spore: 3 }, boss: 'sporeling', bossTune: { hp: 56, burstCount: 3 } }, // 10 Споровик 56 HP, 3 споры
+        { mix: { coccus: 8, rod: 4, swarm: 12, spore: 2, splitter: 2 } }, // 11
+        { mix: { coccus: 8, rod: 4, swarm: 12, spore: 2, splitter: 2, healer: 1 } }, // 12
+        { mix: { coccus: 8, rod: 4, swarm: 12, spore: 2, splitter: 2, healer: 1 }, wall: ['splitter', 3] }, // 13
+        { mix: { coccus: 10, rod: 5, swarm: 12, spore: 2, splitter: 2, healer: 1 } }, // 14
+        { mix: { coccus: 8, rod: 4, swarm: 12, runner: 2, spore: 2, splitter: 2, healer: 1, armored: 1 } }, // 15
+        { mix: { coccus: 8, rod: 4, swarm: 12, runner: 2, spore: 2, splitter: 2, healer: 1, armored: 1 }, wall: ['spore', 6] }, // 16
+        { mix: { coccus: 10, rod: 5, swarm: 12, runner: 2, spore: 3, splitter: 3, healer: 1, armored: 1 } }, // 17
+        { mix: { coccus: 10, rod: 5, swarm: 12, runner: 2, spore: 2, splitter: 2, healer: 1, armored: 1, leaper: 2 } }, // 18
+        { mix: { coccus: 10, rod: 5, swarm: 12, runner: 2, spore: 2, splitter: 2, healer: 1, armored: 1, leaper: 2 }, wall: ['armored', 1] }, // 19
+        { mix: { coccus: 10, rod: 5, swarm: 12, runner: 2, spore: 2, splitter: 2, healer: 1, armored: 1, leaper: 2 }, boss: 'shaman', bossTune: { hp: 103 } }, // 20 Знахарь 103 HP
+        { mix: { coccus: 11, rod: 6, swarm: 12, runner: 2, spore: 3, splitter: 3, healer: 1, armored: 1, leaper: 2 } }, // 21
         { mix: { coccus: 12, rod: 6, swarm: 12, runner: 4, spore: 3, splitter: 3, healer: 1, armored: 1, leaper: 2 } }, // 22
         { mix: { coccus: 12, rod: 6, swarm: 12, runner: 4, spore: 3, splitter: 3, healer: 1, armored: 1, leaper: 2 }, wall: ['healer', 7] }, // 23
         { mix: { coccus: 12, rod: 6, swarm: 12, runner: 5, spore: 3, splitter: 3, healer: 2, armored: 1, leaper: 2 } }, // 24
@@ -535,7 +538,7 @@ export const CONFIG = {
         { mix: { coccus: 14, rod: 7, swarm: 12, runner: 5, spore: 3, splitter: 3, healer: 2, armored: 1, leaper: 3 } }, // 27
         { mix: { coccus: 12, rod: 6, swarm: 12, runner: 5, spore: 3, splitter: 3, healer: 2, armored: 1, leaper: 2, slick: 2 } }, // 28
         { mix: { coccus: 13, rod: 6, swarm: 12, runner: 5, spore: 3, splitter: 3, healer: 2, armored: 1, leaper: 3, slick: 2 }, wall: ['splitter', 8] }, // 29
-        { mix: { coccus: 20, rod: 10, swarm: 12, runner: 7, spore: 5, splitter: 5, healer: 2, armored: 2, leaper: 4, slick: 3 }, boss: 'hopper' }, // 30 Скакун 5312 HP
+        { mix: { coccus: 20, rod: 10, swarm: 12, runner: 7, spore: 5, splitter: 5, healer: 2, armored: 2, leaper: 4, slick: 3 }, boss: 'hopper', bossTune: { hp: 609 } }, // 30 Скакун 609 HP
         { mix: { coccus: 15, rod: 7, swarm: 12, runner: 6, spore: 4, splitter: 4, healer: 2, armored: 1, leaper: 3, slick: 2 } }, // 31
         { mix: { coccus: 15, rod: 8, swarm: 12, runner: 6, spore: 4, splitter: 4, healer: 2, armored: 2, leaper: 3, slick: 2 } }, // 32
         { mix: { coccus: 16, rod: 8, swarm: 12, runner: 6, spore: 4, splitter: 4, healer: 2, armored: 2, leaper: 3, slick: 2 }, wall: ['slick', 5] }, // 33
@@ -545,7 +548,7 @@ export const CONFIG = {
         { mix: { coccus: 20, rod: 10, swarm: 12, runner: 8, spore: 5, splitter: 5, healer: 3, armored: 2, leaper: 4, slick: 3 } }, // 37
         { mix: { coccus: 21, rod: 10, swarm: 12, runner: 8, spore: 5, splitter: 5, healer: 3, armored: 2, leaper: 4, slick: 3 } }, // 38
         { mix: { coccus: 21, rod: 10, swarm: 12, runner: 8, spore: 5, splitter: 5, healer: 3, armored: 2, leaper: 4, slick: 3 }, wall: ['rod', 11] }, // 39
-        { mix: { coccus: 24, rod: 12, swarm: 24, runner: 9, spore: 6, splitter: 6, healer: 3, armored: 2, leaper: 5, slick: 4 }, boss: 'sporeMother' }, // 40 Мать спор 21979 HP
+        { mix: { coccus: 24, rod: 12, swarm: 24, runner: 9, spore: 6, splitter: 6, healer: 3, armored: 2, leaper: 5, slick: 4 }, boss: 'sporeMother', bossTune: { hp: 2518 } }, // 40 Мать спор 2518 HP
         { mix: { coccus: 24, rod: 12, swarm: 24, runner: 9, spore: 6, splitter: 6, healer: 3, armored: 2, leaper: 5, slick: 4 } }, // 41
         { mix: { coccus: 24, rod: 12, swarm: 24, runner: 9, spore: 6, splitter: 6, healer: 3, armored: 2, leaper: 5, slick: 4 } }, // 42
         { mix: { coccus: 25, rod: 12, swarm: 24, runner: 9, spore: 6, splitter: 6, healer: 3, armored: 2, leaper: 5, slick: 4 }, wall: ['healer', 16] }, // 43
@@ -555,7 +558,7 @@ export const CONFIG = {
         { mix: { coccus: 29, rod: 14, swarm: 24, runner: 11, spore: 7, splitter: 7, healer: 4, armored: 3, leaper: 6, slick: 4 } }, // 47
         { mix: { coccus: 29, rod: 15, swarm: 24, runner: 11, spore: 7, splitter: 7, healer: 4, armored: 3, leaper: 6, slick: 4 }, wall: ['leaper', 26] }, // 48
         { mix: { coccus: 31, rod: 16, swarm: 24, runner: 12, spore: 8, splitter: 8, healer: 4, armored: 3, leaper: 6, slick: 5 } }, // 49
-        { mix: { coccus: 80, rod: 40, swarm: 60, runner: 30, spore: 20, splitter: 20, healer: 10, armored: 8, leaper: 16, slick: 12 }, boss: 'silencer' }, // 50 Глушитель 19226 HP
+        { mix: { coccus: 80, rod: 40, swarm: 60, runner: 30, spore: 20, splitter: 20, healer: 10, armored: 8, leaper: 16, slick: 12 }, boss: 'silencer', bossTune: { hp: 2203 } }, // 50 Глушитель 2203 HP
           ] as PlanWave[],
         },
       },

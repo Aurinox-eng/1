@@ -2139,13 +2139,14 @@ async function runProduction(browser, prodUrl, qaUrl) {
   const lockedGrid = await shotAt(`${prodUrl}?level=10`);
   const nineStars = JSON.stringify({ v: 5, progress: { stars: [1, 1, 1, 1, 1, 1, 1, 1, 1, 0], best: [30, 30, 30, 30, 30, 30, 30, 30, 30, 0] } });
   const closedGrid = await shotAt(`${prodUrl}?level=10`, nineStars);
-  const oneStar = JSON.stringify({ v: 5, progress: { stars: [1], best: [50] } });
-  const openGrid = await shotAt(`${prodUrl}?level=2`, oneStar);
+  // уровень 2 готов с 23 ноября 2026 (levels.ready 2, решение владельца 23 ноября 2026, сообщение 1, п. 3.2): первый закрытый — уровень 3
+  const twoStars = JSON.stringify({ v: 5, progress: { stars: [1, 1], best: [50, 50] } });
+  const openGrid = await shotAt(`${prodUrl}?level=3`, twoStars);
   const cells = menuGrid.length;
   check(`${p} эталоны различимы: меню и бой совпадают по цвету не более чем в ${Math.floor(cells * 0.6)} из ${cells} точек`, same(menuGrid, battleGrid) <= cells * 0.6, `совпало ${same(menuGrid, battleGrid)} из ${cells}`);
   check(`${p} блокировка уровней: ?level=10 при пустом хранилище открывает главное меню, а не бой уровня 10`, same(lockedGrid, menuGrid) >= cells * 0.8 && same(lockedGrid, battleGrid) <= cells * 0.6, `с меню совпало ${same(lockedGrid, menuGrid)}, с боем ${same(lockedGrid, battleGrid)} из ${cells}`);
   check(`${p} уровни за пределами levels.ready закрыты: ?level=10 при пройденных уровнях 1–9 открывает главное меню, а не бой`, same(closedGrid, menuGrid) >= cells * 0.8, `с меню совпало ${same(closedGrid, menuGrid)} из ${cells}`);
-  check(`${p} уровень 2 не готов (levels.ready 1): ?level=2 при пройденном уровне 1 открывает главное меню, а не бой`, same(openGrid, menuGrid) >= cells * 0.8 && same(openGrid, battleGrid) <= cells * 0.6, `с меню совпало ${same(openGrid, menuGrid)} из ${cells}, с боем ${same(openGrid, battleGrid)}`);
+  check(`${p} уровень 3 не готов (levels.ready 2): ?level=3 при пройденных уровнях 1–2 открывает главное меню, а не бой`, same(openGrid, menuGrid) >= cells * 0.8 && same(openGrid, battleGrid) <= cells * 0.6, `с меню совпало ${same(openGrid, menuGrid)} из ${cells}, с боем ${same(openGrid, battleGrid)}`);
 
   // Подсказка «Поверните телефон» есть и в игровой сборке
   const portrait = await context.newPage();
