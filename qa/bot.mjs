@@ -322,6 +322,37 @@ function reviewGroupsFor(mapId, world) {
 }
 const TOOTH_RADIUS = readConfigNumber('obstacles', 'toothRadius');
 /**
+ * К1 (K1_TOLERANCE): доли бактерий каналов (сумма долей путей каждой клетки обороны графа, в сумме 1) и канал каждой группы образца на карте (`channels` графа; null — общая башня).
+ */
+function k1Channels(layout, groups) {
+  const total = layout.anchors.reduce((s, a) => s + a.w, 0) || 1;
+  return {
+    shares: layout.anchors.map((a) => a.w / total),
+    channelOf: Object.fromEntries(Object.keys(groups).map((key) => [key, layout.channels?.[key] ?? null])),
+  };
+}
+/** Вложения каналов: сумма цен башен канала × 2^(уровень−1); общие башни и башни без группы не в счёте. Возвращает массив монет по каналам. */
+function k1Invested(k1, towers, groupOf) {
+  const sums = k1.shares.map(() => 0);
+  for (const tw of towers) {
+    const ch = k1.channelOf[groupOf(tw)];
+    if (ch === null || ch === undefined || !TABLE[tw.id]) continue;
+    sums[ch] += TABLE[tw.id].price * 2 ** ((tw.level ?? 1) - 1);
+  }
+  return sums;
+}
+/** Каналы, у которых доля вложений ниже доли бактерий больше чем на K1_TOLERANCE, — по убыванию недобора; пока вложений в каналы нет — пусто. */
+function k1Lagging(k1, towers, groupOf) {
+  const sums = k1Invested(k1, towers, groupOf);
+  const all = sums.reduce((s, v) => s + v, 0);
+  if (!all) return [];
+  return k1.shares
+    .map((share, ch) => ({ ch, gap: share - sums[ch] / all }))
+    .filter((x) => x.gap > K1_TOLERANCE)
+    .sort((a, b) => b.gap - a.gap)
+    .map((x) => x.ch);
+}
+/**
  * Новые башни образца на уровнях 2+ (решение владельца 8 ноября 2026, сообщение 1, п. 3): узел башни покупается, как устроен `buyBest` (крупный узел — как только хватает ДНК, иначе мелкие узлы
  * по приросту на ДНК), башня ставится по графу карты (qa/graph-layout.mjs) и строится в очереди после REVIEW_NEW_AFTER. Порядок по цепочке requires: Ампула → Антибиотик → Витамин → Холод → Пластырь;
  * Лампа — только на уровнях со скрытными. Правка 1 — Ампула; правка 2 — Антибиотик (своими лестницами, правило 12). На «Горле» (уровень 1) новых башен нет.
@@ -357,7 +388,29 @@ const REVIEW_EARLY_PILLS = 8;
 const REVIEW_FIRST_PILLS = 4;
 /** П3: бронебой первым на уровнях, где бронированные выходят раньше этой волны (на «Горле» — с 25-й). */
 const REVIEW_ARMORED_EARLY_WAVE = 25;
+/** П3′: за сколько волн до первой волны бронированных Таблетки берут «Бронебойную» (на «Носе» бронированные с 15-й — с 12-й). */
+const REVIEW_PIERCE_LEAD = 3;
 const REVIEW_SYRUP_LEAD = 2;
+/**
+ * К1 — защита каждого канала по доле его бактерий (решение владельца 22 ноября 2026, сообщение 1, п. 2.3: «защита каждого канала – по доле его бактерий (пути «Носа» – 25, 25 и 50 %)…
+ * Правки должны включаться только на картах с несколькими каналами»). Включается только у образца на картах, где по графу больше одной клетки обороны (`anchors` в qa/graph-layout.mjs;
+ * «Нос» — два канала: верхний, путь 1, 25 % бактерий, и нижний, пути 2–3, 75 %); на «Горле» (клетки рецензента, графа нет) и на картах с одной горловиной правка выключена.
+ * Вложения канала — сумма цен его башен × 2^(уровень−1) (группы канала — `channels` из graph-layout, шаг 7: Таблетки, Сиропы, Шипучки и лучи Шприцев, которые бьют в основном его пути, CHANNEL_SIDE_SHARE);
+ * башни, которые бьют несколько каналов (Ампула, луч поперёк каналов), — общие и в доли не входят. Доля бактерий канала — сумма долей путей его обороны.
+ * После первых Таблеток (REVIEW_FIRST, порядок не меняется) перед выбором из очереди: если доля вложений канала ниже его доли бактерий больше чем на K1_TOLERANCE, первой берётся
+ * самая ранняя невыполненная строка очереди с группой этого канала (с теми же целями строк, правилами Шипучки, Сиропа и копления монет); у канала таких строк нет — обычная очередь.
+ * Разбор журналов лестниц 4–6 (docs/balance-history.md, 23 ноября 2026): на «Носе» верхний канал с 7–9-й волны «заморожен» (Таблетка II + Сироп I), его доля вложений 33 % → 18 % → 12 %
+ * к 10/15/20-й волне, Шипучки не строятся. Сверка без правки на том же коммите — запись `fx:nok1` в --mut.
+ */
+const K1_TOLERANCE = 0.05;
+/**
+ * К2 — доля канала добирается уроном (решение владельца 22 ноября 2026, сообщение 1, п. 2.3: вторая правка бота; правила — «защита каждого канала – по доле его бактерий»,
+ * «Сироп на каждом канале до первой волны бегунов»). Лестница К1 (`45181196118`, 23 ноября 2026): К1 добирает верхний канал «Носа» только Сиропами (строка syrupB:4 — первая
+ * строка канала в очереди), урон канала не растёт, 96 % потерянных жизней — через верхний путь. С К2: когда К1 выбирает отстающий канал и на нём уже стоит Сироп, строки Сиропов
+ * этого канала пропускаются — берётся первая строка урона (Шипучка, Таблетки, Шприц) с теми же правилами очереди. Только вместе с К1 (карты с несколькими каналами);
+ * сверка без правки — `fx:nok2`.
+ */
+const K2_DAMAGE_FIRST = true;
 /** Покупки очков ДНК по отчёту (с. 71): узел и уровень, до которого он покупается, в порядке покупок за попытки 1–5. */
 const REVIEW_BUYS = [['towerSyrup', 1], ['towerFizz', 1], ['towerSyringe', 1], ['damage', 1], ['coins', 3], ['syringePower', 1], ['syrupPower', 1]];
 const listArg = (name) => (args[name] === undefined || args[name] === true ? null : String(args[name]).split(',').map((x) => x.trim()).filter(Boolean));
@@ -500,8 +553,10 @@ const NO_ALT = new Set();
  *  scout  — только лестница: перед первой попыткой уровня, где открыты Шприц и Сироп, бот играет разведочные партии до SCOUT_STOP_WAVE-й волны — базовую (обычный выбор клеток)
  *           и по одной на каждого кандидата (линии луча Шприца по пересечениям с дорожкой, места луж Сиропа по охвату); лучшие клетки ставятся первыми башнями во всех попытках уровня
  *           (`scoutLevel`). Разведка не меняет очков ДНК, древа и счёта попыток.
+ *  nok1   — только образец (review): без правки К1 (защита каналов по доле бактерий, K1_TOLERANCE) — сверка на том же коммите.
+ *  nok2   — только образец (review): без правки К2 (доля отстающего канала добирается уроном, если на нём уже есть Сироп) — сверка на том же коммите.
  */
-const FX_KNOWN = ['beam', 'beamlen', 'iv', 'puddle', 'coins', 'v', 'scout'];
+const FX_KNOWN = ['beam', 'beamlen', 'iv', 'puddle', 'coins', 'v', 'scout', 'nok1', 'nok2'];
 const FX = new Set();
 /** Предел уровня слияния у бота (по умолчанию — без предела; `--mut mergelimit:4`). */
 let MERGE_LIMIT = 99;
@@ -1075,9 +1130,12 @@ function makePlayer({ world, rng, buttons, forced = null, mapId = null }) {
   const STEPS1 = channels >= 2 ? REVIEW_STEPS.flatMap((row) => (row[0] === 'syrupA' && row[1] === 1 ? [row, ...['syrupB', 'syrupC'].slice(0, channels - 1).filter((k) => RG[k]).map((k) => [k, 1])] : [row])) : REVIEW_STEPS;
   /** Новые башни (уровни 2+): строка очереди после REVIEW_NEW_AFTER, если группа есть на карте и башня открыта. */
   const STEPS = STEPS1.flatMap((row) => [row, ...REVIEW_NEW_AFTER.filter(([after, [key]]) => after === `${row[0]}:${row[1]}` && RG[key] && reviewNewTowers().includes(RG[key].type)).map(([, add]) => add)]);
+  /** К1 (K1_TOLERANCE): каналы с долей бактерий и канал каждой группы; null — правка выключена (один канал, «Горло», не образец, `fx:nok1`). */
+  const k1 = REVIEW && channels >= 2 && !FX.has('nok1') ? k1Channels(reviewMap.layout, RG) : null;
   if (reviewMap?.layout && !LAYOUT_LOGGED.has(mapId)) {
     LAYOUT_LOGGED.add(mapId);
     console.log(`  образец по графу карты «${mapId}»: ${Object.entries(RG).map(([k, g]) => `${k} ${g.cell.join(',')}${g.aim === undefined ? '' : `→${g.aim}`}`).join('; ')}`);
+    if (k1) console.log(`  К1: доли бактерий каналов ${k1.shares.map((v) => `${Math.round(v * 100)} %`).join(' / ')}; группы: ${Object.entries(k1.channelOf).map(([k, c]) => `${k} ${c === null ? 'общая' : c + 1}`).join(', ')}`);
   }
   const zone = STRATEGY === 'zone'; // «всё у Z»: только Таблетки и один Сироп, клетки — ближайшие к последней развилке у организма
   const available = (id) => TABLE[id] && buttons.includes(id) && !EXCLUDE.has(id) && (!SOLO_ALLOWED || SOLO_ALLOWED.has(id)) && (!zone || ZONE_TOWERS.has(id)) && (!REVIEW || REVIEW_TOWERS.has(id) || reviewNewTowers().includes(id));
@@ -1206,20 +1264,34 @@ function makePlayer({ world, rng, buttons, forced = null, mapId = null }) {
     const runnerWave = view.s.plan?.firstWave?.runner;
     const syrupOpen = runnerWave === undefined || wave >= runnerWave - REVIEW_SYRUP_LEAD;
     const firstLeft = REVIEW_FIRST.filter(([key, target]) => RG[key] && available(RG[key].type) && !reviewGaveUp.has(key) && reviewUnits(view, key) < target);
-    for (const [key, target] of firstLeft.length ? firstLeft : FX.has('v') ? [...STEPS, ...REVIEW_V_STEPS] : STEPS) {
-      const g = RG[key];
-      if (!g || !available(g.type) || reviewGaveUp.has(key) || reviewUnits(view, key) >= target) continue;
-      if (early && g.type === 'fizz') continue;
-      if (g.type === 'syrup' && (!syrupOpen || syrups + 1 > fighting)) continue;
-      const cell = reviewCell(view, key);
-      if (!cell) {
-        reviewGaveUp.add(key);
-        continue;
+    const queue = firstLeft.length ? firstLeft : FX.has('v') ? [...STEPS, ...REVIEW_V_STEPS] : STEPS;
+    /** Первая выполнимая строка из rows: { type, cell, … } — постройка, null — копит монеты на неё, undefined — выполнимых строк нет. */
+    const firstRow = (rows) => {
+      for (const [key, target] of rows) {
+        const g = RG[key];
+        if (!g || !available(g.type) || reviewGaveUp.has(key) || reviewUnits(view, key) >= target) continue;
+        if (early && g.type === 'fizz') continue;
+        if (g.type === 'syrup' && (!syrupOpen || syrups + 1 > fighting)) continue;
+        const cell = reviewCell(view, key);
+        if (!cell) {
+          reviewGaveUp.add(key);
+          continue;
+        }
+        if (view.coins < TABLE[g.type].price) return null; // копит монеты на голову очереди
+        return { type: g.type, cell, cycleIdx: -1, group: key, aimDir: g.aim ?? null };
       }
-      if (view.coins < TABLE[g.type].price) return null; // копит монеты на голову очереди
-      return { type: g.type, cell, cycleIdx: -1, group: key, aimDir: g.aim ?? null };
+      return undefined;
+    };
+    // К1: канал, отстающий по вложениям от своей доли бактерий, — первым (после первых Таблеток)
+    if (k1 && !firstLeft.length) {
+      for (const ch of k1Lagging(k1, view.towers, groupOf)) {
+        // К2: на канале уже есть Сироп — его строки Сиропов пропускаются, доля добирается уроном
+        const k2 = K2_DAMAGE_FIRST && !FX.has('nok2') && view.towers.some((tw) => tw.id === 'syrup' && k1.channelOf[groupOf(tw)] === ch);
+        const pick = firstRow(queue.filter(([key]) => k1.channelOf[key] === ch && !(k2 && RG[key]?.type === 'syrup')));
+        if (pick !== undefined) return pick && { ...pick, k1: true, ...(k2 ? { k2: true } : {}) };
+      }
     }
-    return null;
+    return firstRow(queue) ?? null;
   };
   /** Мутация башни (tw.pending — номер порога) по образцу: id варианта первого порога — с наибольшим недобором в группе, второго — у группы фиксированный. */
   const reviewPickId = (view, tw) => {
@@ -1232,9 +1304,12 @@ function makePlayer({ world, rng, buttons, forced = null, mapId = null }) {
     for (const other of view.towers) if (groupOf(other) === key) for (const id of other.picks ?? []) have[id] = (have[id] ?? 0) + 1;
     // П3 (решение владельца 20 ноября 2026, сообщение 1, п. 4.1): на уровнях, где бронированные выходят раньше 25-й волны (план уровня, `plan.firstWave.armored`), бронебойный удар —
     // первым (бронированного ранит только он, `armoredPierce`): у Ампулы первая мутация «Бронебой», у Таблеток группы «Бронебойная» — первой, затем «Скорострел». На «Горле» (бронированные с 25-й) — без изменений.
-    if (((view.s ?? view).plan?.firstWave?.armored ?? Infinity) < REVIEW_ARMORED_EARLY_WAVE) {
+    const armoredWave = (view.s ?? view).plan?.firstWave?.armored ?? Infinity;
+    if (armoredWave < REVIEW_ARMORED_EARLY_WAVE) {
       if (tw.id === 'ampule') return 'ampulePierce';
-      if (tw.id === 'pill' && g.t0.pillPierce && (have.pillPierce ?? 0) < g.t0.pillPierce) return 'pillPierce';
+      // П3′ (решение владельца 22 ноября 2026, сообщение 1, п. 2.1): Таблетки начинают со «Скорострела», «Бронебойную» берут с волны за REVIEW_PIERCE_LEAD до первой волны бронированных
+      const wave = (view.s ?? view).wave ?? 0;
+      if (tw.id === 'pill' && g.t0.pillPierce && (have.pillPierce ?? 0) < g.t0.pillPierce && wave >= armoredWave - REVIEW_PIERCE_LEAD) return 'pillPierce';
     }
     return Object.entries(g.t0).sort((a, b) => b[1] - (have[b[0]] ?? 0) - (a[1] - (have[a[0]] ?? 0)))[0]?.[0] ?? null;
   };
@@ -1728,6 +1803,10 @@ async function playGame(browser, baseUrl, run, metaLevels = null, salt = '', lev
     }, 0);
     const lifeLossWaves = [];
     const lifeLossKinds = []; // вид бактерии, ближайшей к организму в последнем опросе до потери жизни (кто пробивает оборону)
+    const lifeLossEdges = []; // её путь: «первое ребро>последнее ребро» (решение владельца 22 ноября 2026, сообщение 1, п. 2.2; игра не меняется)
+    const edgeHist = new Map(); // номер бактерии → [первое ребро, последнее ребро]
+    let frontEdges = null;
+    const snapByWave = {}; // срезы к 10, 15, 20-й волне: башни (вид, уровень, клетка), монеты, слияния, промахи слияний
     let frontKind = null;
     let lastLives = s.lives;
     let minLives = s.lives;
@@ -1789,6 +1868,7 @@ async function playGame(browser, baseUrl, run, metaLevels = null, salt = '', lev
         ws = { hp: 0, startT: s.elapsed, clearT: null, maxOnMap: 0, buildsAt: record.builds.length };
         waveSeen.wave = s.wave;
         if ([10, 20, 30, 40, 50].includes(s.wave)) xpByWave[s.wave] = xpSnapshot(s);
+        if ([10, 15, 20].includes(s.wave)) snapByWave[s.wave] = { coins: s.coins, merges: record.merges, mergeMisses: record.mergeMisses, towers: s.towers.map((tw) => [tw.id, tw.level, tw.col, tw.row]) };
         timeline.push({ wave: s.wave, t: Math.round(s.elapsed), coins: s.coins, towers: s.towers.length, lives: s.lives, dps: Math.round(paperDps(s) * 10) / 10, merges: record.merges, picks: record.picks });
       }
       for (const b of s.bacteria) {
@@ -1803,10 +1883,21 @@ async function playGame(browser, baseUrl, run, metaLevels = null, salt = '', lev
         for (let k = 0; k < lastLives - s.lives; k++) {
           lifeLossWaves.push(s.wave);
           lifeLossKinds.push(frontKind ?? '?');
+          lifeLossEdges.push(frontEdges ?? '?');
         }
         lastLives = s.lives;
       }
-      if (s.bacteria.length) frontKind = s.bacteria.reduce((a, b) => (b.remaining < a.remaining ? b : a)).kind;
+      for (const b of s.bacteria) {
+        const h = edgeHist.get(b.id);
+        if (h) h[1] = b.edge;
+        else edgeHist.set(b.id, [b.edge, b.edge]);
+      }
+      if (s.bacteria.length) {
+        const front = s.bacteria.reduce((a, b) => (b.remaining < a.remaining ? b : a));
+        frontKind = front.kind;
+        const h = edgeHist.get(front.id);
+        frontEdges = h ? `${h[0]}>${h[1]}` : null;
+      }
       minLives = Math.min(minLives, s.lives);
       maxOnMap = Math.max(maxOnMap, s.bacteria.length);
 
@@ -1854,7 +1945,7 @@ async function playGame(browser, baseUrl, run, metaLevels = null, salt = '', lev
             player.bought(choice);
             // первая башня вида: клетка и направление луча (fx:scout — базовая партия разведки и проверка, что клетка разведки занята как задумано)
             if (!record.first[choice.type]) record.first[choice.type] = { col: choice.cell.col, row: choice.cell.row, aim: res.aim, wave: s.wave };
-            record.builds.push({ t: Math.round(s.elapsed), type: choice.type, col: choice.cell.col, row: choice.cell.row });
+            record.builds.push({ t: Math.round(s.elapsed), type: choice.type, col: choice.cell.col, row: choice.cell.row, ...(choice.k1 ? { k1: true } : {}), ...(choice.k2 ? { k2: true } : {}) }); // k1 — постройку выбрала правка К1; k2 — с пропуском Сиропов (К2)
             if (VERBOSE) console.log(`      + ${profileTitle()} #${run}: ${(NAMES[choice.type] ?? choice.type).padEnd(8)} клетка ${choice.cell.col},${choice.cell.row}  (игровое время ${s.elapsed.toFixed(0)} с, волна ${s.wave}, монет было ${s.coins})`);
             break; // не больше одной покупки за решение
           }
@@ -1908,6 +1999,8 @@ async function playGame(browser, baseUrl, run, metaLevels = null, salt = '', lev
       minLives,
       lifeLossWaves,
       lifeLossKinds,
+      lifeLossEdges,
+      snapByWave,
       levelGrowth,
       leakLives,
       stealthLives: leakLives.stealth ?? 0,

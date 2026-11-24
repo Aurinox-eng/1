@@ -104,6 +104,19 @@ try {
         }
       }
       lines.push(`  Таблетка, 5 лучших клеток по сумме: ${lists.pill.slice(0, 5).map((x) => `${x.cell.join(',')} — ${fmt(x.tot)} (${x.routes.map(fmt).join(' / ')})`).join('; ')}`);
+      if (setName === RULE_SET && routes.length > 1) {
+        // общие клетки путей (решение владельца 23 ноября 2026, сообщение 1, п. 4.1): пара путей делит клетку, если одна Таблетка в ней накрывает оба пути (у каждого > 0 px);
+        // лучшая общая клетка пары — с наибольшим меньшим из двух отрезков; путь без общих клеток ни с одним другим — отдельный канал
+        const shares = routes.map(() => []);
+        for (let i = 0; i < routes.length; i++) for (let j = i + 1; j < routes.length; j++) {
+          const best = lists.pill.reduce((b, x) => (Math.min(x.routes[i], x.routes[j]) > Math.min(b.routes[i], b.routes[j]) ? x : b), lists.pill[0]);
+          const m = Math.min(best.routes[i], best.routes[j]);
+          if (m > 0) { shares[i].push(j + 1); shares[j].push(i + 1); }
+          lines.push(`  Общая клетка путей ${i + 1} и ${j + 1}: ${m > 0 ? `${best.cell.join(',')} — ${fmt(best.routes[i])} и ${fmt(best.routes[j])} px` : 'нет'}`);
+        }
+        const alone = routes.map((rt, i) => ({ i, rt })).filter(({ i }) => !shares[i].length);
+        lines.push(`  Пути без общих клеток с другими путями: ${alone.length ? alone.map(({ i, rt }) => `путь ${i + 1} (${Math.round(rt.w * 100)} % бактерий)`).join(', ') : 'нет'}`);
+      }
     }
     if (level >= 2 && !ruleOk) failed = true;
     const txt = lines.join('\n') + '\n';
