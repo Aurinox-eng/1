@@ -1,0 +1,4 @@
+commit: f079671d212ea7fc5aca17553e0fee1eba694901
+branch: claude/pvb-levels8-xp
+built:  2026-10-25 14:20:56 UTC
+run:    25
