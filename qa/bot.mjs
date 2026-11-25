@@ -580,8 +580,9 @@ const NO_ALT = new Set();
  *           (`scoutLevel`). Разведка не меняет очков ДНК, древа и счёта попыток.
  *  nok1   — только образец (review): без правки К1 (защита каналов по доле бактерий, K1_TOLERANCE) — сверка на том же коммите.
  *  nok2   — только образец (review): без правки К2 (доля отстающего канала добирается уроном, если на нём уже есть Сироп) — сверка на том же коммите.
+ *  b1late — только образец (review), проба к правке Б1: копить на очередную новую башню, только когда в открытых кольцах не осталось узлов, которые образец покупает.
  */
-const FX_KNOWN = ['beam', 'beamlen', 'iv', 'puddle', 'coins', 'v', 'scout', 'nok1', 'nok2'];
+const FX_KNOWN = ['beam', 'beamlen', 'iv', 'puddle', 'coins', 'v', 'scout', 'nok1', 'nok2', 'b1late'];
 const FX = new Set();
 /** Предел уровня слияния у бота (по умолчанию — без предела; `--mut mergelimit:4`). */
 let MERGE_LIMIT = 99;
@@ -770,6 +771,13 @@ function buyPrefix(levels, dna, list) {
 function buyReview(levels, dna, towers, saveFor = null) {
   const head = buyPrefix(levels, dna, REVIEW_BUYS);
   if (!head.done) return { levels: head.levels, dna: head.dna, bought: head.bought };
+  // fx:b1late — проба к правке Б1 (сводка владельцу 25 ноября 2026): копить на очередную новую башню, только когда в открытых кольцах не осталось узлов, которые образец берёт
+  // (ветки своих башен, общие узлы); пока они есть — покупаются узлы, рост между попытками не прерывается
+  if (FX.has('b1late') && saveFor?.length) {
+    const owned = [...REVIEW_TOWERS, ...reviewNewTowers().filter((id) => head.levels[towerNodeId(id)] > 0)];
+    const probe = buyBest({ upgrades: META.upgrades, levels: head.levels, dna: 1e12, towers: owned, saveFor: null, shares: fieldShares(towers), openRing: openRingNow() });
+    if (probe.bought.some((id) => !id.startsWith('tower'))) saveFor = null;
+  }
   const rest = buyBest({ upgrades: META.upgrades, levels: head.levels, dna: head.dna, towers: [...REVIEW_TOWERS, ...reviewNewTowers()], saveFor: saveFor?.length ? saveFor : null, shares: fieldShares(towers), openRing: openRingNow() });
   return { levels: rest.levels, dna: rest.dna, bought: [...head.bought, ...rest.bought] };
 }
