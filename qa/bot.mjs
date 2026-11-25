@@ -79,6 +79,7 @@ import {
   readMutationIds,
   readTowerTable,
   readMetaTable,
+  readLevelKinds,
   towerNodeId,
   ROOT,
   sleep,
@@ -353,18 +354,42 @@ function k1Lagging(k1, towers, groupOf) {
     .map((x) => x.ch);
 }
 /**
- * Новые башни образца на уровнях 2+ (решение владельца 8 ноября 2026, сообщение 1, п. 3): узел башни покупается, как устроен `buyBest` (крупный узел — как только хватает ДНК, иначе мелкие узлы
- * по приросту на ДНК), башня ставится по графу карты (qa/graph-layout.mjs) и строится в очереди после REVIEW_NEW_AFTER. Порядок по цепочке requires: Ампула → Антибиотик → Витамин → Холод → Пластырь;
- * Лампа — только на уровнях со скрытными. Правка 1 — Ампула; правка 2 — Антибиотик (своими лестницами, правило 12). На «Горле» (уровень 1) новых башен нет.
+ * Новые башни образца на уровнях 2+ (решение владельца 8 ноября 2026, сообщение 1, п. 3; правка Б1 — решение 25 ноября 2026, сообщение 1, п. 4): башни покупаются по порядку
+ * REVIEW_NEW_ORDER — очередная, если хватает ДНК, иначе бот копит на неё (`saveFor` в buyBest), узлы веток — после всех башен (как Ампула, `8bbf1c5`); башня ставится по графу карты
+ * (qa/graph-layout.mjs, шаг 6) и строится в очереди после REVIEW_NEW_AFTER. Порядок — по цепочке requires: Ампула → Антибиотик → Витамин → Холод → Пластырь; Лампа — только на уровнях
+ * со скрытными (виды уровня — `readLevelKinds`), сразу после Антибиотика (у неё requires — Шприц): скрытные на «Рте» выходят с 8-й и 4-й волны. На «Горле» (уровень 1) новых башен нет.
  */
-const REVIEW_NEW_ORDER = ['ampule'];
+const REVIEW_NEW_ORDER = ['ampule', 'antibiotic', 'lamp', 'vitamin', 'frost', 'patch'];
+const LEVEL_KINDS = readLevelKinds();
+const levelHas = (level, kind) => LEVEL_KINDS[level - 1]?.has(kind) ?? false;
+const newGroup = (type) => ({ type, t0: { [DEFAULT_MUT[type][0]]: 1 }, t1: DEFAULT_MUT[type][1] });
 const REVIEW_NEW_GROUPS = {
-  ampuleA: { type: 'ampule', t0: { [DEFAULT_MUT.ampule[0]]: 1 }, t1: DEFAULT_MUT.ampule[1] },
+  ampuleA: newGroup('ampule'),
+  antibioticA: newGroup('antibiotic'),
+  antibioticB: newGroup('antibiotic'),
+  lampA: newGroup('lamp'),
+  vitaminA: newGroup('vitamin'),
+  frostA: newGroup('frost'),
+  patchA: newGroup('patch'),
 };
-/** Где в очереди строятся группы новых башен: [после строки очереди «группа:сколько»] → строка новой башни. */
-const REVIEW_NEW_AFTER = [['syringeA:4', ['ampuleA', 1]], ['fizzA:4', ['ampuleA', 2]]];
-/** Новые башни, которые образец покупает и строит на уровне, который играется (со 2-го). */
-const reviewNewTowers = () => (PLAY_LEVEL >= 2 ? REVIEW_NEW_ORDER.filter((id) => !EXCLUDE.has(id)) : []);
+/**
+ * Где в очереди строятся группы новых башен: [после строки очереди «группа:сколько»] → строка новой башни. Лампа — как только Шприц главной обороны дошёл до III (скрытных видят все башни
+ * в её свете); Антибиотик — у каждого канала после второго Сиропа (A) и четвёртого (B); Витамин — когда Таблетки главной обороны дошли до IV; Холод и Пластырь — после второго Шприца и
+ * второго канала луж. Вторая башня группы — позже, к слиянию во II.
+ */
+const REVIEW_NEW_AFTER = [
+  ['syringeA:4', ['lampA', 1]], ['syringeA:4', ['ampuleA', 1]], ['fizzA:4', ['ampuleA', 2]],
+  ['syrupA:2', ['antibioticA', 1]], ['fizzA:8', ['antibioticA', 2]], ['syrupB:4', ['antibioticB', 1]], ['fizzB:8', ['antibioticB', 2]],
+  ['pillA:8', ['vitaminA', 1]], ['syringeB:8', ['frostA', 1]], ['syrupB:8', ['patchA', 1]],
+  ['pillB:8', ['vitaminA', 2]], ['fizzC:8', ['frostA', 2]], ['syrupC:8', ['patchA', 2]], ['fizzD:2', ['lampA', 2]],
+];
+/** Новые башни, которые образец покупает и строит на уровне, который играется (со 2-го); Лампа — только на уровнях со скрытными. */
+const reviewNewTowers = () => (PLAY_LEVEL >= 2 ? REVIEW_NEW_ORDER.filter((id) => !EXCLUDE.has(id) && (id !== 'lamp' || levelHas(PLAY_LEVEL, 'stealth'))) : []);
+/** Новые башни, на которые образец копит (по порядку, пока узел не куплен); null — все куплены (правка Б1). */
+const reviewSaveFor = (levels) => {
+  const left = REVIEW ? reviewNewTowers().filter((id) => !(levels[towerNodeId(id)] > 0)) : [];
+  return left.length ? left : null;
+};
 /** Очередь постройки: [группа, сколько обычных башен должно в ней стоять]; берётся первая строка, где башен меньше, башня доступна и (для Сиропа) выполнено правило соотношения. */
 const REVIEW_STEPS = [
   ['syrupA', 1], ['syringeA', 4], ['syrupA', 2], ['syringeA', 8], ['syrupA', 8],
@@ -643,6 +668,9 @@ for (const [cfgPath, value] of CFG_ITEMS) {
   if (m && META.upgrades[m[1]] && Number(m[2]) < META.upgrades[m[1]].prices.length) META.upgrades[m[1]].prices[Number(m[2])] = value;
   m = /^meta\.upgrades\.(\w+)\.perLevel$/.exec(cfgPath);
   if (m && META.upgrades[m[1]]) META.upgrades[m[1]].perLevel = value;
+  // график колец (решение владельца 25 ноября 2026, сообщение 1, п. 5.2: в лестницах — подменой через --cfg): победа, открывающая кольцо k + 1
+  m = /^meta\.network\.ringOpenAfter\.(\d+)$/.exec(cfgPath);
+  if (m && Number(m[1]) < META.network.ringOpenAfter.length) META.network.ringOpenAfter[Number(m[1])] = value;
 }
 
 /** Числа башен для решений бота (цена и радиус) на начало партии: строка таблицы с учётом купленных улучшений ветки башни. */
@@ -2383,14 +2411,13 @@ async function ladderLane(profile, run) {
         console.log(`[${tag}, уровень ${prev}] повтор ${r}/${REPLAYS.value} перед уровнем ${level}: ${RESULT_RU[rg.result]} · волна ${rg.wave}/${rg.waveTotal} · очков ДНК +${gainedRep} (на счёте ${lane.dna}) · реал. ${rg.realSec} с`);
         saveResults();
       }
-      // после всех повторов: новая башня — если хватает ДНК, иначе копить на неё (lane.saveFor держится и после попыток, пока узел не куплен), узлы — после её покупки
-      const nextNew = REVIEW ? reviewNewTowers().find((id) => !(lane.levels[towerNodeId(id)] > 0)) : null;
-      lane.saveFor = nextNew ? [nextNew] : null;
+      // после всех повторов: новые башни по порядку — очередная, если хватает ДНК, иначе копить на неё (lane.saveFor держится и после попыток, пока все не куплены), узлы — после (правка Б1)
+      lane.saveFor = reviewSaveFor(lane.levels);
       rec.dnaAfterReplays = lane.dna;
       const buyAll = buyUpgrades(lane.levels, lane.dna, lane.best[prev - 1] ?? 0, lastRepTowers, lane.saveFor);
       lane.levels = buyAll.levels;
       lane.dna = buyAll.dna;
-      if (lane.saveFor && lane.saveFor.every((id) => lane.levels[towerNodeId(id)] > 0)) lane.saveFor = null;
+      if (lane.saveFor) lane.saveFor = reviewSaveFor(lane.levels);
       rec.replaysBought = buyAll.bought;
       console.log(`[${tag}, уровень ${prev}] после ${rec.replays.length} повторов: на счёте ${rec.dnaAfterReplays} ДНК · куплено ${buyAll.bought.length ? buyAll.bought.join(', ') : '—'} (остаток ${lane.dna})${lane.saveFor ? ` · копит на ${lane.saveFor.join(', ')}` : ''}`);
       saveResults();
@@ -2451,7 +2478,7 @@ async function ladderLane(profile, run) {
       const buy = buyUpgrades(lane.levels, lane.dna, lane.best[level - 1] ?? 0, game.towers, lane.saveFor ?? null);
       lane.levels = buy.levels;
       lane.dna = buy.dna;
-      if (lane.saveFor && lane.saveFor.every((id) => lane.levels[towerNodeId(id)] > 0)) lane.saveFor = null;
+      if (lane.saveFor) lane.saveFor = reviewSaveFor(lane.levels);
       rec.waves.push(game.result === 'won' ? game.waveTotal : game.wave);
       rec.results.push(game.result);
       rec.bought.push(buy.bought);

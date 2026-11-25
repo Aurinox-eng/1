@@ -181,6 +181,35 @@ export function readWaveList() {
   });
 }
 
+/**
+ * Виды бактерий каждого уровня из src/config.ts (`levels.specs`): массив по уровням (0 — уровень 1) множеств видов, которые встречаются в составах волн (`mix`, `intro`, стены `wall`).
+ * Нужен боту, чтобы до первой попытки уровня знать, есть ли на нём, например, скрытные (Лампа — только на таких уровнях; решение владельца 25 ноября 2026, сообщение 1, п. 4.1).
+ */
+export function readLevelKinds() {
+  const lines = readSource('src/config.ts').split('\n');
+  const from = lines.findIndex((l) => /^\s{4}specs:\s*\[/.test(l));
+  if (from < 0) throw new Error('В config.ts нет levels.specs');
+  const out = [];
+  let chunk = null;
+  const kindsOf = (text) => {
+    const set = new Set();
+    for (const m of text.matchAll(/(?:mix|intro):\s*\{([^}]*)\}/g)) for (const [, key, value] of m[1].matchAll(/(\w+):\s*(-?[\d.]+)/g)) if (Number(value) > 0) set.add(key);
+    for (const m of text.matchAll(/wall:\s*\['(\w+)',\s*(\d+)\]/g)) if (Number(m[2]) > 0) set.add(m[1]);
+    return set;
+  };
+  for (let i = from + 1; i < lines.length; i++) {
+    const l = lines[i];
+    if (/^\s{4}\],/.test(l)) break;
+    if (chunk === null && /^\s{6}\{.*\},\s*(\/\/.*)?$/.test(l)) out.push(kindsOf(l));
+    else if (chunk === null && /^\s{6}\{\s*$/.test(l)) chunk = [];
+    else if (chunk !== null && /^\s{6}\},/.test(l)) {
+      out.push(kindsOf(chunk.join('\n')));
+      chunk = null;
+    } else if (chunk !== null) chunk.push(l);
+  }
+  return out;
+}
+
 /** Id узла башни в древе улучшений (`meta.upgrades`): `tower` + id башни с заглавной буквы (`fizz` → `towerFizz`); у Таблетки узла нет — она открыта с начала (как `towerNodeId` в src/meta.ts). */
 export const towerNodeId = (tower) => `tower${tower.charAt(0).toUpperCase()}${tower.slice(1)}`;
 

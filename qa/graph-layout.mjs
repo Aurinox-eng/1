@@ -286,6 +286,67 @@ export function graphLayout({ graph, map, cols, rows, ranges, beam, toothRadius 
     const rts = routes.filter((rt) => covRoute(near(best.c, R), rt) > 0).map((rt) => rt.idx);
     put(key, best.c, `${type === 'ampule' ? 'Ампула' : type}: наибольший охват путей в радиусе ${Math.round(R)} px (${routeName(rts)}), ближе к главной обороне`);
   }
+  // 6б. Правка Б1 (решение владельца 25 ноября 2026, сообщение 1, п. 4.2): Антибиотик, Лампа, Витамин, Холод, Пластырь. Отрезки каждого пути — по порядку от входа к организму;
+  //     зона Таблеток обороны — отрезки её путей в радиусе Таблеток; «выше по пути» — до первого отрезка зоны, «ниже» — после него.
+  const order = routes.map((rt) => rt.edges.flatMap((id) => segsOfEdge.get(id)));
+  const zoneOf = (anchor) => {
+    const inPill = new Set(near(anchor.cell, Rp));
+    const up = new Set();
+    const zone = new Map(); // отрезок зоны → место в зоне по пути (0 — вход в зону, 1 — выход к организму)
+    for (const i of anchor.routes) {
+      const list = order[i];
+      const idx = list.map((si, k) => (inPill.has(si) ? k : -1)).filter((k) => k >= 0);
+      if (!idx.length) continue;
+      const first = idx[0];
+      const last = idx[idx.length - 1];
+      for (let k = 0; k < first; k++) up.add(list[k]);
+      for (const k of idx) zone.set(list[k], Math.max(zone.get(list[k]) ?? 0, last > first ? (k - first) / (last - first) : 1));
+    }
+    return { up, zone };
+  };
+  const pickCell = (anchor, value, maxDist = Infinity) => {
+    let best = null;
+    for (const c of cells) {
+      if (used.has(keyOf(c)) || dist(c, anchor.cell) > maxDist) continue;
+      const v = value(c);
+      const d = dist(c, anchor.cell);
+      if (v > 0 && (!best || v > best.v + 1e-6 || (Math.abs(v - best.v) <= 1e-6 && d < best.d))) best = { c, v, d };
+    }
+    return best;
+  };
+  // Антибиотик (яд 6 с, броню не учитывает) — на каждом канале выше Таблеток по пути: наибольшая длина путей канала в его радиусе выше зоны Таблеток (яд действует, пока бактерия идёт
+  // к Таблеткам), не дальше 2,5 радиуса Таблетки от обороны; при равенстве — ближе к Таблеткам (claude/antibiotic-edit2, `70e6a66`, — для одной обороны).
+  if (ranges.antibiotic) {
+    anchors.slice(0, 2).forEach((anchor, i) => {
+      const { up } = zoneOf(anchor);
+      const best = pickCell(anchor, (c) => near(c, ranges.antibiotic).reduce((s, si) => s + (up.has(si) ? segs[si].len * segs[si].w : 0), 0), 2.5 * Rp);
+      if (best) put(i ? 'antibioticB' : 'antibioticA', best.c, `Антибиотик: выше Таблеток по пути (${routeName(anchor.routes)}) — яд до их зоны`);
+    });
+  }
+  const zone1 = zoneOf(a1);
+  const inZone = (R, weight) => (c) => near(c, R).reduce((s, si) => s + (zone1.zone.has(si) ? segs[si].len * segs[si].w * weight(zone1.zone.get(si)) : 0), 0);
+  // Лампа (подсветка скрытных; подсвеченных видят все башни) — над зоной Таблеток главной обороны: наибольшая длина путей зоны в её радиусе
+  if (ranges.lamp) {
+    const best = pickCell(a1, inZone(ranges.lamp, () => 1));
+    if (best) put('lampA', best.c, `Лампа: свет над зоной Таблеток (${routeName(a1.routes)})`);
+  }
+  // Витамин (аура: башни в радиусе стреляют чаще; сам не бьёт) — клетка, у которой в радиусе больше всего стреляющих групп главной обороны (Таблетки — за две), при равенстве — ближе к Таблеткам
+  if (ranges.vitamin) {
+    const shooters = Object.entries(groups).filter(([key]) => !/^syrup/.test(key) && !/^vitamin/.test(key)).map(([key, g]) => ({ w: key === 'pillA' ? 2 : 1, p: center(g.cell[0], g.cell[1]) }));
+    const best = pickCell(a1, (c) => shooters.reduce((s, g) => s + (dist(c, g.p) <= ranges.vitamin ? g.w : 0), 0));
+    if (best) put('vitaminA', best.c, `Витамин: в радиусе ${Math.round(ranges.vitamin)} px — ${best.v} (Таблетки за две) стреляющих групп главной обороны`);
+  }
+  // Холод (замораживает всех в радиусе на 1,5 с; слизни не мёрзнут) — бактерии стоят там, где по ним бьют: наибольшая длина путей зоны Таблеток главной обороны в его радиусе
+  if (ranges.frost) {
+    const best = pickCell(a1, inZone(ranges.frost, () => 1));
+    if (best) put('frostA', best.c, `Холод: заморозка в зоне Таблеток (${routeName(a1.routes)})`);
+  }
+  // Пластырь (приклеивает ближайшую к организму бактерию в радиусе на 3 с) — у выхода зоны Таблеток: длина путей зоны в его радиусе с весом от 0,5 у входа в зону до 1,5 у выхода,
+  // чтобы приклеенная бактерия оставалась под Таблетками, а не дальше по пути
+  if (ranges.patch) {
+    const best = pickCell(a1, inZone(ranges.patch, (pos) => 0.5 + pos));
+    if (best) put('patchA', best.c, `Пластырь: у выхода зоны Таблеток (${routeName(a1.routes)})`);
+  }
   // 7. Каналы групп (правка бота К1): длина путей каждого канала в охвате группы
   const anchorSegs = anchors.map((a) => new Set(a.routes.flatMap((i) => [...routes[i].segs])));
   const channels = {};
